@@ -31,7 +31,7 @@ Scope {
     Loader {
         active: core.settings.enableBar
         sourceComponent: Component {
-            Bar {
+            StatusBar {
                 settings: core.settings
                 settingsWindow: core.settingsWindow
                 themeManager: core.themeManager
