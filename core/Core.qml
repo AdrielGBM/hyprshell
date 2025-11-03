@@ -19,7 +19,33 @@ Scope {
         function onThemeChanged(newTheme, oldTheme) {
             if (core.settings.currentTheme !== newTheme) {
                 core.settings.currentTheme = newTheme;
+                core.settings.saveSettings();
             }
+        }
+    }
+
+    Connections {
+        target: core.settings
+        function onRadiusChanged() {
+            core.settings.saveSettings();
+        }
+        function onSpacingChanged() {
+            core.settings.saveSettings();
+        }
+        function onEnableBarChanged() {
+            core.settings.saveSettings();
+        }
+        function onEnableClockChanged() {
+            core.settings.saveSettings();
+        }
+        function onSmallFontSizeChanged() {
+            core.settings.saveSettings();
+        }
+        function onMediumFontSizeChanged() {
+            core.settings.saveSettings();
+        }
+        function onLargeFontSizeChanged() {
+            core.settings.saveSettings();
         }
     }
 
