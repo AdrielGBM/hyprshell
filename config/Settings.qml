@@ -19,6 +19,8 @@ QtObject {
     property int mediumFontSize: 14
     property int largeFontSize: 16
 
+    property string wallpaperPath: ""
+
     // === FILE VIEW ===
     readonly property string settingsPath: `${Quickshell.env("HOME")}/.config/quickshell/settings.json`
 
@@ -74,7 +76,8 @@ QtObject {
             radius: radius,
             smallFontSize: smallFontSize,
             mediumFontSize: mediumFontSize,
-            largeFontSize: largeFontSize
+            largeFontSize: largeFontSize,
+            wallpaperPath: wallpaperPath
         };
 
         const json = JSON.stringify(settingsObj, null, 2);
@@ -106,6 +109,8 @@ QtObject {
             mediumFontSize = obj.mediumFontSize;
         if (obj.largeFontSize !== undefined)
             largeFontSize = obj.largeFontSize;
+        if (obj.wallpaperPath !== undefined)
+            wallpaperPath = obj.wallpaperPath;
     }
 
     function resetSettings() {
@@ -117,6 +122,7 @@ QtObject {
         smallFontSize = 12;
         mediumFontSize = 14;
         largeFontSize = 16;
+        wallpaperPath = "";
         saveSettings();
     }
 

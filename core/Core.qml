@@ -5,6 +5,7 @@ import Quickshell
 
 import "../modules/status-bar"
 import "../modules/settings"
+import "../modules/wallpaper"
 import "../config"
 import "../themes"
 
@@ -13,6 +14,11 @@ Scope {
 
     property Settings settings: Settings {}
     property ThemeManager themeManager: ThemeManager {}
+
+    Wallpaper {
+        settings: core.settings
+        themeManager: core.themeManager
+    }
 
     Connections {
         target: core.themeManager
@@ -45,6 +51,9 @@ Scope {
             core.settings.saveSettings();
         }
         function onLargeFontSizeChanged() {
+            core.settings.saveSettings();
+        }
+        function onWallpaperPathChanged() {
             core.settings.saveSettings();
         }
     }
