@@ -12,12 +12,15 @@ import "../themes"
 Scope {
     id: core
 
+    property DependencyManager dependencyManager: DependencyManager {}
+
     property Settings settings: Settings {}
     property ThemeManager themeManager: ThemeManager {}
 
     Wallpaper {
         settings: core.settings
         themeManager: core.themeManager
+        dependencyManager: core.dependencyManager
     }
 
     Connections {
