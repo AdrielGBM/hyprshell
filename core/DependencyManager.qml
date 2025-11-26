@@ -12,8 +12,16 @@ QtObject {
     signal dependencyStatusChanged(string name, bool available)
 
     function registerDependency(name, type, config) {
+        const moduleName = config.module || "Desconocido";
+
         if (dependencies[name]) {
-            console.warn("DependencyManager: Dependencia", name, "ya registrada");
+            const dep = dependencies[name];
+            if (!dep.usedBy.includes(moduleName)) {
+                dep.usedBy.push(moduleName);
+                dependencies[name] = dep;
+                dependencies = dependencies;
+                console.log("DependencyManager: Módulo", moduleName, "agregado a dependencia", name);
+            }
             return;
         }
 
@@ -25,13 +33,14 @@ QtObject {
             config: config || {},
             process: null,
             checkTimer: null,
-            retryCount: 0
+            retryCount: 0,
+            usedBy: [moduleName]
         };
 
         dependencies[name] = depInfo;
         dependencies = dependencies;
 
-        console.log("DependencyManager: Registrada dependencia", name, "tipo", type);
+        console.log("DependencyManager: Registrada dependencia", name, "tipo", type, "por", moduleName);
 
         startDependencyCheck(name);
     }
@@ -274,9 +283,14 @@ QtObject {
                 name: dep.name,
                 type: dep.type,
                 available: dep.available,
-                retryCount: dep.retryCount
+                retryCount: dep.retryCount,
+                usedBy: dep.usedBy || []
             };
         });
+    }
+
+    function getInstallCommand(name) {
+        return `sudo pacman -S ${name}`;
     }
 
     Component.onDestruction: {

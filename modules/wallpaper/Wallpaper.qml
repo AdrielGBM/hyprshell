@@ -38,10 +38,22 @@ Scope {
 
     Component.onCompleted: {
         if (dependencyManager) {
+            dependencyManager.registerDependency("hyprpaper", "command", {
+                checkCommand: ["which", "hyprpaper"],
+                retryInterval: 5000,
+                maxRetries: 3,
+                module: "Wallpaper",
+                onReady: () => {
+                    console.log("Wallpaper: hyprpaper está disponible");
+                }
+            });
+
+            // Registrar hyprctl como dependencia
             dependencyManager.registerDependency("hyprctl", "command", {
                 checkCommand: ["which", "hyprctl"],
                 retryInterval: 5000,
                 maxRetries: 3,
+                module: "Wallpaper",
                 onReady: () => {
                     console.log("Wallpaper: hyprctl está disponible");
                 }

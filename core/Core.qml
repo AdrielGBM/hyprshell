@@ -64,6 +64,7 @@ Scope {
     property SettingsWindow settingsWindow: SettingsWindow {
         settings: core.settings
         themeManager: core.themeManager
+        dependencyManager: core.dependencyManager
     }
 
     Loader {

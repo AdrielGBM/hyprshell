@@ -11,6 +11,7 @@ Window {
 
     property var settings: null
     property var themeManager: null
+    property var dependencyManager: null
 
     windowTitle: "Configuración"
 
@@ -54,6 +55,15 @@ Window {
                             settings: settingsWindow.settings
                             onClicked: settingsPanel.currentTab = "appearance"
                         }
+
+                        SidebarTab {
+                            tabId: "dependencies"
+                            label: "Dependencias"
+                            currentTab: settingsPanel.currentTab
+                            themeManager: settingsWindow.themeManager
+                            settings: settingsWindow.settings
+                            onClicked: settingsPanel.currentTab = "dependencies"
+                        }
                     }
                 }
 
@@ -91,6 +101,23 @@ Window {
                                 width: parent.width
                                 themeManager: settingsWindow.themeManager
                                 settings: settingsWindow.settings
+                            }
+                        }
+                    }
+
+                    TabContent {
+                        tabId: "dependencies"
+                        currentTab: settingsPanel.currentTab
+
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: settingsWindow.settings.spacing
+
+                            DependenciesTab {
+                                width: parent.width
+                                themeManager: settingsWindow.themeManager
+                                settings: settingsWindow.settings
+                                dependencyManager: settingsWindow.dependencyManager
                             }
                         }
                     }
