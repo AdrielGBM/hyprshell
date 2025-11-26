@@ -6,14 +6,14 @@ import QtQuick.Layouts
 Column {
     id: generalTab
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
 
     spacing: settings.spacing
 
     Text {
         text: "Configuración General"
-        color: generalTab.themeManager.accent1
+        color: generalTab.themeProvider.accent1
         font.pixelSize: generalTab.settings.mediumFontSize
         font.bold: true
     }
@@ -21,8 +21,8 @@ Column {
     Rectangle {
         width: parent.width
         height: 80
-        color: generalTab.themeManager.overlay
-        border.color: generalTab.themeManager.muted
+        color: generalTab.themeProvider.overlay
+        border.color: generalTab.themeProvider.muted
         border.width: 1
         radius: generalTab.settings.radius
 
@@ -33,20 +33,20 @@ Column {
 
             Text {
                 text: "Información del Sistema"
-                color: generalTab.themeManager.text
+                color: generalTab.themeProvider.text
                 font.pixelSize: 13
                 font.bold: true
             }
 
             Text {
                 text: "• Shell: QuickShell"
-                color: generalTab.themeManager.subtle
+                color: generalTab.themeProvider.subtle
                 font.pixelSize: 12
             }
 
             Text {
-                text: "• Tema activo: " + (generalTab.themeManager.getThemeMeta(generalTab.themeManager.currentThemeName) ? generalTab.themeManager.getThemeMeta(generalTab.themeManager.currentThemeName).name : "Unknown")
-                color: generalTab.themeManager.subtle
+                text: "• Tema activo: " + (generalTab.themeProvider.getThemeMeta(generalTab.themeProvider.currentThemeName) ? generalTab.themeProvider.getThemeMeta(generalTab.themeProvider.currentThemeName).name : "Unknown")
+                color: generalTab.themeProvider.subtle
                 font.pixelSize: 12
             }
         }
@@ -54,7 +54,7 @@ Column {
 
     Text {
         text: "Atajos de Teclado"
-        color: generalTab.themeManager.accent1
+        color: generalTab.themeProvider.accent1
         font.pixelSize: generalTab.settings.mediumFontSize
         font.bold: true
     }
@@ -62,8 +62,8 @@ Column {
     Rectangle {
         width: parent.width
         height: 60
-        color: generalTab.themeManager.overlay
-        border.color: generalTab.themeManager.muted
+        color: generalTab.themeProvider.overlay
+        border.color: generalTab.themeProvider.muted
         border.width: 1
         radius: generalTab.settings.radius
 
@@ -76,18 +76,18 @@ Column {
                 spacing: 10
                 Text {
                     text: "Abrir configuración:"
-                    color: generalTab.themeManager.text
+                    color: generalTab.themeProvider.text
                     font.pixelSize: 12
                     width: 150
                 }
                 Rectangle {
                     width: 80
                     height: 22
-                    color: generalTab.themeManager.surface
+                    color: generalTab.themeProvider.surface
                     radius: 4
                     Text {
                         text: "Super + S"
-                        color: generalTab.themeManager.accent1
+                        color: generalTab.themeProvider.accent1
                         font.pixelSize: 11
                         anchors.centerIn: parent
                     }

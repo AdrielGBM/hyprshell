@@ -6,14 +6,14 @@ import "../../../core/components/inputs"
 Column {
     id: radiusControl
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
 
     spacing: settings.spacing
 
     Text {
         text: "Radio de Bordes"
-        color: radiusControl.themeManager.accent1
+        color: radiusControl.themeProvider.accent1
         font.pixelSize: radiusControl.settings.mediumFontSize
         font.bold: true
     }
@@ -21,8 +21,8 @@ Column {
     Rectangle {
         width: parent.width
         height: 80
-        color: radiusControl.themeManager.overlay
-        border.color: radiusControl.themeManager.muted
+        color: radiusControl.themeProvider.overlay
+        border.color: radiusControl.themeProvider.muted
         border.width: 1
         radius: radiusControl.settings.radius
 
@@ -37,7 +37,7 @@ Column {
 
                 Text {
                     text: "Valor actual:"
-                    color: radiusControl.themeManager.text
+                    color: radiusControl.themeProvider.text
                     font.pixelSize: 13
                     anchors.verticalCenter: parent.verticalCenter
                 }
@@ -45,12 +45,12 @@ Column {
                 Rectangle {
                     width: 40
                     height: 24
-                    color: radiusControl.themeManager.surface
+                    color: radiusControl.themeProvider.surface
                     radius: 4
 
                     Text {
                         text: radiusControl.settings.radius + "px"
-                        color: radiusControl.themeManager.accent1
+                        color: radiusControl.themeProvider.accent1
                         font.pixelSize: 12
                         font.bold: true
                         anchors.centerIn: parent
@@ -60,7 +60,7 @@ Column {
 
             Slider {
                 width: parent.width
-                themeManager: radiusControl.themeManager
+                themeProvider: radiusControl.themeProvider
                 settings: radiusControl.settings
                 value: radiusControl.settings.radius
                 minValue: 0
@@ -75,7 +75,7 @@ Column {
 
     Text {
         text: "• Controla el redondeo de las esquinas de los componentes"
-        color: radiusControl.themeManager.subtle
+        color: radiusControl.themeProvider.subtle
         font.pixelSize: 12
         wrapMode: Text.WordWrap
         width: parent.width

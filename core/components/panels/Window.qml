@@ -8,7 +8,7 @@ Scope {
     id: window
 
     property var settings: null
-    property var themeManager: null
+    property var themeProvider: null
 
     property string windowTitle: ""
     property Component content: null
@@ -35,7 +35,7 @@ Scope {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 48
-                    color: window.themeManager.surface
+                    color: window.themeProvider.surface
 
                     RowLayout {
                         anchors.fill: parent
@@ -45,7 +45,7 @@ Scope {
 
                         Text {
                             text: window.windowTitle
-                            color: window.themeManager.text
+                            color: window.themeProvider.text
                             font.pixelSize: window.settings.largeFontSize
                             font.bold: true
                             verticalAlignment: Text.AlignVCenter
@@ -55,12 +55,12 @@ Scope {
                         Rectangle {
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 24
-                            color: closeButtonArea.containsMouse ? window.themeManager.accent1 : "transparent"
+                            color: closeButtonArea.containsMouse ? window.themeProvider.accent1 : "transparent"
                             radius: window.settings.radius
 
                             Text {
                                 text: "✕"
-                                color: closeButtonArea.containsMouse ? window.themeManager.base : window.themeManager.subtle
+                                color: closeButtonArea.containsMouse ? window.themeProvider.base : window.themeProvider.subtle
                                 font.pixelSize: window.settings.largeFontSize
                                 anchors.centerIn: parent
                             }

@@ -7,22 +7,22 @@ import Quickshell.Io
 Column {
     id: dependenciesTab
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
-    required property var dependencyManager
+    required property var dependencyService
 
     spacing: settings.spacing
 
     Text {
         text: "Dependencias del Sistema"
-        color: dependenciesTab.themeManager.accent1
+        color: dependenciesTab.themeProvider.accent1
         font.pixelSize: dependenciesTab.settings.mediumFontSize
         font.bold: true
     }
 
     Text {
         text: "Estado de las dependencias requeridas por los módulos"
-        color: dependenciesTab.themeManager.subtle
+        color: dependenciesTab.themeProvider.subtle
         font.pixelSize: dependenciesTab.settings.smallFontSize
         wrapMode: Text.WordWrap
         width: parent.width
@@ -32,13 +32,13 @@ Column {
         id: installAllButton
         width: parent.width
         height: 40
-        color: dependenciesTab.themeManager.overlay
-        border.color: installAllButton.missingCount > 0 ? dependenciesTab.themeManager.accent2 : dependenciesTab.themeManager.muted
+        color: dependenciesTab.themeProvider.overlay
+        border.color: installAllButton.missingCount > 0 ? dependenciesTab.themeProvider.accent2 : dependenciesTab.themeProvider.muted
         border.width: 1
         radius: dependenciesTab.settings.radius
 
         property int missingCount: {
-            const deps = dependenciesTab.dependencyManager.getAllDependencies();
+            const deps = dependenciesTab.dependencyService.getAllDependencies();
             return deps.filter(d => !d.available).length;
         }
 
@@ -48,14 +48,14 @@ Column {
 
             Text {
                 text: installAllButton.missingCount > 0 ? "⚠" : "✓"
-                color: installAllButton.missingCount > 0 ? dependenciesTab.themeManager.accent2 : dependenciesTab.themeManager.accent3
+                color: installAllButton.missingCount > 0 ? dependenciesTab.themeProvider.accent2 : dependenciesTab.themeProvider.accent3
                 font.pixelSize: 16
                 anchors.verticalCenter: parent.verticalCenter
             }
 
             Text {
                 text: installAllButton.missingCount > 0 ? `${installAllButton.missingCount} dependencia${installAllButton.missingCount > 1 ? 's' : ''} faltante${installAllButton.missingCount > 1 ? 's' : ''}` : "Todas las dependencias instaladas"
-                color: dependenciesTab.themeManager.text
+                color: dependenciesTab.themeProvider.text
                 font.pixelSize: 13
                 anchors.verticalCenter: parent.verticalCenter
             }
@@ -68,14 +68,14 @@ Column {
             anchors.verticalCenter: parent.verticalCenter
             width: 120
             height: 28
-            color: installAllButton.missingCount > 0 ? dependenciesTab.themeManager.accent2 : dependenciesTab.themeManager.muted
+            color: installAllButton.missingCount > 0 ? dependenciesTab.themeProvider.accent2 : dependenciesTab.themeProvider.muted
             radius: 4
             opacity: installAllButton.missingCount > 0 ? (installAllMouseArea.containsMouse ? 0.8 : 1.0) : 0.5
             visible: installAllButton.missingCount > 0
 
             Text {
                 text: "Instalar Todas"
-                color: dependenciesTab.themeManager.base
+                color: dependenciesTab.themeProvider.base
                 font.pixelSize: 12
                 font.bold: true
                 anchors.centerIn: parent
@@ -89,9 +89,9 @@ Column {
                 enabled: installAllButton.missingCount > 0
 
                 onClicked: {
-                    const deps = dependenciesTab.dependencyManager.getAllDependencies();
+                    const deps = dependenciesTab.dependencyService.getAllDependencies();
                     const missing = deps.filter(d => !d.available);
-                    const commands = missing.map(d => dependenciesTab.dependencyManager.getInstallCommand(d.name)).filter(cmd => cmd && cmd.length > 0);
+                    const commands = missing.map(d => dependenciesTab.dependencyService.getInstallCommand(d.name)).filter(cmd => cmd && cmd.length > 0);
 
                     if (commands.length > 0) {
                         const fullCommand = commands.join(" && ");
@@ -108,7 +108,7 @@ Column {
 
         Repeater {
             model: {
-                const deps = dependenciesTab.dependencyManager.getAllDependencies();
+                const deps = dependenciesTab.dependencyService.getAllDependencies();
                 return deps.sort((a, b) => {
                     if (a.available === b.available)
                         return a.name.localeCompare(b.name);
@@ -124,8 +124,8 @@ Column {
 
                 width: parent.width
                 height: 70
-                color: dependenciesTab.themeManager.overlay
-                border.color: dep.available ? dependenciesTab.themeManager.accent3 : dependenciesTab.themeManager.accent2
+                color: dependenciesTab.themeProvider.overlay
+                border.color: dep.available ? dependenciesTab.themeProvider.accent3 : dependenciesTab.themeProvider.accent2
                 border.width: 1
                 radius: dependenciesTab.settings.radius
 
@@ -138,12 +138,12 @@ Column {
                         Layout.preferredWidth: 40
                         Layout.preferredHeight: 40
                         Layout.alignment: Qt.AlignVCenter
-                        color: delegateRoot.dep.available ? dependenciesTab.themeManager.accent3 : dependenciesTab.themeManager.accent2
+                        color: delegateRoot.dep.available ? dependenciesTab.themeProvider.accent3 : dependenciesTab.themeProvider.accent2
                         radius: 20
 
                         Text {
                             text: delegateRoot.dep.available ? "✓" : "✗"
-                            color: dependenciesTab.themeManager.base
+                            color: dependenciesTab.themeProvider.base
                             font.pixelSize: 18
                             font.bold: true
                             anchors.centerIn: parent
@@ -156,7 +156,7 @@ Column {
 
                         Text {
                             text: delegateRoot.dep.name
-                            color: dependenciesTab.themeManager.text
+                            color: dependenciesTab.themeProvider.text
                             font.pixelSize: 13
                             font.bold: true
                         }
@@ -170,13 +170,13 @@ Column {
                                 };
                                 return typeLabels[delegateRoot.dep.type] || delegateRoot.dep.type;
                             }
-                            color: dependenciesTab.themeManager.subtle
+                            color: dependenciesTab.themeProvider.subtle
                             font.pixelSize: 11
                         }
 
                         Text {
                             text: delegateRoot.dep.available ? "Disponible y funcionando" : `No disponible (${delegateRoot.dep.retryCount} reintentos)`
-                            color: delegateRoot.dep.available ? dependenciesTab.themeManager.accent3 : dependenciesTab.themeManager.accent2
+                            color: delegateRoot.dep.available ? dependenciesTab.themeProvider.accent3 : dependenciesTab.themeProvider.accent2
                             font.pixelSize: 11
                         }
 
@@ -187,7 +187,7 @@ Column {
                                     return "";
                                 return "Usado por: " + modules.join(", ");
                             }
-                            color: dependenciesTab.themeManager.subtle
+                            color: dependenciesTab.themeProvider.subtle
                             font.pixelSize: 10
                             font.italic: true
                             visible: text.length > 0
@@ -198,15 +198,15 @@ Column {
                         Layout.preferredWidth: 100
                         Layout.preferredHeight: 32
                         Layout.alignment: Qt.AlignVCenter
-                        color: installMouseArea.containsMouse ? dependenciesTab.themeManager.accent1 : dependenciesTab.themeManager.surface
-                        border.color: dependenciesTab.themeManager.accent1
+                        color: installMouseArea.containsMouse ? dependenciesTab.themeProvider.accent1 : dependenciesTab.themeProvider.surface
+                        border.color: dependenciesTab.themeProvider.accent1
                         border.width: 1
                         radius: 4
                         visible: !delegateRoot.dep.available
 
                         Text {
                             text: "Instalar"
-                            color: installMouseArea.containsMouse ? dependenciesTab.themeManager.base : dependenciesTab.themeManager.accent1
+                            color: installMouseArea.containsMouse ? dependenciesTab.themeProvider.base : dependenciesTab.themeProvider.accent1
                             font.pixelSize: 12
                             anchors.centerIn: parent
                         }
@@ -218,7 +218,7 @@ Column {
                             cursorShape: Qt.PointingHandCursor
 
                             onClicked: {
-                                const cmd = dependenciesTab.dependencyManager.getInstallCommand(delegateRoot.dep.name);
+                                const cmd = dependenciesTab.dependencyService.getInstallCommand(delegateRoot.dep.name);
                                 if (cmd && cmd.length > 0) {
                                     dependenciesTab.openTerminalWithCommand(cmd);
                                 }
@@ -235,7 +235,7 @@ Column {
         running: true
         repeat: true
         onTriggered: {
-            dependenciesTab.dependencyManager.dependencies = dependenciesTab.dependencyManager.dependencies;
+            dependenciesTab.dependencyService.dependencies = dependenciesTab.dependencyService.dependencies;
         }
     }
 

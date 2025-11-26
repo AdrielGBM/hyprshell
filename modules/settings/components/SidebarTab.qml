@@ -8,14 +8,14 @@ Rectangle {
     required property string tabId
     required property string label
     required property string currentTab
-    required property var themeManager
+    required property var themeProvider
     required property var settings
 
     signal clicked
 
     width: parent.width
     height: 36
-    color: currentTab === tabId ? themeManager.highlightMed : "transparent"
+    color: currentTab === tabId ? themeProvider.highlightMed : "transparent"
     radius: settings.radius
 
     Row {
@@ -25,7 +25,7 @@ Rectangle {
 
         Text {
             text: sidebarTab.label
-            color: sidebarTab.currentTab === sidebarTab.tabId ? sidebarTab.themeManager.text : sidebarTab.themeManager.muted
+            color: sidebarTab.currentTab === sidebarTab.tabId ? sidebarTab.themeProvider.text : sidebarTab.themeProvider.muted
             font.pixelSize: sidebarTab.settings.smallFontSize
             font.bold: true
             anchors.verticalCenter: parent.verticalCenter

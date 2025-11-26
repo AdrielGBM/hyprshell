@@ -8,8 +8,8 @@ Scope {
     id: wallpaper
 
     property var settings: null
-    property var themeManager: null
-    property var dependencyManager: null
+    property var themeProvider: null
+    property var dependencyService: null
 
     readonly property string hyprpaperDependencyName: "hyprpaper"
 
@@ -37,8 +37,8 @@ Scope {
     }
 
     Component.onCompleted: {
-        if (dependencyManager) {
-            dependencyManager.registerDependency("hyprpaper", "command", {
+        if (dependencyService) {
+            dependencyService.registerDependency("hyprpaper", "command", {
                 checkCommand: ["which", "hyprpaper"],
                 retryInterval: 5000,
                 maxRetries: 3,
@@ -49,7 +49,7 @@ Scope {
             });
 
             // Registrar hyprctl como dependencia
-            dependencyManager.registerDependency("hyprctl", "command", {
+            dependencyService.registerDependency("hyprctl", "command", {
                 checkCommand: ["which", "hyprctl"],
                 retryInterval: 5000,
                 maxRetries: 3,

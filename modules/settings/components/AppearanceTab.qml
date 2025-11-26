@@ -5,20 +5,20 @@ import QtQuick
 Column {
     id: appearanceTab
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
 
     spacing: settings.spacing
 
     ThemeSelector {
         width: parent.width
-        themeManager: appearanceTab.themeManager
+        themeProvider: appearanceTab.themeProvider
         settings: appearanceTab.settings
     }
 
     RadiusControl {
         width: parent.width
-        themeManager: appearanceTab.themeManager
+        themeProvider: appearanceTab.themeProvider
         settings: appearanceTab.settings
     }
 
@@ -28,7 +28,7 @@ Column {
 
         Text {
             text: "Fondo de pantalla"
-            color: appearanceTab.themeManager.accent1
+            color: appearanceTab.themeProvider.accent1
             font.pixelSize: appearanceTab.settings.mediumFontSize
             font.bold: true
         }
@@ -36,8 +36,8 @@ Column {
         Rectangle {
             width: parent.width
             height: 40
-            color: appearanceTab.themeManager.overlay
-            border.color: wallpaperInput.activeFocus ? appearanceTab.themeManager.accent1 : appearanceTab.themeManager.surface
+            color: appearanceTab.themeProvider.overlay
+            border.color: wallpaperInput.activeFocus ? appearanceTab.themeProvider.accent1 : appearanceTab.themeProvider.surface
             border.width: 1
             radius: appearanceTab.settings.radius
 
@@ -46,7 +46,7 @@ Column {
                 anchors.fill: parent
                 anchors.margins: 10
                 text: appearanceTab.settings.wallpaperPath
-                color: appearanceTab.themeManager.text
+                color: appearanceTab.themeProvider.text
                 font.pixelSize: 14
                 verticalAlignment: TextInput.AlignVCenter
                 selectByMouse: true
@@ -60,7 +60,7 @@ Column {
             Text {
                 visible: wallpaperInput.text.length === 0
                 text: "Ruta de imagen (ej: /home/user/wallpaper.jpg) o vacío para color surface"
-                color: appearanceTab.themeManager.muted
+                color: appearanceTab.themeProvider.muted
                 font.pixelSize: 12
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
@@ -71,15 +71,15 @@ Column {
         Rectangle {
             width: 80
             height: 30
-            color: clearButtonArea.containsMouse ? appearanceTab.themeManager.accent1 : appearanceTab.themeManager.surface
-            border.color: appearanceTab.themeManager.accent1
+            color: clearButtonArea.containsMouse ? appearanceTab.themeProvider.accent1 : appearanceTab.themeProvider.surface
+            border.color: appearanceTab.themeProvider.accent1
             border.width: 1
             radius: appearanceTab.settings.radius
             visible: appearanceTab.settings.wallpaperPath.length > 0
 
             Text {
                 text: "Limpiar"
-                color: appearanceTab.themeManager.text
+                color: appearanceTab.themeProvider.text
                 font.pixelSize: 12
                 anchors.centerIn: parent
             }

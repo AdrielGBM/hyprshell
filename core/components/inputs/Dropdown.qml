@@ -5,7 +5,7 @@ import QtQuick
 Rectangle {
     id: dropdown
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
     required property string currentValue
     required property var options  // Array de objetos: [{key: "id", name: "Display Name", description: "Optional"}]
@@ -14,8 +14,8 @@ Rectangle {
 
     width: parent.width
     height: 40
-    color: dropdownArea.containsMouse ? themeManager.surface : themeManager.overlay
-    border.color: isOpen ? themeManager.accent1 : themeManager.surface
+    color: dropdownArea.containsMouse ? themeProvider.surface : themeProvider.overlay
+    border.color: isOpen ? themeProvider.accent1 : themeProvider.surface
     border.width: 1
     radius: settings.radius
 
@@ -33,7 +33,7 @@ Rectangle {
 
         Text {
             text: dropdown.displayText
-            color: dropdown.themeManager.text
+            color: dropdown.themeProvider.text
             font.pixelSize: 14
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -45,7 +45,7 @@ Rectangle {
 
         Text {
             text: dropdown.isOpen ? "▲" : "▼"
-            color: dropdown.themeManager.accent1
+            color: dropdown.themeProvider.accent1
             font.pixelSize: 12
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -65,8 +65,8 @@ Rectangle {
         anchors.right: parent.right
         anchors.topMargin: 2
         height: dropdown.isOpen ? optionsColumn.height + 8 : 0
-        color: dropdown.themeManager.overlay
-        border.color: dropdown.themeManager.muted
+        color: dropdown.themeProvider.overlay
+        border.color: dropdown.themeProvider.muted
         border.width: dropdown.isOpen ? 1 : 0
         radius: 8
         visible: dropdown.isOpen
@@ -93,12 +93,12 @@ Rectangle {
                     required property int index
                     width: optionsColumn.width
                     height: 35
-                    color: optionArea.containsMouse ? dropdown.themeManager.accent1 : "transparent"
+                    color: optionArea.containsMouse ? dropdown.themeProvider.accent1 : "transparent"
                     radius: 6
 
                     Text {
                         text: parent.modelData.name
-                        color: optionArea.containsMouse ? dropdown.themeManager.base : dropdown.themeManager.text
+                        color: optionArea.containsMouse ? dropdown.themeProvider.base : dropdown.themeProvider.text
                         font.pixelSize: 13
                         anchors.left: parent.left
                         anchors.leftMargin: 10
@@ -110,7 +110,7 @@ Rectangle {
                         width: 8
                         height: 8
                         radius: 4
-                        color: dropdown.themeManager.accent1
+                        color: dropdown.themeProvider.accent1
                         anchors.right: parent.right
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter

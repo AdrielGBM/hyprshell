@@ -3,28 +3,28 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 
+import "./services"
+import "./providers"
 import "../modules/status-bar"
 import "../modules/settings"
 import "../modules/wallpaper"
-import "../config"
-import "../themes"
 
 Scope {
     id: core
 
-    property DependencyManager dependencyManager: DependencyManager {}
+    property DependencyService dependencyService: DependencyService {}
 
-    property Settings settings: Settings {}
-    property ThemeManager themeManager: ThemeManager {}
+    property SettingsProvider settings: SettingsProvider {}
+    property ThemeProvider themeProvider: ThemeProvider {}
 
     Wallpaper {
         settings: core.settings
-        themeManager: core.themeManager
-        dependencyManager: core.dependencyManager
+        themeProvider: core.themeProvider
+        dependencyService: core.dependencyService
     }
 
     Connections {
-        target: core.themeManager
+        target: core.themeProvider
         function onThemeChanged(newTheme, oldTheme) {
             if (core.settings.currentTheme !== newTheme) {
                 core.settings.currentTheme = newTheme;
@@ -63,8 +63,8 @@ Scope {
 
     property SettingsWindow settingsWindow: SettingsWindow {
         settings: core.settings
-        themeManager: core.themeManager
-        dependencyManager: core.dependencyManager
+        themeProvider: core.themeProvider
+        dependencyService: core.dependencyService
     }
 
     Loader {
@@ -73,7 +73,7 @@ Scope {
             StatusBar {
                 settings: core.settings
                 settingsWindow: core.settingsWindow
-                themeManager: core.themeManager
+                themeProvider: core.themeProvider
             }
         }
     }

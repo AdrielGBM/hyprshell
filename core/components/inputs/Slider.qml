@@ -5,7 +5,7 @@ import QtQuick
 Column {
     id: slider
 
-    required property var themeManager
+    required property var themeProvider
     required property var settings
     required property int value
     required property int minValue
@@ -23,14 +23,14 @@ Column {
         Rectangle {
             width: parent.width - decrementBtn.width - incrementBtn.width - 24
             height: 6
-            color: slider.themeManager.surface
+            color: slider.themeProvider.surface
             radius: 3
             anchors.verticalCenter: parent.verticalCenter
 
             Rectangle {
                 width: (parent.width * (slider.value - slider.minValue)) / (slider.maxValue - slider.minValue)
                 height: parent.height
-                color: slider.themeManager.accent1
+                color: slider.themeProvider.accent1
                 radius: parent.radius
             }
 
@@ -49,14 +49,14 @@ Column {
             id: decrementBtn
             width: 30
             height: 24
-            color: decrementArea.containsMouse ? slider.themeManager.surface : slider.themeManager.overlay
-            border.color: slider.themeManager.muted
+            color: decrementArea.containsMouse ? slider.themeProvider.surface : slider.themeProvider.overlay
+            border.color: slider.themeProvider.muted
             border.width: 1
             radius: 4
 
             Text {
                 text: "−"
-                color: slider.themeManager.text
+                color: slider.themeProvider.text
                 font.pixelSize: 16
                 anchors.centerIn: parent
             }
@@ -77,14 +77,14 @@ Column {
             id: incrementBtn
             width: 30
             height: 24
-            color: incrementArea.containsMouse ? slider.themeManager.surface : slider.themeManager.overlay
-            border.color: slider.themeManager.muted
+            color: incrementArea.containsMouse ? slider.themeProvider.surface : slider.themeProvider.overlay
+            border.color: slider.themeProvider.muted
             border.width: 1
             radius: 4
 
             Text {
                 text: "+"
-                color: slider.themeManager.text
+                color: slider.themeProvider.text
                 font.pixelSize: 16
                 anchors.centerIn: parent
             }

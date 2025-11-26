@@ -19,7 +19,7 @@ QtObject {
 
             var result = [];
             for (var i = 0; i < themes.length; i++) {
-                var themeObj = Qt.createComponent("./" + themes[i].key + "/Theme.qml").createObject(themeManager);
+                var themeObj = Qt.createComponent("../../assets/themes/" + themes[i].key + "/Theme.qml").createObject(themeManager);
                 if (themeObj) {
                     result.push({
                         key: themes[i].key,

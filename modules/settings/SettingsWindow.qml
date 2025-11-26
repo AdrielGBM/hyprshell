@@ -10,8 +10,8 @@ Window {
     id: settingsWindow
 
     property var settings: null
-    property var themeManager: null
-    property var dependencyManager: null
+    property var themeProvider: null
+    property var dependencyService: null
 
     windowTitle: "Configuración"
 
@@ -21,7 +21,7 @@ Window {
 
             property string currentTab: "general"
 
-            color: settingsWindow.themeManager.base
+            color: settingsWindow.themeProvider.base
 
             RowLayout {
                 anchors.fill: parent
@@ -31,7 +31,7 @@ Window {
                 Rectangle {
                     Layout.preferredWidth: 160
                     Layout.fillHeight: true
-                    color: settingsWindow.themeManager.surface
+                    color: settingsWindow.themeProvider.surface
 
                     Column {
                         anchors.fill: parent
@@ -42,7 +42,7 @@ Window {
                             tabId: "general"
                             label: "General"
                             currentTab: settingsPanel.currentTab
-                            themeManager: settingsWindow.themeManager
+                            themeProvider: settingsWindow.themeProvider
                             settings: settingsWindow.settings
                             onClicked: settingsPanel.currentTab = "general"
                         }
@@ -51,7 +51,7 @@ Window {
                             tabId: "appearance"
                             label: "Apariencia"
                             currentTab: settingsPanel.currentTab
-                            themeManager: settingsWindow.themeManager
+                            themeProvider: settingsWindow.themeProvider
                             settings: settingsWindow.settings
                             onClicked: settingsPanel.currentTab = "appearance"
                         }
@@ -60,7 +60,7 @@ Window {
                             tabId: "dependencies"
                             label: "Dependencias"
                             currentTab: settingsPanel.currentTab
-                            themeManager: settingsWindow.themeManager
+                            themeProvider: settingsWindow.themeProvider
                             settings: settingsWindow.settings
                             onClicked: settingsPanel.currentTab = "dependencies"
                         }
@@ -83,7 +83,7 @@ Window {
 
                             GeneralTab {
                                 width: parent.width
-                                themeManager: settingsWindow.themeManager
+                                themeProvider: settingsWindow.themeProvider
                                 settings: settingsWindow.settings
                             }
                         }
@@ -99,7 +99,7 @@ Window {
 
                             AppearanceTab {
                                 width: parent.width
-                                themeManager: settingsWindow.themeManager
+                                themeProvider: settingsWindow.themeProvider
                                 settings: settingsWindow.settings
                             }
                         }
@@ -115,9 +115,9 @@ Window {
 
                             DependenciesTab {
                                 width: parent.width
-                                themeManager: settingsWindow.themeManager
+                                themeProvider: settingsWindow.themeProvider
                                 settings: settingsWindow.settings
-                                dependencyManager: settingsWindow.dependencyManager
+                                dependencyService: settingsWindow.dependencyService
                             }
                         }
                     }
