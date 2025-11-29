@@ -34,8 +34,8 @@ Scope {
                 right: (bar.position === "top" || bar.position === "bottom" ? bar.gap * 2 : 0)
             }
 
-            width: bar.barSizes[bar.position]
-            height: bar.barSizes[bar.position]
+            width: bar.position === "left" || bar.position === "right" ? bar.barSizes[bar.position] : parent.width
+            height: bar.position === "top" || bar.position === "bottom" ? bar.barSizes[bar.position] : parent.height
 
             Loader {
                 anchors.fill: parent

@@ -1,11 +1,15 @@
 import QtQuick
 
-QtObject {
-    property int inactive: 0
-    property int active: 0
+import "../../"
 
-    property int top: 0
-    property int left: 0
-    property int right: 0
-    property int bottom: 0
+QtObject {
+    required property Settings settings
+
+    property int inactive: settings.inactiveBarSize
+    property int active: settings.activeBarSize
+
+    property int top: settings.topBarActive ? active : (settings.frameMode ? inactive : 0)
+    property int left: settings.leftBarActive ? active : (settings.frameMode ? inactive : 0)
+    property int right: settings.rightBarActive ? active : (settings.frameMode ? inactive : 0)
+    property int bottom: settings.bottomBarActive ? active : (settings.frameMode ? inactive : 0)
 }

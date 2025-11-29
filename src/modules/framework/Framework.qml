@@ -15,17 +15,14 @@ Scope {
 
     BarSizes {
         id: barSizes
-        top: settings.topBarActive ? settings.activeBarSize : settings.frameMode ? settings.inactiveBarSize : 0
-        left: settings.leftBarActive ? settings.activeBarSize : settings.frameMode ? settings.inactiveBarSize : 0
-        right: settings.rightBarActive ? settings.activeBarSize : settings.frameMode ? settings.inactiveBarSize : 0
-        bottom: settings.bottomBarActive ? settings.activeBarSize : settings.frameMode ? settings.inactiveBarSize : 0
-        inactive: settings.inactiveBarSize
-        active: settings.activeBarSize
+        settings: settings
     }
 
     Loader {
         active: settings.frameMode
-        sourceComponent: Frame {}
+        sourceComponent: Frame {
+            barSizes: barSizes
+        }
     }
 
     Loader {
