@@ -1,6 +1,6 @@
 import Quickshell
 
-import "./core"
+import "./src/core"
 
 Scope {
     Core {}
