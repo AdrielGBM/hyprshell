@@ -8,6 +8,7 @@ Scope {
 
     property string position: "top"
     property BarSizes barSizes
+    property int gap: 0
 
     property Component content
 
@@ -27,10 +28,10 @@ Scope {
             }
 
             margins {
-                top: bar.position === "left" || bar.position === "right" ? bar.barSizes.top : 0
-                bottom: bar.position === "left" || bar.position === "right" ? bar.barSizes.bottom : 0
-                //left: bar.position === "top" || bar.position === "bottom" ? bar.barSizes.left : 0
-                //right: bar.position === "top" || bar.position === "bottom" ? bar.barSizes.right : 0
+                top: (bar.position === "left" || bar.position === "right" ? bar.barSizes.top + bar.gap * 2 : 0)
+                bottom: (bar.position === "left" || bar.position === "right" ? bar.barSizes.bottom + bar.gap * 2 : 0)
+                left: (bar.position === "top" || bar.position === "bottom" ? bar.gap * 2 : 0)
+                right: (bar.position === "top" || bar.position === "bottom" ? bar.gap * 2 : 0)
             }
 
             width: bar.barSizes[bar.position]

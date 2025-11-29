@@ -33,6 +33,7 @@ Scope {
         sourceComponent: Bar {
             position: "top"
             barSizes: barSizes
+            gap: settings.gap
         }
     }
 
@@ -41,6 +42,7 @@ Scope {
         sourceComponent: Bar {
             position: "bottom"
             barSizes: barSizes
+            gap: settings.gap
         }
     }
 
@@ -49,6 +51,7 @@ Scope {
         sourceComponent: Bar {
             position: "left"
             barSizes: barSizes
+            gap: settings.gap
         }
     }
 
@@ -57,6 +60,7 @@ Scope {
         sourceComponent: Bar {
             position: "right"
             barSizes: barSizes
+            gap: settings.gap
         }
     }
 }
