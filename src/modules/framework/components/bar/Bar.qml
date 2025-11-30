@@ -32,14 +32,14 @@ Scope {
             }
 
             margins {
-                top: (bar.position === "left" || bar.position === "right" ? bar.barSizes.top + bar.gap * 2 : 0)
-                bottom: (bar.position === "left" || bar.position === "right" ? bar.barSizes.bottom + bar.gap * 2 : 0)
-                left: (bar.position === "top" || bar.position === "bottom" ? bar.gap * 2 : 0)
-                right: (bar.position === "top" || bar.position === "bottom" ? bar.gap * 2 : 0)
+                top: (bar.position === "left" || bar.position === "right" ? bar.barSizes.top + bar.gap : 0)
+                bottom: (bar.position === "left" || bar.position === "right" ? bar.barSizes.bottom + bar.gap : 0)
+                left: (bar.position === "top" || bar.position === "bottom" ? bar.gap : 0)
+                right: (bar.position === "top" || bar.position === "bottom" ? bar.gap : 0)
             }
 
-            width: bar.position === "left" || bar.position === "right" ? bar.barSizes[bar.position] : parent.width
-            height: bar.position === "top" || bar.position === "bottom" ? bar.barSizes[bar.position] : parent.height
+            implicitWidth: bar.position === "left" || bar.position === "right" ? bar.barSizes[bar.position] : modelData.width
+            implicitHeight: bar.position === "top" || bar.position === "bottom" ? bar.barSizes[bar.position] : modelData.height
 
             Rectangle {
                 anchors.fill: parent

@@ -5,6 +5,7 @@ import QtQuick
 
 import "./components/frame"
 import "./components/bar"
+import "./components/drawer"
 
 Scope {
     id: framework
@@ -26,6 +27,11 @@ Scope {
             radius: settings.radius
             color: settings.color
         }
+    }
+
+    DrawerManager {
+        settings: settings
+        barSizes: barSizes
     }
 
     Loader {
