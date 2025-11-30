@@ -6,9 +6,12 @@ import QtQuick
 Scope {
     id: bar
 
-    property string position: "top"
+    property string position
     property BarSizes barSizes
-    property int gap: 0
+    property int gap
+    property int radius
+
+    property string color
 
     property Component content
 
@@ -19,6 +22,7 @@ Scope {
             required property var modelData
 
             screen: modelData
+            color: "transparent"
 
             anchors {
                 top: bar.position === "top" || bar.position === "left" || bar.position === "right"
@@ -36,6 +40,12 @@ Scope {
 
             width: bar.position === "left" || bar.position === "right" ? bar.barSizes[bar.position] : parent.width
             height: bar.position === "top" || bar.position === "bottom" ? bar.barSizes[bar.position] : parent.height
+
+            Rectangle {
+                anchors.fill: parent
+                radius: bar.radius
+                color: bar.color
+            }
 
             Loader {
                 anchors.fill: parent

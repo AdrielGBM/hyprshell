@@ -22,6 +22,9 @@ Scope {
         active: settings.frameMode
         sourceComponent: Frame {
             barSizes: barSizes
+            gap: settings.gap
+            radius: settings.radius
+            color: settings.color
         }
     }
 
@@ -31,6 +34,8 @@ Scope {
             position: "top"
             barSizes: barSizes
             gap: settings.gap
+            radius: settings.radius
+            color: settings.color
         }
     }
 
@@ -40,6 +45,8 @@ Scope {
             position: "bottom"
             barSizes: barSizes
             gap: settings.gap
+            radius: settings.radius
+            color: settings.color
         }
     }
 
@@ -49,6 +56,8 @@ Scope {
             position: "left"
             barSizes: barSizes
             gap: settings.gap
+            radius: settings.radius
+            color: settings.color
         }
     }
 
@@ -58,6 +67,8 @@ Scope {
             position: "right"
             barSizes: barSizes
             gap: settings.gap
+            radius: settings.radius
+            color: settings.color
         }
     }
 }
