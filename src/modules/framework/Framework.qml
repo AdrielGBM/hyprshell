@@ -10,8 +10,11 @@ import "./components/drawer"
 Scope {
     id: framework
 
+    property var config: ({})
+
     Settings {
         id: settings
+        config: framework.config
     }
 
     BarSizes {
