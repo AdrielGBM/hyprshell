@@ -1,7 +1,13 @@
 import QtQuick
 
 QtObject {
-    id: themeManager
+    id: themeProvider
+
+    property var config: ({})
+    onConfigChanged: {
+        if (config && config.name !== undefined)
+            setTheme(config.name);
+    }
 
     // === THEMES ===
     property var themeList: (function () {
@@ -18,14 +24,14 @@ QtObject {
             ];
 
             var result = [];
-            for (var i = 0; i < themes.length; i++) {
-                var themeObj = Qt.createComponent("../../assets/themes/" + themes[i].key + "/Theme.qml").createObject(themeManager);
+            for (let i = 0; i < themes.length; i++) {
+                const themeObj = Qt.createComponent("../../../assets/themes/" + themes[i].key + "/Theme.qml").createObject(themeProvider);
                 if (themeObj) {
                     result.push({
                         key: themes[i].key,
                         name: themeObj.name || themes[i].key,
                         author: themeObj.author || "Unknown",
-                        description: themeObj.description || "No description available",
+                        description: themeObj.description || "",
                         version: themeObj.version || "1.0.0",
                         theme: themeObj
                     });
@@ -36,16 +42,15 @@ QtObject {
 
     property var themes: (function () {
             var map = {};
-            for (var i = 0; i < themeManager.themeList.length; ++i) {
-                map[themeManager.themeList[i].key] = themeManager.themeList[i];
-            }
+            for (let i = 0; i < themeProvider.themeList.length; ++i)
+                map[themeProvider.themeList[i].key] = themeProvider.themeList[i];
             return map;
         })()
 
     property string currentThemeName: "rose-pine-main"
-    property var currentTheme: themeManager.themes[themeManager.currentThemeName].theme
+    property var currentTheme: themeProvider.themes[themeProvider.currentThemeName] ? themeProvider.themes[themeProvider.currentThemeName].theme : null
 
-    // === THEME ===
+    // === THEME COLORS ===
     readonly property color base: currentTheme && currentTheme.base ? currentTheme.base : "#191724"
     readonly property color surface: currentTheme && currentTheme.surface ? currentTheme.surface : "#1f1d2e"
     readonly property color overlay: currentTheme && currentTheme.overlay ? currentTheme.overlay : "#26233a"
@@ -71,23 +76,22 @@ QtObject {
 
     // === FUNCTIONS ===
     function getThemes() {
-        return themeManager.themeList;
+        return themeProvider.themeList;
     }
 
     function setTheme(themeName) {
-        if (themeManager.themes.hasOwnProperty(themeName)) {
-            var oldTheme = currentThemeName;
+        if (themeProvider.themes.hasOwnProperty(themeName)) {
+            const oldTheme = currentThemeName;
             currentThemeName = themeName;
-            currentTheme = themeManager.themes[themeName].theme;
+            currentTheme = themeProvider.themes[themeName].theme;
             themeChanged(themeName, oldTheme);
             return true;
-        } else {
-            return false;
         }
+        return false;
     }
 
     function getThemeMeta(themeName) {
-        return themeManager.themes[themeName] || null;
+        return themeProvider.themes[themeName] || null;
     }
 
     // === SIGNALS ===

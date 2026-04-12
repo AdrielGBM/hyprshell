@@ -17,8 +17,6 @@ QtObject {
     property bool rightBarActive: true
     property bool bottomBarActive: false
 
-    property string color: "#2a273f"
-
     property int drawerWidth: 200
     property int drawerHeight: 200
 
@@ -60,8 +58,6 @@ QtObject {
             rightBarActive = cfg.rightBarActive;
         if (cfg.bottomBarActive !== undefined)
             bottomBarActive = cfg.bottomBarActive;
-        if (cfg.color !== undefined)
-            color = cfg.color;
         if (cfg.drawerWidth !== undefined)
             drawerWidth = cfg.drawerWidth;
         if (cfg.drawerHeight !== undefined)

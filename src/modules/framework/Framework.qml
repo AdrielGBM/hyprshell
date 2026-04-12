@@ -6,11 +6,15 @@ import QtQuick
 import "./components/frame"
 import "./components/bar"
 import "./components/drawer"
+import "../temp-statusbar"
 
 Scope {
     id: framework
 
     property var config: ({})
+    property var themeProvider: null
+
+    readonly property color frameColor: themeProvider ? themeProvider.overlay : "#26233a"
 
     Settings {
         id: settings
@@ -28,13 +32,14 @@ Scope {
             barSizes: barSizes
             gap: settings.gap
             radius: settings.radius
-            color: settings.color
+            color: framework.frameColor
         }
     }
 
     DrawerManager {
         settings: settings
         barSizes: barSizes
+        themeProvider: framework.themeProvider
     }
 
     Loader {
@@ -44,7 +49,12 @@ Scope {
             barSizes: barSizes
             gap: settings.gap
             radius: settings.radius
-            color: settings.color
+            color: framework.frameColor
+            content: Component {
+                TempStatusBar {
+                    themeProvider: framework.themeProvider
+                }
+            }
         }
     }
 
@@ -55,7 +65,7 @@ Scope {
             barSizes: barSizes
             gap: settings.gap
             radius: settings.radius
-            color: settings.color
+            color: framework.frameColor
         }
     }
 
@@ -66,7 +76,7 @@ Scope {
             barSizes: barSizes
             gap: settings.gap
             radius: settings.radius
-            color: settings.color
+            color: framework.frameColor
         }
     }
 
@@ -77,7 +87,7 @@ Scope {
             barSizes: barSizes
             gap: settings.gap
             radius: settings.radius
-            color: settings.color
+            color: framework.frameColor
         }
     }
 }

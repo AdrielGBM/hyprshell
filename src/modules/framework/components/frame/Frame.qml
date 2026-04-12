@@ -11,7 +11,7 @@ Scope {
     required property int gap
     required property int radius
 
-    required property string color
+    required property color color
 
     Variants {
         model: Quickshell.screens
@@ -36,6 +36,22 @@ Scope {
             Canvas {
                 id: frameCanvas
                 anchors.fill: parent
+
+                Connections {
+                    target: frame
+                    function onColorChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onRadiusChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onGapChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onBarSizesChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                }
 
                 onPaint: {
                     var ctx = getContext("2d");

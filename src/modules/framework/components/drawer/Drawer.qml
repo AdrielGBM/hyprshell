@@ -12,7 +12,7 @@ Scope {
     required property var settings
     required property int gap
     required property int radius
-    required property string color
+    required property color color
 
     Variants {
         model: Quickshell.screens

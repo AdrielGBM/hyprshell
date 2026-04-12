@@ -11,7 +11,7 @@ Scope {
     property int gap
     property int radius
 
-    property string color
+    property color color
 
     property Component content
 

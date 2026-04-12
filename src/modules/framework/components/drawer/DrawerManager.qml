@@ -8,6 +8,9 @@ Scope {
 
     required property var settings
     required property var barSizes
+    property var themeProvider: null
+
+    readonly property color drawerColor: themeProvider ? themeProvider.overlay : "#26233a"
 
     DrawerSizes {
         id: drawerSizes
@@ -24,7 +27,7 @@ Scope {
             settings: drawerManager.settings
             gap: drawerManager.settings.gap
             radius: drawerManager.settings.radius
-            color: drawerManager.settings.color
+            color: drawerManager.drawerColor
         }
     }
 
@@ -37,7 +40,7 @@ Scope {
             settings: drawerManager.settings
             gap: drawerManager.settings.gap
             radius: drawerManager.settings.radius
-            color: drawerManager.settings.color
+            color: drawerManager.drawerColor
         }
     }
 
@@ -50,7 +53,7 @@ Scope {
             settings: drawerManager.settings
             gap: drawerManager.settings.gap
             radius: drawerManager.settings.radius
-            color: drawerManager.settings.color
+            color: drawerManager.drawerColor
         }
     }
 
@@ -63,7 +66,7 @@ Scope {
             settings: drawerManager.settings
             gap: drawerManager.settings.gap
             radius: drawerManager.settings.radius
-            color: drawerManager.settings.color
+            color: drawerManager.drawerColor
         }
     }
 }

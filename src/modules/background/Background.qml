@@ -8,6 +8,7 @@ Scope {
     id: background
 
     property var config: ({})
+    property var themeProvider: null
 
     Settings {
         id: settings
@@ -35,7 +36,7 @@ Scope {
 
             Rectangle {
                 anchors.fill: parent
-                color: settings.backgroundColor
+                color: background.themeProvider ? background.themeProvider.base : "#191724"
 
                 Image {
                     anchors.fill: parent

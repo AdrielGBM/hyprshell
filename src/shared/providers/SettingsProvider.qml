@@ -7,6 +7,7 @@ QtObject {
 
     property var framework: ({})
     property var background: ({})
+    property var theme: ({})
 
     readonly property string settingsPath: `${Quickshell.env("HOME")}/.config/quickshell/settings.json`
 
@@ -17,10 +18,15 @@ QtObject {
         onLoaded: {
             try {
                 const content = text();
-                if (!content || content.trim().length === 0) return;
+                if (!content || content.trim().length === 0)
+                    return;
                 const data = JSON.parse(content);
-                if (data.framework !== undefined) provider.framework = data.framework;
-                if (data.background !== undefined) provider.background = data.background;
+                if (data.framework !== undefined)
+                    provider.framework = data.framework;
+                if (data.background !== undefined)
+                    provider.background = data.background;
+                if (data.theme !== undefined)
+                    provider.theme = data.theme;
             } catch (e) {
                 console.error("SettingsProvider: parse error:", e.message);
             }
@@ -47,7 +53,8 @@ QtObject {
     function saveSettings() {
         const data = {
             framework: provider.framework,
-            background: provider.background
+            background: provider.background,
+            theme: provider.theme
         };
         const json = JSON.stringify(data, null, 2);
         writeProcess.command = ["sh", "-c", `cat > '${provider.settingsPath}' << 'QUICKSHELL_EOF'\n${json}\nQUICKSHELL_EOF`];
