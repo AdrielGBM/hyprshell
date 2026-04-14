@@ -11,6 +11,7 @@ Scope {
     property ThemeProvider themeProvider: ThemeProvider {
         config: core.settingsProvider.theme
     }
+    property IconProvider iconProvider: IconProvider {}
 
     Background {
         config: core.settingsProvider.background
