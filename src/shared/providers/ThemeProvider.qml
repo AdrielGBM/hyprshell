@@ -9,7 +9,6 @@ QtObject {
             setTheme(config.name);
     }
 
-    // === THEMES ===
     property var themeList: (function () {
             var themes = [
                 {
@@ -50,7 +49,6 @@ QtObject {
     property string currentThemeName: "rose-pine-main"
     property var currentTheme: themeProvider.themes[themeProvider.currentThemeName] ? themeProvider.themes[themeProvider.currentThemeName].theme : null
 
-    // === THEME COLORS ===
     readonly property color base: currentTheme && currentTheme.base ? currentTheme.base : "#191724"
     readonly property color surface: currentTheme && currentTheme.surface ? currentTheme.surface : "#1f1d2e"
     readonly property color overlay: currentTheme && currentTheme.overlay ? currentTheme.overlay : "#26233a"
@@ -74,7 +72,20 @@ QtObject {
     readonly property color highlightMed: currentTheme && currentTheme.highlightMed ? currentTheme.highlightMed : "#403d52"
     readonly property color highlightHigh: currentTheme && currentTheme.highlightHigh ? currentTheme.highlightHigh : "#524f67"
 
-    // === FUNCTIONS ===
+    readonly property var spacing: config?.spacing ?? ({
+            xs: 4,
+            sm: 8,
+            md: 12,
+            lg: 16,
+            xl: 24
+        })
+    readonly property var radius: config?.radius ?? ({
+            sm: 4,
+            md: 8,
+            lg: 12,
+            xl: 16
+        })
+
     function getThemes() {
         return themeProvider.themeList;
     }
@@ -94,6 +105,5 @@ QtObject {
         return themeProvider.themes[themeName] || null;
     }
 
-    // === SIGNALS ===
     signal themeChanged(string newTheme, string oldTheme)
 }

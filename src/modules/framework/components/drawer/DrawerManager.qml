@@ -25,8 +25,7 @@ Scope {
             drawerSizes: drawerSizes
             barSizes: drawerManager.barSizes
             settings: drawerManager.settings
-            gap: drawerManager.settings.gap
-            radius: drawerManager.settings.radius
+            themeProvider: drawerManager.themeProvider
             color: drawerManager.drawerColor
         }
     }
@@ -38,8 +37,7 @@ Scope {
             drawerSizes: drawerSizes
             barSizes: drawerManager.barSizes
             settings: drawerManager.settings
-            gap: drawerManager.settings.gap
-            radius: drawerManager.settings.radius
+            themeProvider: drawerManager.themeProvider
             color: drawerManager.drawerColor
         }
     }
@@ -51,8 +49,7 @@ Scope {
             drawerSizes: drawerSizes
             barSizes: drawerManager.barSizes
             settings: drawerManager.settings
-            gap: drawerManager.settings.gap
-            radius: drawerManager.settings.radius
+            themeProvider: drawerManager.themeProvider
             color: drawerManager.drawerColor
         }
     }
@@ -64,8 +61,7 @@ Scope {
             drawerSizes: drawerSizes
             barSizes: drawerManager.barSizes
             settings: drawerManager.settings
-            gap: drawerManager.settings.gap
-            radius: drawerManager.settings.radius
+            themeProvider: drawerManager.themeProvider
             color: drawerManager.drawerColor
         }
     }

@@ -30,8 +30,7 @@ Scope {
         active: settings.frameMode
         sourceComponent: Frame {
             barSizes: barSizes
-            gap: settings.gap
-            radius: settings.radius
+            themeProvider: framework.themeProvider
             color: framework.frameColor
         }
     }
@@ -47,8 +46,7 @@ Scope {
         sourceComponent: Bar {
             position: "top"
             barSizes: barSizes
-            gap: settings.gap
-            radius: settings.radius
+            themeProvider: framework.themeProvider
             color: framework.frameColor
             content: Component {
                 TempStatusBar {
@@ -63,8 +61,7 @@ Scope {
         sourceComponent: Bar {
             position: "bottom"
             barSizes: barSizes
-            gap: settings.gap
-            radius: settings.radius
+            themeProvider: framework.themeProvider
             color: framework.frameColor
         }
     }
@@ -74,8 +71,7 @@ Scope {
         sourceComponent: Bar {
             position: "left"
             barSizes: barSizes
-            gap: settings.gap
-            radius: settings.radius
+            themeProvider: framework.themeProvider
             color: framework.frameColor
         }
     }
@@ -85,8 +81,7 @@ Scope {
         sourceComponent: Bar {
             position: "right"
             barSizes: barSizes
-            gap: settings.gap
-            radius: settings.radius
+            themeProvider: framework.themeProvider
             color: framework.frameColor
         }
     }

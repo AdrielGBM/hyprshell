@@ -3,9 +3,6 @@ import QtQuick
 QtObject {
     id: settings
 
-    property int gap: 16
-    property int radius: 8
-
     property int scale: 1
     property bool frameMode: true
 
@@ -38,10 +35,6 @@ QtObject {
     function applyConfig(cfg) {
         if (!cfg)
             return;
-        if (cfg.gap !== undefined)
-            gap = cfg.gap;
-        if (cfg.radius !== undefined)
-            radius = cfg.radius;
         if (cfg.scale !== undefined)
             scale = cfg.scale;
         if (cfg.frameMode !== undefined)

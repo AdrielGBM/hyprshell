@@ -8,12 +8,15 @@ Scope {
 
     property string position
     property BarSizes barSizes
-    property int gap
-    property int radius
+    property var themeProvider: null
 
     property color color
 
     property Component content
+
+    readonly property int gap: themeProvider?.spacing?.lg ?? 16
+    readonly property int radius: themeProvider?.radius?.md ?? 8
+    readonly property int padding: themeProvider?.spacing?.xs ?? 4
 
     Variants {
         model: Quickshell.screens
@@ -49,6 +52,7 @@ Scope {
 
             Loader {
                 anchors.fill: parent
+                anchors.margins: bar.padding
                 active: bar.barSizes[bar.position] !== bar.barSizes.inactive
                 sourceComponent: bar.content
             }

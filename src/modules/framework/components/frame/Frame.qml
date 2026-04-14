@@ -8,10 +8,11 @@ Scope {
     id: frame
 
     required property var barSizes
-    required property int gap
-    required property int radius
-
+    required property var themeProvider
     required property color color
+
+    readonly property int gap: themeProvider?.spacing?.lg ?? 16
+    readonly property int radius: themeProvider?.radius?.md ?? 8
 
     Variants {
         model: Quickshell.screens
@@ -49,6 +50,25 @@ Scope {
                         frameCanvas.requestPaint();
                     }
                     function onBarSizesChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onThemeProviderChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                }
+
+                Connections {
+                    target: frame.barSizes
+                    function onTopChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onBottomChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onLeftChanged() {
+                        frameCanvas.requestPaint();
+                    }
+                    function onRightChanged() {
                         frameCanvas.requestPaint();
                     }
                 }

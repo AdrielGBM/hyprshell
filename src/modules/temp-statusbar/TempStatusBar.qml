@@ -4,24 +4,26 @@ import QtQuick
 import Quickshell.Hyprland
 import Quickshell.Services.UPower
 import Quickshell.Services.SystemTray
+import "../../shared/components"
 
 Item {
     id: statusBar
 
     property var themeProvider: null
 
-    // Workspaces (left)
     Row {
-        spacing: 4
+        spacing: 0
         anchors.left: parent.left
-        anchors.leftMargin: 8
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
 
         Repeater {
             model: 10
 
-            Text {
+            Button {
+                id: wsBtn
                 required property int index
+
                 property int wsId: index + 1
                 property bool isActive: Hyprland.focusedMonitor?.activeWorkspace?.id === wsId
                 property bool hasWindows: {
@@ -33,26 +35,23 @@ Item {
                     return false;
                 }
 
-                text: wsId
-                color: {
-                    if (isActive)
-                        return statusBar.themeProvider ? statusBar.themeProvider.text : "#ffffff";
-                    if (hasWindows)
-                        return statusBar.themeProvider ? statusBar.themeProvider.subtle : "#cccccc";
-                    return statusBar.themeProvider ? statusBar.themeProvider.muted : "#888888";
-                }
-                font.pixelSize: 11
-                font.bold: isActive
+                themeProvider: statusBar.themeProvider
+                variant: wsBtn.isActive ? "filled" : "ghost"
+                height: parent.height
+                width: height
+                onClicked: Hyprland.dispatch("workspace " + wsBtn.wsId)
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: Hyprland.dispatch("workspace " + parent.wsId)
+                Text {
+                    anchors.centerIn: parent
+                    text: wsBtn.wsId
+                    font.pixelSize: 12
+                    font.bold: wsBtn.isActive
+                    color: wsBtn.isActive ? (statusBar.themeProvider?.base ?? "#191724") : wsBtn.hasWindows ? (statusBar.themeProvider?.text ?? "#e0def4") : (statusBar.themeProvider?.muted ?? "#6e6a86")
                 }
             }
         }
     }
 
-    // Right side
     Row {
         anchors.right: parent.right
         anchors.rightMargin: 8
