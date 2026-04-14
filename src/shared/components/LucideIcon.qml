@@ -14,13 +14,13 @@ Item {
     width: size
     height: size
 
-    property string _dataUri: ""
-    property bool _failed: false
+    property string dataUri: ""
+    property bool failed: false
 
     Image {
         id: img
         anchors.fill: parent
-        source: root._dataUri
+        source: root.dataUri
         sourceSize.width: root.size
         sourceSize.height: root.size
         fillMode: Image.PreserveAspectFit
@@ -35,46 +35,46 @@ Item {
         color: "transparent"
         border.color: root.color
         border.width: 1
-        opacity: root._failed ? 0.15 : 0.25
+        opacity: root.failed ? 0.15 : 0.25
         radius: 2
     }
 
     onNameChanged: {
-        root._dataUri = "";
-        root._failed = false;
-        root._requestIcon();
+        root.dataUri = "";
+        root.failed = false;
+        root.requestIcon();
     }
 
-    onColorChanged: root._refreshUri()
-    onIconProviderChanged: root._requestIcon()
+    onColorChanged: root.refreshUri()
+    onIconProviderChanged: root.requestIcon()
 
     Connections {
         target: root.iconProvider
 
         function onIconReady(iconName) {
             if (iconName === root.name)
-                root._refreshUri();
+                root.refreshUri();
         }
 
         function onIconFailed(iconName) {
             if (iconName === root.name)
-                root._failed = true;
+                root.failed = true;
         }
     }
 
-    Component.onCompleted: root._requestIcon()
+    Component.onCompleted: root.requestIcon()
 
-    function _requestIcon() {
+    function requestIcon() {
         if (!root.iconProvider || root.name === "")
             return;
         root.iconProvider.request(root.name);
     }
 
-    function _refreshUri() {
+    function refreshUri() {
         if (!root.iconProvider || root.name === "") {
-            root._dataUri = "";
+            root.dataUri = "";
             return;
         }
-        root._dataUri = root.iconProvider.getDataUri(root.name, root.color);
+        root.dataUri = root.iconProvider.getDataUri(root.name, root.color);
     }
 }

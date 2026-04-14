@@ -12,65 +12,69 @@ Item {
 
     signal iconSelected(string name)
 
-    property string _searchQuery: ""
+    property string searchQuery: ""
 
-    readonly property var _filteredIcons: {
+    readonly property var filteredIcons: {
         const list = root.iconProvider ? root.iconProvider.iconList : [];
-        const q = root._searchQuery.toLowerCase().trim();
+        const q = root.searchQuery.toLowerCase().trim();
         if (q === "")
             return list;
         return list.filter(n => n.includes(q));
     }
 
-    readonly property color _bg: root.themeProvider ? root.themeProvider.surface : "#1f1d2e"
-    readonly property color _border: root.themeProvider ? root.themeProvider.overlay : "#26233a"
-    readonly property color _text: root.themeProvider ? root.themeProvider.text : "#e0def4"
-    readonly property color _muted: root.themeProvider ? root.themeProvider.muted : "#6e6a86"
-    readonly property color _accent: root.themeProvider ? root.themeProvider.accent6 : "#c4a7e7"
-    readonly property color _hover: root.themeProvider ? root.themeProvider.highlightMed : "#403d52"
-    readonly property color _selected: root.themeProvider ? root.themeProvider.highlightHigh : "#524f67"
+    readonly property color bg: root.themeProvider ? root.themeProvider.surface : "#1f1d2e"
+    readonly property color borderColor: root.themeProvider ? root.themeProvider.overlay : "#26233a"
+    readonly property color textColor: root.themeProvider ? root.themeProvider.text : "#e0def4"
+    readonly property color muted: root.themeProvider ? root.themeProvider.muted : "#6e6a86"
+    readonly property color accent: root.themeProvider ? root.themeProvider.accent6 : "#c4a7e7"
+    readonly property color hoverColor: root.themeProvider ? root.themeProvider.highlightMed : "#403d52"
+    readonly property color selectedColor: root.themeProvider ? root.themeProvider.highlightHigh : "#524f67"
+
+    readonly property int spacing: root.themeProvider?.spacing?.sm ?? 8
+    readonly property int spacingXs: root.themeProvider?.spacing?.xs ?? 4
+    readonly property int radius: root.themeProvider?.radius?.sm ?? 4
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 8
+        spacing: root.spacing
 
         Rectangle {
             Layout.fillWidth: true
             height: 32
-            radius: 6
-            color: root._bg
-            border.color: searchInput.activeFocus ? root._accent : root._border
+            radius: root.radius
+            color: root.bg
+            border.color: searchInput.activeFocus ? root.accent : root.borderColor
             border.width: 1
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 8
-                anchors.rightMargin: 8
-                spacing: 6
+                anchors.leftMargin: root.spacing
+                anchors.rightMargin: root.spacing
+                spacing: root.spacingXs
 
                 LucideIcon {
                     iconProvider: root.iconProvider
                     name: "search"
                     size: 14
-                    color: root._muted
+                    color: root.muted
                 }
 
                 Controls.TextField {
                     id: searchInput
                     Layout.fillWidth: true
                     placeholderText: "Search icons..."
-                    placeholderTextColor: root._muted
-                    color: root._text
+                    placeholderTextColor: root.muted
+                    color: root.textColor
                     font.pixelSize: 12
                     background: null
-                    onTextChanged: root._searchQuery = text
+                    onTextChanged: root.searchQuery = text
                 }
 
                 LucideIcon {
                     iconProvider: root.iconProvider
                     name: "x"
                     size: 14
-                    color: root._muted
+                    color: root.muted
                     visible: searchInput.text !== ""
 
                     MouseArea {
@@ -91,10 +95,10 @@ Item {
                     return "Fetching icon list...";
                 if (root.iconProvider.iconList.length === 0)
                     return "No icons available";
-                const n = root._filteredIcons.length;
+                const n = root.filteredIcons.length;
                 return n + " icon" + (n !== 1 ? "s" : "");
             }
-            color: root._muted
+            color: root.muted
             font.pixelSize: 11
             leftPadding: 2
         }
@@ -103,18 +107,18 @@ Item {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: root._filteredIcons
+            model: root.filteredIcons
             cellWidth: 52
             cellHeight: 52
             clip: true
 
-            onModelChanged: _scrollToSelected()
-            Component.onCompleted: _scrollToSelected()
+            onModelChanged: scrollToSelected()
+            Component.onCompleted: scrollToSelected()
 
-            function _scrollToSelected() {
+            function scrollToSelected() {
                 if (root.currentIcon === "")
                     return;
-                const idx = root._filteredIcons.indexOf(root.currentIcon);
+                const idx = root.filteredIcons.indexOf(root.currentIcon);
                 if (idx >= 0)
                     Qt.callLater(() => grid.positionViewAtIndex(idx, GridView.Center));
             }
@@ -129,15 +133,15 @@ Item {
                 width: grid.cellWidth
                 height: grid.cellHeight
 
-                color: isSelected ? root._selected : (isHovered ? root._hover : "transparent")
-                radius: 6
+                color: isSelected ? root.selectedColor : (isHovered ? root.hoverColor : "transparent")
+                radius: root.radius
 
                 LucideIcon {
                     anchors.centerIn: parent
                     iconProvider: root.iconProvider
                     name: modelData
                     size: 22
-                    color: isSelected ? root._accent : root._text
+                    color: isSelected ? root.accent : root.textColor
                 }
 
                 Controls.ToolTip {

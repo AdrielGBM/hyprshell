@@ -10,11 +10,11 @@ QtObject {
     readonly property string cacheDir: Quickshell.env("HOME") + "/.config/quickshell/.cache/icons/lucide"
     readonly property string indexPath: provider.cacheDir + "/index.json"
 
-    property var _iconData: ({})
-    property var _queue: []
-    property var _queued: ({})
-    property bool _processing: false
-    property string _currentName: ""
+    property var iconData: ({})
+    property var queue: []
+    property var queued: ({})
+    property bool processing: false
+    property string currentName: ""
 
     property var iconList: []
     property bool iconListLoading: false
@@ -23,37 +23,37 @@ QtObject {
     signal iconFailed(string name)
     signal iconListReady
 
-    property Process _mkdir: Process {
+    property Process mkdir: Process {
         command: ["mkdir", "-p", provider.cacheDir]
         running: true
         onExited: code => {
             if (code === 0)
-                provider._loadIconList();
+                provider.loadIconList();
             else
                 console.error("IconProvider: could not create cache dir:", provider.cacheDir);
         }
     }
 
-    property Process _downloader: Process {
+    property Process downloader: Process {
         running: false
         onExited: code => {
             if (code === 0) {
-                provider._readFile(provider._currentName);
+                provider.readFile(provider.currentName);
             } else {
-                console.warn("IconProvider: download failed for '" + provider._currentName + "' (exit " + code + ")");
-                delete provider._queued[provider._currentName];
-                provider.iconFailed(provider._currentName);
-                provider._processing = false;
-                provider._next();
+                console.warn("IconProvider: download failed for '" + provider.currentName + "' (exit " + code + ")");
+                delete provider.queued[provider.currentName];
+                provider.iconFailed(provider.currentName);
+                provider.processing = false;
+                provider.next();
             }
         }
     }
 
-    property Process _indexDownloader: Process {
+    property Process indexDownloader: Process {
         running: false
         onExited: code => {
             if (code === 0) {
-                provider._readIndexFile();
+                provider.readIndexFile();
             } else {
                 console.error("IconProvider: failed to fetch icon list (exit " + code + ")");
                 provider.iconListLoading = false;
@@ -64,24 +64,24 @@ QtObject {
     function request(name) {
         if (!name || name === "")
             return;
-        if (provider._iconData[name] !== undefined) {
+        if (provider.iconData[name] !== undefined) {
             provider.iconReady(name);
             return;
         }
-        if (provider._queued[name])
+        if (provider.queued[name])
             return;
-        provider._queued[name] = true;
-        provider._queue.push(name);
-        if (!provider._processing)
-            provider._next();
+        provider.queued[name] = true;
+        provider.queue.push(name);
+        if (!provider.processing)
+            provider.next();
     }
 
     function getContent(name) {
-        return provider._iconData[name] || null;
+        return provider.iconData[name] || null;
     }
 
     function getDataUri(name, color) {
-        const content = provider._iconData[name];
+        const content = provider.iconData[name];
         if (!content)
             return "";
         const hex = color.toString();
@@ -89,11 +89,11 @@ QtObject {
         return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(colored);
     }
 
-    function _loadIconList() {
-        provider._readIndexFile();
+    function loadIconList() {
+        provider.readIndexFile();
     }
 
-    function _readIndexFile() {
+    function readIndexFile() {
         const fv = Qt.createQmlObject('import Quickshell.Io; FileView { watchChanges: false }', provider);
         fv.path = provider.indexPath;
 
@@ -108,14 +108,14 @@ QtObject {
                 provider.iconListReady();
             } catch (e) {
                 console.error("IconProvider: failed to parse index.json:", e.message, "— re-fetching");
-                provider._fetchIconList();
+                provider.fetchIconList();
             }
         });
 
         fv.onLoadFailed.connect(err => {
             fv.destroy();
             if (err === FileViewError.FileNotFound)
-                provider._fetchIconList();
+                provider.fetchIconList();
             else
                 console.error("IconProvider: error reading index.json");
         });
@@ -123,23 +123,23 @@ QtObject {
         fv.reload();
     }
 
-    function _fetchIconList() {
+    function fetchIconList() {
         provider.iconListLoading = true;
-        provider._indexDownloader.command = ["curl", "-sL", "-f", "--max-time", "30", "-o", provider.indexPath, provider.indexUrl];
-        provider._indexDownloader.running = true;
+        provider.indexDownloader.command = ["curl", "-sL", "-f", "--max-time", "30", "-o", provider.indexPath, provider.indexUrl];
+        provider.indexDownloader.running = true;
     }
 
-    function _next() {
-        if (provider._queue.length === 0) {
-            provider._processing = false;
+    function next() {
+        if (provider.queue.length === 0) {
+            provider.processing = false;
             return;
         }
-        provider._processing = true;
-        provider._currentName = provider._queue.shift();
-        provider._readFile(provider._currentName);
+        provider.processing = true;
+        provider.currentName = provider.queue.shift();
+        provider.readFile(provider.currentName);
     }
 
-    function _readFile(name) {
+    function readFile(name) {
         const fv = Qt.createQmlObject('import Quickshell.Io; FileView { watchChanges: false }', provider);
         fv.path = provider.cacheDir + "/" + name + ".svg";
 
@@ -152,41 +152,41 @@ QtObject {
                 const rm = Qt.createQmlObject('import Quickshell.Io; Process { running: false }', provider);
                 rm.command = ["rm", "-f", provider.cacheDir + "/" + name + ".svg"];
                 rm.running = true;
-                delete provider._queued[name];
+                delete provider.queued[name];
                 provider.iconFailed(name);
-                provider._processing = false;
-                provider._next();
+                provider.processing = false;
+                provider.next();
                 return;
             }
 
-            provider._iconData[name] = content;
-            delete provider._queued[name];
+            provider.iconData[name] = content;
+            delete provider.queued[name];
             provider.iconReady(name);
-            provider._processing = false;
-            provider._next();
+            provider.processing = false;
+            provider.next();
         });
 
         fv.onLoadFailed.connect(err => {
             fv.destroy();
             if (err === FileViewError.FileNotFound)
-                provider._downloadIcon(name);
+                provider.downloadIcon(name);
             else {
                 console.error("IconProvider: unexpected read error for '" + name + "'");
-                delete provider._queued[name];
+                delete provider.queued[name];
                 provider.iconFailed(name);
-                provider._processing = false;
-                provider._next();
+                provider.processing = false;
+                provider.next();
             }
         });
 
         fv.reload();
     }
 
-    function _downloadIcon(name) {
+    function downloadIcon(name) {
         const path = provider.cacheDir + "/" + name + ".svg";
         const url = provider.baseUrl + "/" + name + ".svg";
 
-        provider._downloader.command = ["curl", "-sL", "-f", "--max-time", "15", "-o", path, url];
-        provider._downloader.running = true;
+        provider.downloader.command = ["curl", "-sL", "-f", "--max-time", "15", "-o", path, url];
+        provider.downloader.running = true;
     }
 }

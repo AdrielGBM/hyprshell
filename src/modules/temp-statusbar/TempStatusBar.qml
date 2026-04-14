@@ -54,9 +54,9 @@ Item {
 
     Row {
         anchors.right: parent.right
-        anchors.rightMargin: 8
+        anchors.rightMargin: statusBar.themeProvider?.spacing?.sm ?? 8
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 12
+        spacing: statusBar.themeProvider?.spacing?.md ?? 12
 
         Text {
             visible: SystemTray.items.rowCount() > 0
