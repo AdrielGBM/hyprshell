@@ -18,6 +18,12 @@ Rectangle {
 
     property string variant: "filled"
     property string size: "medium"
+    property string accent: "accent6"
+    property color accentColor: {
+        if (themeProvider && accent !== "")
+            return themeProvider[accent] ?? "#c4a7e7";
+        return "#c4a7e7";
+    }
     signal clicked
 
     readonly property int hPad: size === "small" ? 8 : size === "large" ? 16 : 12
@@ -34,15 +40,15 @@ Rectangle {
 
     readonly property color bg: {
         if (pressed)
-            return variant === "filled" ? Qt.darker(themeProvider?.accent6 ?? "#c4a7e7", 1.15) : (themeProvider?.highlightMed ?? "#403d52");
+            return variant === "filled" ? Qt.darker(root.accentColor, 1.15) : (themeProvider?.highlightMed ?? "#403d52");
         if (hovered)
-            return variant === "filled" ? Qt.lighter(themeProvider?.accent6 ?? "#c4a7e7", 1.12) : (themeProvider?.highlightLow ?? "#21202e");
+            return variant === "filled" ? Qt.lighter(root.accentColor, 1.12) : (themeProvider?.highlightLow ?? "#21202e");
         if (variant === "filled")
-            return themeProvider?.accent6 ?? "#c4a7e7";
+            return root.accentColor;
         return "transparent";
     }
 
-    readonly property color borderColor: variant === "outlined" ? (hovered ? (themeProvider?.accent6 ?? "#c4a7e7") : (themeProvider?.overlay ?? "#26233a")) : "transparent"
+    readonly property color borderColor: variant === "outlined" ? (hovered ? root.accentColor : (themeProvider?.overlay ?? "#26233a")) : "transparent"
 
     readonly property color fgColor: {
         if (variant === "filled")

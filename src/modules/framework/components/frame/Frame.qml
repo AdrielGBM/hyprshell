@@ -24,7 +24,7 @@ Scope {
             color: "transparent"
 
             exclusionMode: ExclusionMode.Ignore
-            WlrLayershell.layer: WlrLayer.Bottom
+            WlrLayershell.layer: WlrLayer.Background
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
             anchors {
@@ -74,15 +74,15 @@ Scope {
                 }
 
                 onPaint: {
-                    var ctx = getContext("2d");
+                    const ctx = getContext("2d");
                     ctx.reset();
 
-                    var innerRadius = frame.radius + frame.gap;
+                    const innerRadius = frame.radius + frame.gap;
 
-                    var innerLeft = frame.barSizes.left;
-                    var innerTop = frame.barSizes.top;
-                    var innerRight = width - frame.barSizes.right;
-                    var innerBottom = height - frame.barSizes.bottom;
+                    const innerLeft = frame.barSizes.left;
+                    const innerTop = frame.barSizes.top;
+                    const innerRight = width - frame.barSizes.right;
+                    const innerBottom = height - frame.barSizes.bottom;
 
                     ctx.fillStyle = frame.color;
 

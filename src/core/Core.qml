@@ -14,12 +14,14 @@ Scope {
     property IconProvider iconProvider: IconProvider {}
 
     Background {
-        config: core.settingsProvider.background
         themeProvider: core.themeProvider
+        config: core.settingsProvider.background
     }
 
     Framework {
-        config: core.settingsProvider.framework
         themeProvider: core.themeProvider
+        iconProvider: core.iconProvider
+        config: core.settingsProvider.framework
+        saveConfig: values => core.settingsProvider.save("framework", values)
     }
 }

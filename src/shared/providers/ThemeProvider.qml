@@ -10,7 +10,7 @@ QtObject {
     }
 
     property var themeList: (function () {
-            var themes = [
+            const themes = [
                 {
                     key: "rose-pine-main"
                 },
@@ -22,7 +22,7 @@ QtObject {
                 }
             ];
 
-            var result = [];
+            const result = [];
             for (let i = 0; i < themes.length; i++) {
                 const themeObj = Qt.createComponent("../../../assets/themes/" + themes[i].key + "/Theme.qml").createObject(themeProvider);
                 if (themeObj) {
@@ -40,7 +40,7 @@ QtObject {
         })()
 
     property var themes: (function () {
-            var map = {};
+            const map = {};
             for (let i = 0; i < themeProvider.themeList.length; ++i)
                 map[themeProvider.themeList[i].key] = themeProvider.themeList[i];
             return map;
