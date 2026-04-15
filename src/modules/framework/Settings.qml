@@ -9,11 +9,6 @@ QtObject {
     property int inactiveBarSize: 16
     property int activeBarSize: 40
 
-    property bool topBarActive: true
-    property bool leftBarActive: false
-    property bool rightBarActive: true
-    property bool bottomBarActive: false
-
     property int drawerWidth: 200
     property int drawerHeight: 200
     property var pushedDrawerSlots: []
@@ -33,14 +28,6 @@ QtObject {
             inactiveBarSize = cfg.inactiveBarSize;
         if (cfg.activeBarSize !== undefined)
             activeBarSize = cfg.activeBarSize;
-        if (cfg.topBarActive !== undefined)
-            topBarActive = cfg.topBarActive;
-        if (cfg.leftBarActive !== undefined)
-            leftBarActive = cfg.leftBarActive;
-        if (cfg.rightBarActive !== undefined)
-            rightBarActive = cfg.rightBarActive;
-        if (cfg.bottomBarActive !== undefined)
-            bottomBarActive = cfg.bottomBarActive;
         if (cfg.drawerWidth !== undefined)
             drawerWidth = cfg.drawerWidth;
         if (cfg.drawerHeight !== undefined)
