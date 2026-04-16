@@ -54,6 +54,12 @@ Scope {
             item.moduleRegistry = Qt.binding(function () {
                 return bar.moduleRegistry;
             });
+        if ("barPosition" in item)
+            item.barPosition = Qt.binding(function () {
+                return bar.position;
+            });
+        if ("barIndex" in item)
+            item.barIndex = bar.slotOffset(slotName) + slotIndex;
         if (typeof entry === "object" && entry !== null) {
             if ("accentColor" in item && entry.accent)
                 item.accentColor = bar.resolveAccent(entry);
@@ -107,11 +113,23 @@ Scope {
                 anchors.margins: bar.padding
                 visible: bar.barSizes[bar.position] !== bar.barSizes.inactive
 
+                readonly property bool hHasLeft: (bar.slotConfig.left ?? []).length > 0
+                readonly property bool hHasCenter: (bar.slotConfig.center ?? []).length > 0
+                readonly property bool hHasRight: (bar.slotConfig.right ?? []).length > 0
+                readonly property bool vHasTop: (bar.slotConfig.top ?? []).length > 0
+                readonly property bool vHasCenter: (bar.slotConfig.center ?? []).length > 0
+                readonly property bool vHasBottom: (bar.slotConfig.bottom ?? []).length > 0
+                readonly property real hSlotMax: (hHasCenter && (hHasLeft || hHasRight)) ? parent.width / 3 : parent.width / Math.max(1, (hHasLeft ? 1 : 0) + (hHasCenter ? 1 : 0) + (hHasRight ? 1 : 0))
+                readonly property real vSlotMax: (vHasCenter && (vHasTop || vHasBottom)) ? parent.height / 3 : parent.height / Math.max(1, (vHasTop ? 1 : 0) + (vHasCenter ? 1 : 0) + (vHasBottom ? 1 : 0))
+
                 Row {
                     visible: bar.isHorizontal
                     anchors.left: parent.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
+                    width: Math.min(implicitWidth, parent.hSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.left ?? []
@@ -131,6 +149,9 @@ Scope {
                 Row {
                     visible: bar.isHorizontal
                     anchors.centerIn: parent
+                    width: Math.min(implicitWidth, parent.hSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.center ?? []
@@ -152,6 +173,9 @@ Scope {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
+                    width: Math.min(implicitWidth, parent.hSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.right ?? []
@@ -173,6 +197,9 @@ Scope {
                     anchors.top: parent.top
                     anchors.left: parent.left
                     anchors.right: parent.right
+                    height: Math.min(implicitHeight, parent.vSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.top ?? []
@@ -192,6 +219,9 @@ Scope {
                 Column {
                     visible: !bar.isHorizontal
                     anchors.centerIn: parent
+                    height: Math.min(implicitHeight, parent.vSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.center ?? []
@@ -213,6 +243,9 @@ Scope {
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
                     anchors.right: parent.right
+                    height: Math.min(implicitHeight, parent.vSlotMax)
+                    spacing: bar.gap
+                    clip: true
 
                     Repeater {
                         model: bar.slotConfig.bottom ?? []
