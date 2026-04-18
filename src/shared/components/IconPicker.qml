@@ -22,13 +22,13 @@ Item {
         return list.filter(n => n.includes(q));
     }
 
-    readonly property color bg: root.themeProvider ? root.themeProvider.surface : "#1f1d2e"
-    readonly property color borderColor: root.themeProvider ? root.themeProvider.overlay : "#26233a"
-    readonly property color textColor: root.themeProvider ? root.themeProvider.text : "#e0def4"
-    readonly property color muted: root.themeProvider ? root.themeProvider.muted : "#6e6a86"
-    readonly property color accent: root.themeProvider ? root.themeProvider.accent6 : "#c4a7e7"
-    readonly property color hoverColor: root.themeProvider ? root.themeProvider.highlightMed : "#403d52"
-    readonly property color selectedColor: root.themeProvider ? root.themeProvider.highlightHigh : "#524f67"
+    readonly property color bg: root.themeProvider?.surface
+    readonly property color borderColor: root.themeProvider?.overlay
+    readonly property color textColor: root.themeProvider?.text
+    readonly property color muted: root.themeProvider?.muted
+    readonly property color accent: root.themeProvider?.accent6
+    readonly property color hoverColor: root.themeProvider?.highlightMed
+    readonly property color selectedColor: root.themeProvider?.highlightHigh
 
     readonly property int spacing: root.themeProvider?.spacing?.sm ?? 8
     readonly property int spacingXs: root.themeProvider?.spacing?.xs ?? 4
@@ -54,9 +54,10 @@ Item {
 
                 LucideIcon {
                     iconProvider: root.iconProvider
+                    themeProvider: root.themeProvider
                     name: "search"
                     size: 14
-                    color: root.muted
+                    accent: "muted"
                 }
 
                 Controls.TextField {
@@ -72,9 +73,10 @@ Item {
 
                 LucideIcon {
                     iconProvider: root.iconProvider
+                    themeProvider: root.themeProvider
                     name: "x"
                     size: 14
-                    color: root.muted
+                    accent: "muted"
                     visible: searchInput.text !== ""
 
                     MouseArea {
@@ -139,9 +141,10 @@ Item {
                 LucideIcon {
                     anchors.centerIn: parent
                     iconProvider: root.iconProvider
+                    themeProvider: root.themeProvider
                     name: modelData
                     size: 22
-                    color: isSelected ? root.accent : root.textColor
+                    accent: isSelected ? "accent6" : "text"
                 }
 
                 Controls.ToolTip {

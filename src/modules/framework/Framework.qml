@@ -2,12 +2,12 @@ pragma ComponentBehavior: Bound
 
 import Quickshell
 import QtQuick
-import Qt.labs.folderlistmodel
 
 import "./components/frame"
 import "./components/bar"
 import "./components/drawer"
 import "../../shared/components"
+import "../../shared/services"
 
 Scope {
     id: framework
@@ -17,7 +17,7 @@ Scope {
     property var config: ({})
     property var saveConfig: null
 
-    readonly property color frameColor: themeProvider ? themeProvider.overlay : "#26233a"
+    readonly property color color: themeProvider?.overlay
 
     DrawerState {
         id: rootDrawerState
@@ -61,67 +61,29 @@ Scope {
     }
 
     Component {
-        id: groupScannerComponent
-        FolderListModel {
-            showDirs: true
-            showFiles: false
-            showDotAndDotDot: false
+        id: subScannerComp
+        FolderScanner {
+            filename: "Chip.qml"
+            onItemReady: function (key, comp) {
+                rootModuleRegistry.register(key, comp);
+            }
+            onItemError: function (key, err) {
+                console.error("Plugin load error [" + key + "]:", err);
+            }
         }
     }
 
-    FolderListModel {
-        id: pluginGroupDirs
+    FolderScanner {
+        id: pluginScanner
         folder: Qt.resolvedUrl("../../plugins/")
-        showDirs: true
-        showFiles: false
-        showDotAndDotDot: false
-
-        onStatusChanged: {
-            if (status !== FolderListModel.Ready)
-                return;
-            for (let i = 0; i < count; i++) {
-                (function (entry) {
-                        const directComp = Qt.createComponent(Qt.resolvedUrl("../../plugins/" + entry + "/Chip.qml"));
-                        if (directComp.status === Component.Ready) {
-                            rootModuleRegistry.register(entry, directComp);
-                        } else if (directComp.status !== Component.Error) {
-                            directComp.statusChanged.connect(function () {
-                                if (directComp.status === Component.Ready)
-                                    rootModuleRegistry.register(entry, directComp);
-                            });
-                        }
-
-                        const scanner = groupScannerComponent.createObject(framework, {
-                            folder: Qt.resolvedUrl("../../plugins/" + entry + "/")
-                        });
-                        function processGroup() {
-                            if (scanner.status !== FolderListModel.Ready)
-                                return;
-                            for (let j = 0; j < scanner.count; j++) {
-                                (function (name) {
-                                        const comp = Qt.createComponent(Qt.resolvedUrl("../../plugins/" + entry + "/" + name + "/Chip.qml"));
-                                        if (comp.status === Component.Ready) {
-                                            rootModuleRegistry.register(name, comp);
-                                        } else if (comp.status === Component.Error) {
-                                            console.error("Plugin load error [" + name + "]:", comp.errorString());
-                                        } else {
-                                            comp.statusChanged.connect(function () {
-                                                if (comp.status === Component.Ready)
-                                                    rootModuleRegistry.register(name, comp);
-                                                else if (comp.status === Component.Error)
-                                                    console.error("Plugin load error [" + name + "]:", comp.errorString());
-                                            });
-                                        }
-                                    })(scanner.get(j, "fileName"));
-                            }
-                            scanner.statusChanged.disconnect(processGroup);
-                            scanner.destroy();
-                        }
-                        scanner.statusChanged.connect(processGroup);
-                        if (scanner.status === FolderListModel.Ready)
-                            processGroup();
-                    })(get(i, "fileName"));
-            }
+        filename: "Chip.qml"
+        onItemReady: function (key, comp) {
+            rootModuleRegistry.register(key, comp);
+        }
+        onDirFound: function (key) {
+            subScannerComp.createObject(framework, {
+                folder: Qt.resolvedUrl("../../plugins/" + key + "/")
+            });
         }
     }
 
@@ -130,7 +92,7 @@ Scope {
         sourceComponent: Frame {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
-            color: framework.frameColor
+            color: framework.color
         }
     }
 
@@ -152,7 +114,7 @@ Scope {
             drawerState: rootDrawerState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.top ?? {}
-            color: framework.frameColor
+            color: framework.color
         }
     }
 
@@ -167,7 +129,7 @@ Scope {
             drawerState: rootDrawerState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.bottom ?? {}
-            color: framework.frameColor
+            color: framework.color
         }
     }
 
@@ -182,7 +144,7 @@ Scope {
             drawerState: rootDrawerState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.left ?? {}
-            color: framework.frameColor
+            color: framework.color
         }
     }
 
@@ -197,7 +159,7 @@ Scope {
             drawerState: rootDrawerState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.right ?? {}
-            color: framework.frameColor
+            color: framework.color
         }
     }
 }

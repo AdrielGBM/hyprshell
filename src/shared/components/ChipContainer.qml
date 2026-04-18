@@ -9,7 +9,7 @@ Item {
     property var drawerState: null
     property string barPosition: ""
     property int barIndex: 0
-    property color accentColor: themeProvider?.accent ?? "#c4a7e7"
+    property color accentColor: themeProvider?.accent
     property string variant: "ghost"
     property string panelUrl: ""
 
@@ -19,7 +19,7 @@ Item {
     readonly property bool pressed: area.pressed
     readonly property bool interactive: panelUrl !== ""
 
-    readonly property color fgColor: variant === "filled" ? (themeProvider?.base ?? "#191724") : accentColor
+    readonly property color fgColor: variant === "filled" ? themeProvider?.base : accentColor
 
     implicitWidth: slot.childrenRect.width + pad * 2
     implicitHeight: slot.childrenRect.height + pad * 2
@@ -56,9 +56,9 @@ Item {
                 return root.accentColor;
             }
             if (root.pressed)
-                return root.themeProvider?.highlightMed ?? "#403d52";
+                return root.themeProvider?.highlightMed;
             if (root.hovered && root.interactive)
-                return root.themeProvider?.highlightLow ?? "#21202e";
+                return root.themeProvider?.highlightLow;
             return "transparent";
         }
 

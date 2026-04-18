@@ -1,78 +1,70 @@
 import QtQuick
+import "../services"
 
 QtObject {
     id: themeProvider
 
     property var config: ({})
     onConfigChanged: {
-        if (config && config.name !== undefined)
+        if (config?.name !== undefined)
             setTheme(config.name);
     }
 
-    property var themeList: (function () {
-            const themes = [
-                {
-                    key: "rose-pine-main"
-                },
-                {
-                    key: "rose-pine-moon"
-                },
-                {
-                    key: "rose-pine-dawn"
-                }
-            ];
+    readonly property var fallback: ({
+            base: "#191724",
+            surface: "#1f1d2e",
+            overlay: "#26233a",
+            text: "#e0def4",
+            subtle: "#908caa",
+            muted: "#6e6a86",
+            accent1: "#eb6f92",
+            accent2: "#f6c177",
+            accent3: "#ebbcba",
+            accent4: "#31748f",
+            accent5: "#9ccfd8",
+            accent6: "#c4a7e7",
+            success: "#31748f",
+            warning: "#f6c177",
+            error: "#eb6f92",
+            info: "#9ccfd8",
+            highlightLow: "#21202e",
+            highlightMed: "#403d52",
+            highlightHigh: "#524f67"
+        })
 
-            const result = [];
-            for (let i = 0; i < themes.length; i++) {
-                const themeObj = Qt.createComponent("../../../assets/themes/" + themes[i].key + "/Theme.qml").createObject(themeProvider);
-                if (themeObj) {
-                    result.push({
-                        key: themes[i].key,
-                        name: themeObj.name || themes[i].key,
-                        author: themeObj.author || "Unknown",
-                        description: themeObj.description || "",
-                        version: themeObj.version || "1.0.0",
-                        theme: themeObj
-                    });
-                }
-            }
-            return result;
-        })()
+    readonly property var active: currentTheme !== null ? currentTheme : fallback
 
-    property var themes: (function () {
-            const map = {};
-            for (let i = 0; i < themeProvider.themeList.length; ++i)
-                map[themeProvider.themeList[i].key] = themeProvider.themeList[i];
-            return map;
-        })()
+    property var themeList: []
+    property var themes: ({})
 
-    property string currentThemeName: "rose-pine-main"
-    property var currentTheme: themeProvider.themes[themeProvider.currentThemeName] ? themeProvider.themes[themeProvider.currentThemeName].theme : null
+    property string pendingThemeName: "rose-pine-main"
 
-    readonly property color base: currentTheme && currentTheme.base ? currentTheme.base : "#191724"
-    readonly property color surface: currentTheme && currentTheme.surface ? currentTheme.surface : "#1f1d2e"
-    readonly property color overlay: currentTheme && currentTheme.overlay ? currentTheme.overlay : "#26233a"
-    readonly property color text: currentTheme && currentTheme.text ? currentTheme.text : "#e0def4"
-    readonly property color subtle: currentTheme && currentTheme.subtle ? currentTheme.subtle : "#908caa"
-    readonly property color muted: currentTheme && currentTheme.muted ? currentTheme.muted : "#6e6a86"
+    property string currentThemeName: ""
+    property var currentTheme: null
 
-    readonly property color accent: currentTheme && currentTheme.accent ? currentTheme.accent : accent6
+    readonly property color base: active["base"]
+    readonly property color surface: active["surface"]
+    readonly property color overlay: active["overlay"]
+    readonly property color text: active["text"]
+    readonly property color subtle: active["subtle"]
+    readonly property color muted: active["muted"]
 
-    readonly property color accent1: currentTheme && currentTheme.accent1 ? currentTheme.accent1 : "#eb6f92"
-    readonly property color accent2: currentTheme && currentTheme.accent2 ? currentTheme.accent2 : "#f6c177"
-    readonly property color accent3: currentTheme && currentTheme.accent3 ? currentTheme.accent3 : "#ebbcba"
-    readonly property color accent4: currentTheme && currentTheme.accent4 ? currentTheme.accent4 : "#31748f"
-    readonly property color accent5: currentTheme && currentTheme.accent5 ? currentTheme.accent5 : "#9ccfd8"
-    readonly property color accent6: currentTheme && currentTheme.accent6 ? currentTheme.accent6 : "#c4a7e7"
+    readonly property color accent: active["accent"] ?? accent6
+    readonly property color accent1: active["accent1"]
+    readonly property color accent2: active["accent2"]
+    readonly property color accent3: active["accent3"]
+    readonly property color accent4: active["accent4"]
+    readonly property color accent5: active["accent5"]
+    readonly property color accent6: active["accent6"]
 
-    readonly property color success: currentTheme && currentTheme.success ? currentTheme.success : "#31748f"
-    readonly property color warning: currentTheme && currentTheme.warning ? currentTheme.warning : "#f6c177"
-    readonly property color error: currentTheme && currentTheme.error ? currentTheme.error : "#eb6f92"
-    readonly property color info: currentTheme && currentTheme.info ? currentTheme.info : "#9ccfd8"
+    readonly property color success: active["success"]
+    readonly property color warning: active["warning"]
+    readonly property color error: active["error"]
+    readonly property color info: active["info"]
 
-    readonly property color highlightLow: currentTheme && currentTheme.highlightLow ? currentTheme.highlightLow : "#21202e"
-    readonly property color highlightMed: currentTheme && currentTheme.highlightMed ? currentTheme.highlightMed : "#403d52"
-    readonly property color highlightHigh: currentTheme && currentTheme.highlightHigh ? currentTheme.highlightHigh : "#524f67"
+    readonly property color highlightLow: active["highlightLow"]
+    readonly property color highlightMed: active["highlightMed"]
+    readonly property color highlightHigh: active["highlightHigh"]
 
     readonly property var spacing: config?.spacing ?? ({
             xs: 4,
@@ -88,6 +80,37 @@ QtObject {
             xl: 16
         })
 
+    property var themeScanner: FolderScanner {
+        folder: Qt.resolvedUrl("../../../assets/themes/")
+        filename: "Theme.qml"
+
+        onItemReady: function (key, comp) {
+            const obj = comp.createObject(themeProvider);
+            if (!obj)
+                return;
+            const entry = {
+                key: key,
+                name: obj.name || key,
+                author: obj.author || "Unknown",
+                description: obj.description || "",
+                version: obj.version || "1.0.0",
+                theme: obj
+            };
+            const list = themeProvider.themeList.slice();
+            list.push(entry);
+            const map = Object.assign({}, themeProvider.themes);
+            map[key] = entry;
+            themeProvider.themeList = list;
+            themeProvider.themes = map;
+            if (themeProvider.pendingThemeName && map[themeProvider.pendingThemeName])
+                themeProvider.setTheme(themeProvider.pendingThemeName);
+        }
+
+        onItemError: function (key, error) {
+            console.error("Theme load error [" + key + "]:", error);
+        }
+    }
+
     function getThemes() {
         return themeProvider.themeList;
     }
@@ -97,9 +120,11 @@ QtObject {
             const oldTheme = currentThemeName;
             currentThemeName = themeName;
             currentTheme = themeProvider.themes[themeName].theme;
+            pendingThemeName = "";
             themeChanged(themeName, oldTheme);
             return true;
         }
+        pendingThemeName = themeName;
         return false;
     }
 

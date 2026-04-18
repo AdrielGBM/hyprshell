@@ -12,7 +12,7 @@ Scope {
     required property var drawerState
     property var themeProvider: null
 
-    readonly property color drawerColor: themeProvider ? themeProvider.overlay : "#26233a"
+    readonly property color color: themeProvider?.overlay
 
     Variants {
         model: drawerManager.drawerState.activeSide !== "" && drawerManager.drawerState.openSlots.length > 0 ? Quickshell.screens : []
@@ -55,7 +55,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
-            color: drawerManager.drawerColor
+            color: drawerManager.color
         }
     }
 
@@ -68,7 +68,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
-            color: drawerManager.drawerColor
+            color: drawerManager.color
         }
     }
 
@@ -81,7 +81,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
-            color: drawerManager.drawerColor
+            color: drawerManager.color
         }
     }
 
@@ -94,7 +94,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
-            color: drawerManager.drawerColor
+            color: drawerManager.color
         }
     }
 }

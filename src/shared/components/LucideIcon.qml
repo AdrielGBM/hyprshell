@@ -9,7 +9,10 @@ Item {
 
     property real size: 16
 
-    property color color: "#ffffff"
+    property var themeProvider: null
+    property string accent: "text"
+
+    readonly property color color: themeProvider ? themeProvider[accent] : "transparent"
 
     width: size
     height: size
@@ -45,7 +48,9 @@ Item {
         root.requestIcon();
     }
 
+    onAccentChanged: root.refreshUri()
     onColorChanged: root.refreshUri()
+
     onIconProviderChanged: root.requestIcon()
 
     Connections {

@@ -19,11 +19,7 @@ Rectangle {
     property string variant: "filled"
     property string size: "medium"
     property string accent: "accent6"
-    property color accentColor: {
-        if (themeProvider && accent !== "")
-            return themeProvider[accent] ?? "#c4a7e7";
-        return "#c4a7e7";
-    }
+    property color accentColor: themeProvider ? (themeProvider[accent] ?? themeProvider.accent6) : "transparent"
     signal clicked
 
     readonly property int hPad: size === "small" ? 8 : size === "large" ? 16 : 12
@@ -40,20 +36,20 @@ Rectangle {
 
     readonly property color bg: {
         if (pressed)
-            return variant === "filled" ? Qt.darker(root.accentColor, 1.15) : (themeProvider?.highlightMed ?? "#403d52");
+            return variant === "filled" ? Qt.darker(root.accentColor, 1.15) : themeProvider?.highlightMed;
         if (hovered)
-            return variant === "filled" ? Qt.lighter(root.accentColor, 1.12) : (themeProvider?.highlightLow ?? "#21202e");
+            return variant === "filled" ? Qt.lighter(root.accentColor, 1.12) : themeProvider?.highlightLow;
         if (variant === "filled")
             return root.accentColor;
         return "transparent";
     }
 
-    readonly property color borderColor: variant === "outlined" ? (hovered ? root.accentColor : (themeProvider?.overlay ?? "#26233a")) : "transparent"
+    readonly property color borderColor: variant === "outlined" ? (hovered ? root.accentColor : themeProvider?.overlay) : "transparent"
 
     readonly property color fgColor: {
         if (variant === "filled")
-            return themeProvider?.base ?? "#191724";
-        return hovered ? (themeProvider?.text ?? "#e0def4") : (themeProvider?.subtle ?? "#908caa");
+            return themeProvider?.base;
+        return hovered ? themeProvider?.text : themeProvider?.subtle;
     }
 
     implicitHeight: hasCustomContent ? slot.implicitHeight + vPad * 2 : defaultLayout.implicitHeight + vPad * 2
@@ -87,14 +83,10 @@ Rectangle {
         LucideIcon {
             visible: root.icon !== ""
             iconProvider: root.iconProvider
+            themeProvider: root.themeProvider
             name: root.icon
             size: root.iconSize
-            color: root.fgColor
-            Behavior on color {
-                ColorAnimation {
-                    duration: 80
-                }
-            }
+            accent: root.variant === "filled" ? "base" : (root.hovered ? "text" : "subtle")
         }
 
         Text {
