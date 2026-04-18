@@ -8,6 +8,7 @@ Scope {
     id: bar
 
     property string position
+    property bool frameMode: false
     property BarSizes barSizes
     property var themeProvider: null
     property var iconProvider: null
@@ -93,10 +94,10 @@ Scope {
             }
 
             margins {
-                top: (bar.position === "left" || bar.position === "right" ? bar.barSizes.top + bar.gap : 0)
-                bottom: (bar.position === "left" || bar.position === "right" ? bar.barSizes.bottom + bar.gap : 0)
-                left: (bar.position === "top" || bar.position === "bottom" ? bar.gap : 0)
-                right: (bar.position === "top" || bar.position === "bottom" ? bar.gap : 0)
+                top: (bar.position === "left" || bar.position === "right") ? bar.barSizes.top + bar.gap * (bar.frameMode ? 1 : 2) : (bar.position === "top" && !bar.frameMode ? bar.gap : 0)
+                bottom: (bar.position === "left" || bar.position === "right") ? bar.barSizes.bottom + bar.gap * (bar.frameMode ? 1 : 2) : (bar.position === "bottom" && !bar.frameMode ? bar.gap : 0)
+                left: (bar.position === "top" || bar.position === "bottom") ? bar.gap : (bar.position === "left" && !bar.frameMode ? bar.gap : 0)
+                right: (bar.position === "top" || bar.position === "bottom") ? bar.gap : (bar.position === "right" && !bar.frameMode ? bar.gap : 0)
             }
 
             implicitWidth: bar.position === "left" || bar.position === "right" ? bar.barSizes[bar.position] : modelData.width

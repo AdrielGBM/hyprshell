@@ -8,6 +8,8 @@ QtObject {
     property var openSlots: []
     property var pushedSlots: ({})
 
+    property var pushedBars: ({})
+
     property int slot1BarIndex: -1
     property int slot2BarIndex: -1
 
@@ -52,9 +54,97 @@ QtObject {
         }
     }
 
+    function closeSide(side) {
+        const slot1Id = side + "-1";
+        const slot2Id = side + "-2";
+        if (isPush(slot1Id)) {
+            slot1BarIndex = -1;
+            disablePush(slot1Id);
+        }
+        if (isPush(slot2Id)) {
+            slot2BarIndex = -1;
+            disablePush(slot2Id);
+        }
+        if (activeSide === side) {
+            const prevSlots = openSlots.slice();
+            openSlots = [];
+            activeSide = "";
+            slot1BarIndex = -1;
+            slot2BarIndex = -1;
+            for (let i = 0; i < prevSlots.length; i++)
+                drawerClosed(side + "-" + prevSlots[i]);
+        }
+    }
+
+    function convertSide(side, toPush) {
+        const slot1Id = side + "-1";
+        const slot2Id = side + "-2";
+
+        if (toPush) {
+            if (activeSide !== side)
+                return;
+            const slots = openSlots.slice();
+            openSlots = [];
+            activeSide = "";
+            for (let i = 0; i < slots.length; i++)
+                _addPushedSlot(side + "-" + slots[i]);
+        } else {
+            const wasPush1 = isPush(slot1Id);
+            const wasPush2 = isPush(slot2Id);
+            if (!wasPush1 && !wasPush2)
+                return;
+
+            _closePreviousActiveSide(side);
+
+            const newOpen = openSlots.slice();
+            if (wasPush1) {
+                _removePushedSlot(slot1Id);
+                if (newOpen.indexOf(1) === -1)
+                    newOpen.push(1);
+            }
+            if (wasPush2) {
+                _removePushedSlot(slot2Id);
+                if (newOpen.indexOf(2) === -1)
+                    newOpen.push(2);
+            }
+            newOpen.sort(function (a, b) {
+                return a - b;
+            });
+            activeSide = side;
+            openSlots = newOpen;
+        }
+    }
+
     function openDrawer(side, barIndex, contentComponent, properties, accent) {
         const slot1Id = side + "-1";
         const slot2Id = side + "-2";
+
+        if (pushedBars[side]) {
+            if (isPush(slot1Id) && slot1BarIndex === barIndex) {
+                slot1BarIndex = -1;
+                disablePush(slot1Id);
+                return;
+            }
+            if (isPush(slot2Id) && slot2BarIndex === barIndex) {
+                slot2BarIndex = -1;
+                disablePush(slot2Id);
+                return;
+            }
+            if (isPush(slot1Id) && isPush(slot2Id))
+                return;
+            if (!isPush(slot1Id)) {
+                slot1BarIndex = barIndex;
+                setContent(slot1Id, contentComponent, properties, accent);
+                _addPushedSlot(slot1Id);
+                drawerOpened(slot1Id);
+                return;
+            }
+            slot2BarIndex = barIndex;
+            setContent(slot2Id, contentComponent, properties, accent);
+            _addPushedSlot(slot2Id);
+            drawerOpened(slot2Id);
+            return;
+        }
 
         if (activeSide === side && isOpenOverlay(slot1Id) && slot1BarIndex === barIndex) {
             if (isOpenOverlay(slot2Id)) {
@@ -80,16 +170,8 @@ QtObject {
             slot2BarIndex = barIndex;
             setContent(slot2Id, contentComponent, properties, accent);
             if (!isOpenOverlay(slot2Id)) {
-                if (activeSide !== "" && activeSide !== side) {
-                    const p = activeSide;
-                    const ps = openSlots.slice();
-                    openSlots = [];
-                    activeSide = side;
-                    for (let j = 0; j < ps.length; j++)
-                        drawerClosed(p + "-" + ps[j]);
-                } else {
-                    activeSide = side;
-                }
+                _closePreviousActiveSide(side);
+                activeSide = side;
                 if (openSlots.indexOf(2) === -1) {
                     openSlots = openSlots.concat([2]);
                 }
@@ -153,18 +235,14 @@ QtObject {
             if (openSlots.length === 0)
                 activeSide = "";
         }
-        const updated = Object.assign({}, pushedSlots);
-        updated[id] = true;
-        pushedSlots = updated;
+        _addPushedSlot(id);
         drawerOpened(id);
     }
 
     function disablePush(id) {
         if (!isPush(id))
             return;
-        const updated = Object.assign({}, pushedSlots);
-        delete updated[id];
-        pushedSlots = updated;
+        _removePushedSlot(id);
         drawerClosed(id);
     }
 
@@ -232,16 +310,8 @@ QtObject {
         const side = parts.side;
         const slot = parts.slot;
 
-        if (activeSide !== "" && activeSide !== side) {
-            const prevSide = activeSide;
-            const prevSlots = openSlots.slice();
-            openSlots = [];
-            activeSide = side;
-            for (let i = 0; i < prevSlots.length; i++)
-                drawerClosed(prevSide + "-" + prevSlots[i]);
-        } else {
-            activeSide = side;
-        }
+        _closePreviousActiveSide(side);
+        activeSide = side;
 
         if (slot === 2 && openSlots.indexOf(1) === -1 && !isPush(side + "-1"))
             return;
@@ -280,5 +350,28 @@ QtObject {
         }
         if (openSlots.length === 0)
             activeSide = "";
+    }
+
+    function _addPushedSlot(id) {
+        const updated = Object.assign({}, pushedSlots);
+        updated[id] = true;
+        pushedSlots = updated;
+    }
+
+    function _removePushedSlot(id) {
+        const updated = Object.assign({}, pushedSlots);
+        delete updated[id];
+        pushedSlots = updated;
+    }
+
+    function _closePreviousActiveSide(side) {
+        if (activeSide !== "" && activeSide !== side) {
+            const prevSide = activeSide;
+            const prevSlots = openSlots.slice();
+            openSlots = [];
+            activeSide = "";
+            for (let i = 0; i < prevSlots.length; i++)
+                drawerClosed(prevSide + "-" + prevSlots[i]);
+        }
     }
 }

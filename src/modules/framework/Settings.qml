@@ -11,7 +11,6 @@ QtObject {
 
     property int drawerWidth: 200
     property int drawerHeight: 200
-    property var pushedDrawerSlots: []
     property var bars: ({})
 
     property var config: ({})
@@ -22,19 +21,17 @@ QtObject {
             return;
         if (cfg.scale !== undefined)
             scale = cfg.scale;
-        if (cfg.frameMode !== undefined)
-            frameMode = cfg.frameMode;
         if (cfg.inactiveBarSize !== undefined)
             inactiveBarSize = cfg.inactiveBarSize;
         if (cfg.activeBarSize !== undefined)
             activeBarSize = cfg.activeBarSize;
+        if (cfg.bars !== undefined)
+            bars = cfg.bars;
+        if (cfg.frameMode !== undefined)
+            frameMode = cfg.frameMode;
         if (cfg.drawerWidth !== undefined)
             drawerWidth = cfg.drawerWidth;
         if (cfg.drawerHeight !== undefined)
             drawerHeight = cfg.drawerHeight;
-        if (cfg.pushedDrawerSlots !== undefined)
-            pushedDrawerSlots = cfg.pushedDrawerSlots;
-        if (cfg.bars !== undefined)
-            bars = cfg.bars;
     }
 }

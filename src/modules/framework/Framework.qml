@@ -37,36 +37,26 @@ Scope {
         settings: rootSettings
     }
 
-    property bool settingsLoaded: false
-
     Connections {
         target: rootSettings
-        function onPushedDrawerSlotsChanged() {
-            framework.settingsLoaded = true;
-
-            const pushed = {};
-            const slots = rootSettings.pushedDrawerSlots;
-            for (let i = 0; i < slots.length; i++)
-                pushed[slots[i]] = true;
-
-            const prev = Object.keys(rootDrawerState.pushedSlots).sort().join(",");
-            const next = Object.keys(pushed).sort().join(",");
-            if (prev !== next)
-                rootDrawerState.pushedSlots = pushed;
-        }
-    }
-
-    Connections {
-        target: rootDrawerState
-        function onPushedSlotsChanged() {
-            if (!framework.settingsLoaded || !framework.saveConfig)
-                return;
-            const saved = (rootSettings.pushedDrawerSlots || []).slice().sort().join(",");
-            const current = Object.keys(rootDrawerState.pushedSlots).sort().join(",");
-            if (saved !== current)
-                framework.saveConfig({
-                    pushedDrawerSlots: Object.keys(rootDrawerState.pushedSlots)
-                });
+        function onBarsChanged() {
+            const bars = rootSettings.bars;
+            const sides = ["top", "bottom", "left", "right"];
+            const newPushedBars = {};
+            for (let i = 0; i < sides.length; i++) {
+                const side = sides[i];
+                if (bars[side]?.pushed)
+                    newPushedBars[side] = true;
+            }
+            const oldPushedBars = rootDrawerState.pushedBars;
+            for (let i = 0; i < sides.length; i++) {
+                const side = sides[i];
+                const wasP = oldPushedBars[side] === true;
+                const isP = newPushedBars[side] === true;
+                if (wasP !== isP)
+                    rootDrawerState.convertSide(side, isP);
+            }
+            rootDrawerState.pushedBars = newPushedBars;
         }
     }
 
@@ -154,6 +144,7 @@ Scope {
         active: rootSettings.frameMode || rootBarSizes.top !== 0
         sourceComponent: Bar {
             position: "top"
+            frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
@@ -168,6 +159,7 @@ Scope {
         active: rootSettings.frameMode || rootBarSizes.bottom !== 0
         sourceComponent: Bar {
             position: "bottom"
+            frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
@@ -182,6 +174,7 @@ Scope {
         active: rootSettings.frameMode || rootBarSizes.left !== 0
         sourceComponent: Bar {
             position: "left"
+            frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
@@ -196,6 +189,7 @@ Scope {
         active: rootSettings.frameMode || rootBarSizes.right !== 0
         sourceComponent: Bar {
             position: "right"
+            frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
