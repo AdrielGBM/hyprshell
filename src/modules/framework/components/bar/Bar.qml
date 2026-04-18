@@ -18,7 +18,7 @@ Scope {
 
     property color color
 
-    readonly property int gap: themeProvider?.spacing?.lg ?? 16
+    readonly property int gap: themeProvider?.spacing?.sm ?? 8
     readonly property int radius: themeProvider?.radius?.md ?? 8
     readonly property int padding: themeProvider?.spacing?.xs ?? 4
     readonly property bool isHorizontal: position === "top" || position === "bottom"
@@ -64,6 +64,8 @@ Scope {
         if (typeof entry === "object" && entry !== null) {
             if ("accentColor" in item && entry.accent)
                 item.accentColor = bar.resolveAccent(entry);
+            if ("variant" in item && entry.variant)
+                item.variant = entry.variant;
         }
     }
 

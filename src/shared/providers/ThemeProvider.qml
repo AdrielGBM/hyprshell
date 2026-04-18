@@ -56,6 +56,8 @@ QtObject {
     readonly property color subtle: currentTheme && currentTheme.subtle ? currentTheme.subtle : "#908caa"
     readonly property color muted: currentTheme && currentTheme.muted ? currentTheme.muted : "#6e6a86"
 
+    readonly property color accent: currentTheme && currentTheme.accent ? currentTheme.accent : accent6
+
     readonly property color accent1: currentTheme && currentTheme.accent1 ? currentTheme.accent1 : "#eb6f92"
     readonly property color accent2: currentTheme && currentTheme.accent2 ? currentTheme.accent2 : "#f6c177"
     readonly property color accent3: currentTheme && currentTheme.accent3 ? currentTheme.accent3 : "#ebbcba"
