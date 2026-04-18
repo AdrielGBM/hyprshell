@@ -74,6 +74,19 @@ QtObject {
             for (let i = 0; i < prevSlots.length; i++)
                 drawerClosed(side + "-" + prevSlots[i]);
         }
+
+        const updatedContents = Object.assign({}, contents);
+        const updatedProps = Object.assign({}, contentProperties);
+        const updatedAccents = Object.assign({}, accents);
+        delete updatedContents[slot1Id];
+        delete updatedContents[slot2Id];
+        delete updatedProps[slot1Id];
+        delete updatedProps[slot2Id];
+        delete updatedAccents[slot1Id];
+        delete updatedAccents[slot2Id];
+        contents = updatedContents;
+        contentProperties = updatedProps;
+        accents = updatedAccents;
     }
 
     function convertSide(side, toPush) {

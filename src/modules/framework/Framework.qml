@@ -114,6 +114,7 @@ Scope {
                                         }
                                     })(scanner.get(j, "fileName"));
                             }
+                            scanner.statusChanged.disconnect(processGroup);
                             scanner.destroy();
                         }
                         scanner.statusChanged.connect(processGroup);
