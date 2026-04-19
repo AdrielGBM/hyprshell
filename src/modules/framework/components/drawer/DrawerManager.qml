@@ -14,85 +14,113 @@ Scope {
 
     readonly property color color: themeProvider?.overlay
 
-    Variants {
-        model: drawerManager.drawerState.activeSide !== "" && drawerManager.drawerState.openSlots.length > 0 ? Quickshell.screens : []
-
-        PanelWindow {
-            required property var modelData
-
-            screen: modelData
-            color: "transparent"
-            WlrLayershell.layer: WlrLayer.Top
-            WlrLayershell.exclusiveZone: -1
-
-            anchors {
-                top: true
-                bottom: true
-                left: true
-                right: true
-            }
-
-            margins {
-                top: drawerManager.barSizes.top
-                bottom: drawerManager.barSizes.bottom
-                left: drawerManager.barSizes.left
-                right: drawerManager.barSizes.right
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: drawerManager.drawerState.close()
-            }
-        }
-    }
-
     Loader {
-        active: drawerManager.drawerState.isOpen("top-1") || drawerManager.drawerState.isOpen("top-2")
+        active: drawerManager.drawerState.openDrawers["top"] !== undefined
         sourceComponent: Drawer {
             side: "top"
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
     }
 
     Loader {
-        active: drawerManager.drawerState.isOpen("bottom-1") || drawerManager.drawerState.isOpen("bottom-2")
+        active: drawerManager.drawerState.openDrawers["bottom"] !== undefined
         sourceComponent: Drawer {
             side: "bottom"
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
     }
 
     Loader {
-        active: drawerManager.drawerState.isOpen("left-1") || drawerManager.drawerState.isOpen("left-2")
+        active: drawerManager.drawerState.openDrawers["left"] !== undefined
         sourceComponent: Drawer {
             side: "left"
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
     }
 
     Loader {
-        active: drawerManager.drawerState.isOpen("right-1") || drawerManager.drawerState.isOpen("right-2")
+        active: drawerManager.drawerState.openDrawers["right"] !== undefined
         sourceComponent: Drawer {
             side: "right"
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
+            themeProvider: drawerManager.themeProvider
+            color: drawerManager.color
+        }
+    }
+
+    Loader {
+        active: drawerManager.drawerState.activePanelSide === "top"
+        sourceComponent: Panel {
+            side: "top"
+            drawerState: drawerManager.drawerState
+            barSizes: drawerManager.barSizes
+            drawerWidth: drawerManager.settings.drawerWidth
+            drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
+            themeProvider: drawerManager.themeProvider
+            color: drawerManager.color
+        }
+    }
+
+    Loader {
+        active: drawerManager.drawerState.activePanelSide === "bottom"
+        sourceComponent: Panel {
+            side: "bottom"
+            drawerState: drawerManager.drawerState
+            barSizes: drawerManager.barSizes
+            drawerWidth: drawerManager.settings.drawerWidth
+            drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
+            themeProvider: drawerManager.themeProvider
+            color: drawerManager.color
+        }
+    }
+
+    Loader {
+        active: drawerManager.drawerState.activePanelSide === "left"
+        sourceComponent: Panel {
+            side: "left"
+            drawerState: drawerManager.drawerState
+            barSizes: drawerManager.barSizes
+            drawerWidth: drawerManager.settings.drawerWidth
+            drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
+            themeProvider: drawerManager.themeProvider
+            color: drawerManager.color
+        }
+    }
+
+    Loader {
+        active: drawerManager.drawerState.activePanelSide === "right"
+        sourceComponent: Panel {
+            side: "right"
+            drawerState: drawerManager.drawerState
+            barSizes: drawerManager.barSizes
+            drawerWidth: drawerManager.settings.drawerWidth
+            drawerHeight: drawerManager.settings.drawerHeight
+            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }

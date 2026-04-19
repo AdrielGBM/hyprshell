@@ -18,9 +18,9 @@ Scope {
 
     property color color
 
-    readonly property int gap: themeProvider?.spacing?.sm ?? 8
-    readonly property int radius: themeProvider?.radius?.md ?? 8
-    readonly property int padding: themeProvider?.spacing?.xs ?? 4
+    readonly property int gap: bar.barSizes.settings.baseGap
+    readonly property int radius: bar.barSizes.settings.baseRadius
+    readonly property int padding: Math.round(bar.barSizes.settings.baseGap / 2)
     readonly property bool isHorizontal: position === "top" || position === "bottom"
 
     function resolveComponent(entry) {
@@ -96,8 +96,8 @@ Scope {
             }
 
             margins {
-                top: (bar.position === "left" || bar.position === "right") ? bar.barSizes.top + bar.gap * (bar.frameMode ? 1 : 2) : (bar.position === "top" && !bar.frameMode ? bar.gap : 0)
-                bottom: (bar.position === "left" || bar.position === "right") ? bar.barSizes.bottom + bar.gap * (bar.frameMode ? 1 : 2) : (bar.position === "bottom" && !bar.frameMode ? bar.gap : 0)
+                top: (bar.position === "left" || bar.position === "right") ? bar.barSizes.top + bar.gap * (bar.frameMode ? 1 : (bar.barSizes.top > 0 ? 2 : 1)) : (bar.position === "top" && !bar.frameMode ? bar.gap : 0)
+                bottom: (bar.position === "left" || bar.position === "right") ? bar.barSizes.bottom + bar.gap * (bar.frameMode ? 1 : (bar.barSizes.bottom > 0 ? 2 : 1)) : (bar.position === "bottom" && !bar.frameMode ? bar.gap : 0)
                 left: (bar.position === "top" || bar.position === "bottom") ? bar.gap : (bar.position === "left" && !bar.frameMode ? bar.gap : 0)
                 right: (bar.position === "top" || bar.position === "bottom") ? bar.gap : (bar.position === "right" && !bar.frameMode ? bar.gap : 0)
             }

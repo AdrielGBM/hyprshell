@@ -26,7 +26,7 @@ Rectangle {
     readonly property int vPad: size === "small" ? 4 : size === "large" ? 10 : 6
     readonly property int iconSize: size === "small" ? 12 : size === "large" ? 16 : 14
     readonly property int fontSize: {
-        const base = themeProvider?.font?.size ?? 12;
+        const base = themeProvider?.font?.size;
         if (size === "small")
             return base - 1;
         if (size === "large")
@@ -101,7 +101,7 @@ Rectangle {
             text: root.text
             color: root.fgColor
             font.pixelSize: root.fontSize
-            font.family: root.themeProvider?.font?.family ?? ""
+            font.family: root.themeProvider?.font?.family
             font.weight: Font.Medium
             verticalAlignment: Text.AlignVCenter
             Behavior on color {

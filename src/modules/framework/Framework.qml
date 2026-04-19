@@ -21,6 +21,7 @@ Scope {
 
     DrawerState {
         id: rootDrawerState
+        drawerOrientation: rootSettings.drawerOrientation
     }
 
     ModuleRegistry {
@@ -35,29 +36,6 @@ Scope {
     BarSizes {
         id: rootBarSizes
         settings: rootSettings
-    }
-
-    Connections {
-        target: rootSettings
-        function onBarsChanged() {
-            const bars = rootSettings.bars;
-            const sides = ["top", "bottom", "left", "right"];
-            const newPushedBars = {};
-            for (let i = 0; i < sides.length; i++) {
-                const side = sides[i];
-                if (bars[side]?.pushed)
-                    newPushedBars[side] = true;
-            }
-            const oldPushedBars = rootDrawerState.pushedBars;
-            for (let i = 0; i < sides.length; i++) {
-                const side = sides[i];
-                const wasP = oldPushedBars[side] === true;
-                const isP = newPushedBars[side] === true;
-                if (wasP !== isP)
-                    rootDrawerState.convertSide(side, isP);
-            }
-            rootDrawerState.pushedBars = newPushedBars;
-        }
     }
 
     Component {
@@ -93,6 +71,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             color: framework.color
+            settings: rootSettings
         }
     }
 

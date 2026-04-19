@@ -9,6 +9,7 @@ Item {
     property var drawerState: null
     property string barPosition: ""
     property int barIndex: 0
+
     property color accentColor: themeProvider?.accent
     property string variant: "ghost"
     property string panelUrl: ""
