@@ -6,6 +6,7 @@ import QtQuick
 import "./components/frame"
 import "./components/bar"
 import "./components/drawer"
+import "./components/corner"
 import "../../shared/components"
 import "../../shared/services"
 
@@ -138,6 +139,70 @@ Scope {
             drawerState: rootDrawerState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.right ?? {}
+            color: framework.color
+        }
+    }
+
+    Loader {
+        active: rootBarSizes.top > rootBarSizes.inactive && rootBarSizes.left > rootBarSizes.inactive && !!(rootSettings.corners.topLeft)
+        sourceComponent: Corner {
+            position: "topLeft"
+            frameMode: rootSettings.frameMode
+            barSizes: rootBarSizes
+            settings: rootSettings
+            themeProvider: framework.themeProvider
+            iconProvider: framework.iconProvider
+            moduleRegistry: rootModuleRegistry
+            drawerState: rootDrawerState
+            itemConfig: rootSettings.corners.topLeft ?? null
+            color: framework.color
+        }
+    }
+
+    Loader {
+        active: rootBarSizes.top > rootBarSizes.inactive && rootBarSizes.right > rootBarSizes.inactive && !!(rootSettings.corners.topRight)
+        sourceComponent: Corner {
+            position: "topRight"
+            frameMode: rootSettings.frameMode
+            barSizes: rootBarSizes
+            settings: rootSettings
+            themeProvider: framework.themeProvider
+            iconProvider: framework.iconProvider
+            moduleRegistry: rootModuleRegistry
+            drawerState: rootDrawerState
+            itemConfig: rootSettings.corners.topRight ?? null
+            color: framework.color
+        }
+    }
+
+    Loader {
+        active: rootBarSizes.bottom > rootBarSizes.inactive && rootBarSizes.left > rootBarSizes.inactive && !!(rootSettings.corners.bottomLeft)
+        sourceComponent: Corner {
+            position: "bottomLeft"
+            frameMode: rootSettings.frameMode
+            barSizes: rootBarSizes
+            settings: rootSettings
+            themeProvider: framework.themeProvider
+            iconProvider: framework.iconProvider
+            moduleRegistry: rootModuleRegistry
+            drawerState: rootDrawerState
+            itemConfig: rootSettings.corners.bottomLeft ?? null
+            color: framework.color
+        }
+    }
+
+    Loader {
+        active: rootBarSizes.bottom > rootBarSizes.inactive && rootBarSizes.right > rootBarSizes.inactive && !!(rootSettings.corners.bottomRight)
+        sourceComponent: Corner {
+            position: "bottomRight"
+            frameMode: rootSettings.frameMode
+            barSizes: rootBarSizes
+            settings: rootSettings
+            themeProvider: framework.themeProvider
+            iconProvider: framework.iconProvider
+            moduleRegistry: rootModuleRegistry
+            drawerState: rootDrawerState
+            itemConfig: rootSettings.corners.bottomRight ?? null
             color: framework.color
         }
     }

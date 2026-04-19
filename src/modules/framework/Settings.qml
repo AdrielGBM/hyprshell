@@ -15,9 +15,25 @@ QtObject {
     property int drawerHeight: 200
     property string drawerOrientation: "vertical"
     property var bars: ({})
+    property var corners: ({})
 
     property var config: ({})
     onConfigChanged: applyConfig(config)
+
+    function normalizeCorners(raw) {
+        const result = {};
+        const positions = ["topLeft", "topRight", "bottomLeft", "bottomRight"];
+        for (let i = 0; i < positions.length; i++) {
+            const pos = positions[i];
+            if (raw[pos] !== undefined && raw[pos] !== null) {
+                const val = raw[pos];
+                result[pos] = typeof val === "string" ? {
+                    id: val
+                } : val;
+            }
+        }
+        return result;
+    }
 
     function normalizeBars(raw) {
         const result = {};
@@ -56,6 +72,8 @@ QtObject {
             activeBarSize = cfg.activeBarSize;
         if (cfg.bars !== undefined)
             bars = normalizeBars(cfg.bars);
+        if (cfg.corners !== undefined)
+            corners = normalizeCorners(cfg.corners);
         if (cfg.frameMode !== undefined)
             frameMode = cfg.frameMode;
         if (cfg.drawerWidth !== undefined)

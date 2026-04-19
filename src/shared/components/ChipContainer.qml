@@ -23,7 +23,7 @@ Item {
 
     readonly property color fgColor: variant === "filled" ? themeProvider?.base : accentColor
 
-    readonly property real effectivePad: isVertical ? Math.max(pad, (width - slot.childrenRect.width) / 2) : Math.max(pad, (height - slot.childrenRect.height) / 2)
+    readonly property real effectivePad: isVertical ? Math.max(0, (width - slot.childrenRect.width) / 2) : Math.max(0, (height - slot.childrenRect.height) / 2)
 
     implicitWidth: isVertical ? slot.childrenRect.width + pad * 2 : slot.childrenRect.width + effectivePad * 2
     implicitHeight: isVertical ? slot.childrenRect.height + effectivePad * 2 : slot.childrenRect.height + pad * 2
