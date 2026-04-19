@@ -79,6 +79,10 @@ QtObject {
             lg: 12,
             xl: 16
         })
+    readonly property var font: config?.font ?? ({
+            family: "",
+            size: 12
+        })
 
     property var themeScanner: FolderScanner {
         folder: Qt.resolvedUrl("../../../assets/themes/")

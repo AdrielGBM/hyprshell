@@ -25,7 +25,14 @@ Rectangle {
     readonly property int hPad: size === "small" ? 8 : size === "large" ? 16 : 12
     readonly property int vPad: size === "small" ? 4 : size === "large" ? 10 : 6
     readonly property int iconSize: size === "small" ? 12 : size === "large" ? 16 : 14
-    readonly property int fontSize: size === "small" ? 11 : size === "large" ? 13 : 12
+    readonly property int fontSize: {
+        const base = themeProvider?.font?.size ?? 12;
+        if (size === "small")
+            return base - 1;
+        if (size === "large")
+            return base + 1;
+        return base;
+    }
     readonly property int gap: size === "small" ? 4 : size === "large" ? 8 : 6
     readonly property int r: themeProvider?.radius?.md ?? 6
 
@@ -94,6 +101,7 @@ Rectangle {
             text: root.text
             color: root.fgColor
             font.pixelSize: root.fontSize
+            font.family: root.themeProvider?.font?.family ?? ""
             font.weight: Font.Medium
             verticalAlignment: Text.AlignVCenter
             Behavior on color {

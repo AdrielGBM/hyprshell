@@ -15,14 +15,17 @@ Item {
 
     readonly property int pad: themeProvider?.spacing?.sm ?? 8
     readonly property int r: themeProvider?.radius?.md ?? 8
+    readonly property bool isVertical: barPosition === "left" || barPosition === "right"
     readonly property bool hovered: area.containsMouse
     readonly property bool pressed: area.pressed
     readonly property bool interactive: panelUrl !== ""
 
     readonly property color fgColor: variant === "filled" ? themeProvider?.base : accentColor
 
-    implicitWidth: slot.childrenRect.width + pad * 2
-    implicitHeight: slot.childrenRect.height + pad * 2
+    readonly property real effectivePad: isVertical ? Math.max(pad, (width - slot.childrenRect.width) / 2) : Math.max(pad, (height - slot.childrenRect.height) / 2)
+
+    implicitWidth: isVertical ? slot.childrenRect.width + pad * 2 : slot.childrenRect.width + effectivePad * 2
+    implicitHeight: isVertical ? slot.childrenRect.height + effectivePad * 2 : slot.childrenRect.height + pad * 2
 
     property var panelComponent: null
 
@@ -43,8 +46,8 @@ Item {
     Rectangle {
         id: chip
         anchors.centerIn: parent
-        width: slot.childrenRect.width + root.pad * 2
-        height: slot.childrenRect.height + root.pad * 2
+        width: root.isVertical ? root.width : slot.childrenRect.width + root.effectivePad * 2
+        height: root.isVertical ? slot.childrenRect.height + root.effectivePad * 2 : root.height
         radius: root.r
 
         readonly property color bg: {
