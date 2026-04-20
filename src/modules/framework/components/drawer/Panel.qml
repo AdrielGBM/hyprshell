@@ -12,6 +12,7 @@ Scope {
     required property var barSizes
     required property int drawerWidth
     required property int drawerHeight
+    property bool frameMode: false
     property var themeProvider: null
     required property color color
 
@@ -28,6 +29,7 @@ Scope {
             required property var modelData
 
             screen: modelData
+            visible: panel.drawerState.activeScreen === null || modelData === panel.drawerState.activeScreen
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Top
             WlrLayershell.exclusiveZone: -1
@@ -60,6 +62,7 @@ Scope {
             required property var modelData
 
             screen: modelData
+            visible: panel.drawerState.activeScreen === null || modelData === panel.drawerState.activeScreen
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
 
@@ -73,31 +76,31 @@ Scope {
             margins {
                 top: {
                     if (panel.side === "top")
-                        return panel.barSizes.top + panel.gap;
+                        return panel.barSizes.top + panel.gap * (panel.frameMode ? 1 : 2);
                     if (!panel.isHorizontalSide && panel.position === "start")
-                        return panel.barSizes.top + panel.gap;
-                    return 0;
+                        return panel.barSizes.top + panel.gap * (panel.frameMode ? 1 : 2);
+                    return panel.frameMode ? 0 : panel.gap;
                 }
                 bottom: {
                     if (panel.side === "bottom")
-                        return panel.barSizes.bottom + panel.gap;
+                        return panel.barSizes.bottom + panel.gap * (panel.frameMode ? 1 : 2);
                     if (!panel.isHorizontalSide && panel.position === "end")
-                        return panel.barSizes.bottom + panel.gap;
-                    return 0;
+                        return panel.barSizes.bottom + panel.gap * (panel.frameMode ? 1 : 2);
+                    return panel.frameMode ? 0 : panel.gap;
                 }
                 left: {
                     if (panel.side === "left")
-                        return panel.barSizes.left + panel.gap;
+                        return panel.barSizes.left + panel.gap * (panel.frameMode ? 1 : 2);
                     if (panel.isHorizontalSide && panel.position === "start")
-                        return panel.barSizes.left + panel.gap;
-                    return 0;
+                        return panel.barSizes.left + panel.gap * (panel.frameMode ? 1 : 2);
+                    return panel.frameMode ? 0 : panel.gap;
                 }
                 right: {
                     if (panel.side === "right")
-                        return panel.barSizes.right + panel.gap;
+                        return panel.barSizes.right + panel.gap * (panel.frameMode ? 1 : 2);
                     if (panel.isHorizontalSide && panel.position === "end")
-                        return panel.barSizes.right + panel.gap;
-                    return 0;
+                        return panel.barSizes.right + panel.gap * (panel.frameMode ? 1 : 2);
+                    return panel.frameMode ? 0 : panel.gap;
                 }
             }
 

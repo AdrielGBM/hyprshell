@@ -25,6 +25,7 @@ Scope {
             required property var modelData
 
             screen: modelData
+            visible: drawer.drawerState.activeScreen === null || modelData === drawer.drawerState.activeScreen
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Bottom
 
@@ -45,7 +46,7 @@ Scope {
             implicitWidth: (drawer.side === "left" || drawer.side === "right") ? drawer.drawerWidth : modelData.width
             implicitHeight: (drawer.side === "top" || drawer.side === "bottom") ? drawer.drawerHeight : modelData.height
 
-            exclusiveZone: (drawer.side === "top" || drawer.side === "bottom") ? drawer.drawerHeight : drawer.drawerWidth
+            exclusiveZone: visible ? ((drawer.side === "top" || drawer.side === "bottom") ? drawer.drawerHeight : drawer.drawerWidth) : 0
 
             Rectangle {
                 anchors.fill: parent

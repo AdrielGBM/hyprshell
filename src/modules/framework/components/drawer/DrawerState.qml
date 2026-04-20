@@ -13,6 +13,8 @@ QtObject {
     property int activePanelBarIndex: -1
     property string activePanelPosition: "start"
 
+    property var activeScreen: null
+
     property var contents: ({})
     property var contentProperties: ({})
     property var accents: ({})
@@ -32,11 +34,11 @@ QtObject {
         return activePanelSide === side;
     }
 
-    function openDrawer(side, barIndex, component, props, accent) {
+    function openDrawer(side, barIndex, component, props, accent, screen) {
         if (isDrawerSide(side))
-            _openPushedDrawer(side, barIndex, component, props, accent);
+            _openPushedDrawer(side, barIndex, component, props, accent, screen);
         else
-            _openPanel(side, barIndex, component, props, accent);
+            _openPanel(side, barIndex, component, props, accent, screen);
     }
 
     function closeSide(side) {
@@ -50,7 +52,7 @@ QtObject {
         _closePanel();
     }
 
-    function _openPushedDrawer(side, barIndex, component, props, accent) {
+    function _openPushedDrawer(side, barIndex, component, props, accent, screen) {
         if (openDrawers[side] !== undefined && openDrawers[side] === barIndex) {
             _closePushedDrawer(side);
             return;
@@ -60,6 +62,8 @@ QtObject {
         const updated = Object.assign({}, openDrawers);
         updated[side] = barIndex;
         openDrawers = updated;
+        if (screen !== undefined)
+            activeScreen = screen;
         if (!wasOpen)
             drawerOpened(side);
     }
@@ -73,7 +77,7 @@ QtObject {
         drawerClosed(side);
     }
 
-    function _openPanel(side, barIndex, component, props, accent) {
+    function _openPanel(side, barIndex, component, props, accent, screen) {
         if (activePanelSide === side && activePanelBarIndex === barIndex) {
             _closePanel();
             return;
@@ -82,6 +86,8 @@ QtObject {
         setContent(side, component, props, accent);
         activePanelBarIndex = barIndex;
         activePanelPosition = barIndex < 100 ? "start" : (barIndex < 200 ? "center" : "end");
+        if (screen !== undefined)
+            activeScreen = screen;
         activePanelSide = side;
         if (prevSide !== "" && prevSide !== side)
             drawerClosed(prevSide);

@@ -45,7 +45,9 @@ Scope {
         model: Quickshell.screens
 
         PanelWindow {
+            id: cornerWindow
             required property var modelData
+            readonly property var screenData: modelData
 
             screen: modelData
             color: "transparent"
@@ -99,6 +101,8 @@ Scope {
                         });
                     if ("barIndex" in item)
                         item.barIndex = 0;
+                    if ("barScreen" in item)
+                        item.barScreen = cornerWindow.screenData;
                     if ("chipRadius" in item)
                         item.chipRadius = Qt.binding(function () {
                             return Math.max(0, corner.radius - corner.padding);

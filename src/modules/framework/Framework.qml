@@ -79,6 +79,7 @@ Scope {
         settings: rootSettings
         barSizes: rootBarSizes
         drawerState: rootDrawerState
+        frameMode: rootSettings.frameMode
         themeProvider: framework.themeProvider
     }
 

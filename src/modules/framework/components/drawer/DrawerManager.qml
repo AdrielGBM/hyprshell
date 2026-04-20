@@ -10,6 +10,7 @@ Scope {
     required property var settings
     required property var barSizes
     required property var drawerState
+    property bool frameMode: false
     property var themeProvider: null
 
     readonly property color color: themeProvider?.overlay
@@ -74,6 +75,7 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            frameMode: drawerManager.frameMode
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -87,6 +89,7 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            frameMode: drawerManager.frameMode
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -100,6 +103,7 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            frameMode: drawerManager.frameMode
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -113,6 +117,7 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
+            frameMode: drawerManager.frameMode
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }

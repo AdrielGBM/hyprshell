@@ -40,7 +40,7 @@ Scope {
         return 0;
     }
 
-    function wireItem(item, entry, slotName, slotIndex) {
+    function wireItem(item, entry, slotName, slotIndex, screen) {
         item.themeProvider = Qt.binding(function () {
             return bar.themeProvider;
         });
@@ -62,6 +62,8 @@ Scope {
             });
         if ("barIndex" in item)
             item.barIndex = bar.slotOffset(slotName) + slotIndex;
+        if ("barScreen" in item)
+            item.barScreen = screen;
         if ("chipRadius" in item)
             item.chipRadius = Qt.binding(function () {
                 return bar.chipRadius;
@@ -87,7 +89,9 @@ Scope {
         model: Quickshell.screens
 
         PanelWindow {
+            id: barWindow
             required property var modelData
+            readonly property var screenData: modelData
 
             screen: modelData
             color: "transparent"
@@ -149,7 +153,7 @@ Scope {
                             height: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "left", index)
+                            onLoaded: bar.wireItem(item, modelData, "left", index, barWindow.screenData)
                         }
                     }
                 }
@@ -171,7 +175,7 @@ Scope {
                             height: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "center", index)
+                            onLoaded: bar.wireItem(item, modelData, "center", index, barWindow.screenData)
                         }
                     }
                 }
@@ -195,7 +199,7 @@ Scope {
                             height: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "right", index)
+                            onLoaded: bar.wireItem(item, modelData, "right", index, barWindow.screenData)
                         }
                     }
                 }
@@ -219,7 +223,7 @@ Scope {
                             width: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "top", index)
+                            onLoaded: bar.wireItem(item, modelData, "top", index, barWindow.screenData)
                         }
                     }
                 }
@@ -241,7 +245,7 @@ Scope {
                             width: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "center", index)
+                            onLoaded: bar.wireItem(item, modelData, "center", index, barWindow.screenData)
                         }
                     }
                 }
@@ -265,7 +269,7 @@ Scope {
                             width: bar.barSizes[bar.position] - bar.padding * 2
                             sourceComponent: bar.resolveComponent(modelData)
 
-                            onLoaded: bar.wireItem(item, modelData, "bottom", index)
+                            onLoaded: bar.wireItem(item, modelData, "bottom", index, barWindow.screenData)
                         }
                     }
                 }

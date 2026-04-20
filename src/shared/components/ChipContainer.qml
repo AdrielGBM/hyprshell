@@ -12,6 +12,7 @@ Item {
 
     property color accentColor: themeProvider?.accent
     property string variant: "ghost"
+    property var barScreen: null
     property string panelUrl: ""
 
     property int chipRadius: -1
@@ -90,7 +91,7 @@ Item {
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: {
             if (root.panelComponent && root.drawerState)
-                root.drawerState.openDrawer(root.barPosition, root.barIndex, root.panelComponent, {});
+                root.drawerState.openDrawer(root.barPosition, root.barIndex, root.panelComponent, {}, undefined, root.barScreen);
         }
     }
 }
