@@ -22,7 +22,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -36,7 +35,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -50,7 +48,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -64,7 +61,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -78,7 +74,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -92,7 +87,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -106,7 +100,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }
@@ -120,7 +113,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            settings: drawerManager.settings
             themeProvider: drawerManager.themeProvider
             color: drawerManager.color
         }

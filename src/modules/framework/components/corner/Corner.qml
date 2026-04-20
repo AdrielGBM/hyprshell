@@ -10,7 +10,6 @@ Scope {
     property string position
     property bool frameMode: false
     property var barSizes
-    property var settings
     property var themeProvider: null
     property var iconProvider: null
     property var moduleRegistry: null
@@ -24,9 +23,9 @@ Scope {
         return isLeft ? "left" : "right";
     }
 
-    readonly property int gap: settings.baseGap
-    readonly property int radius: settings.baseRadius
-    readonly property int padding: Math.round(settings.baseGap / 2)
+    readonly property int gap: themeProvider?.spacing
+    readonly property int radius: themeProvider?.radius
+    readonly property int padding: Math.round(themeProvider?.spacing / 2)
 
     readonly property bool isTop: position === "topLeft" || position === "topRight"
     readonly property bool isLeft: position === "topLeft" || position === "bottomLeft"
@@ -100,6 +99,10 @@ Scope {
                         });
                     if ("barIndex" in item)
                         item.barIndex = 0;
+                    if ("chipRadius" in item)
+                        item.chipRadius = Qt.binding(function () {
+                            return Math.max(0, corner.radius - corner.padding);
+                        });
                     if (typeof corner.itemConfig === "object" && corner.itemConfig !== null) {
                         if ("accentColor" in item && corner.itemConfig.accent && corner.themeProvider) {
                             const t = corner.themeProvider.currentTheme;

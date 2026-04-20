@@ -18,9 +18,10 @@ Scope {
 
     property color color
 
-    readonly property int gap: bar.barSizes.settings.baseGap
-    readonly property int radius: bar.barSizes.settings.baseRadius
-    readonly property int padding: Math.round(bar.barSizes.settings.baseGap / 2)
+    readonly property int gap: bar.themeProvider?.spacing
+    readonly property int radius: bar.themeProvider?.radius
+    readonly property int padding: Math.round(bar.themeProvider?.spacing / 2)
+    readonly property int chipRadius: Math.max(0, bar.radius - bar.padding)
     readonly property bool isHorizontal: position === "top" || position === "bottom"
 
     function resolveComponent(entry) {
@@ -61,6 +62,10 @@ Scope {
             });
         if ("barIndex" in item)
             item.barIndex = bar.slotOffset(slotName) + slotIndex;
+        if ("chipRadius" in item)
+            item.chipRadius = Qt.binding(function () {
+                return bar.chipRadius;
+            });
         if (typeof entry === "object" && entry !== null) {
             if ("accentColor" in item && entry.accent)
                 item.accentColor = bar.resolveAccent(entry);

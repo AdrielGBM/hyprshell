@@ -14,8 +14,9 @@ Item {
     property string variant: "ghost"
     property string panelUrl: ""
 
-    readonly property int pad: themeProvider?.spacing?.sm ?? 8
-    readonly property int r: themeProvider?.radius?.md ?? 8
+    property int chipRadius: -1
+    readonly property int pad: themeProvider?.spacing
+    readonly property int r: chipRadius >= 0 ? chipRadius : themeProvider?.radius
     readonly property bool isVertical: barPosition === "left" || barPosition === "right"
     readonly property bool hovered: area.containsMouse
     readonly property bool pressed: area.pressed

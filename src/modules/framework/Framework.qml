@@ -72,7 +72,6 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             color: framework.color
-            settings: rootSettings
         }
     }
 
@@ -149,7 +148,6 @@ Scope {
             position: "topLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            settings: rootSettings
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
@@ -165,7 +163,6 @@ Scope {
             position: "topRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            settings: rootSettings
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
@@ -181,7 +178,6 @@ Scope {
             position: "bottomLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            settings: rootSettings
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
@@ -197,7 +193,6 @@ Scope {
             position: "bottomRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            settings: rootSettings
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry

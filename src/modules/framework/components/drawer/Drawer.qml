@@ -13,11 +13,10 @@ Scope {
     required property int drawerWidth
     required property int drawerHeight
     property var themeProvider: null
-    property var settings: null
     required property color color
 
-    readonly property int gap: settings.baseGap
-    readonly property int radius: settings.baseRadius
+    readonly property int gap: themeProvider?.spacing
+    readonly property int radius: themeProvider?.radius
 
     Variants {
         model: Quickshell.screens

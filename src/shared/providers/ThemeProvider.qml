@@ -66,19 +66,8 @@ QtObject {
     readonly property color highlightMed: active["highlightMed"]
     readonly property color highlightHigh: active["highlightHigh"]
 
-    readonly property var spacing: config?.spacing ?? ({
-            xs: 4,
-            sm: 8,
-            md: 12,
-            lg: 16,
-            xl: 24
-        })
-    readonly property var radius: config?.radius ?? ({
-            sm: 4,
-            md: 8,
-            lg: 12,
-            xl: 16
-        })
+    readonly property int spacing: config?.spacing ?? 8
+    readonly property int radius: config?.radius ?? 8
     readonly property var font: config?.font ?? ({
             family: "",
             size: 12

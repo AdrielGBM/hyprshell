@@ -5,9 +5,6 @@ QtObject {
 
     property bool frameMode: true
 
-    property int baseGap: 8
-    property int baseRadius: 8
-
     property int inactiveBarSize: 16
     property int activeBarSize: 40
 
@@ -62,10 +59,6 @@ QtObject {
     function applyConfig(cfg) {
         if (!cfg)
             return;
-        if (cfg.baseGap !== undefined)
-            baseGap = cfg.baseGap;
-        if (cfg.baseRadius !== undefined)
-            baseRadius = cfg.baseRadius;
         if (cfg.inactiveBarSize !== undefined)
             inactiveBarSize = cfg.inactiveBarSize;
         if (cfg.activeBarSize !== undefined)

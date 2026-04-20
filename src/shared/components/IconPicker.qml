@@ -30,9 +30,9 @@ Item {
     readonly property color hoverColor: root.themeProvider?.highlightMed
     readonly property color selectedColor: root.themeProvider?.highlightHigh
 
-    readonly property int spacing: root.themeProvider?.spacing?.sm ?? 8
-    readonly property int spacingXs: root.themeProvider?.spacing?.xs ?? 4
-    readonly property int radius: root.themeProvider?.radius?.sm ?? 4
+    readonly property int spacing: root.themeProvider?.spacing
+    readonly property int spacingXs: Math.round(root.themeProvider?.spacing / 2)
+    readonly property int radius: root.themeProvider?.radius
 
     ColumnLayout {
         anchors.fill: parent

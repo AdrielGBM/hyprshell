@@ -10,10 +10,9 @@ Scope {
     required property var barSizes
     required property var themeProvider
     required property color color
-    property var settings: null
 
-    readonly property int gap: settings.baseGap
-    readonly property int radius: settings.baseRadius
+    readonly property int gap: themeProvider?.spacing
+    readonly property int radius: themeProvider?.radius
 
     Variants {
         model: Quickshell.screens
