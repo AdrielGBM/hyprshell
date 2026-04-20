@@ -84,7 +84,6 @@ Scope {
     }
 
     Loader {
-        active: rootSettings.frameMode || rootBarSizes.top !== 0
         sourceComponent: Bar {
             position: "top"
             frameMode: rootSettings.frameMode
@@ -99,7 +98,6 @@ Scope {
     }
 
     Loader {
-        active: rootSettings.frameMode || rootBarSizes.bottom !== 0
         sourceComponent: Bar {
             position: "bottom"
             frameMode: rootSettings.frameMode
@@ -114,7 +112,6 @@ Scope {
     }
 
     Loader {
-        active: rootSettings.frameMode || rootBarSizes.left !== 0
         sourceComponent: Bar {
             position: "left"
             frameMode: rootSettings.frameMode
@@ -129,7 +126,6 @@ Scope {
     }
 
     Loader {
-        active: rootSettings.frameMode || rootBarSizes.right !== 0
         sourceComponent: Bar {
             position: "right"
             frameMode: rootSettings.frameMode
