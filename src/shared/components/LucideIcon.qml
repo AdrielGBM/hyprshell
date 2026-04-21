@@ -28,7 +28,7 @@ Item {
         sourceSize.height: root.size
         fillMode: Image.PreserveAspectFit
         smooth: true
-        asynchronous: true
+        asynchronous: false
         visible: status === Image.Ready
     }
 
@@ -43,8 +43,8 @@ Item {
     }
 
     onNameChanged: {
-        root.dataUri = "";
         root.failed = false;
+        root.refreshUri();
         root.requestIcon();
     }
 

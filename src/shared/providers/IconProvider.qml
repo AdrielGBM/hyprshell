@@ -13,8 +13,8 @@ QtObject {
     property var iconData: ({})
     property var queue: []
     property var queued: ({})
-    property bool processing: false
-    property string currentName: ""
+    property int activeCount: 0
+    readonly property int concurrency: 3
 
     property var iconList: []
     property bool iconListLoading: false
@@ -31,21 +31,6 @@ QtObject {
                 provider.loadIconList();
             else
                 console.error("IconProvider: could not create cache dir:", provider.cacheDir);
-        }
-    }
-
-    property Process downloader: Process {
-        running: false
-        onExited: code => {
-            if (code === 0) {
-                provider.readFile(provider.currentName);
-            } else {
-                console.warn("IconProvider: download failed for '" + provider.currentName + "' (exit " + code + ")");
-                delete provider.queued[provider.currentName];
-                provider.iconFailed(provider.currentName);
-                provider.processing = false;
-                provider.next();
-            }
         }
     }
 
@@ -72,8 +57,7 @@ QtObject {
             return;
         provider.queued[name] = true;
         provider.queue.push(name);
-        if (!provider.processing)
-            provider.next();
+        provider.next();
     }
 
     function getContent(name) {
@@ -130,16 +114,19 @@ QtObject {
     }
 
     function next() {
-        if (provider.queue.length === 0) {
-            provider.processing = false;
-            return;
+        while (provider.queue.length > 0 && provider.activeCount < provider.concurrency) {
+            provider.activeCount++;
+            const name = provider.queue.shift();
+            provider.readFile(name, false);
         }
-        provider.processing = true;
-        provider.currentName = provider.queue.shift();
-        provider.readFile(provider.currentName);
     }
 
-    function readFile(name) {
+    function completeSlot(name) {
+        provider.activeCount--;
+        provider.next();
+    }
+
+    function readFile(name, isRetry) {
         const fv = Qt.createQmlObject('import Quickshell.Io; FileView { watchChanges: false }', provider);
         fv.path = provider.cacheDir + "/" + name + ".svg";
 
@@ -154,28 +141,25 @@ QtObject {
                 rm.running = true;
                 delete provider.queued[name];
                 provider.iconFailed(name);
-                provider.processing = false;
-                provider.next();
+                provider.completeSlot(name);
                 return;
             }
 
             provider.iconData[name] = content;
             delete provider.queued[name];
             provider.iconReady(name);
-            provider.processing = false;
-            provider.next();
+            provider.completeSlot(name);
         });
 
         fv.onLoadFailed.connect(err => {
             fv.destroy();
-            if (err === FileViewError.FileNotFound)
+            if (!isRetry && err === FileViewError.FileNotFound) {
                 provider.downloadIcon(name);
-            else {
+            } else {
                 console.error("IconProvider: unexpected read error for '" + name + "'");
                 delete provider.queued[name];
                 provider.iconFailed(name);
-                provider.processing = false;
-                provider.next();
+                provider.completeSlot(name);
             }
         });
 
@@ -186,7 +170,21 @@ QtObject {
         const path = provider.cacheDir + "/" + name + ".svg";
         const url = provider.baseUrl + "/" + name + ".svg";
 
-        provider.downloader.command = ["curl", "-sL", "-f", "--max-time", "15", "-o", path, url];
-        provider.downloader.running = true;
+        const proc = Qt.createQmlObject('import Quickshell.Io; Process { running: false }', provider);
+        proc.command = ["curl", "-sL", "-f", "--max-time", "15", "-o", path, url];
+
+        proc.onExited.connect(code => {
+            proc.destroy();
+            if (code === 0) {
+                provider.readFile(name, true);
+            } else {
+                console.warn("IconProvider: download failed for '" + name + "' (exit " + code + ")");
+                delete provider.queued[name];
+                provider.iconFailed(name);
+                provider.completeSlot(name);
+            }
+        });
+
+        proc.running = true;
     }
 }
