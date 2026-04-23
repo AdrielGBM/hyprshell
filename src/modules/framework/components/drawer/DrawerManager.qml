@@ -68,51 +68,9 @@ Scope {
     }
 
     Loader {
-        active: drawerManager.drawerState.activePanelSide === "top"
+        active: drawerManager.drawerState.activePanelSide !== ""
         sourceComponent: Panel {
-            side: "top"
-            drawerState: drawerManager.drawerState
-            barSizes: drawerManager.barSizes
-            drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
-            frameMode: drawerManager.frameMode
-            themeProvider: drawerManager.themeProvider
-            color: drawerManager.color
-        }
-    }
-
-    Loader {
-        active: drawerManager.drawerState.activePanelSide === "bottom"
-        sourceComponent: Panel {
-            side: "bottom"
-            drawerState: drawerManager.drawerState
-            barSizes: drawerManager.barSizes
-            drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
-            frameMode: drawerManager.frameMode
-            themeProvider: drawerManager.themeProvider
-            color: drawerManager.color
-        }
-    }
-
-    Loader {
-        active: drawerManager.drawerState.activePanelSide === "left"
-        sourceComponent: Panel {
-            side: "left"
-            drawerState: drawerManager.drawerState
-            barSizes: drawerManager.barSizes
-            drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
-            frameMode: drawerManager.frameMode
-            themeProvider: drawerManager.themeProvider
-            color: drawerManager.color
-        }
-    }
-
-    Loader {
-        active: drawerManager.drawerState.activePanelSide === "right"
-        sourceComponent: Panel {
-            side: "right"
+            side: drawerManager.drawerState.activePanelSide
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth

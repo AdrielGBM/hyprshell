@@ -54,21 +54,25 @@ Scope {
                 color: drawer.color
 
                 Loader {
+                    id: drawerContentLoader
                     anchors.fill: parent
-                    active: true
                     sourceComponent: drawer.drawerState.contents[drawer.side] ?? null
                     onLoaded: {
                         const props = drawer.drawerState.getContentProperties(drawer.side);
                         for (const key in props)
                             item[key] = props[key];
-                        if ("themeProvider" in item)
-                            item.themeProvider = Qt.binding(function () {
-                                return drawer.themeProvider;
-                            });
                         if ("drawerState" in item)
                             item.drawerState = Qt.binding(function () {
                                 return drawer.drawerState;
                             });
+                    }
+
+                    Binding {
+                        when: drawerContentLoader.item !== null
+                        target: drawerContentLoader.item
+                        property: "themeProvider"
+                        value: drawer.themeProvider
+                        restoreMode: Binding.RestoreNone
                     }
                 }
             }

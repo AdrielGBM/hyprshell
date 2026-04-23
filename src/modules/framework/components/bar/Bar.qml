@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import "../chipWiring.js" as ChipWiring
 
 Scope {
     id: bar
@@ -13,6 +14,7 @@ Scope {
     property var themeProvider: null
     property var iconProvider: null
     property var drawerState: null
+    property var overlayState: null
     property var moduleRegistry: null
     property var slotConfig: ({})
 
@@ -41,48 +43,17 @@ Scope {
     }
 
     function wireItem(item, entry, slotName, slotIndex, screen) {
-        item.themeProvider = Qt.binding(function () {
-            return bar.themeProvider;
+        ChipWiring.wire(item, entry, {
+            themeProvider: bar.themeProvider,
+            iconProvider: bar.iconProvider,
+            drawerState: bar.drawerState,
+            overlayState: bar.overlayState,
+            moduleRegistry: bar.moduleRegistry,
+            barPosition: bar.position,
+            barIndex: bar.slotOffset(slotName) + slotIndex,
+            barScreen: screen,
+            chipRadius: bar.chipRadius
         });
-        if ("iconProvider" in item)
-            item.iconProvider = Qt.binding(function () {
-                return bar.iconProvider;
-            });
-        if ("drawerState" in item)
-            item.drawerState = Qt.binding(function () {
-                return bar.drawerState;
-            });
-        if ("moduleRegistry" in item)
-            item.moduleRegistry = Qt.binding(function () {
-                return bar.moduleRegistry;
-            });
-        if ("barPosition" in item)
-            item.barPosition = Qt.binding(function () {
-                return bar.position;
-            });
-        if ("barIndex" in item)
-            item.barIndex = bar.slotOffset(slotName) + slotIndex;
-        if ("barScreen" in item)
-            item.barScreen = screen;
-        if ("chipRadius" in item)
-            item.chipRadius = Qt.binding(function () {
-                return bar.chipRadius;
-            });
-        if (typeof entry === "object" && entry !== null) {
-            if ("accentColor" in item && entry.accent)
-                item.accentColor = bar.resolveAccent(entry);
-            if ("variant" in item && entry.variant)
-                item.variant = entry.variant;
-        }
-    }
-
-    function resolveAccent(entry) {
-        if (typeof entry === "string" || !entry || !entry.accent || !bar.themeProvider)
-            return "";
-        const t = bar.themeProvider.currentTheme;
-        if (t && t[entry.accent] !== undefined)
-            return t[entry.accent];
-        return bar.themeProvider[entry.accent] ?? "";
     }
 
     Variants {

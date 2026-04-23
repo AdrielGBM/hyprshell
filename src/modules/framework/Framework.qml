@@ -7,6 +7,7 @@ import "./components/frame"
 import "./components/bar"
 import "./components/drawer"
 import "./components/corner"
+import "./components/overlay"
 import "../../shared/components"
 import "../../shared/services"
 
@@ -15,14 +16,25 @@ Scope {
 
     property var themeProvider: null
     property var iconProvider: null
-    property var config: ({})
-    property var saveConfig: null
+    property var settingsProvider: null
+
+    readonly property var config: settingsProvider?.framework ?? ({})
+
+    function saveConfig(values) {
+        settingsProvider?.save("framework", values);
+    }
 
     readonly property color color: themeProvider?.overlay
 
     DrawerState {
         id: rootDrawerState
         drawerOrientation: rootSettings.drawerOrientation
+    }
+
+    OverlayState {
+        id: rootOverlayState
+        defaultSide: rootSettings.overlaySide
+        defaultAlign: rootSettings.overlayAlign
     }
 
     ModuleRegistry {
@@ -40,7 +52,7 @@ Scope {
     }
 
     Component {
-        id: subScannerComp
+        id: chipSubScannerComp
         FolderScanner {
             filename: "Chip.qml"
             onItemReady: function (key, comp) {
@@ -48,6 +60,55 @@ Scope {
             }
             onItemError: function (key, err) {
                 console.error("Plugin load error [" + key + "]:", err);
+            }
+        }
+    }
+
+    Component {
+        id: stateSubScannerComp
+        FolderScanner {
+            filename: "State.qml"
+            onItemReady: function (key, comp) {
+                const instance = comp.createObject(framework);
+                if (instance)
+                    rootModuleRegistry.registerState(key, instance);
+            }
+            onItemError: function (key, err) {
+                if (!err.includes("No such file or directory"))
+                    console.error("Plugin state load error [" + key + "]:", err);
+            }
+        }
+    }
+
+    Component {
+        id: popupWatcherComp
+        PopupWatcher {}
+    }
+
+    Component {
+        id: popupSubScannerComp
+        FolderScanner {
+            filename: "Popup.qml"
+            onItemReady: function (key, comp) {
+                popupWatcherComp.createObject(framework, {
+                    pluginKey: key,
+                    popupComp: comp,
+                    moduleRegistry: rootModuleRegistry,
+                    overlayState: rootOverlayState,
+                    popupTimeout: Qt.binding(function () {
+                        return rootSettings.overlayPopupTimeout;
+                    }),
+                    maxVisible: Qt.binding(function () {
+                        return rootSettings.overlayMaxVisible;
+                    }),
+                    themeProvider: Qt.binding(function () {
+                        return framework.themeProvider;
+                    })
+                });
+            }
+            onItemError: function (key, err) {
+                if (!err.includes("No such file or directory"))
+                    console.error("Plugin popup load error [" + key + "]:", err);
             }
         }
     }
@@ -60,8 +121,15 @@ Scope {
             rootModuleRegistry.register(key, comp);
         }
         onDirFound: function (key) {
-            subScannerComp.createObject(framework, {
-                folder: Qt.resolvedUrl("../../plugins/" + key + "/")
+            const baseFolder = Qt.resolvedUrl("../../plugins/" + key + "/");
+            chipSubScannerComp.createObject(framework, {
+                folder: baseFolder
+            });
+            stateSubScannerComp.createObject(framework, {
+                folder: baseFolder
+            });
+            popupSubScannerComp.createObject(framework, {
+                folder: baseFolder
             });
         }
     }
@@ -83,6 +151,14 @@ Scope {
         themeProvider: framework.themeProvider
     }
 
+    OverlayManager {
+        overlayState: rootOverlayState
+        barSizes: rootBarSizes
+        frameMode: rootSettings.frameMode
+        themeProvider: framework.themeProvider
+        overlayWidth: rootSettings.overlayWidth
+    }
+
     Loader {
         sourceComponent: Bar {
             position: "top"
@@ -91,6 +167,7 @@ Scope {
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.top ?? {}
             color: framework.color
@@ -105,6 +182,7 @@ Scope {
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.bottom ?? {}
             color: framework.color
@@ -119,6 +197,7 @@ Scope {
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.left ?? {}
             color: framework.color
@@ -133,6 +212,7 @@ Scope {
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.right ?? {}
             color: framework.color
@@ -149,6 +229,7 @@ Scope {
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             itemConfig: rootSettings.corners.topLeft ?? null
             color: framework.color
         }
@@ -164,6 +245,7 @@ Scope {
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             itemConfig: rootSettings.corners.topRight ?? null
             color: framework.color
         }
@@ -179,6 +261,7 @@ Scope {
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             itemConfig: rootSettings.corners.bottomLeft ?? null
             color: framework.color
         }
@@ -194,6 +277,7 @@ Scope {
             iconProvider: framework.iconProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
+            overlayState: rootOverlayState
             itemConfig: rootSettings.corners.bottomRight ?? null
             color: framework.color
         }

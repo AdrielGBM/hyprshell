@@ -14,6 +14,12 @@ QtObject {
     property var bars: ({})
     property var corners: ({})
 
+    readonly property int overlayWidth: config.overlay?.width ?? 360
+    readonly property string overlaySide: config.overlay?.position?.side ?? "top"
+    readonly property string overlayAlign: config.overlay?.position?.align ?? "center"
+    readonly property int overlayPopupTimeout: config.overlay?.popupTimeout ?? 5000
+    readonly property int overlayMaxVisible: config.overlay?.maxVisible ?? 5
+
     property var config: ({})
     onConfigChanged: applyConfig(config)
 

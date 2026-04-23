@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import "../chipWiring.js" as ChipWiring
 
 Scope {
     id: corner
@@ -14,6 +15,7 @@ Scope {
     property var iconProvider: null
     property var moduleRegistry: null
     property var drawerState: null
+    property var overlayState: null
     property var itemConfig: null
     property color color
 
@@ -30,9 +32,20 @@ Scope {
     readonly property bool isTop: position === "topLeft" || position === "topRight"
     readonly property bool isLeft: position === "topLeft" || position === "bottomLeft"
 
+    readonly property int cornerBarIndex: {
+        if (position === "topLeft")
+            return -1;
+        if (position === "topRight")
+            return -2;
+        if (position === "bottomLeft")
+            return -3;
+        return -4;
+    }
+
     readonly property int hBarSize: isTop ? barSizes.top : barSizes.bottom
     readonly property int vBarSize: isLeft ? barSizes.left : barSizes.right
     readonly property int cornerSize: Math.min(hBarSize, vBarSize)
+    readonly property int chipRadius: Math.max(0, corner.radius - corner.padding)
 
     function resolveComponent() {
         if (!corner.itemConfig || !corner.moduleRegistry)
@@ -83,39 +96,17 @@ Scope {
                 height: corner.cornerSize - corner.padding * 2
                 sourceComponent: corner.resolveComponent()
 
-                onLoaded: {
-                    item.themeProvider = Qt.binding(function () {
-                        return corner.themeProvider;
-                    });
-                    if ("iconProvider" in item)
-                        item.iconProvider = Qt.binding(function () {
-                            return corner.iconProvider;
-                        });
-                    if ("drawerState" in item)
-                        item.drawerState = Qt.binding(function () {
-                            return corner.drawerState;
-                        });
-                    if ("barPosition" in item)
-                        item.barPosition = Qt.binding(function () {
-                            return corner.chipBarPosition;
-                        });
-                    if ("barIndex" in item)
-                        item.barIndex = 0;
-                    if ("barScreen" in item)
-                        item.barScreen = cornerWindow.screenData;
-                    if ("chipRadius" in item)
-                        item.chipRadius = Qt.binding(function () {
-                            return Math.max(0, corner.radius - corner.padding);
-                        });
-                    if (typeof corner.itemConfig === "object" && corner.itemConfig !== null) {
-                        if ("accentColor" in item && corner.itemConfig.accent && corner.themeProvider) {
-                            const t = corner.themeProvider.currentTheme;
-                            item.accentColor = (t && t[corner.itemConfig.accent] !== undefined) ? t[corner.itemConfig.accent] : corner.themeProvider[corner.itemConfig.accent] ?? "";
-                        }
-                        if ("variant" in item && corner.itemConfig.variant)
-                            item.variant = corner.itemConfig.variant;
-                    }
-                }
+                onLoaded: ChipWiring.wire(item, corner.itemConfig, {
+                    themeProvider: corner.themeProvider,
+                    iconProvider: corner.iconProvider,
+                    drawerState: corner.drawerState,
+                    overlayState: corner.overlayState,
+                    moduleRegistry: corner.moduleRegistry,
+                    barPosition: corner.chipBarPosition,
+                    barIndex: corner.cornerBarIndex,
+                    barScreen: cornerWindow.screenData,
+                    chipRadius: corner.chipRadius
+                })
             }
         }
     }

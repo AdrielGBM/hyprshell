@@ -21,7 +21,6 @@ Scope {
     Framework {
         themeProvider: core.themeProvider
         iconProvider: core.iconProvider
-        config: core.settingsProvider.framework
-        saveConfig: values => core.settingsProvider.save("framework", values)
+        settingsProvider: core.settingsProvider
     }
 }

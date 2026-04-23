@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import "../sideMargins.js" as SideMargins
 
 Scope {
     id: panel
@@ -21,6 +22,8 @@ Scope {
 
     readonly property bool isHorizontalSide: side === "top" || side === "bottom"
     readonly property string position: drawerState.activePanelPosition
+
+    readonly property var m: SideMargins.calc(panel.side, panel.position, panel.barSizes, panel.frameMode, panel.gap)
 
     Variants {
         model: Quickshell.screens
@@ -65,6 +68,7 @@ Scope {
             visible: panel.drawerState.activeScreen === null || modelData === panel.drawerState.activeScreen
             color: "transparent"
             WlrLayershell.layer: WlrLayer.Overlay
+            WlrLayershell.exclusiveZone: -1
 
             anchors {
                 top: panel.isHorizontalSide ? panel.side === "top" : panel.position === "start"
@@ -74,40 +78,14 @@ Scope {
             }
 
             margins {
-                top: {
-                    if (panel.side === "top")
-                        return panel.barSizes.top + panel.gap * (panel.frameMode ? 1 : 2);
-                    if (!panel.isHorizontalSide && panel.position === "start")
-                        return panel.barSizes.top + panel.gap * (panel.frameMode ? 1 : 2);
-                    return panel.frameMode ? 0 : panel.gap;
-                }
-                bottom: {
-                    if (panel.side === "bottom")
-                        return panel.barSizes.bottom + panel.gap * (panel.frameMode ? 1 : 2);
-                    if (!panel.isHorizontalSide && panel.position === "end")
-                        return panel.barSizes.bottom + panel.gap * (panel.frameMode ? 1 : 2);
-                    return panel.frameMode ? 0 : panel.gap;
-                }
-                left: {
-                    if (panel.side === "left")
-                        return panel.barSizes.left + panel.gap * (panel.frameMode ? 1 : 2);
-                    if (panel.isHorizontalSide && panel.position === "start")
-                        return panel.barSizes.left + panel.gap * (panel.frameMode ? 1 : 2);
-                    return panel.frameMode ? 0 : panel.gap;
-                }
-                right: {
-                    if (panel.side === "right")
-                        return panel.barSizes.right + panel.gap * (panel.frameMode ? 1 : 2);
-                    if (panel.isHorizontalSide && panel.position === "end")
-                        return panel.barSizes.right + panel.gap * (panel.frameMode ? 1 : 2);
-                    return panel.frameMode ? 0 : panel.gap;
-                }
+                top: panel.m.top
+                bottom: panel.m.bottom
+                left: panel.m.left
+                right: panel.m.right
             }
 
-            implicitWidth: panel.isHorizontalSide ? (modelData.width - panel.gap * 3) / 2 : panel.drawerWidth
-            implicitHeight: panel.isHorizontalSide ? panel.drawerHeight : (modelData.height - panel.gap * 3) / 2
-
-            WlrLayershell.exclusiveZone: -1
+            implicitWidth: panel.drawerWidth
+            implicitHeight: panel.drawerHeight
 
             Rectangle {
                 anchors.fill: parent
@@ -115,21 +93,25 @@ Scope {
                 color: panel.color
 
                 Loader {
+                    id: panelContentLoader
                     anchors.fill: parent
-                    active: true
                     sourceComponent: panel.drawerState.contents[panel.side] ?? null
                     onLoaded: {
                         const props = panel.drawerState.getContentProperties(panel.side);
                         for (const key in props)
                             item[key] = props[key];
-                        if ("themeProvider" in item)
-                            item.themeProvider = Qt.binding(function () {
-                                return panel.themeProvider;
-                            });
                         if ("drawerState" in item)
                             item.drawerState = Qt.binding(function () {
                                 return panel.drawerState;
                             });
+                    }
+
+                    Binding {
+                        when: panelContentLoader.item !== null
+                        target: panelContentLoader.item
+                        property: "themeProvider"
+                        value: panel.themeProvider
+                        restoreMode: Binding.RestoreNone
                     }
                 }
             }

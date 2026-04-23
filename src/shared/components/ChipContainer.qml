@@ -31,6 +31,7 @@ Item {
     implicitHeight: isVertical ? slot.childrenRect.height + effectivePad * 2 : slot.childrenRect.height + pad * 2
 
     property var panelComponent: null
+    property var panelProps: ({})
 
     Component.onCompleted: {
         if (panelUrl === "")
@@ -91,7 +92,7 @@ Item {
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: {
             if (root.panelComponent && root.drawerState)
-                root.drawerState.openDrawer(root.barPosition, root.barIndex, root.panelComponent, {}, undefined, root.barScreen);
+                root.drawerState.openDrawer(root.barPosition, root.barIndex, root.panelComponent, root.panelProps, undefined, root.barScreen);
         }
     }
 }
