@@ -8,32 +8,33 @@ Item {
     property var pluginState: null
     property var popupComp: null
     property var themeProvider: null
+    property var iconProvider: null
     property int popupTimeout: 5000
     property int maxVisible: 5
 
     readonly property int spacing: themeProvider?.spacing ?? 8
-    implicitHeight: col.implicitHeight
+    implicitHeight: column.implicitHeight
 
     Column {
-        id: col
+        id: column
         width: parent.width
         spacing: root.spacing
 
         Repeater {
             model: root.pluginState?.activeList ?? []
 
-            Item {
+            delegate: Item {
                 required property var notif
                 required property int index
 
                 visible: index < root.maxVisible
-                width: parent.width
-                height: _popup ? _popup.height : 0
+                width: column.width
+                height: _popup ? _popup.implicitHeight : 0
 
                 property var _popup: null
 
                 Component.onCompleted: {
-                    if (!root.popupComp)
+                    if (!root.popupComp || index >= root.maxVisible)
                         return;
                     const self = this;
                     self._popup = root.popupComp.createObject(self, {
@@ -42,6 +43,9 @@ Item {
                         popupTimeout: root.popupTimeout,
                         themeProvider: Qt.binding(function () {
                             return root.themeProvider;
+                        }),
+                        iconProvider: Qt.binding(function () {
+                            return root.iconProvider;
                         }),
                         width: Qt.binding(function () {
                             return self.width;

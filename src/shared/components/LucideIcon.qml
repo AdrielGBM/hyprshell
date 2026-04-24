@@ -28,7 +28,7 @@ Item {
         sourceSize.height: root.size
         fillMode: Image.PreserveAspectFit
         smooth: true
-        asynchronous: false
+        asynchronous: true
         visible: status === Image.Ready
     }
 

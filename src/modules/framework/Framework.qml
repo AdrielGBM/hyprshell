@@ -59,7 +59,8 @@ Scope {
                 rootModuleRegistry.register(key, comp);
             }
             onItemError: function (key, err) {
-                console.error("Plugin load error [" + key + "]:", err);
+                if (!err.includes("No such file or directory"))
+                    console.error("Plugin load error [" + key + "]:", err);
             }
         }
     }
@@ -103,6 +104,9 @@ Scope {
                     }),
                     themeProvider: Qt.binding(function () {
                         return framework.themeProvider;
+                    }),
+                    iconProvider: Qt.binding(function () {
+                        return framework.iconProvider;
                     })
                 });
             }

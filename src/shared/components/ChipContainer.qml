@@ -70,12 +70,6 @@ Item {
         }
 
         color: bg
-
-        Behavior on color {
-            ColorAnimation {
-                duration: 80
-            }
-        }
     }
 
     Item {

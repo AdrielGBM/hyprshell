@@ -70,17 +70,6 @@ Rectangle {
     opacity: enabled ? 1.0 : 0.4
     clip: true
 
-    Behavior on color {
-        ColorAnimation {
-            duration: 80
-        }
-    }
-    Behavior on border.color {
-        ColorAnimation {
-            duration: 80
-        }
-    }
-
     RowLayout {
         id: defaultLayout
         visible: !root.hasCustomContent
@@ -104,11 +93,6 @@ Rectangle {
             font.family: root.themeProvider?.font?.family
             font.weight: Font.Medium
             verticalAlignment: Text.AlignVCenter
-            Behavior on color {
-                ColorAnimation {
-                    duration: 80
-                }
-            }
         }
     }
 

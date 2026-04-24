@@ -138,6 +138,7 @@ QtObject {
                 console.warn("IconProvider: cached file for '" + name + "' is not a valid SVG — deleting");
                 const rm = Qt.createQmlObject('import Quickshell.Io; Process { running: false }', provider);
                 rm.command = ["rm", "-f", provider.cacheDir + "/" + name + ".svg"];
+                rm.onExited.connect(() => rm.destroy());
                 rm.running = true;
                 delete provider.queued[name];
                 provider.iconFailed(name);

@@ -5,28 +5,59 @@ import Quickshell.Wayland
 import QtQuick
 import "../sideMargins.js" as SideMargins
 
-/// Renders a stacked column of overlay items at a specific side+align position.
-/// Created/destroyed by OverlayManager when items appear/disappear at a position.
 Scope {
     id: overlay
 
-    /// The screen edge to anchor to: "top" | "bottom" | "left" | "right"
     required property string side
-    /// Alignment along the perpendicular axis: "start" | "center" | "end"
     required property string align
-    /// The active items at this position: [{ id, component, props }]
     required property var items
     required property var barSizes
     required property bool frameMode
     required property var themeProvider
     required property var overlayState
-    /// Maximum width of the overlay window (height is content-driven).
     required property int overlayWidth
 
     readonly property int gap: themeProvider?.spacing ?? 8
     readonly property bool isHorizontal: side === "top" || side === "bottom"
 
     readonly property var _m: SideMargins.calc(overlay.side, overlay.align, overlay.barSizes, overlay.frameMode, overlay.gap)
+
+    property var itemsLookup: ({})
+
+    ListModel {
+        id: itemsModel
+    }
+
+    function _syncItems() {
+        const lookup = {};
+        for (let i = 0; i < overlay.items.length; i++)
+            lookup[overlay.items[i].id] = overlay.items[i];
+        overlay.itemsLookup = lookup;
+
+        const newIds = overlay.items.map(x => x.id);
+
+        for (let i = itemsModel.count - 1; i >= 0; i--) {
+            if (!newIds.includes(itemsModel.get(i).pluginId))
+                itemsModel.remove(i);
+        }
+
+        for (let j = 0; j < newIds.length; j++) {
+            let found = false;
+            for (let k = 0; k < itemsModel.count; k++) {
+                if (itemsModel.get(k).pluginId === newIds[j]) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                itemsModel.append({
+                    pluginId: newIds[j]
+                });
+        }
+    }
+
+    Component.onCompleted: _syncItems()
+    onItemsChanged: _syncItems()
 
     Variants {
         model: Quickshell.screens
@@ -62,20 +93,20 @@ Scope {
                 spacing: overlay.gap
 
                 Repeater {
-                    model: overlay.items
+                    model: itemsModel
 
                     Loader {
-                        required property var modelData
+                        required property string pluginId
 
                         width: stack.width
-                        sourceComponent: modelData.component
+                        sourceComponent: overlay.itemsLookup[pluginId]?.component ?? null
 
                         onLoaded: {
                             item.width = Qt.binding(function () {
                                 return stack.width;
                             });
 
-                            const props = modelData.props;
+                            const props = overlay.itemsLookup[pluginId]?.props ?? {};
                             for (const key in props)
                                 item[key] = props[key];
 

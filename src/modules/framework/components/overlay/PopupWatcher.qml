@@ -13,6 +13,7 @@ Scope {
     property int popupTimeout: 5000
     property int maxVisible: 5
     property var themeProvider: null
+    property var iconProvider: null
 
     readonly property var pluginState: moduleRegistry?.states[pluginKey] ?? null
     readonly property bool hasActive: (pluginState?.activeList?.count ?? 0) > 0
@@ -25,6 +26,7 @@ Scope {
             popupTimeout: watcher.popupTimeout
             maxVisible: watcher.maxVisible
             themeProvider: watcher.themeProvider
+            iconProvider: watcher.iconProvider
         }
     }
 
