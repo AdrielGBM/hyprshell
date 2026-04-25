@@ -9,6 +9,12 @@ QtObject {
     property var background: ({})
     property var theme: ({})
 
+    readonly property var defaultSettings: ({
+        framework: {},
+        background: {},
+        theme: {}
+    })
+
     readonly property string settingsPath: `${Quickshell.env("HOME")}/.config/quickshell/settings.json`
 
     property FileView fileView: FileView {
@@ -35,8 +41,14 @@ QtObject {
         onFileChanged: reload()
 
         onLoadFailed: err => {
-            if (err !== FileViewError.FileNotFound)
+            if (err === FileViewError.FileNotFound) {
+                provider.framework = provider.defaultSettings.framework;
+                provider.background = provider.defaultSettings.background;
+                provider.theme = provider.defaultSettings.theme;
+                provider.saveSettings();
+            } else {
                 console.error("SettingsProvider: read error:", FileViewError.toString(err));
+            }
         }
     }
 
@@ -52,6 +64,7 @@ QtObject {
 
     function saveSettings() {
         const data = {
+            "$schema": "./settings.schema.json",
             framework: provider.framework,
             background: provider.background,
             theme: provider.theme
