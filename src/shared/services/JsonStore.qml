@@ -62,6 +62,7 @@ QtObject {
     }
 
     property bool _isSaving: false
+    property var _pendingSave: undefined
 
     property Process writeProcess: Process {
         running: false
@@ -73,15 +74,28 @@ QtObject {
                 console.error("JsonStore: save failed (exit", code + ") for:", store.filePath);
                 store.saveFailed(code);
             }
+            if (store._pendingSave !== undefined) {
+                const pending = store._pendingSave;
+                store._pendingSave = undefined;
+                store._doSave(pending);
+            }
         }
     }
 
-    function save(newData) {
-        store.data = newData;
+    function _doSave(newData) {
         const json = JSON.stringify(newData, null, 2);
         store._isSaving = true;
         writeProcess.command = ["sh", "-c", `cat > '${store.filePath}' << 'QUICKSHELL_EOF'\n${json}\nQUICKSHELL_EOF`];
         writeProcess.running = true;
+    }
+
+    function save(newData) {
+        store.data = newData;
+        if (store._isSaving) {
+            store._pendingSave = newData;
+            return;
+        }
+        store._doSave(newData);
     }
 
     Component.onCompleted: {
