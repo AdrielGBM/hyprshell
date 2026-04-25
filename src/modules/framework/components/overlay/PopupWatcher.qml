@@ -11,32 +11,21 @@ Scope {
     property var moduleRegistry: null
     property var overlayState: null
     property int popupTimeout: 5000
-    property int maxVisible: 5
-    property var themeProvider: null
-    property var iconProvider: null
 
     readonly property var pluginState: moduleRegistry?.states[pluginKey] ?? null
     readonly property bool hasActive: (pluginState?.activeList?.count ?? 0) > 0
 
-    Component {
-        id: popupListComp
-        PopupList {
-            pluginState: watcher.pluginState
-            popupComp: watcher.popupComp
-            popupTimeout: watcher.popupTimeout
-            maxVisible: watcher.maxVisible
-            themeProvider: watcher.themeProvider
-            iconProvider: watcher.iconProvider
-        }
-    }
-
     onHasActiveChanged: {
-        if (!overlayState)
+        if (!watcher.overlayState)
             return;
-        if (hasActive) {
-            overlayState.show(watcher.pluginKey, popupListComp, {});
+        if (watcher.hasActive) {
+            watcher.overlayState.push(watcher.pluginKey, null, {
+                pluginState: watcher.pluginState,
+                popupComp: watcher.popupComp,
+                popupTimeout: watcher.popupTimeout
+            });
         } else {
-            overlayState.hide(watcher.pluginKey);
+            watcher.overlayState.remove(watcher.pluginKey);
         }
     }
 }

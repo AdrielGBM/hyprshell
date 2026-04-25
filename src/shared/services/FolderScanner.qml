@@ -35,12 +35,17 @@ QtObject {
                                 scanner.itemError(key, c.errorString());
                         }
 
-                        if (comp.status === Component.Loading)
-                            comp.statusChanged.connect(function () {
-                                tryEmit(comp);
-                            });
-                        else
+                        if (comp.status === Component.Loading) {
+                            const handler = function () {
+                                if (comp.status !== Component.Loading) {
+                                    comp.statusChanged.disconnect(handler);
+                                    tryEmit(comp);
+                                }
+                            };
+                            comp.statusChanged.connect(handler);
+                        } else {
                             tryEmit(comp);
+                        }
                     })(get(i, "fileName"));
             }
         }

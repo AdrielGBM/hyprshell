@@ -10,8 +10,14 @@ Item {
     property string barPosition: ""
     property int barIndex: 0
 
-    property color accentColor: themeProvider?.accent
-    property string variant: "ghost"
+    property string accent: ""
+    property string variant: "default"
+    readonly property color accentColor: {
+        if (accent !== "")
+            return themeProvider?.[accent] ?? "transparent";
+        return variant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
+    }
+    readonly property string iconAccent: variant === "filled" ? "base" : "text"
     property var barScreen: null
     property string panelUrl: ""
 
@@ -40,10 +46,15 @@ Item {
         if (c.status === Component.Ready) {
             panelComponent = c;
         } else {
-            c.statusChanged.connect(function () {
-                if (c.status === Component.Ready)
+            const handler = function () {
+                if (c.status === Component.Ready) {
+                    c.statusChanged.disconnect(handler);
                     root.panelComponent = c;
-            });
+                } else if (c.status === Component.Error) {
+                    c.statusChanged.disconnect(handler);
+                }
+            };
+            c.statusChanged.connect(handler);
         }
     }
 

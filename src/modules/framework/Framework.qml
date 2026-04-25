@@ -98,15 +98,6 @@ Scope {
                     overlayState: rootOverlayState,
                     popupTimeout: Qt.binding(function () {
                         return rootSettings.overlayPopupTimeout;
-                    }),
-                    maxVisible: Qt.binding(function () {
-                        return rootSettings.overlayMaxVisible;
-                    }),
-                    themeProvider: Qt.binding(function () {
-                        return framework.themeProvider;
-                    }),
-                    iconProvider: Qt.binding(function () {
-                        return framework.iconProvider;
                     })
                 });
             }
@@ -161,6 +152,8 @@ Scope {
         frameMode: rootSettings.frameMode
         themeProvider: framework.themeProvider
         overlayWidth: rootSettings.overlayWidth
+        maxVisible: rootSettings.overlayMaxVisible
+        iconProvider: framework.iconProvider
     }
 
     Loader {

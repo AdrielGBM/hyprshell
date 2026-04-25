@@ -11,6 +11,8 @@ Scope {
     required property bool frameMode
     required property var themeProvider
     required property int overlayWidth
+    property int maxVisible: 5
+    property var iconProvider: null
 
     function itemsAt(side, align) {
         return overlayManager.overlayState.positionGroups[side + "-" + align]?.items ?? [];
@@ -32,6 +34,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -46,6 +50,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -60,6 +66,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -74,6 +82,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -88,6 +98,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -102,6 +114,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -116,6 +130,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 
@@ -130,6 +146,8 @@ Scope {
             themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
+            maxVisible: overlayManager.maxVisible
+            iconProvider: overlayManager.iconProvider
         }
     }
 }

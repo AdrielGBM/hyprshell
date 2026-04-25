@@ -9,6 +9,9 @@ Item {
 
     property real size: 16
 
+    implicitWidth: size
+    implicitHeight: size
+
     property var themeProvider: null
     property string accent: "text"
 
@@ -29,6 +32,7 @@ Item {
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
+        cache: false
         visible: status === Image.Ready
     }
 
@@ -48,7 +52,6 @@ Item {
         root.requestIcon();
     }
 
-    onAccentChanged: root.refreshUri()
     onColorChanged: root.refreshUri()
 
     onIconProviderChanged: root.requestIcon()

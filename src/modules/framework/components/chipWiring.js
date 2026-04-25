@@ -21,12 +21,8 @@ function wire(item, entry, context) {
         item.chipRadius = Qt.binding(function () { return context.chipRadius })
 
     if (typeof entry === "object" && entry !== null) {
-        if ("accentColor" in item && entry.accent) {
-            const t = context.themeProvider?.currentTheme
-            item.accentColor = (t && t[entry.accent] !== undefined)
-                ? t[entry.accent]
-                : context.themeProvider?.[entry.accent] ?? ""
-        }
+        if ("accent" in item && entry.accent)
+            item.accent = entry.accent
         if ("variant" in item && entry.variant)
             item.variant = entry.variant
     }

@@ -6,7 +6,7 @@ QtObject {
     property string defaultSide: "top"
     property string defaultAlign: "end"
 
-    property var active: ({})
+    property var queue: []
 
     function canonicalKey(side, align) {
         if (side === "left" && align === "start")
@@ -22,10 +22,8 @@ QtObject {
 
     readonly property var positionGroups: {
         const groups = {};
-        const ids = Object.keys(active);
-        for (let i = 0; i < ids.length; i++) {
-            const id = ids[i];
-            const item = active[id];
+        for (let i = 0; i < queue.length; i++) {
+            const item = queue[i];
             const key = canonicalKey(item.side, item.align);
             if (!groups[key]) {
                 const dash = key.indexOf("-");
@@ -35,44 +33,54 @@ QtObject {
                     items: []
                 };
             }
-            groups[key].items.push({
-                id: id,
-                component: item.component,
-                props: item.props
-            });
+            groups[key].items.push(item);
         }
         return groups;
     }
 
-    function show(id, component, props, side, align) {
+    function push(id, component, props, side, align) {
         const s = (side && side !== "") ? side : defaultSide;
         const a = (align && align !== "") ? align : defaultAlign;
-        const updated = Object.assign({}, active);
-        updated[id] = {
+        const item = {
+            id: id,
             component: component,
             props: props ?? {},
             side: s,
             align: a
         };
-        active = updated;
+        const idx = queue.findIndex(function (x) {
+            return x.id === id;
+        });
+        if (idx >= 0) {
+            const updated = queue.slice();
+            updated[idx] = item;
+            queue = updated;
+        } else {
+            queue = queue.concat([item]);
+        }
     }
 
-    function hide(id) {
-        if (active[id] === undefined)
+    function remove(id) {
+        const idx = queue.findIndex(function (x) {
+            return x.id === id;
+        });
+        if (idx < 0)
             return;
-        const updated = Object.assign({}, active);
-        delete updated[id];
-        active = updated;
+        const updated = queue.slice();
+        updated.splice(idx, 1);
+        queue = updated;
     }
 
     function toggle(id, component, props, side, align) {
         if (isVisible(id))
-            hide(id);
+            remove(id);
         else
-            show(id, component, props, side, align);
+            push(id, component, props, side, align);
     }
 
     function isVisible(id) {
-        return active[id] !== undefined;
+        return queue.some(function (x) {
+            return x.id === id;
+        });
     }
 }

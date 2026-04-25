@@ -18,8 +18,8 @@ Rectangle {
 
     property string variant: "filled"
     property string size: "medium"
-    property string accent: "accent6"
-    property color accentColor: themeProvider ? (themeProvider[accent] ?? themeProvider.accent6) : "transparent"
+    property string accent: "accent1"
+    property color accentColor: themeProvider ? (themeProvider[accent] ?? themeProvider.accent1) : "transparent"
     signal clicked
 
     readonly property int hPad: size === "small" ? 8 : size === "large" ? 16 : 12
