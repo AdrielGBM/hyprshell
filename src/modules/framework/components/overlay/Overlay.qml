@@ -24,117 +24,11 @@ Scope {
 
     readonly property var _m: SideMargins.calc(overlay.side, overlay.align, overlay.barSizes, overlay.frameMode, overlay.gap)
 
-    ListModel {
-        id: itemsModel
-    }
-
-    property var _propsMap: ({})
-
-    Component {
-        id: popupGroupComp
-        Item {
-            id: groupRoot
-
-            property var pluginState: null
-            property var popupComp: null
-            property int popupTimeout: 5000
-            property int maxVisible: 5
-            property var themeProvider: null
-            property var iconProvider: null
-            property var overlayState: null
-
-            readonly property int _spacing: themeProvider?.spacing ?? 8
-            implicitHeight: groupColumn.implicitHeight
-
-            Column {
-                id: groupColumn
-                width: parent.width
-                spacing: groupRoot._spacing
-
-                Repeater {
-                    model: groupRoot.pluginState?.activeList ?? []
-
-                    Item {
-                        required property var notif
-                        required property int index
-
-                        visible: index < groupRoot.maxVisible
-                        width: groupColumn.width
-                        height: visible && _popup ? _popup.implicitHeight : 0
-
-                        property var _popup: null
-
-                        Component.onCompleted: {
-                            if (!groupRoot.popupComp)
-                                return;
-                            const self = this;
-                            self._popup = groupRoot.popupComp.createObject(self, {
-                                notif: self.notif,
-                                pluginState: Qt.binding(function () {
-                                    return groupRoot.pluginState;
-                                }),
-                                popupTimeout: groupRoot.popupTimeout,
-                                themeProvider: Qt.binding(function () {
-                                    return groupRoot.themeProvider;
-                                }),
-                                iconProvider: Qt.binding(function () {
-                                    return groupRoot.iconProvider;
-                                }),
-                                overlayState: Qt.binding(function () {
-                                    return groupRoot.overlayState;
-                                }),
-                                width: Qt.binding(function () {
-                                    return self.width;
-                                })
-                            });
-                            if (self._popup)
-                                self._popup.height = Qt.binding(function () {
-                                    return self._popup.implicitHeight;
-                                });
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    function _syncItems() {
-        const newIds = overlay.items.map(x => x.id);
-
-        const newMap = {};
-        for (let i = 0; i < overlay.items.length; i++) {
-            const entry = overlay.items[i];
-            newMap[entry.id] = entry.props ?? {};
-        }
-        _propsMap = newMap;
-
-        for (let i = itemsModel.count - 1; i >= 0; i--) {
-            if (!newIds.includes(itemsModel.get(i).pluginId))
-                itemsModel.remove(i);
-        }
-
-        for (let j = 0; j < newIds.length; j++) {
-            let found = false;
-            for (let k = 0; k < itemsModel.count; k++) {
-                if (itemsModel.get(k).pluginId === newIds[j]) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-                itemsModel.append({
-                    pluginId: newIds[j]
-                });
-        }
-    }
-
-    Component.onCompleted: _syncItems()
-    onItemsChanged: _syncItems()
-
     Variants {
         model: Quickshell.screens
 
         PanelWindow {
+            id: screenWindow
             required property var modelData
 
             readonly property string stackVAlign: {
@@ -144,6 +38,103 @@ Scope {
                     return "bottom";
                 return "center";
             }
+
+            readonly property var screenItems: {
+                const all = overlay.items;
+                const result = [];
+                for (let i = 0; i < all.length; i++) {
+                    if (all[i].screenName === "" || all[i].screenName === screenWindow.modelData.name)
+                        result.push(all[i]);
+                }
+                return result;
+            }
+
+            readonly property int _maxVisible: overlay.maxVisible
+
+            ListModel {
+                id: screenModel
+            }
+
+            property var _entriesMap: ({})
+
+            function _syncItems() {
+                const newItems = screenWindow.screenItems;
+
+                const wasVisibleMap = {};
+                for (let i = 0; i < screenModel.count; i++) {
+                    const row = screenModel.get(i);
+                    wasVisibleMap[row.entryId] = row.entryVisible ?? false;
+                }
+
+                const newMap = {};
+                for (let i = 0; i < newItems.length; i++)
+                    newMap[newItems[i].id] = newItems[i];
+                screenWindow._entriesMap = newMap;
+
+                for (let i = screenModel.count - 1; i >= 0; i--) {
+                    if (!newMap.hasOwnProperty(screenModel.get(i).entryId))
+                        screenModel.remove(i);
+                }
+
+                for (let j = 0; j < newItems.length; j++) {
+                    const entry = newItems[j];
+                    let found = -1;
+                    for (let k = 0; k < screenModel.count; k++) {
+                        if (screenModel.get(k).entryId === entry.id) {
+                            found = k;
+                            break;
+                        }
+                    }
+                    if (found >= 0) {
+                        screenModel.setProperty(found, "entryTimestamp", entry.timestamp);
+                        screenModel.setProperty(found, "entryTimeout", entry.timeout);
+                    } else {
+                        let insertAt = screenModel.count;
+                        for (let k = 0; k < screenModel.count; k++) {
+                            if (screenModel.get(k).entryTimestamp > entry.timestamp) {
+                                insertAt = k;
+                                break;
+                            }
+                        }
+                        screenModel.insert(insertAt, {
+                            entryId: entry.id,
+                            entryTimestamp: entry.timestamp,
+                            entryTimeout: entry.timeout,
+                            entryPriority: entry.priority ?? false,
+                            nonPriorityRank: 0,
+                            entryVisible: false
+                        });
+                    }
+                }
+
+                let priorityCount = 0;
+                let rank = 0;
+                for (let i = 0; i < screenModel.count; i++) {
+                    if (screenModel.get(i).entryPriority) {
+                        screenModel.setProperty(i, "nonPriorityRank", -1);
+                        priorityCount++;
+                    } else {
+                        screenModel.setProperty(i, "nonPriorityRank", rank++);
+                    }
+                }
+
+                const regularSlots = Math.max(0, screenWindow._maxVisible - priorityCount);
+                for (let i = 0; i < screenModel.count; i++) {
+                    const row = screenModel.get(i);
+                    let vis;
+                    if (row.entryPriority) {
+                        vis = true;
+                    } else {
+                        const wasVis = wasVisibleMap[row.entryId] ?? false;
+                        vis = wasVis || row.nonPriorityRank < regularSlots;
+                    }
+                    screenModel.setProperty(i, "entryVisible", vis);
+                }
+            }
+
+            Component.onCompleted: _syncItems()
+            onScreenItemsChanged: _syncItems()
+            on_MaxVisibleChanged: _syncItems()
 
             screen: modelData
             color: "transparent"
@@ -180,41 +171,115 @@ Scope {
                 anchors.verticalCenter: stackVAlign === "center" ? parent.verticalCenter : undefined
 
                 Repeater {
-                    model: itemsModel
+                    model: screenModel
 
-                    Loader {
-                        required property string pluginId
+                    Item {
+                        id: popupItem
 
-                        sourceComponent: popupGroupComp
-                        visible: false
-                        width: parent.width
+                        required property string entryId
+                        required property int entryTimestamp
+                        required property int entryTimeout
+                        required property bool entryPriority
+                        required property int nonPriorityRank
+                        required property bool entryVisible
+                        required property int index
 
-                        onLoaded: {
-                            const self = this;
-                            const p = overlay._propsMap[pluginId] ?? {};
+                        visible: entryVisible
+                        width: stack.width
+                        height: visible ? popupContainer.implicitHeight : 0
 
-                            item.popupComp = p.popupComp ?? null;
-                            item.popupTimeout = p.popupTimeout ?? 5000;
-                            item.maxVisible = Qt.binding(function () {
-                                return overlay.maxVisible;
-                            });
-                            item.themeProvider = Qt.binding(function () {
-                                return overlay.themeProvider;
-                            });
-                            item.iconProvider = Qt.binding(function () {
-                                return overlay.iconProvider;
-                            });
-                            item.overlayState = Qt.binding(function () {
-                                return overlay.overlayState;
-                            });
-                            item.width = Qt.binding(function () {
-                                return self.width;
-                            });
-                            item.height = Qt.binding(function () {
-                                return item.implicitHeight;
-                            });
-                            item.pluginState = p.pluginState ?? null;
-                            visible = true;
+                        readonly property var _entry: screenWindow._entriesMap[entryId] ?? null
+
+                        function _dismiss() {
+                            const id = popupItem.entryId;
+                            if (!overlay.overlayState.isVisible(id))
+                                return;
+                            const entry = screenWindow._entriesMap[id] ?? null;
+                            overlay.overlayState.remove(id);
+                            if (entry && entry.onDismiss)
+                                entry.onDismiss();
+                        }
+
+                        Timer {
+                            id: dismissTimer
+                            interval: popupItem.entryTimeout
+                            running: interval > 0 && popupItem.visible
+                            repeat: false
+                            onTriggered: popupItem._dismiss()
+                        }
+
+                        onEntryTimestampChanged: {
+                            if (dismissTimer.interval > 0)
+                                dismissTimer.restart();
+                        }
+
+                        DragHandler {
+                            target: null
+                            xAxis.enabled: true
+                            yAxis.enabled: false
+
+                            onTranslationChanged: {
+                                if (popupContainer)
+                                    popupContainer.x = translation.x;
+                            }
+
+                            onActiveChanged: {
+                                if (active)
+                                    return;
+                                const threshold = popupItem.width * 0.4;
+                                const px = popupContainer.x;
+                                if (Math.abs(px) >= threshold) {
+                                    collapseAnim.start();
+                                    slideAnim.to = px > 0 ? popupItem.width * 2 : -popupItem.width * 2;
+                                    slideAnim.target = popupContainer;
+                                    slideAnim.start();
+                                    dragDismissTimer.start();
+                                } else {
+                                    snapAnim.target = popupContainer;
+                                    snapAnim.start();
+                                }
+                            }
+                        }
+
+                        Timer {
+                            id: dragDismissTimer
+                            interval: 210
+                            repeat: false
+                            onTriggered: popupItem._dismiss()
+                        }
+
+                        NumberAnimation {
+                            id: snapAnim
+                            property: "x"
+                            to: 0
+                            duration: 300
+                            easing.type: Easing.OutCubic
+                        }
+
+                        NumberAnimation {
+                            id: collapseAnim
+                            target: popupItem
+                            property: "height"
+                            to: 0
+                            duration: 200
+                            easing.type: Easing.InCubic
+                        }
+
+                        NumberAnimation {
+                            id: slideAnim
+                            property: "x"
+                            duration: 200
+                            easing.type: Easing.InCubic
+                        }
+
+                        PopupContainer {
+                            id: popupContainer
+                            width: popupItem.width
+                            themeProvider: overlay.themeProvider
+                            iconProvider: overlay.iconProvider
+                            contentComponent: popupItem._entry?.contentComponent ?? null
+                            popupData: popupItem._entry?.data ?? null
+                            onRequestDismiss: popupItem._dismiss()
                         }
                     }
                 }

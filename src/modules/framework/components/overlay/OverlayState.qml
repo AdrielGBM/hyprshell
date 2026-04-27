@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell.Hyprland
 
 QtObject {
     id: overlayState
@@ -38,19 +39,26 @@ QtObject {
         return groups;
     }
 
-    function push(id, component, props, side, align) {
+    function push(id, contentComponent, data, side, align, timeout, onDismiss, priority) {
         const s = (side && side !== "") ? side : defaultSide;
         const a = (align && align !== "") ? align : defaultAlign;
-        const item = {
-            id: id,
-            component: component,
-            props: props ?? {},
-            side: s,
-            align: a
-        };
         const idx = queue.findIndex(function (x) {
             return x.id === id;
         });
+        const existingPriority = idx >= 0 ? queue[idx].priority : (priority ?? false);
+        const existingScreen = idx >= 0 ? queue[idx].screenName : (Hyprland.focusedMonitor?.name ?? "");
+        const item = {
+            id: id,
+            contentComponent: contentComponent,
+            data: data ?? null,
+            side: s,
+            align: a,
+            timeout: timeout ?? 0,
+            timestamp: Date.now(),
+            onDismiss: onDismiss ?? null,
+            priority: existingPriority,
+            screenName: existingScreen
+        };
         if (idx >= 0) {
             const updated = queue.slice();
             updated[idx] = item;
@@ -71,16 +79,18 @@ QtObject {
         queue = updated;
     }
 
-    function toggle(id, component, props, side, align) {
-        if (isVisible(id))
-            remove(id);
-        else
-            push(id, component, props, side, align);
-    }
-
     function isVisible(id) {
         return queue.some(function (x) {
             return x.id === id;
         });
+    }
+
+    function dismissAll() {
+        const snapshot = queue.slice();
+        queue = [];
+        for (let i = 0; i < snapshot.length; i++) {
+            if (snapshot[i].onDismiss)
+                snapshot[i].onDismiss();
+        }
     }
 }
