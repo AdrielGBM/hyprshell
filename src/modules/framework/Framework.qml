@@ -20,9 +20,17 @@ Scope {
     property var i18nProvider: null
 
     readonly property var config: settingsProvider?.framework ?? ({})
+    property var pluginStates: ({})
 
     function saveConfig(values) {
         settingsProvider?.save("framework", values);
+    }
+
+    onPluginStatesChanged: {
+        Object.keys(pluginStates).forEach(function (key) {
+            if (!rootModuleRegistry.getState(key))
+                rootModuleRegistry.registerState(key, pluginStates[key]);
+        });
     }
 
     readonly property color color: themeProvider?.overlay
@@ -67,22 +75,6 @@ Scope {
     }
 
     Component {
-        id: stateSubScannerComp
-        FolderScanner {
-            filename: "State.qml"
-            onItemReady: function (key, comp) {
-                const instance = comp.createObject(framework);
-                if (instance)
-                    rootModuleRegistry.registerState(key, instance);
-            }
-            onItemError: function (key, err) {
-                if (!err.includes("No such file or directory"))
-                    console.error("Plugin state load error [" + key + "]:", err);
-            }
-        }
-    }
-
-    Component {
         id: popupWatcherComp
         PopupWatcher {}
     }
@@ -119,9 +111,6 @@ Scope {
         onDirFound: function (key) {
             const baseFolder = Qt.resolvedUrl("../../plugins/" + key + "/");
             chipSubScannerComp.createObject(framework, {
-                folder: baseFolder
-            });
-            stateSubScannerComp.createObject(framework, {
                 folder: baseFolder
             });
             popupSubScannerComp.createObject(framework, {
