@@ -5,6 +5,8 @@ function wire(item, entry, context) {
 
     if ("iconProvider" in item)
         item.iconProvider = Qt.binding(function () { return context.iconProvider })
+    if ("i18nProvider" in item)
+        item.i18nProvider = Qt.binding(function () { return context.i18nProvider })
     if ("drawerState" in item)
         item.drawerState = Qt.binding(function () { return context.drawerState })
     if ("overlayState" in item)

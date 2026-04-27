@@ -13,6 +13,7 @@ Scope {
     property BarSizes barSizes
     property var themeProvider: null
     property var iconProvider: null
+    property var i18nProvider: null
     property var drawerState: null
     property var overlayState: null
     property var moduleRegistry: null
@@ -46,6 +47,7 @@ Scope {
         ChipWiring.wire(item, entry, {
             themeProvider: bar.themeProvider,
             iconProvider: bar.iconProvider,
+            i18nProvider: bar.i18nProvider,
             drawerState: bar.drawerState,
             overlayState: bar.overlayState,
             moduleRegistry: bar.moduleRegistry,

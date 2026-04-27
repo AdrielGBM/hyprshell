@@ -8,12 +8,13 @@ QtObject {
     property var framework: ({})
     property var background: ({})
     property var theme: ({})
+    property string language: "en"
 
     readonly property var defaultSettings: ({
-        framework: {},
-        background: {},
-        theme: {}
-    })
+            framework: {},
+            background: {},
+            theme: {}
+        })
 
     readonly property string settingsPath: `${Quickshell.env("HOME")}/.config/quickshell/settings.json`
 
@@ -33,6 +34,8 @@ QtObject {
                     provider.background = data.background;
                 if (data.theme !== undefined)
                     provider.theme = data.theme;
+                if (data.language !== undefined)
+                    provider.language = data.language;
             } catch (e) {
                 console.error("SettingsProvider: parse error:", e.message);
             }
@@ -65,6 +68,7 @@ QtObject {
     function saveSettings() {
         const data = {
             "$schema": "./settings.schema.json",
+            language: provider.language,
             framework: provider.framework,
             background: provider.background,
             theme: provider.theme
@@ -76,6 +80,11 @@ QtObject {
 
     function save(section, values) {
         provider[section] = Object.assign({}, provider[section], values);
+        saveSettings();
+    }
+
+    function saveLanguage(lang) {
+        provider.language = lang;
         saveSettings();
     }
 

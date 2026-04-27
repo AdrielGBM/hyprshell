@@ -17,6 +17,7 @@ Scope {
     property var themeProvider: null
     property var iconProvider: null
     property var settingsProvider: null
+    property var i18nProvider: null
 
     readonly property var config: settingsProvider?.framework ?? ({})
 
@@ -144,6 +145,7 @@ Scope {
         drawerState: rootDrawerState
         frameMode: rootSettings.frameMode
         themeProvider: framework.themeProvider
+        i18nProvider: framework.i18nProvider
     }
 
     OverlayManager {
@@ -154,6 +156,7 @@ Scope {
         overlayWidth: rootSettings.overlayWidth
         maxVisible: rootSettings.overlayMaxVisible
         iconProvider: framework.iconProvider
+        i18nProvider: framework.i18nProvider
     }
 
     Loader {
@@ -163,6 +166,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -178,6 +182,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -193,6 +198,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -208,6 +214,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -224,6 +231,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -240,6 +248,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -256,6 +265,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -272,6 +282,7 @@ Scope {
             barSizes: rootBarSizes
             themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
+            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState

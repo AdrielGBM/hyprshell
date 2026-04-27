@@ -12,6 +12,9 @@ Scope {
         config: core.settingsProvider.theme
     }
     property IconProvider iconProvider: IconProvider {}
+    property I18nProvider i18nProvider: I18nProvider {
+        language: core.settingsProvider.language
+    }
 
     Background {
         themeProvider: core.themeProvider
@@ -22,5 +25,6 @@ Scope {
         themeProvider: core.themeProvider
         iconProvider: core.iconProvider
         settingsProvider: core.settingsProvider
+        i18nProvider: core.i18nProvider
     }
 }

@@ -6,6 +6,7 @@ Item {
     default property alias contentData: slot.data
 
     property var themeProvider: null
+    property var i18nProvider: null
     property var drawerState: null
     property string barPosition: ""
     property int barIndex: 0

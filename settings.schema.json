@@ -7,6 +7,11 @@
     "$schema": {
       "type": "string"
     },
+    "language": {
+      "type": "string",
+      "enum": ["en", "es"],
+      "description": "UI language"
+    },
     "framework": {
       "type": "object",
       "additionalProperties": false,

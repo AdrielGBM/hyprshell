@@ -13,6 +13,7 @@ Scope {
     property var barSizes
     property var themeProvider: null
     property var iconProvider: null
+    property var i18nProvider: null
     property var moduleRegistry: null
     property var drawerState: null
     property var overlayState: null
@@ -99,6 +100,7 @@ Scope {
                 onLoaded: ChipWiring.wire(item, corner.itemConfig, {
                     themeProvider: corner.themeProvider,
                     iconProvider: corner.iconProvider,
+                    i18nProvider: corner.i18nProvider,
                     drawerState: corner.drawerState,
                     overlayState: corner.overlayState,
                     moduleRegistry: corner.moduleRegistry,

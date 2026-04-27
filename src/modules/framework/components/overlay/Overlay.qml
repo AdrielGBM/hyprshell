@@ -18,6 +18,7 @@ Scope {
     required property int overlayWidth
     property int maxVisible: 5
     property var iconProvider: null
+    property var i18nProvider: null
 
     readonly property int gap: themeProvider?.spacing ?? 8
     readonly property bool isHorizontal: side === "top" || side === "bottom"
@@ -277,6 +278,7 @@ Scope {
                             width: popupItem.width
                             themeProvider: overlay.themeProvider
                             iconProvider: overlay.iconProvider
+                            i18nProvider: overlay.i18nProvider
                             contentComponent: popupItem._entry?.contentComponent ?? null
                             popupData: popupItem._entry?.data ?? null
                             onRequestDismiss: popupItem._dismiss()

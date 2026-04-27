@@ -15,6 +15,7 @@ Scope {
     required property int drawerHeight
     property bool frameMode: false
     property var themeProvider: null
+    property var i18nProvider: null
     required property color color
 
     readonly property int gap: themeProvider?.spacing
@@ -111,6 +112,14 @@ Scope {
                         target: panelContentLoader.item
                         property: "themeProvider"
                         value: panel.themeProvider
+                        restoreMode: Binding.RestoreNone
+                    }
+
+                    Binding {
+                        when: panelContentLoader.item !== null
+                        target: panelContentLoader.item
+                        property: "i18nProvider"
+                        value: panel.i18nProvider
                         restoreMode: Binding.RestoreNone
                     }
                 }

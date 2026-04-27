@@ -12,6 +12,7 @@ Scope {
     required property var drawerState
     property bool frameMode: false
     property var themeProvider: null
+    property var i18nProvider: null
 
     readonly property color color: themeProvider?.overlay
 
@@ -24,6 +25,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
+            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -37,6 +39,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
+            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -50,6 +53,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
+            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -63,6 +67,7 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             themeProvider: drawerManager.themeProvider
+            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -77,6 +82,7 @@ Scope {
             drawerHeight: drawerManager.settings.drawerHeight
             frameMode: drawerManager.frameMode
             themeProvider: drawerManager.themeProvider
+            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }

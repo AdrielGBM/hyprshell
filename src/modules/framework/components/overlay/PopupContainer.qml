@@ -7,6 +7,7 @@ Item {
 
     property var themeProvider: null
     property var iconProvider: null
+    property var i18nProvider: null
     property var contentComponent: null
     property var popupData: null
 
@@ -58,6 +59,13 @@ Item {
         target: contentLoader.item
         property: "iconProvider"
         value: container.iconProvider
+        when: contentLoader.item !== null
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: contentLoader.item
+        property: "i18nProvider"
+        value: container.i18nProvider
         when: contentLoader.item !== null
         restoreMode: Binding.RestoreNone
     }
