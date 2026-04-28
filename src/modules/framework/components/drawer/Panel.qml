@@ -15,7 +15,6 @@ Scope {
     required property int drawerWidth
     required property int drawerHeight
     property bool frameMode: false
-    property var i18nProvider: null
     required property color color
 
     readonly property int gap: Theme.spacing
@@ -105,14 +104,6 @@ Scope {
                             item.drawerState = Qt.binding(function () {
                                 return panel.drawerState;
                             });
-                    }
-
-                    Binding {
-                        when: panelContentLoader.item !== null
-                        target: panelContentLoader.item
-                        property: "i18nProvider"
-                        value: panel.i18nProvider
-                        restoreMode: Binding.RestoreNone
                     }
                 }
             }

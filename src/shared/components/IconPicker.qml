@@ -1,12 +1,13 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as Controls
 import qs.src.shared.theme
+import qs.src.shared.icons
 
 Item {
     id: root
-
-    property var iconProvider: null
 
     property string currentIcon: ""
 
@@ -15,7 +16,7 @@ Item {
     property string searchQuery: ""
 
     readonly property var filteredIcons: {
-        const list = root.iconProvider ? root.iconProvider.iconList : [];
+        const list = Icons.iconList;
         const q = root.searchQuery.toLowerCase().trim();
         if (q === "")
             return list;
@@ -53,7 +54,6 @@ Item {
                 spacing: root.spacingXs
 
                 LucideIcon {
-                    iconProvider: root.iconProvider
                     name: "search"
                     size: 14
                     accent: "muted"
@@ -71,7 +71,6 @@ Item {
                 }
 
                 LucideIcon {
-                    iconProvider: root.iconProvider
                     name: "x"
                     size: 14
                     accent: "muted"
@@ -89,11 +88,9 @@ Item {
         Text {
             visible: text !== ""
             text: {
-                if (!root.iconProvider)
-                    return "";
-                if (root.iconProvider.iconListLoading)
+                if (Icons.iconListLoading)
                     return "Fetching icon list...";
-                if (root.iconProvider.iconList.length === 0)
+                if (Icons.iconList.length === 0)
                     return "No icons available";
                 const n = root.filteredIcons.length;
                 return n + " icon" + (n !== 1 ? "s" : "");
@@ -124,29 +121,30 @@ Item {
             }
 
             delegate: Rectangle {
+                id: delegateRoot
+
                 required property string modelData
                 required property int index
 
-                property bool isSelected: root.currentIcon === modelData
+                property bool isSelected: root.currentIcon === delegateRoot.modelData
                 property bool isHovered: false
 
                 width: grid.cellWidth
                 height: grid.cellHeight
 
-                color: isSelected ? root.selectedColor : (isHovered ? root.hoverColor : "transparent")
+                color: delegateRoot.isSelected ? root.selectedColor : (delegateRoot.isHovered ? root.hoverColor : "transparent")
                 radius: root.radius
 
                 LucideIcon {
                     anchors.centerIn: parent
-                    iconProvider: root.iconProvider
-                    name: modelData
+                    name: delegateRoot.modelData
                     size: 22
-                    accent: isSelected ? "accent6" : "text"
+                    accent: delegateRoot.isSelected ? "accent6" : "text"
                 }
 
                 Controls.ToolTip {
-                    visible: parent.isHovered
-                    text: modelData
+                    visible: delegateRoot.isHovered
+                    text: delegateRoot.modelData
                     delay: 500
                 }
 
@@ -154,9 +152,9 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onEntered: parent.isHovered = true
-                    onExited: parent.isHovered = false
-                    onClicked: root.iconSelected(modelData)
+                    onEntered: delegateRoot.isHovered = true
+                    onExited: delegateRoot.isHovered = false
+                    onClicked: root.iconSelected(delegateRoot.modelData)
                 }
             }
         }

@@ -13,7 +13,6 @@ Scope {
     required property var barSizes
     required property int drawerWidth
     required property int drawerHeight
-    property var i18nProvider: null
     required property color color
 
     readonly property int gap: Theme.spacing
@@ -66,14 +65,6 @@ Scope {
                             item.drawerState = Qt.binding(function () {
                                 return drawer.drawerState;
                             });
-                    }
-
-                    Binding {
-                        when: drawerContentLoader.item !== null
-                        target: drawerContentLoader.item
-                        property: "i18nProvider"
-                        value: drawer.i18nProvider
-                        restoreMode: Binding.RestoreNone
                     }
                 }
             }

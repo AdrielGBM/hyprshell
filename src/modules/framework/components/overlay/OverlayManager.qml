@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import Quickshell
 import QtQuick
-import "../../../../shared/providers"
 
 Scope {
     id: overlayManager
@@ -12,8 +11,6 @@ Scope {
     required property bool frameMode
     required property int overlayWidth
     property int maxVisible: 5
-    property var iconProvider: null
-    property var i18nProvider: null
 
     function itemsAt(side, align) {
         return overlayManager.overlayState.positionGroups[side + "-" + align]?.items ?? [];
@@ -35,8 +32,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -51,8 +46,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -67,8 +60,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -83,8 +74,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -99,8 +88,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -115,8 +102,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -131,8 +116,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 
@@ -147,8 +130,6 @@ Scope {
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
-            iconProvider: overlayManager.iconProvider
-            i18nProvider: overlayManager.i18nProvider
         }
     }
 }

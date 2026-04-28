@@ -1,10 +1,9 @@
 import QtQuick
 import qs.src.shared.theme
+import qs.src.shared.icons
 
 Item {
     id: root
-
-    property var iconProvider: null
 
     property string name: ""
 
@@ -54,10 +53,8 @@ Item {
 
     onColorChanged: root.refreshUri()
 
-    onIconProviderChanged: root.requestIcon()
-
     Connections {
-        target: root.iconProvider
+        target: Icons
 
         function onIconReady(iconName) {
             if (iconName === root.name)
@@ -73,16 +70,16 @@ Item {
     Component.onCompleted: root.requestIcon()
 
     function requestIcon() {
-        if (!root.iconProvider || root.name === "")
+        if (root.name === "")
             return;
-        root.iconProvider.request(root.name);
+        Icons.request(root.name);
     }
 
     function refreshUri() {
-        if (!root.iconProvider || root.name === "") {
+        if (root.name === "") {
             root.dataUri = "";
             return;
         }
-        root.dataUri = root.iconProvider.getDataUri(root.name, root.color);
+        root.dataUri = Icons.getDataUri(root.name, root.color);
     }
 }

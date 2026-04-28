@@ -16,9 +16,6 @@ import qs.src.shared.settings as App
 Scope {
     id: framework
 
-    property var iconProvider: null
-    property var i18nProvider: null
-
     readonly property var config: App.Settings.framework
     property var pluginStates: ({})
 
@@ -132,7 +129,6 @@ Scope {
         barSizes: rootBarSizes
         drawerState: rootDrawerState
         frameMode: rootSettings.frameMode
-        i18nProvider: framework.i18nProvider
     }
 
     OverlayManager {
@@ -141,8 +137,6 @@ Scope {
         frameMode: rootSettings.frameMode
         overlayWidth: rootSettings.overlayWidth
         maxVisible: rootSettings.overlayMaxVisible
-        iconProvider: framework.iconProvider
-        i18nProvider: framework.i18nProvider
     }
 
     Loader {
@@ -150,8 +144,6 @@ Scope {
             position: "top"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -165,8 +157,6 @@ Scope {
             position: "bottom"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -180,8 +170,6 @@ Scope {
             position: "left"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -195,8 +183,6 @@ Scope {
             position: "right"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
             overlayState: rootOverlayState
             moduleRegistry: rootModuleRegistry
@@ -211,8 +197,6 @@ Scope {
             position: "topLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -227,8 +211,6 @@ Scope {
             position: "topRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -243,8 +225,6 @@ Scope {
             position: "bottomLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
@@ -259,8 +239,6 @@ Scope {
             position: "bottomRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            iconProvider: framework.iconProvider
-            i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState

@@ -17,8 +17,6 @@ Scope {
     required property var overlayState
     required property int overlayWidth
     property int maxVisible: 5
-    property var iconProvider: null
-    property var i18nProvider: null
 
     readonly property int gap: Theme.spacing ?? 8
     readonly property bool isHorizontal: side === "top" || side === "bottom"
@@ -73,7 +71,7 @@ Scope {
                 screenWindow._entriesMap = newMap;
 
                 for (let i = screenModel.count - 1; i >= 0; i--) {
-                    if (!newMap.hasOwnProperty(screenModel.get(i).entryId))
+                    if (!(screenModel.get(i).entryId in newMap))
                         screenModel.remove(i);
                 }
 
@@ -167,9 +165,9 @@ Scope {
                 width: parent.width
                 spacing: overlay.gap
 
-                anchors.top: stackVAlign === "top" ? parent.top : undefined
-                anchors.bottom: stackVAlign === "bottom" ? parent.bottom : undefined
-                anchors.verticalCenter: stackVAlign === "center" ? parent.verticalCenter : undefined
+                anchors.top: screenWindow.stackVAlign === "top" ? parent.top : undefined
+                anchors.bottom: screenWindow.stackVAlign === "bottom" ? parent.bottom : undefined
+                anchors.verticalCenter: screenWindow.stackVAlign === "center" ? parent.verticalCenter : undefined
 
                 Repeater {
                     model: screenModel
@@ -276,8 +274,6 @@ Scope {
                         PopupContainer {
                             id: popupContainer
                             width: popupItem.width
-                            iconProvider: overlay.iconProvider
-                            i18nProvider: overlay.i18nProvider
                             contentComponent: popupItem._entry?.contentComponent ?? null
                             popupData: popupItem._entry?.data ?? null
                             onRequestDismiss: popupItem._dismiss()

@@ -6,8 +6,6 @@ import qs.src.shared.theme
 Item {
     id: container
 
-    property var iconProvider: null
-    property var i18nProvider: null
     property var contentComponent: null
     property var popupData: null
 
@@ -45,20 +43,6 @@ Item {
         target: contentLoader.item
         property: "popupData"
         value: container.popupData
-        when: contentLoader.item !== null
-        restoreMode: Binding.RestoreNone
-    }
-    Binding {
-        target: contentLoader.item
-        property: "iconProvider"
-        value: container.iconProvider
-        when: contentLoader.item !== null
-        restoreMode: Binding.RestoreNone
-    }
-    Binding {
-        target: contentLoader.item
-        property: "i18nProvider"
-        value: container.i18nProvider
         when: contentLoader.item !== null
         restoreMode: Binding.RestoreNone
     }

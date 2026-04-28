@@ -8,8 +8,6 @@ Rectangle {
 
     default property alias contentData: slot.data
 
-    property var iconProvider: null
-
     property string text: ""
     property string icon: ""
 
@@ -78,7 +76,6 @@ Rectangle {
 
         LucideIcon {
             visible: root.icon !== ""
-            iconProvider: root.iconProvider
             name: root.icon
             size: root.iconSize
             accent: root.variant === "filled" ? (Theme.foregroundTokenFor(root.accentColor) ?? "base") : (root.hovered ? "text" : "subtle")
@@ -116,23 +113,24 @@ Rectangle {
         onClicked: {
             root.clicked();
             if (root.command.length > 0)
-                process.run();
+                root.launchProcess();
         }
+    }
+
+    function launchProcess() {
+        if (root.command.length === 0)
+            return;
+        if (root.detach) {
+            const quoted = root.command.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(" ");
+            root.process.command = ["sh", "-c", quoted + " &"];
+        } else {
+            root.process.command = root.command;
+        }
+        root.process.running = true;
     }
 
     property Process process: Process {
         running: false
-        function run() {
-            if (root.command.length === 0)
-                return;
-            if (root.detach) {
-                const quoted = root.command.map(a => "'" + a.replace(/'/g, "'\\''") + "'").join(" ");
-                command = ["sh", "-c", quoted + " &"];
-            } else {
-                command = root.command;
-            }
-            running = true;
-        }
         onExited: code => {
             if (code !== 0 && !root.detach)
                 console.warn("Button: command exited with code", code, root.command);

@@ -12,7 +12,6 @@ Scope {
     required property var barSizes
     required property var drawerState
     property bool frameMode: false
-    property var i18nProvider: null
 
     readonly property color color: Theme.overlay
 
@@ -24,7 +23,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -37,7 +35,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -50,7 +47,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -63,7 +59,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }
@@ -77,7 +72,6 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             frameMode: drawerManager.frameMode
-            i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
     }

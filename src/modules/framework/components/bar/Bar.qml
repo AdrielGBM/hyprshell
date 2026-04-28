@@ -12,8 +12,6 @@ Scope {
     property string position
     property bool frameMode: false
     property BarSizes barSizes
-    property var iconProvider: null
-    property var i18nProvider: null
     property var drawerState: null
     property var overlayState: null
     property var moduleRegistry: null
@@ -48,8 +46,6 @@ Scope {
 
     function wireItem(item, entry, slotName, slotIndex, screen) {
         ChipWiring.wire(item, entry, {
-            iconProvider: bar.iconProvider,
-            i18nProvider: bar.i18nProvider,
             drawerState: bar.drawerState,
             overlayState: bar.overlayState,
             moduleRegistry: bar.moduleRegistry,

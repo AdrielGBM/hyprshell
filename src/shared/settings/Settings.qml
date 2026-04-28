@@ -60,7 +60,7 @@ QtObject {
         running: false
         command: ["sh", "-c", ""]
 
-        onExited: (code, status) => {
+        onExited: code => {
             if (code !== 0)
                 console.error("Settings: save failed with code", code);
         }

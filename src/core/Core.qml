@@ -7,21 +7,22 @@ import "../modules/framework"
 import "../modules/background"
 import qs.src.shared.theme
 import qs.src.shared.settings
-import "../shared/providers"
+import qs.src.shared.i18n
 import "../shared/services"
 
 Scope {
     id: core
 
-    property IconProvider iconProvider: IconProvider {}
-    property I18nProvider i18nProvider: I18nProvider {
-        language: Settings.language
-    }
-
     Binding {
         target: Theme
         property: "config"
         value: Settings.theme
+    }
+
+    Binding {
+        target: I18n
+        property: "language"
+        value: Settings.language
     }
 
     property var pluginStates: ({})
@@ -58,8 +59,6 @@ Scope {
     Background {}
 
     Framework {
-        iconProvider: core.iconProvider
-        i18nProvider: core.i18nProvider
         pluginStates: core.pluginStates
     }
 }

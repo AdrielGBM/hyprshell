@@ -12,8 +12,6 @@ Scope {
     property string position
     property bool frameMode: false
     property var barSizes
-    property var iconProvider: null
-    property var i18nProvider: null
     property var moduleRegistry: null
     property var drawerState: null
     property var overlayState: null
@@ -102,8 +100,6 @@ Scope {
                     if (!item)
                         return;
                     ChipWiring.wire(item, corner.itemConfig, {
-                        iconProvider: corner.iconProvider,
-                        i18nProvider: corner.i18nProvider,
                         drawerState: corner.drawerState,
                         overlayState: corner.overlayState,
                         moduleRegistry: corner.moduleRegistry,
