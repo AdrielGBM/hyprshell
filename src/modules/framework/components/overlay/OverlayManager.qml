@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import Quickshell
 import QtQuick
+import "../../../../shared/providers"
 
 Scope {
     id: overlayManager
@@ -9,7 +10,6 @@ Scope {
     required property var overlayState
     required property var barSizes
     required property bool frameMode
-    required property var themeProvider
     required property int overlayWidth
     property int maxVisible: 5
     property var iconProvider: null
@@ -32,7 +32,6 @@ Scope {
             items: overlayManager.itemsAt("top", "start")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -49,7 +48,6 @@ Scope {
             items: overlayManager.itemsAt("top", "center")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -66,7 +64,6 @@ Scope {
             items: overlayManager.itemsAt("top", "end")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -83,7 +80,6 @@ Scope {
             items: overlayManager.itemsAt("bottom", "start")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -100,7 +96,6 @@ Scope {
             items: overlayManager.itemsAt("bottom", "center")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -117,7 +112,6 @@ Scope {
             items: overlayManager.itemsAt("bottom", "end")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -134,7 +128,6 @@ Scope {
             items: overlayManager.itemsAt("left", "center")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible
@@ -151,7 +144,6 @@ Scope {
             items: overlayManager.itemsAt("right", "center")
             barSizes: overlayManager.barSizes
             frameMode: overlayManager.frameMode
-            themeProvider: overlayManager.themeProvider
             overlayState: overlayManager.overlayState
             overlayWidth: overlayManager.overlayWidth
             maxVisible: overlayManager.maxVisible

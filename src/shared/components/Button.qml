@@ -1,13 +1,13 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Io
+import qs.src.shared.theme
 
 Rectangle {
     id: root
 
     default property alias contentData: slot.data
 
-    property var themeProvider: null
     property var iconProvider: null
 
     property string text: ""
@@ -19,14 +19,14 @@ Rectangle {
     property string variant: "filled"
     property string size: "medium"
     property string accent: "accent1"
-    property color accentColor: themeProvider ? (themeProvider[accent] ?? themeProvider.accent1) : "transparent"
+    property color accentColor: Theme[accent] ?? Theme.accent1
     signal clicked
 
     readonly property int hPad: size === "small" ? 8 : size === "large" ? 16 : 12
     readonly property int vPad: size === "small" ? 4 : size === "large" ? 10 : 6
     readonly property int iconSize: size === "small" ? 12 : size === "large" ? 16 : 14
     readonly property int fontSize: {
-        const base = themeProvider?.font?.size;
+        const base = Theme.font.size;
         if (size === "small")
             return base - 1;
         if (size === "large")
@@ -34,7 +34,7 @@ Rectangle {
         return base;
     }
     readonly property int gap: size === "small" ? 4 : size === "large" ? 8 : 6
-    readonly property int r: themeProvider?.radius?.md ?? 6
+    readonly property int r: Theme.radius
 
     readonly property bool hasCustomContent: slot.children.length > 0
 
@@ -43,20 +43,20 @@ Rectangle {
 
     readonly property color bg: {
         if (pressed)
-            return variant === "filled" ? Qt.darker(root.accentColor, 1.15) : themeProvider?.highlightMed;
+            return variant === "filled" ? Qt.darker(root.accentColor, 1.15) : Theme.highlightMed;
         if (hovered)
-            return variant === "filled" ? Qt.lighter(root.accentColor, 1.12) : themeProvider?.highlightLow;
+            return variant === "filled" ? Qt.lighter(root.accentColor, 1.12) : Theme.highlightLow;
         if (variant === "filled")
             return root.accentColor;
         return "transparent";
     }
 
-    readonly property color borderColor: variant === "outlined" ? (hovered ? root.accentColor : themeProvider?.overlay) : "transparent"
+    readonly property color borderColor: variant === "outlined" ? (hovered ? root.accentColor : Theme.overlay) : "transparent"
 
     readonly property color fgColor: {
         if (variant === "filled")
-            return themeProvider?.base;
-        return hovered ? themeProvider?.text : themeProvider?.subtle;
+            return Theme.foregroundFor(accentColor);
+        return hovered ? Theme.text : Theme.subtle;
     }
 
     implicitHeight: hasCustomContent ? slot.implicitHeight + vPad * 2 : defaultLayout.implicitHeight + vPad * 2
@@ -79,10 +79,9 @@ Rectangle {
         LucideIcon {
             visible: root.icon !== ""
             iconProvider: root.iconProvider
-            themeProvider: root.themeProvider
             name: root.icon
             size: root.iconSize
-            accent: root.variant === "filled" ? "base" : (root.hovered ? "text" : "subtle")
+            accent: root.variant === "filled" ? (Theme.foregroundTokenFor(root.accentColor) ?? "base") : (root.hovered ? "text" : "subtle")
         }
 
         Text {
@@ -90,7 +89,7 @@ Rectangle {
             text: root.text
             color: root.fgColor
             font.pixelSize: root.fontSize
-            font.family: root.themeProvider?.font?.family
+            font.family: Theme.font.family
             font.weight: Font.Medium
             verticalAlignment: Text.AlignVCenter
         }

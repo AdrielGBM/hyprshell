@@ -1,11 +1,11 @@
 import QtQuick
+import qs.src.shared.theme
 
 Item {
     id: root
 
     default property alias contentData: slot.data
 
-    property var themeProvider: null
     property var i18nProvider: null
     property var drawerState: null
     property string barPosition: ""
@@ -13,36 +13,36 @@ Item {
 
     property string accent: ""
     property string variant: "default"
-    readonly property string effectiveVariant: variant !== "default" ? variant : (themeProvider?.defaultVariant ?? "default")
+    readonly property string effectiveVariant: variant !== "default" ? variant : Theme.defaultVariant
     readonly property string effectiveAccentToken: {
         if (accent !== "")
             return accent;
-        const def = themeProvider?.defaultAccent ?? "";
+        const def = Theme.defaultAccent;
         if (def !== "")
             return def;
         return "text";
     }
     readonly property color accentColor: {
         if (accent !== "")
-            return themeProvider?.[accent] ?? "transparent";
-        const def = themeProvider?.defaultAccent ?? "";
+            return Theme[accent] ?? "transparent";
+        const def = Theme.defaultAccent;
         if (def !== "")
-            return themeProvider?.[def] ?? "transparent";
-        return effectiveVariant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
+            return Theme[def] ?? "transparent";
+        return effectiveVariant === "filled" ? Theme.accent1 : Theme.text;
     }
-    readonly property string iconAccent: effectiveVariant === "filled" ? (themeProvider?.foregroundTokenFor(accentColor) ?? "base") : effectiveAccentToken
+    readonly property string iconAccent: effectiveVariant === "filled" ? (Theme.foregroundTokenFor(accentColor) ?? "base") : effectiveAccentToken
     property var barScreen: null
     property string panelUrl: ""
 
     property int chipRadius: -1
-    readonly property int pad: themeProvider?.spacing
-    readonly property int r: chipRadius >= 0 ? chipRadius : themeProvider?.radius
+    readonly property int pad: Theme.spacing
+    readonly property int r: chipRadius >= 0 ? chipRadius : Theme.radius
     readonly property bool isVertical: barPosition === "left" || barPosition === "right"
     readonly property bool hovered: area.containsMouse
     readonly property bool pressed: area.pressed
     readonly property bool interactive: panelUrl !== ""
 
-    readonly property color fgColor: effectiveVariant === "filled" ? (themeProvider?.foregroundFor(accentColor) ?? themeProvider?.base) : accentColor
+    readonly property color fgColor: effectiveVariant === "filled" ? Theme.foregroundFor(accentColor) : accentColor
 
     readonly property real effectivePad: isVertical ? Math.max(0, (width - slot.childrenRect.width) / 2) : Math.max(0, (height - slot.childrenRect.height) / 2)
 
@@ -87,9 +87,9 @@ Item {
                 return root.accentColor;
             }
             if (root.pressed)
-                return root.themeProvider?.highlightMed;
+                return Theme.highlightMed;
             if (root.hovered && root.interactive)
-                return root.themeProvider?.highlightLow;
+                return Theme.highlightLow;
             return "transparent";
         }
 

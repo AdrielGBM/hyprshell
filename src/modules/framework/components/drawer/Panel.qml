@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import "../sideMargins.js" as SideMargins
+import qs.src.shared.theme
 
 Scope {
     id: panel
@@ -14,12 +15,11 @@ Scope {
     required property int drawerWidth
     required property int drawerHeight
     property bool frameMode: false
-    property var themeProvider: null
     property var i18nProvider: null
     required property color color
 
-    readonly property int gap: themeProvider?.spacing
-    readonly property int radius: themeProvider?.radius
+    readonly property int gap: Theme.spacing
+    readonly property int radius: Theme.radius
 
     readonly property bool isHorizontalSide: side === "top" || side === "bottom"
     readonly property string position: drawerState.activePanelPosition
@@ -105,14 +105,6 @@ Scope {
                             item.drawerState = Qt.binding(function () {
                                 return panel.drawerState;
                             });
-                    }
-
-                    Binding {
-                        when: panelContentLoader.item !== null
-                        target: panelContentLoader.item
-                        property: "themeProvider"
-                        value: panel.themeProvider
-                        restoreMode: Binding.RestoreNone
                     }
 
                     Binding {

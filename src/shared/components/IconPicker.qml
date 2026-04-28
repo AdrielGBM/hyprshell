@@ -1,12 +1,12 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as Controls
+import qs.src.shared.theme
 
 Item {
     id: root
 
     property var iconProvider: null
-    property var themeProvider: null
 
     property string currentIcon: ""
 
@@ -22,17 +22,17 @@ Item {
         return list.filter(n => n.includes(q));
     }
 
-    readonly property color bg: root.themeProvider?.surface
-    readonly property color borderColor: root.themeProvider?.overlay
-    readonly property color textColor: root.themeProvider?.text
-    readonly property color muted: root.themeProvider?.muted
-    readonly property color accent: root.themeProvider?.accent6
-    readonly property color hoverColor: root.themeProvider?.highlightMed
-    readonly property color selectedColor: root.themeProvider?.highlightHigh
+    readonly property color bg: Theme.surface
+    readonly property color borderColor: Theme.overlay
+    readonly property color textColor: Theme.text
+    readonly property color muted: Theme.muted
+    readonly property color accent: Theme.accent6
+    readonly property color hoverColor: Theme.highlightMed
+    readonly property color selectedColor: Theme.highlightHigh
 
-    readonly property int spacing: root.themeProvider?.spacing
-    readonly property int spacingXs: Math.round(root.themeProvider?.spacing / 2)
-    readonly property int radius: root.themeProvider?.radius
+    readonly property int spacing: Theme.spacing
+    readonly property int spacingXs: Math.round(Theme.spacing / 2)
+    readonly property int radius: Theme.radius
 
     ColumnLayout {
         anchors.fill: parent
@@ -54,7 +54,6 @@ Item {
 
                 LucideIcon {
                     iconProvider: root.iconProvider
-                    themeProvider: root.themeProvider
                     name: "search"
                     size: 14
                     accent: "muted"
@@ -73,7 +72,6 @@ Item {
 
                 LucideIcon {
                     iconProvider: root.iconProvider
-                    themeProvider: root.themeProvider
                     name: "x"
                     size: 14
                     accent: "muted"
@@ -141,7 +139,6 @@ Item {
                 LucideIcon {
                     anchors.centerIn: parent
                     iconProvider: root.iconProvider
-                    themeProvider: root.themeProvider
                     name: modelData
                     size: 22
                     accent: isSelected ? "accent6" : "text"

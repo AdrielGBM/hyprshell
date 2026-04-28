@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import qs.src.shared.theme
 
 Scope {
     id: drawerManager
@@ -11,10 +12,9 @@ Scope {
     required property var barSizes
     required property var drawerState
     property bool frameMode: false
-    property var themeProvider: null
     property var i18nProvider: null
 
-    readonly property color color: themeProvider?.overlay
+    readonly property color color: Theme.overlay
 
     Loader {
         active: drawerManager.drawerState.openDrawers["top"] !== undefined
@@ -24,7 +24,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            themeProvider: drawerManager.themeProvider
             i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
@@ -38,7 +37,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            themeProvider: drawerManager.themeProvider
             i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
@@ -52,7 +50,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            themeProvider: drawerManager.themeProvider
             i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
@@ -66,7 +63,6 @@ Scope {
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
-            themeProvider: drawerManager.themeProvider
             i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }
@@ -81,7 +77,6 @@ Scope {
             drawerWidth: drawerManager.settings.drawerWidth
             drawerHeight: drawerManager.settings.drawerHeight
             frameMode: drawerManager.frameMode
-            themeProvider: drawerManager.themeProvider
             i18nProvider: drawerManager.i18nProvider
             color: drawerManager.color
         }

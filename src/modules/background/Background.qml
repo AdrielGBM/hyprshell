@@ -3,12 +3,12 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import qs.src.shared.theme
 
 Scope {
     id: background
 
     property var config: ({})
-    property var themeProvider: null
 
     Settings {
         id: settings
@@ -36,7 +36,7 @@ Scope {
 
             Rectangle {
                 anchors.fill: parent
-                color: background.themeProvider ? background.themeProvider.base : "#191724"
+                color: Theme.base
 
                 Image {
                     anchors.fill: parent

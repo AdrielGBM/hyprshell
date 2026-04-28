@@ -10,11 +10,11 @@ import "./components/corner"
 import "./components/overlay"
 import "../../shared/components"
 import "../../shared/services"
+import qs.src.shared.theme
 
 Scope {
     id: framework
 
-    property var themeProvider: null
     property var iconProvider: null
     property var settingsProvider: null
     property var i18nProvider: null
@@ -33,7 +33,7 @@ Scope {
         });
     }
 
-    readonly property color color: themeProvider?.overlay
+    readonly property color color: Theme.overlay
 
     DrawerState {
         id: rootDrawerState
@@ -123,7 +123,6 @@ Scope {
         active: rootSettings.frameMode
         sourceComponent: Frame {
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             color: framework.color
         }
     }
@@ -133,7 +132,6 @@ Scope {
         barSizes: rootBarSizes
         drawerState: rootDrawerState
         frameMode: rootSettings.frameMode
-        themeProvider: framework.themeProvider
         i18nProvider: framework.i18nProvider
     }
 
@@ -141,7 +139,6 @@ Scope {
         overlayState: rootOverlayState
         barSizes: rootBarSizes
         frameMode: rootSettings.frameMode
-        themeProvider: framework.themeProvider
         overlayWidth: rootSettings.overlayWidth
         maxVisible: rootSettings.overlayMaxVisible
         iconProvider: framework.iconProvider
@@ -153,7 +150,6 @@ Scope {
             position: "top"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
@@ -169,7 +165,6 @@ Scope {
             position: "bottom"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
@@ -185,7 +180,6 @@ Scope {
             position: "left"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
@@ -201,7 +195,6 @@ Scope {
             position: "right"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             drawerState: rootDrawerState
@@ -218,7 +211,6 @@ Scope {
             position: "topLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
@@ -235,7 +227,6 @@ Scope {
             position: "topRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
@@ -252,7 +243,6 @@ Scope {
             position: "bottomLeft"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry
@@ -269,7 +259,6 @@ Scope {
             position: "bottomRight"
             frameMode: rootSettings.frameMode
             barSizes: rootBarSizes
-            themeProvider: framework.themeProvider
             iconProvider: framework.iconProvider
             i18nProvider: framework.i18nProvider
             moduleRegistry: rootModuleRegistry

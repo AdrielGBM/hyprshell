@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import "../chipWiring.js" as ChipWiring
+import qs.src.shared.theme
 
 Scope {
     id: corner
@@ -11,7 +12,6 @@ Scope {
     property string position
     property bool frameMode: false
     property var barSizes
-    property var themeProvider: null
     property var iconProvider: null
     property var i18nProvider: null
     property var moduleRegistry: null
@@ -26,9 +26,9 @@ Scope {
         return isLeft ? "left" : "right";
     }
 
-    readonly property int gap: themeProvider?.spacing
-    readonly property int radius: themeProvider?.radius
-    readonly property int padding: Math.round(themeProvider?.spacing / 2)
+    readonly property int gap: Theme.spacing
+    readonly property int radius: Theme.radius
+    readonly property int padding: Math.round(Theme.spacing / 2)
 
     readonly property bool isTop: position === "topLeft" || position === "topRight"
     readonly property bool isLeft: position === "topLeft" || position === "bottomLeft"
@@ -102,7 +102,6 @@ Scope {
                     if (!item)
                         return;
                     ChipWiring.wire(item, corner.itemConfig, {
-                        themeProvider: corner.themeProvider,
                         iconProvider: corner.iconProvider,
                         i18nProvider: corner.i18nProvider,
                         drawerState: corner.drawerState,

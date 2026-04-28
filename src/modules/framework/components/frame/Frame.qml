@@ -3,16 +3,16 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import qs.src.shared.theme
 
 Scope {
     id: frame
 
     required property var barSizes
-    required property var themeProvider
     required property color color
 
-    readonly property int gap: themeProvider?.spacing
-    readonly property int radius: themeProvider?.radius
+    readonly property int gap: Theme.spacing
+    readonly property int radius: Theme.radius
 
     Variants {
         model: Quickshell.screens
@@ -50,9 +50,6 @@ Scope {
                         frameCanvas.requestPaint();
                     }
                     function onBarSizesChanged() {
-                        frameCanvas.requestPaint();
-                    }
-                    function onThemeProviderChanged() {
                         frameCanvas.requestPaint();
                     }
                 }

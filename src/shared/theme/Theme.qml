@@ -1,8 +1,9 @@
+pragma Singleton
 import QtQuick
 import "../services"
 
 QtObject {
-    id: themeProvider
+    id: theme
 
     property var config: ({})
     onConfigChanged: {
@@ -77,7 +78,7 @@ QtObject {
     readonly property string defaultVariant: config?.variant ?? "default"
     readonly property color defaultAccentColor: {
         if (defaultAccent !== "")
-            return themeProvider[defaultAccent] ?? accent1;
+            return theme[defaultAccent] ?? accent1;
         return accent1;
     }
 
@@ -86,7 +87,7 @@ QtObject {
         filename: "Theme.qml"
 
         onItemReady: function (key, comp) {
-            const obj = comp.createObject(themeProvider);
+            const obj = comp.createObject(theme);
             if (!obj)
                 return;
             const entry = {
@@ -97,14 +98,14 @@ QtObject {
                 version: obj.version || "1.0.0",
                 theme: obj
             };
-            const list = themeProvider.themeList.slice();
+            const list = theme.themeList.slice();
             list.push(entry);
-            const map = Object.assign({}, themeProvider.themes);
+            const map = Object.assign({}, theme.themes);
             map[key] = entry;
-            themeProvider.themeList = list;
-            themeProvider.themes = map;
-            if (themeProvider.pendingThemeName && map[themeProvider.pendingThemeName])
-                themeProvider.setTheme(themeProvider.pendingThemeName);
+            theme.themeList = list;
+            theme.themes = map;
+            if (theme.pendingThemeName && map[theme.pendingThemeName])
+                theme.setTheme(theme.pendingThemeName);
         }
 
         onItemError: function (key, error) {
@@ -113,7 +114,7 @@ QtObject {
     }
 
     function getThemes() {
-        return themeProvider.themeList;
+        return theme.themeList;
     }
 
     function _relativeLuminance(color) {
@@ -129,19 +130,19 @@ QtObject {
 
     function foregroundTokenFor(accentCol) {
         const la = _relativeLuminance(accentCol);
-        const useText = _contrastRatio(la, _relativeLuminance(themeProvider.text)) >= _contrastRatio(la, _relativeLuminance(themeProvider.base));
+        const useText = _contrastRatio(la, _relativeLuminance(theme.text)) >= _contrastRatio(la, _relativeLuminance(theme.base));
         return useText ? "text" : "base";
     }
 
     function foregroundFor(accentCol) {
-        return foregroundTokenFor(accentCol) === "text" ? themeProvider.text : themeProvider.base;
+        return foregroundTokenFor(accentCol) === "text" ? theme.text : theme.base;
     }
 
     function setTheme(themeName) {
-        if (themeProvider.themes.hasOwnProperty(themeName)) {
+        if (theme.themes.hasOwnProperty(themeName)) {
             const oldTheme = currentThemeName;
             currentThemeName = themeName;
-            currentTheme = themeProvider.themes[themeName].theme;
+            currentTheme = theme.themes[themeName].theme;
             pendingThemeName = "";
             themeChanged(themeName, oldTheme);
             return true;
@@ -151,7 +152,7 @@ QtObject {
     }
 
     function getThemeMeta(themeName) {
-        return themeProvider.themes[themeName] || null;
+        return theme.themes[themeName] || null;
     }
 
     signal themeChanged(string newTheme, string oldTheme)

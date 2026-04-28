@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import "../sideMargins.js" as SideMargins
+import qs.src.shared.theme
 
 Scope {
     id: overlay
@@ -13,14 +14,13 @@ Scope {
     required property var items
     required property var barSizes
     required property bool frameMode
-    required property var themeProvider
     required property var overlayState
     required property int overlayWidth
     property int maxVisible: 5
     property var iconProvider: null
     property var i18nProvider: null
 
-    readonly property int gap: themeProvider?.spacing ?? 8
+    readonly property int gap: Theme.spacing ?? 8
     readonly property bool isHorizontal: side === "top" || side === "bottom"
 
     readonly property var _m: SideMargins.calc(overlay.side, overlay.align, overlay.barSizes, overlay.frameMode, overlay.gap)
@@ -276,7 +276,6 @@ Scope {
                         PopupContainer {
                             id: popupContainer
                             width: popupItem.width
-                            themeProvider: overlay.themeProvider
                             iconProvider: overlay.iconProvider
                             i18nProvider: overlay.i18nProvider
                             contentComponent: popupItem._entry?.contentComponent ?? null

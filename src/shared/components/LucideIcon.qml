@@ -1,4 +1,5 @@
 import QtQuick
+import qs.src.shared.theme
 
 Item {
     id: root
@@ -12,10 +13,9 @@ Item {
     implicitWidth: size
     implicitHeight: size
 
-    property var themeProvider: null
     property string accent: "text"
 
-    readonly property color color: themeProvider ? themeProvider[accent] : "transparent"
+    readonly property color color: Theme[accent] ?? "transparent"
 
     width: size
     height: size

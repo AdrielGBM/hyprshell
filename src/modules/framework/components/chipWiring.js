@@ -1,8 +1,6 @@
 .pragma library
 
 function wire(item, entry, context) {
-    item.themeProvider = Qt.binding(function () { return context.themeProvider })
-
     if ("iconProvider" in item)
         item.iconProvider = Qt.binding(function () { return context.iconProvider })
     if ("i18nProvider" in item)

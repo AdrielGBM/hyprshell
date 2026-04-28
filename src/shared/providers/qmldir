@@ -1,0 +1,3 @@
+SettingsProvider SettingsProvider.qml
+IconProvider IconProvider.qml
+I18nProvider I18nProvider.qml

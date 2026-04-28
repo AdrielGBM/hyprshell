@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import "../chipWiring.js" as ChipWiring
+import qs.src.shared.theme
 
 Scope {
     id: bar
@@ -11,7 +12,6 @@ Scope {
     property string position
     property bool frameMode: false
     property BarSizes barSizes
-    property var themeProvider: null
     property var iconProvider: null
     property var i18nProvider: null
     property var drawerState: null
@@ -21,9 +21,9 @@ Scope {
 
     property color color
 
-    readonly property int gap: bar.themeProvider?.spacing
-    readonly property int radius: bar.themeProvider?.radius
-    readonly property int padding: Math.round(bar.themeProvider?.spacing / 2)
+    readonly property int gap: Theme.spacing
+    readonly property int radius: Theme.radius
+    readonly property int padding: Math.round(Theme.spacing / 2)
     readonly property int chipRadius: Math.max(0, bar.radius - bar.padding)
     readonly property bool isHorizontal: position === "top" || position === "bottom"
 
@@ -48,7 +48,6 @@ Scope {
 
     function wireItem(item, entry, slotName, slotIndex, screen) {
         ChipWiring.wire(item, entry, {
-            themeProvider: bar.themeProvider,
             iconProvider: bar.iconProvider,
             i18nProvider: bar.i18nProvider,
             drawerState: bar.drawerState,

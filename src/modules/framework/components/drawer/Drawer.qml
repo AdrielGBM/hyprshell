@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import qs.src.shared.theme
 
 Scope {
     id: drawer
@@ -12,12 +13,11 @@ Scope {
     required property var barSizes
     required property int drawerWidth
     required property int drawerHeight
-    property var themeProvider: null
     property var i18nProvider: null
     required property color color
 
-    readonly property int gap: themeProvider?.spacing
-    readonly property int radius: themeProvider?.radius
+    readonly property int gap: Theme.spacing
+    readonly property int radius: Theme.radius
 
     Variants {
         model: Quickshell.screens
@@ -66,14 +66,6 @@ Scope {
                             item.drawerState = Qt.binding(function () {
                                 return drawer.drawerState;
                             });
-                    }
-
-                    Binding {
-                        when: drawerContentLoader.item !== null
-                        target: drawerContentLoader.item
-                        property: "themeProvider"
-                        value: drawer.themeProvider
-                        restoreMode: Binding.RestoreNone
                     }
 
                     Binding {
