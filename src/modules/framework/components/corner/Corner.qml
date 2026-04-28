@@ -92,23 +92,37 @@ Scope {
             }
 
             Loader {
+                id: chipLoader
                 anchors.centerIn: parent
                 width: corner.cornerSize - corner.padding * 2
                 height: corner.cornerSize - corner.padding * 2
                 sourceComponent: corner.resolveComponent()
 
-                onLoaded: ChipWiring.wire(item, corner.itemConfig, {
-                    themeProvider: corner.themeProvider,
-                    iconProvider: corner.iconProvider,
-                    i18nProvider: corner.i18nProvider,
-                    drawerState: corner.drawerState,
-                    overlayState: corner.overlayState,
-                    moduleRegistry: corner.moduleRegistry,
-                    barPosition: corner.chipBarPosition,
-                    barIndex: corner.cornerBarIndex,
-                    barScreen: cornerWindow.screenData,
-                    chipRadius: corner.chipRadius
-                })
+                function doWire() {
+                    if (!item)
+                        return;
+                    ChipWiring.wire(item, corner.itemConfig, {
+                        themeProvider: corner.themeProvider,
+                        iconProvider: corner.iconProvider,
+                        i18nProvider: corner.i18nProvider,
+                        drawerState: corner.drawerState,
+                        overlayState: corner.overlayState,
+                        moduleRegistry: corner.moduleRegistry,
+                        barPosition: corner.chipBarPosition,
+                        barIndex: corner.cornerBarIndex,
+                        barScreen: cornerWindow.screenData,
+                        chipRadius: corner.chipRadius
+                    });
+                }
+
+                onLoaded: doWire()
+            }
+
+            Connections {
+                target: corner
+                function onItemConfigChanged() {
+                    chipLoader.doWire();
+                }
             }
         }
     }

@@ -13,12 +13,16 @@ Item {
 
     property string accent: ""
     property string variant: "default"
+    readonly property string effectiveVariant: variant !== "default" ? variant : (themeProvider?.defaultVariant ?? "default")
     readonly property color accentColor: {
         if (accent !== "")
             return themeProvider?.[accent] ?? "transparent";
-        return variant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
+        const def = themeProvider?.defaultAccent ?? "";
+        if (def !== "")
+            return themeProvider?.[def] ?? "transparent";
+        return effectiveVariant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
     }
-    readonly property string iconAccent: variant === "filled" ? "base" : "text"
+    readonly property string iconAccent: effectiveVariant === "filled" ? "base" : "text"
     property var barScreen: null
     property string panelUrl: ""
 
@@ -30,7 +34,7 @@ Item {
     readonly property bool pressed: area.pressed
     readonly property bool interactive: panelUrl !== ""
 
-    readonly property color fgColor: variant === "filled" ? themeProvider?.base : accentColor
+    readonly property color fgColor: effectiveVariant === "filled" ? themeProvider?.base : accentColor
 
     readonly property real effectivePad: isVertical ? Math.max(0, (width - slot.childrenRect.width) / 2) : Math.max(0, (height - slot.childrenRect.height) / 2)
 
@@ -67,7 +71,7 @@ Item {
         radius: root.r
 
         readonly property color bg: {
-            if (root.variant === "filled") {
+            if (root.effectiveVariant === "filled") {
                 if (root.pressed)
                     return Qt.darker(root.accentColor, 1.15);
                 if (root.hovered)

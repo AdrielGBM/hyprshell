@@ -27,6 +27,9 @@ Scope {
     readonly property int chipRadius: Math.max(0, bar.radius - bar.padding)
     readonly property bool isHorizontal: position === "top" || position === "bottom"
 
+    property string defaultAccent: ""
+    property string defaultVariant: "default"
+
     function resolveComponent(entry) {
         if (typeof entry === "string")
             return bar.moduleRegistry?.get(entry) ?? null;

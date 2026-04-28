@@ -148,6 +148,14 @@
           "type": "integer",
           "minimum": 0,
           "description": "Border radius for rounded corners (px)"
+        },
+        "accent": {
+          "$ref": "#/$defs/accentColor",
+          "description": "Default accent color token applied to all chips that don't specify their own"
+        },
+        "variant": {
+          "$ref": "#/$defs/moduleVariant",
+          "description": "Default visual variant applied to all chips that don't specify their own"
         }
       }
     }

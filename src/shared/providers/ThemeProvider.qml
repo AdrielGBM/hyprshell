@@ -73,6 +73,14 @@ QtObject {
             size: 12
         })
 
+    readonly property string defaultAccent: config?.accent ?? ""
+    readonly property string defaultVariant: config?.variant ?? "default"
+    readonly property color defaultAccentColor: {
+        if (defaultAccent !== "")
+            return themeProvider[defaultAccent] ?? accent1;
+        return accent1;
+    }
+
     property var themeScanner: FolderScanner {
         folder: Qt.resolvedUrl("../../../assets/themes/")
         filename: "Theme.qml"
