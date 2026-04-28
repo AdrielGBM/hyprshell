@@ -4,15 +4,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.src.shared.theme
+import qs.src.shared.settings as App
 
 Scope {
     id: background
 
-    property var config: ({})
-
     Settings {
         id: settings
-        config: background.config
+        config: App.Settings.background
     }
 
     Variants {

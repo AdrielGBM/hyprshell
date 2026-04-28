@@ -3,25 +3,24 @@ import QtQuick
 QtObject {
     id: settings
 
-    property bool frameMode: true
+    property var config: ({})
 
-    property int inactiveBarSize: 16
-    property int activeBarSize: 40
+    readonly property bool frameMode: config.frameMode ?? true
 
-    property int drawerWidth: 200
-    property int drawerHeight: 200
-    property string drawerOrientation: "vertical"
-    property var bars: ({})
-    property var corners: ({})
+    readonly property int inactiveBarSize: config.inactiveBarSize ?? 16
+    readonly property int activeBarSize: config.activeBarSize ?? 40
+
+    readonly property int drawerWidth: config.drawerWidth ?? 200
+    readonly property int drawerHeight: config.drawerHeight ?? 200
+    readonly property string drawerOrientation: config.drawerOrientation ?? "vertical"
+    readonly property var bars: config.bars !== undefined ? normalizeBars(config.bars) : ({})
+    readonly property var corners: config.corners !== undefined ? normalizeCorners(config.corners) : ({})
 
     readonly property int overlayWidth: config.overlay?.width ?? 360
     readonly property string overlaySide: config.overlay?.position?.side ?? "top"
     readonly property string overlayAlign: config.overlay?.position?.align ?? "center"
     readonly property int overlayPopupTimeout: config.overlay?.popupTimeout ?? 5000
     readonly property int overlayMaxVisible: config.overlay?.maxVisible ?? 5
-
-    property var config: ({})
-    onConfigChanged: applyConfig(config)
 
     function normalizeCorners(raw) {
         const result = {};
@@ -60,26 +59,5 @@ QtObject {
             result[side] = sideConfig;
         }
         return result;
-    }
-
-    function applyConfig(cfg) {
-        if (!cfg)
-            return;
-        if (cfg.inactiveBarSize !== undefined)
-            inactiveBarSize = cfg.inactiveBarSize;
-        if (cfg.activeBarSize !== undefined)
-            activeBarSize = cfg.activeBarSize;
-        if (cfg.bars !== undefined)
-            bars = normalizeBars(cfg.bars);
-        if (cfg.corners !== undefined)
-            corners = normalizeCorners(cfg.corners);
-        if (cfg.frameMode !== undefined)
-            frameMode = cfg.frameMode;
-        if (cfg.drawerWidth !== undefined)
-            drawerWidth = cfg.drawerWidth;
-        if (cfg.drawerHeight !== undefined)
-            drawerHeight = cfg.drawerHeight;
-        if (cfg.drawerOrientation !== undefined)
-            drawerOrientation = cfg.drawerOrientation;
     }
 }

@@ -11,19 +11,19 @@ import "./components/overlay"
 import "../../shared/components"
 import "../../shared/services"
 import qs.src.shared.theme
+import qs.src.shared.settings as App
 
 Scope {
     id: framework
 
     property var iconProvider: null
-    property var settingsProvider: null
     property var i18nProvider: null
 
-    readonly property var config: settingsProvider?.framework ?? ({})
+    readonly property var config: App.Settings.framework
     property var pluginStates: ({})
 
     function saveConfig(values) {
-        settingsProvider?.save("framework", values);
+        App.Settings.save("framework", values);
     }
 
     onPluginStatesChanged: {
@@ -52,7 +52,7 @@ Scope {
 
     Settings {
         id: rootSettings
-        config: framework.config
+        config: App.Settings.framework
     }
 
     BarSizes {
