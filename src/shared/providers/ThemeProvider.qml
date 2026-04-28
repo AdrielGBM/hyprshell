@@ -116,6 +116,27 @@ QtObject {
         return themeProvider.themeList;
     }
 
+    function _relativeLuminance(color) {
+        function lin(c) {
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * lin(color.r) + 0.7152 * lin(color.g) + 0.0722 * lin(color.b);
+    }
+
+    function _contrastRatio(l1, l2) {
+        return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    }
+
+    function foregroundTokenFor(accentCol) {
+        const la = _relativeLuminance(accentCol);
+        const useText = _contrastRatio(la, _relativeLuminance(themeProvider.text)) >= _contrastRatio(la, _relativeLuminance(themeProvider.base));
+        return useText ? "text" : "base";
+    }
+
+    function foregroundFor(accentCol) {
+        return foregroundTokenFor(accentCol) === "text" ? themeProvider.text : themeProvider.base;
+    }
+
     function setTheme(themeName) {
         if (themeProvider.themes.hasOwnProperty(themeName)) {
             const oldTheme = currentThemeName;

@@ -30,7 +30,7 @@ Item {
             return themeProvider?.[def] ?? "transparent";
         return effectiveVariant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
     }
-    readonly property string iconAccent: effectiveVariant === "filled" ? "base" : effectiveAccentToken
+    readonly property string iconAccent: effectiveVariant === "filled" ? (themeProvider?.foregroundTokenFor(accentColor) ?? "base") : effectiveAccentToken
     property var barScreen: null
     property string panelUrl: ""
 
@@ -42,7 +42,7 @@ Item {
     readonly property bool pressed: area.pressed
     readonly property bool interactive: panelUrl !== ""
 
-    readonly property color fgColor: effectiveVariant === "filled" ? themeProvider?.base : accentColor
+    readonly property color fgColor: effectiveVariant === "filled" ? (themeProvider?.foregroundFor(accentColor) ?? themeProvider?.base) : accentColor
 
     readonly property real effectivePad: isVertical ? Math.max(0, (width - slot.childrenRect.width) / 2) : Math.max(0, (height - slot.childrenRect.height) / 2)
 
