@@ -14,6 +14,14 @@ Item {
     property string accent: ""
     property string variant: "default"
     readonly property string effectiveVariant: variant !== "default" ? variant : (themeProvider?.defaultVariant ?? "default")
+    readonly property string effectiveAccentToken: {
+        if (accent !== "")
+            return accent;
+        const def = themeProvider?.defaultAccent ?? "";
+        if (def !== "")
+            return def;
+        return "text";
+    }
     readonly property color accentColor: {
         if (accent !== "")
             return themeProvider?.[accent] ?? "transparent";
@@ -22,7 +30,7 @@ Item {
             return themeProvider?.[def] ?? "transparent";
         return effectiveVariant === "filled" ? themeProvider?.accent1 : themeProvider?.text;
     }
-    readonly property string iconAccent: effectiveVariant === "filled" ? "base" : "text"
+    readonly property string iconAccent: effectiveVariant === "filled" ? "base" : effectiveAccentToken
     property var barScreen: null
     property string panelUrl: ""
 
