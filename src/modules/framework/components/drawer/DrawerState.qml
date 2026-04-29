@@ -53,7 +53,7 @@ QtObject {
     }
 
     function _openPushedDrawer(side, barIndex, component, props, accent, screen) {
-        if (openDrawers[side] !== undefined && openDrawers[side] === barIndex) {
+        if (openDrawers[side] !== undefined && openDrawers[side] === barIndex && contents[side] === component) {
             _closePushedDrawer(side);
             return;
         }
@@ -78,7 +78,7 @@ QtObject {
     }
 
     function _openPanel(side, barIndex, component, props, accent, screen) {
-        if (activePanelSide === side && activePanelBarIndex === barIndex) {
+        if (activePanelSide === side && activePanelBarIndex === barIndex && contents[side] === component) {
             _closePanel();
             return;
         }
@@ -105,10 +105,6 @@ QtObject {
     }
 
     function setContent(id, component, properties, accent) {
-        const updated = Object.assign({}, contents);
-        updated[id] = component;
-        contents = updated;
-
         if (properties !== undefined) {
             const propsUpdated = Object.assign({}, contentProperties);
             propsUpdated[id] = properties;
@@ -120,6 +116,10 @@ QtObject {
             accUpdated[id] = accent;
             accents = accUpdated;
         }
+
+        const updated = Object.assign({}, contents);
+        updated[id] = component;
+        contents = updated;
     }
 
     function getContent(id) {
