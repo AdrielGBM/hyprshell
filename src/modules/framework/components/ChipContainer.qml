@@ -7,6 +7,7 @@ Item {
     default property alias contentData: slot.data
 
     property var drawerState: null
+    property var windowState: null
     property string barPosition: ""
     property int barIndex: 0
 
@@ -32,6 +33,7 @@ Item {
     readonly property string iconAccent: effectiveVariant === "filled" ? (Theme.foregroundTokenFor(accentColor) ?? "base") : effectiveAccentToken
     property var barScreen: null
     property string panelUrl: ""
+    property string mode: "panel"
 
     property int chipRadius: -1
     readonly property int pad: Theme.spacing
@@ -108,7 +110,11 @@ Item {
         hoverEnabled: root.interactive
         cursorShape: root.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: {
-            if (root.panelComponent && root.drawerState)
+            if (!root.panelComponent)
+                return;
+            if (root.mode === "window" && root.windowState)
+                root.windowState.toggleWindow(root.panelUrl, root.panelComponent, root.panelProps);
+            else if (root.drawerState)
                 root.drawerState.openDrawer(root.barPosition, root.barIndex, root.panelComponent, root.panelProps, undefined, root.barScreen);
         }
     }

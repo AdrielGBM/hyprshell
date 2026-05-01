@@ -8,6 +8,7 @@ import "./components/bar"
 import "../drawer"
 import "./components/corner"
 import "../overlay"
+import "../window"
 import qs.src.shared.utils
 import qs.src.shared.services.theme
 import qs.src.shared.services.settings as App
@@ -40,6 +41,10 @@ Scope {
         id: rootOverlayState
         defaultSide: rootSettings.overlaySide
         defaultAlign: rootSettings.overlayAlign
+    }
+
+    WindowState {
+        id: rootWindowState
     }
 
     ModuleRegistry {
@@ -138,6 +143,10 @@ Scope {
         maxVisible: rootSettings.overlayMaxVisible
     }
 
+    WindowManager {
+        windowState: rootWindowState
+    }
+
     Loader {
         sourceComponent: Bar {
             position: "top"
@@ -145,6 +154,7 @@ Scope {
             barSizes: rootBarSizes
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.top ?? {}
             color: framework.color
@@ -158,6 +168,7 @@ Scope {
             barSizes: rootBarSizes
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.bottom ?? {}
             color: framework.color
@@ -171,6 +182,7 @@ Scope {
             barSizes: rootBarSizes
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.left ?? {}
             color: framework.color
@@ -184,6 +196,7 @@ Scope {
             barSizes: rootBarSizes
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             moduleRegistry: rootModuleRegistry
             slotConfig: rootSettings.bars.right ?? {}
             color: framework.color
@@ -199,6 +212,7 @@ Scope {
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             itemConfig: rootSettings.corners.topLeft ?? null
             color: framework.color
         }
@@ -213,6 +227,7 @@ Scope {
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             itemConfig: rootSettings.corners.topRight ?? null
             color: framework.color
         }
@@ -227,6 +242,7 @@ Scope {
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             itemConfig: rootSettings.corners.bottomLeft ?? null
             color: framework.color
         }
@@ -241,6 +257,7 @@ Scope {
             moduleRegistry: rootModuleRegistry
             drawerState: rootDrawerState
             overlayState: rootOverlayState
+            windowState: rootWindowState
             itemConfig: rootSettings.corners.bottomRight ?? null
             color: framework.color
         }

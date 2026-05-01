@@ -15,6 +15,7 @@ Scope {
     property var moduleRegistry: null
     property var drawerState: null
     property var overlayState: null
+    property var windowState: null
     property var itemConfig: null
     property color color
 
@@ -102,6 +103,7 @@ Scope {
                     ChipWiring.wire(item, corner.itemConfig, {
                         drawerState: corner.drawerState,
                         overlayState: corner.overlayState,
+                        windowState: corner.windowState,
                         moduleRegistry: corner.moduleRegistry,
                         barPosition: corner.chipBarPosition,
                         barIndex: corner.cornerBarIndex,

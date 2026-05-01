@@ -3,6 +3,8 @@
 function wire(item, entry, context) {
     if ("drawerState" in item)
         item.drawerState = Qt.binding(function () { return context.drawerState })
+    if ("windowState" in item)
+        item.windowState = Qt.binding(function () { return context.windowState })
     if ("overlayState" in item)
         item.overlayState = Qt.binding(function () { return context.overlayState })
     if ("moduleRegistry" in item)
@@ -16,10 +18,11 @@ function wire(item, entry, context) {
     if ("chipRadius" in item)
         item.chipRadius = Qt.binding(function () { return context.chipRadius })
 
-    if (typeof entry === "object" && entry !== null) {
-        if ("accent" in item && entry.accent)
-            item.accent = entry.accent
-        if ("variant" in item && entry.variant)
-            item.variant = entry.variant
-    }
+    const entryObj = (typeof entry === "object" && entry !== null) ? entry : {}
+    if ("accent" in item)
+        item.accent = entryObj.accent ?? ""
+    if ("variant" in item)
+        item.variant = entryObj.variant ?? "default"
+    if ("mode" in item)
+        item.mode = entryObj.mode ?? "panel"
 }

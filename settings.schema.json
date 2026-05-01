@@ -9,7 +9,10 @@
     },
     "language": {
       "type": "string",
-      "enum": ["en", "es"],
+      "enum": [
+        "en",
+        "es"
+      ],
       "description": "UI language"
     },
     "framework": {
@@ -42,7 +45,10 @@
         },
         "drawerOrientation": {
           "type": "string",
-          "enum": ["vertical", "horizontal"],
+          "enum": [
+            "vertical",
+            "horizontal"
+          ],
           "description": "Drawer orientation — vertical: left/right sides, horizontal: top/bottom sides"
         },
         "overlay": {
@@ -60,12 +66,21 @@
               "properties": {
                 "side": {
                   "type": "string",
-                  "enum": ["top", "bottom", "left", "right"],
+                  "enum": [
+                    "top",
+                    "bottom",
+                    "left",
+                    "right"
+                  ],
                   "description": "Screen edge where overlays appear"
                 },
                 "align": {
                   "type": "string",
-                  "enum": ["start", "center", "end"],
+                  "enum": [
+                    "start",
+                    "center",
+                    "end"
+                  ],
                   "description": "Alignment along the side edge"
                 }
               }
@@ -87,20 +102,36 @@
           "description": "Bar positions and their module layout",
           "additionalProperties": false,
           "properties": {
-            "top": { "$ref": "#/$defs/horizontalBar" },
-            "bottom": { "$ref": "#/$defs/horizontalBar" },
-            "left": { "$ref": "#/$defs/verticalBar" },
-            "right": { "$ref": "#/$defs/verticalBar" }
+            "top": {
+              "$ref": "#/$defs/horizontalBar"
+            },
+            "bottom": {
+              "$ref": "#/$defs/horizontalBar"
+            },
+            "left": {
+              "$ref": "#/$defs/verticalBar"
+            },
+            "right": {
+              "$ref": "#/$defs/verticalBar"
+            }
           }
         },
         "corners": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "topLeft": { "$ref": "#/$defs/moduleItem" },
-            "topRight": { "$ref": "#/$defs/moduleItem" },
-            "bottomLeft": { "$ref": "#/$defs/moduleItem" },
-            "bottomRight": { "$ref": "#/$defs/moduleItem" }
+            "topLeft": {
+              "$ref": "#/$defs/moduleItem"
+            },
+            "topRight": {
+              "$ref": "#/$defs/moduleItem"
+            },
+            "bottomLeft": {
+              "$ref": "#/$defs/moduleItem"
+            },
+            "bottomRight": {
+              "$ref": "#/$defs/moduleItem"
+            }
           }
         }
       }
@@ -121,7 +152,11 @@
       "properties": {
         "name": {
           "type": "string",
-          "enum": ["rose-pine-main", "rose-pine-moon", "rose-pine-dawn"],
+          "enum": [
+            "rose-pine-main",
+            "rose-pine-moon",
+            "rose-pine-dawn"
+          ],
           "description": "Theme name"
         },
         "font": {
@@ -163,59 +198,120 @@
   "$defs": {
     "moduleId": {
       "type": "string",
-      "enum": ["battery", "brightness", "clock", "network", "notifications", "volume", "workspaces"],
+      "enum": [
+        "battery",
+        "brightness",
+        "clock",
+        "network",
+        "notifications",
+        "volume",
+        "workspaces"
+      ],
       "description": "Module identifier"
     },
     "accentColor": {
       "type": "string",
       "enum": [
-        "accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
-        "base", "surface", "overlay", "text", "subtle", "muted",
-        "success", "warning", "error", "info",
-        "highlightLow", "highlightMed", "highlightHigh"
+        "accent1",
+        "accent2",
+        "accent3",
+        "accent4",
+        "accent5",
+        "accent6",
+        "base",
+        "surface",
+        "overlay",
+        "text",
+        "subtle",
+        "muted",
+        "success",
+        "warning",
+        "error",
+        "info",
+        "highlightLow",
+        "highlightMed",
+        "highlightHigh"
       ],
       "description": "Theme color token"
     },
     "moduleVariant": {
       "type": "string",
-      "enum": ["filled", "default"],
+      "enum": [
+        "filled",
+        "default"
+      ],
       "description": "Module visual variant"
+    },
+    "moduleMode": {
+      "type": "string",
+      "enum": [
+        "panel",
+        "window"
+      ],
+      "description": "How the module's content opens — panel/drawer or floating window"
     },
     "moduleItem": {
       "oneOf": [
-        { "$ref": "#/$defs/moduleId" },
+        {
+          "$ref": "#/$defs/moduleId"
+        },
         {
           "type": "object",
-          "required": ["id"],
+          "required": [
+            "id"
+          ],
           "additionalProperties": false,
           "properties": {
-            "id": { "$ref": "#/$defs/moduleId" },
-            "accent": { "$ref": "#/$defs/accentColor" },
-            "variant": { "$ref": "#/$defs/moduleVariant" }
+            "id": {
+              "$ref": "#/$defs/moduleId"
+            },
+            "accent": {
+              "$ref": "#/$defs/accentColor"
+            },
+            "variant": {
+              "$ref": "#/$defs/moduleVariant"
+            },
+            "mode": {
+              "$ref": "#/$defs/moduleMode"
+            }
           }
         }
       ]
     },
     "moduleList": {
       "type": "array",
-      "items": { "$ref": "#/$defs/moduleItem" }
+      "items": {
+        "$ref": "#/$defs/moduleItem"
+      }
     },
     "horizontalBar": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "left": { "$ref": "#/$defs/moduleList" },
-        "center": { "$ref": "#/$defs/moduleList" },
-        "right": { "$ref": "#/$defs/moduleList" }
+        "left": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "center": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "right": {
+          "$ref": "#/$defs/moduleList"
+        }
       }
     },
     "verticalBar": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "top": { "$ref": "#/$defs/moduleList" },
-        "center": { "$ref": "#/$defs/moduleList" },
-        "bottom": { "$ref": "#/$defs/moduleList" }
+        "top": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "center": {
+          "$ref": "#/$defs/moduleList"
+        },
+        "bottom": {
+          "$ref": "#/$defs/moduleList"
+        }
       }
     }
   }

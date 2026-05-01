@@ -14,6 +14,7 @@ Scope {
     property BarSizes barSizes
     property var drawerState: null
     property var overlayState: null
+    property var windowState: null
     property var moduleRegistry: null
     property var slotConfig: ({})
 
@@ -48,6 +49,7 @@ Scope {
         ChipWiring.wire(item, entry, {
             drawerState: bar.drawerState,
             overlayState: bar.overlayState,
+            windowState: bar.windowState,
             moduleRegistry: bar.moduleRegistry,
             barPosition: bar.position,
             barIndex: bar.slotOffset(slotName) + slotIndex,
