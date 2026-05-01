@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
-import "../../../../shared/utils/sideMargins.js" as SideMargins
+import "../../shared/utils/sideMargins.js" as SideMargins
 import qs.src.shared.services.theme
 
 Scope {

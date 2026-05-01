@@ -5,10 +5,9 @@ import QtQuick
 
 import "./components/frame"
 import "./components/bar"
-import "./components/drawer"
+import "../drawer"
 import "./components/corner"
-import "./components/overlay"
-import "../../shared/components"
+import "../overlay"
 import qs.src.shared.utils
 import qs.src.shared.services.theme
 import qs.src.shared.services.settings as App

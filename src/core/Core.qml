@@ -9,6 +9,7 @@ import qs.src.shared.services.theme
 import qs.src.shared.services.settings
 import qs.src.shared.services.i18n
 import qs.src.shared.services.notifications
+import qs.src.shared.services.icons
 import qs.src.shared.utils
 
 Scope {

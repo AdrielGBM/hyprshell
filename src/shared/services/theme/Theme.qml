@@ -83,7 +83,7 @@ QtObject {
     }
 
     property var themeScanner: FolderScanner {
-        folder: Qt.resolvedUrl("../../../assets/themes/")
+        folder: Qt.resolvedUrl("../../../../assets/themes/")
         filename: "Theme.qml"
 
         onItemReady: function (key, comp) {
