@@ -1,7 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import qs.src.shared.theme
+import qs.src.shared.services.theme
 
 Item {
     id: container

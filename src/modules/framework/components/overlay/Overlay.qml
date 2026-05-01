@@ -3,8 +3,8 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
-import "../sideMargins.js" as SideMargins
-import qs.src.shared.theme
+import "../../../../shared/utils/sideMargins.js" as SideMargins
+import qs.src.shared.services.theme
 
 Scope {
     id: overlay

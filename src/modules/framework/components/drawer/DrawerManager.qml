@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
-import qs.src.shared.theme
+import qs.src.shared.services.theme
 
 Scope {
     id: drawerManager

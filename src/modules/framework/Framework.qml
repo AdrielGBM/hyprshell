@@ -9,9 +9,9 @@ import "./components/drawer"
 import "./components/corner"
 import "./components/overlay"
 import "../../shared/components"
-import "../../shared/services"
-import qs.src.shared.theme
-import qs.src.shared.settings as App
+import qs.src.shared.utils
+import qs.src.shared.services.theme
+import qs.src.shared.services.settings as App
 
 Scope {
     id: framework

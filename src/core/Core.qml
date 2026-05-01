@@ -5,11 +5,11 @@ import QtQuick
 
 import "../modules/framework"
 import "../modules/background"
-import qs.src.shared.theme
-import qs.src.shared.settings
-import qs.src.shared.i18n
-import qs.src.shared.notifications
-import "../shared/services"
+import qs.src.shared.services.theme
+import qs.src.shared.services.settings
+import qs.src.shared.services.i18n
+import qs.src.shared.services.notifications
+import qs.src.shared.utils
 
 Scope {
     id: core

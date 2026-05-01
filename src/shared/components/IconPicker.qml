@@ -3,8 +3,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls.Basic as Controls
-import qs.src.shared.theme
-import qs.src.shared.icons
+import qs.src.shared.services.theme
+import qs.src.shared.services.icons
 
 Item {
     id: root

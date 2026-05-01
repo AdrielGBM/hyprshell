@@ -1,6 +1,6 @@
 import QtQuick
-import qs.src.shared.theme
-import qs.src.shared.icons
+import qs.src.shared.services.theme
+import qs.src.shared.services.icons
 
 Item {
     id: root

@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell.Io
-import qs.src.shared.theme
+import qs.src.shared.services.theme
 
 Rectangle {
     id: root

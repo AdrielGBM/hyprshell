@@ -4,7 +4,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import "../chipWiring.js" as ChipWiring
-import qs.src.shared.theme
+import qs.src.shared.services.theme
 
 Scope {
     id: corner

@@ -3,8 +3,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import qs.src.shared.theme
-import qs.src.shared.settings as App
+import qs.src.shared.services.theme
+import qs.src.shared.services.settings as App
 
 Scope {
     id: background
