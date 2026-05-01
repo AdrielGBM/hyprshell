@@ -8,10 +8,13 @@ import "../modules/background"
 import qs.src.shared.theme
 import qs.src.shared.settings
 import qs.src.shared.i18n
+import qs.src.shared.notifications
 import "../shared/services"
 
 Scope {
     id: core
+
+    readonly property var notificationsService: Notifications
 
     Binding {
         target: Theme
