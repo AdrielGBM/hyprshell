@@ -1,2 +1,4 @@
-settings.json
+.qmlls.ini
+
 .cache/
+settings.json
