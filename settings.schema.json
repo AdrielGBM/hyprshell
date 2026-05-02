@@ -184,6 +184,22 @@
           "minimum": 0,
           "description": "Border radius for rounded corners (px)"
         },
+        "icon": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Default icon size (px)"
+            },
+            "strokeWidth": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Default stroke width for Lucide icons (default: 2)"
+            }
+          }
+        },
         "accent": {
           "$ref": "#/$defs/accentColor",
           "description": "Default accent color token applied to all chips that don't specify their own"

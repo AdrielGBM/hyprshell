@@ -7,17 +7,25 @@ Item {
 
     property string name: ""
 
-    property real size: 16
+    property real size: Theme.iconSize
+    property real strokeWidth: Theme.iconStrokeWidth
 
-    implicitWidth: size
-    implicitHeight: size
+    property bool tightViewBox: false
+    property var visualBounds: null
+    readonly property real visualAspectRatio: visualBounds ? (visualBounds.w / visualBounds.h) : 1.0
+
+    readonly property real effectiveWidth: tightViewBox && visualBounds ? (visualAspectRatio >= 1 ? size : size * visualAspectRatio) : size
+    readonly property real effectiveHeight: tightViewBox && visualBounds ? (visualAspectRatio <= 1 ? size : size / visualAspectRatio) : size
+
+    implicitWidth: effectiveWidth
+    implicitHeight: effectiveHeight
 
     property string accent: "text"
 
     readonly property color color: Theme[accent] ?? "transparent"
 
-    width: size
-    height: size
+    width: effectiveWidth
+    height: effectiveHeight
 
     property string dataUri: ""
     property bool failed: false
@@ -26,8 +34,8 @@ Item {
         id: img
         anchors.fill: parent
         source: root.dataUri
-        sourceSize.width: root.size
-        sourceSize.height: root.size
+        sourceSize.width: root.effectiveWidth
+        sourceSize.height: root.effectiveHeight
         fillMode: Image.PreserveAspectFit
         smooth: true
         asynchronous: true
@@ -47,18 +55,22 @@ Item {
 
     onNameChanged: {
         root.failed = false;
+        root.visualBounds = null;
         root.refreshUri();
         root.requestIcon();
     }
 
     onColorChanged: root.refreshUri()
+    onStrokeWidthChanged: root.refreshUri()
 
     Connections {
         target: Icons
 
         function onIconReady(iconName) {
-            if (iconName === root.name)
+            if (iconName === root.name) {
+                root.visualBounds = Icons.getBBox(iconName);
                 root.refreshUri();
+            }
         }
 
         function onIconFailed(iconName) {
@@ -80,6 +92,7 @@ Item {
             root.dataUri = "";
             return;
         }
-        root.dataUri = Icons.getDataUri(root.name, root.color);
+        const bbox = root.tightViewBox ? Icons.getBBox(root.name) : null;
+        root.dataUri = Icons.getDataUri(root.name, root.color, root.strokeWidth * (24 / root.size), bbox);
     }
 }

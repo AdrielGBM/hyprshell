@@ -69,6 +69,9 @@ QtObject {
 
     readonly property int spacing: config?.spacing ?? 8
     readonly property int radius: config?.radius ?? 8
+    readonly property var icon: config?.icon ?? ({})
+    readonly property real iconSize: icon.size ?? 16
+    readonly property real iconStrokeWidth: icon.strokeWidth ?? 2
     readonly property var font: config?.font ?? ({
             family: "",
             size: 12

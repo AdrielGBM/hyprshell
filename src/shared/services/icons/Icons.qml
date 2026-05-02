@@ -65,13 +65,267 @@ QtObject {
         return provider.iconData[name] || null;
     }
 
-    function getDataUri(name, color) {
+    function getDataUri(name, color, strokeWidth, bbox) {
         const content = provider.iconData[name];
         if (!content)
             return "";
         const hex = color.toString();
-        const colored = content.replace(/currentColor/g, hex);
-        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(colored);
+        let svg = content.replace(/currentColor/g, hex);
+        if (strokeWidth !== undefined)
+            svg = svg.replace(/stroke-width="[^"]*"/g, 'stroke-width="' + strokeWidth + '"');
+        if (bbox) {
+            const pad = 1;
+            const vb = (bbox.x - pad) + " " + (bbox.y - pad) + " " + (bbox.w + pad * 2) + " " + (bbox.h + pad * 2);
+            svg = svg.replace(/viewBox="[^"]*"/, 'viewBox="' + vb + '"');
+        }
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+
+    property var bboxCache: ({})
+
+    function getBBox(name) {
+        if (provider.bboxCache[name] !== undefined)
+            return provider.bboxCache[name];
+        const content = provider.iconData[name];
+        if (!content)
+            return null;
+        const bbox = provider.parseSvgBBox(content);
+        provider.bboxCache[name] = bbox;
+        return bbox;
+    }
+
+    function parseSvgBBox(svg) {
+        let minX = 24, minY = 24, maxX = 0, maxY = 0, found = false;
+
+        function expand(x, y) {
+            found = true;
+            if (x < minX)
+                minX = x;
+            if (x > maxX)
+                maxX = x;
+            if (y < minY)
+                minY = y;
+            if (y > maxY)
+                maxY = y;
+        }
+
+        function attr(s, k, d) {
+            const m = s.match(new RegExp('\\b' + k + '="([^"]*)"'));
+            return m ? +m[1] : (d !== undefined ? d : 0);
+        }
+
+        function parsePath(d) {
+            const toks = d.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/g);
+            if (!toks)
+                return;
+            let i = 0, cmd = '', cx = 0, cy = 0, sx = 0, sy = 0;
+            function n() {
+                return parseFloat(toks[i++]);
+            }
+            while (i < toks.length) {
+                if (/[MmLlHhVvCcSsQqTtAaZz]/.test(toks[i]))
+                    cmd = toks[i++];
+                switch (cmd) {
+                case 'M':
+                    cx = n();
+                    cy = n();
+                    sx = cx;
+                    sy = cy;
+                    expand(cx, cy);
+                    cmd = 'L';
+                    break;
+                case 'm':
+                    cx += n();
+                    cy += n();
+                    sx = cx;
+                    sy = cy;
+                    expand(cx, cy);
+                    cmd = 'l';
+                    break;
+                case 'L':
+                    cx = n();
+                    cy = n();
+                    expand(cx, cy);
+                    break;
+                case 'l':
+                    cx += n();
+                    cy += n();
+                    expand(cx, cy);
+                    break;
+                case 'H':
+                    cx = n();
+                    expand(cx, cy);
+                    break;
+                case 'h':
+                    cx += n();
+                    expand(cx, cy);
+                    break;
+                case 'V':
+                    cy = n();
+                    expand(cx, cy);
+                    break;
+                case 'v':
+                    cy += n();
+                    expand(cx, cy);
+                    break;
+                case 'C':
+                    {
+                        const x1 = n(), y1 = n(), x2 = n(), y2 = n(), x = n(), y = n();
+                        expand(x1, y1);
+                        expand(x2, y2);
+                        expand(x, y);
+                        cx = x;
+                        cy = y;
+                        break;
+                    }
+                case 'c':
+                    {
+                        const dx1 = n(), dy1 = n(), dx2 = n(), dy2 = n(), dx = n(), dy = n();
+                        expand(cx + dx1, cy + dy1);
+                        expand(cx + dx2, cy + dy2);
+                        cx += dx;
+                        cy += dy;
+                        expand(cx, cy);
+                        break;
+                    }
+                case 'S':
+                    {
+                        const x2 = n(), y2 = n(), x = n(), y = n();
+                        expand(x2, y2);
+                        expand(x, y);
+                        cx = x;
+                        cy = y;
+                        break;
+                    }
+                case 's':
+                    {
+                        const dx2 = n(), dy2 = n(), dx = n(), dy = n();
+                        expand(cx + dx2, cy + dy2);
+                        cx += dx;
+                        cy += dy;
+                        expand(cx, cy);
+                        break;
+                    }
+                case 'Q':
+                    {
+                        const x1 = n(), y1 = n(), x = n(), y = n();
+                        expand(x1, y1);
+                        expand(x, y);
+                        cx = x;
+                        cy = y;
+                        break;
+                    }
+                case 'q':
+                    {
+                        const dx1 = n(), dy1 = n(), dx = n(), dy = n();
+                        expand(cx + dx1, cy + dy1);
+                        cx += dx;
+                        cy += dy;
+                        expand(cx, cy);
+                        break;
+                    }
+                case 'T':
+                    cx = n();
+                    cy = n();
+                    expand(cx, cy);
+                    break;
+                case 't':
+                    cx += n();
+                    cy += n();
+                    expand(cx, cy);
+                    break;
+                case 'A':
+                    {
+                        const rx = Math.abs(n()), ry = Math.abs(n());
+                        n();
+                        n();
+                        n();
+                        const ex = n(), ey = n();
+                        expand(cx - rx, cy - ry);
+                        expand(cx + rx, cy + ry);
+                        expand(ex - rx, ey - ry);
+                        expand(ex + rx, ey + ry);
+                        cx = ex;
+                        cy = ey;
+                        break;
+                    }
+                case 'a':
+                    {
+                        const rx = Math.abs(n()), ry = Math.abs(n());
+                        n();
+                        n();
+                        n();
+                        const ex = cx + n(), ey = cy + n();
+                        expand(cx - rx, cy - ry);
+                        expand(cx + rx, cy + ry);
+                        expand(ex - rx, ey - ry);
+                        expand(ex + rx, ey + ry);
+                        cx = ex;
+                        cy = ey;
+                        break;
+                    }
+                case 'Z':
+                case 'z':
+                    cx = sx;
+                    cy = sy;
+                    break;
+                default:
+                    i++;
+                    break;
+                }
+            }
+        }
+
+        let m;
+        const pathRe = /<path[^>]+\bd="([^"]+)"/g;
+        while ((m = pathRe.exec(svg)) !== null)
+            parsePath(m[1]);
+
+        const lineRe = /<line([^/>]+)/g;
+        while ((m = lineRe.exec(svg)) !== null) {
+            const a = m[1];
+            expand(attr(a, 'x1'), attr(a, 'y1'));
+            expand(attr(a, 'x2'), attr(a, 'y2'));
+        }
+
+        const rectRe = /<rect([^/>]+)/g;
+        while ((m = rectRe.exec(svg)) !== null) {
+            const a = m[1];
+            const x = attr(a, 'x'), y = attr(a, 'y'), w = attr(a, 'width'), h = attr(a, 'height');
+            expand(x, y);
+            expand(x + w, y + h);
+        }
+
+        const circleRe = /<circle([^/>]+)/g;
+        while ((m = circleRe.exec(svg)) !== null) {
+            const a = m[1];
+            const cx = attr(a, 'cx', 12), cy = attr(a, 'cy', 12), r = attr(a, 'r');
+            expand(cx - r, cy - r);
+            expand(cx + r, cy + r);
+        }
+
+        const ellipseRe = /<ellipse([^/>]+)/g;
+        while ((m = ellipseRe.exec(svg)) !== null) {
+            const a = m[1];
+            const cx = attr(a, 'cx', 12), cy = attr(a, 'cy', 12);
+            const rx = attr(a, 'rx'), ry = attr(a, 'ry');
+            expand(cx - rx, cy - ry);
+            expand(cx + rx, cy + ry);
+        }
+
+        const polyRe = /<poly(?:line|gon)[^>]+points="([^"]+)"/g;
+        while ((m = polyRe.exec(svg)) !== null) {
+            const pts = m[1].trim().split(/[\s,]+/);
+            for (let j = 0; j + 1 < pts.length; j += 2)
+                expand(+pts[j], +pts[j + 1]);
+        }
+
+        return found ? {
+            x: minX,
+            y: minY,
+            w: maxX - minX,
+            h: maxY - minY
+        } : null;
     }
 
     function loadIconList() {
