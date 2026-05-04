@@ -86,7 +86,7 @@ Scope {
             }
 
             implicitWidth: panel.drawerWidth
-            implicitHeight: panel.drawerHeight
+            implicitHeight: panelContentLoader.implicitHeight > 0 ? Math.min(panel.drawerHeight, panelContentLoader.implicitHeight) : panel.drawerHeight
 
             Rectangle {
                 anchors.fill: parent
