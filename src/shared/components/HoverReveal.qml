@@ -7,8 +7,8 @@ Item {
     default property alias contentData: defaultSlot.data
     property Component revealContent
 
-    implicitWidth: defaultSlot.childrenRect.width
-    implicitHeight: defaultSlot.childrenRect.height
+    implicitWidth: revealed ? Math.max(defaultSlot.childrenRect.width, revealLoader.implicitWidth) : defaultSlot.childrenRect.width
+    implicitHeight: Math.max(defaultSlot.childrenRect.height, revealLoader.implicitHeight)
     width: implicitWidth
     height: implicitHeight
 
