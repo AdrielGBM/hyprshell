@@ -22,7 +22,7 @@ Item {
 
     property string accent: "text"
 
-    readonly property color color: Theme[accent] ?? "transparent"
+    readonly property color color: Theme[accent] ?? Theme.text
 
     width: effectiveWidth
     height: effectiveHeight
