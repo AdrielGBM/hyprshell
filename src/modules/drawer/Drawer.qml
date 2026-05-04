@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import Quickshell
 import Quickshell.Wayland
 import QtQuick
+import QtQuick.Controls
 import qs.src.shared.services.theme
 
 Scope {
@@ -52,19 +53,34 @@ Scope {
                 anchors.fill: parent
                 radius: drawer.radius
                 color: drawer.color
+                clip: true
 
-                Loader {
-                    id: drawerContentLoader
+                Flickable {
+                    id: drawerFlick
                     anchors.fill: parent
-                    sourceComponent: drawer.drawerState.contents[drawer.side] ?? null
-                    onLoaded: {
-                        const props = drawer.drawerState.getContentProperties(drawer.side);
-                        for (const key in props)
-                            item[key] = props[key];
-                        if ("drawerState" in item)
-                            item.drawerState = Qt.binding(function () {
-                                return drawer.drawerState;
-                            });
+                    clip: true
+                    contentWidth: width
+                    contentHeight: Math.max(height, drawerContentLoader.implicitHeight)
+                    interactive: contentHeight > height
+
+                    Loader {
+                        id: drawerContentLoader
+                        width: drawerFlick.width
+                        height: drawerFlick.contentHeight
+                        sourceComponent: drawer.drawerState.contents[drawer.side] ?? null
+                        onLoaded: {
+                            const props = drawer.drawerState.getContentProperties(drawer.side);
+                            for (const key in props)
+                                item[key] = props[key];
+                            if ("drawerState" in item)
+                                item.drawerState = Qt.binding(function () {
+                                    return drawer.drawerState;
+                                });
+                        }
+                    }
+
+                    ScrollBar.vertical: ScrollBar {
+                        policy: ScrollBar.AsNeeded
                     }
                 }
             }
