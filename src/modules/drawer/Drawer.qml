@@ -13,7 +13,6 @@ Scope {
     required property var drawerState
     required property var barSizes
     required property int drawerWidth
-    required property int drawerHeight
     required property color color
 
     readonly property int gap: Theme.spacing
@@ -31,23 +30,23 @@ Scope {
             WlrLayershell.layer: WlrLayer.Bottom
 
             anchors {
-                top: drawer.side === "top" || drawer.side === "left" || drawer.side === "right"
-                bottom: drawer.side === "bottom" || drawer.side === "left" || drawer.side === "right"
-                left: drawer.side === "left" || drawer.side === "top" || drawer.side === "bottom"
-                right: drawer.side === "right" || drawer.side === "top" || drawer.side === "bottom"
+                top: true
+                bottom: true
+                left: drawer.side === "left"
+                right: drawer.side === "right"
             }
 
             margins {
-                top: (drawer.side === "top" || drawer.side === "left" || drawer.side === "right") ? drawer.gap : 0
-                bottom: (drawer.side === "bottom" || drawer.side === "left" || drawer.side === "right") ? drawer.gap : 0
-                left: (drawer.side === "left" || drawer.side === "top" || drawer.side === "bottom") ? drawer.gap : 0
-                right: (drawer.side === "right" || drawer.side === "top" || drawer.side === "bottom") ? drawer.gap : 0
+                top: drawer.gap
+                bottom: drawer.gap
+                left: drawer.side === "left" ? drawer.gap : 0
+                right: drawer.side === "right" ? drawer.gap : 0
             }
 
-            implicitWidth: (drawer.side === "left" || drawer.side === "right") ? drawer.drawerWidth : modelData.width
-            implicitHeight: (drawer.side === "top" || drawer.side === "bottom") ? drawer.drawerHeight : modelData.height
+            implicitWidth: drawer.drawerWidth
+            implicitHeight: modelData.height
 
-            exclusiveZone: visible ? ((drawer.side === "top" || drawer.side === "bottom") ? drawer.drawerHeight : drawer.drawerWidth) : 0
+            exclusiveZone: visible ? drawer.drawerWidth : 0
 
             Rectangle {
                 anchors.fill: parent

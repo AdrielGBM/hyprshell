@@ -41,15 +41,7 @@
         "drawerHeight": {
           "type": "integer",
           "minimum": 1,
-          "description": "Drawer panel height (px)"
-        },
-        "drawerOrientation": {
-          "type": "string",
-          "enum": [
-            "vertical",
-            "horizontal"
-          ],
-          "description": "Drawer orientation — vertical: left/right sides, horizontal: top/bottom sides"
+          "description": "Panel popup height (px)"
         },
         "overlay": {
           "type": "object",

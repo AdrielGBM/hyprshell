@@ -16,37 +16,12 @@ Scope {
     readonly property color color: Theme.overlay
 
     Loader {
-        active: drawerManager.drawerState.openDrawers["top"] !== undefined
-        sourceComponent: Drawer {
-            side: "top"
-            drawerState: drawerManager.drawerState
-            barSizes: drawerManager.barSizes
-            drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
-            color: drawerManager.color
-        }
-    }
-
-    Loader {
-        active: drawerManager.drawerState.openDrawers["bottom"] !== undefined
-        sourceComponent: Drawer {
-            side: "bottom"
-            drawerState: drawerManager.drawerState
-            barSizes: drawerManager.barSizes
-            drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
-            color: drawerManager.color
-        }
-    }
-
-    Loader {
         active: drawerManager.drawerState.openDrawers["left"] !== undefined
         sourceComponent: Drawer {
             side: "left"
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
             color: drawerManager.color
         }
     }
@@ -58,7 +33,6 @@ Scope {
             drawerState: drawerManager.drawerState
             barSizes: drawerManager.barSizes
             drawerWidth: drawerManager.settings.drawerWidth
-            drawerHeight: drawerManager.settings.drawerHeight
             color: drawerManager.color
         }
     }

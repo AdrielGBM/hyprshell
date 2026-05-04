@@ -3,9 +3,7 @@ import QtQuick
 QtObject {
     id: drawerState
 
-    property string drawerOrientation: "vertical"
-
-    readonly property var drawerSides: drawerOrientation === "vertical" ? ["left", "right"] : ["top", "bottom"]
+    readonly property var drawerSides: ["left", "right"]
 
     property var openDrawers: ({})
 

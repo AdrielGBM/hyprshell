@@ -12,7 +12,6 @@ QtObject {
 
     readonly property int drawerWidth: config.drawerWidth ?? 200
     readonly property int drawerHeight: config.drawerHeight ?? 200
-    readonly property string drawerOrientation: config.drawerOrientation ?? "vertical"
     readonly property var bars: config.bars !== undefined ? normalizeBars(config.bars) : ({})
     readonly property var corners: config.corners !== undefined ? normalizeCorners(config.corners) : ({})
 

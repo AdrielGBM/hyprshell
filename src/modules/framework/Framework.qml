@@ -34,7 +34,6 @@ Scope {
 
     DrawerState {
         id: rootDrawerState
-        drawerOrientation: rootSettings.drawerOrientation
     }
 
     OverlayState {
