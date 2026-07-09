@@ -1,0 +1,17 @@
+[package]
+name = "hyprshell"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "hyprshell"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hyprshell"
+path = "src/main.rs"
+
+[dependencies]
+rsx = { workspace = true }
+platform-layershell = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

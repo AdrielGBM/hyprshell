@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = ["crates/platform-layershell", "apps/hyprshell"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+
+[workspace.dependencies]
+platform-layershell = { path = "crates/platform-layershell" }
+rsx = { path = "../rsx/crates/rsx", default-features = false, features = [
+    "runtime",
+    "components",
+] }
+smithay-client-toolkit = "0.19"
+wayland-client = "0.31"
+raw-window-handle = "0.6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

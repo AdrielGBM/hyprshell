@@ -1,0 +1,11 @@
+[package]
+name = "platform-layershell"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rsx = { workspace = true }
+smithay-client-toolkit = { workspace = true }
+wayland-client = { workspace = true, features = ["log"] }
+raw-window-handle = { workspace = true }
+tracing = "0.1"
