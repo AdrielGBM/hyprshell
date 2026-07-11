@@ -51,7 +51,17 @@ fn request(dir: &Path, command: &str) -> std::io::Result<String> {
 }
 
 pub fn focus_workspace(dir: &Path, id: i32) {
-    let _ = request(dir, &format!("dispatch workspace {id}"));
+    // Hyprland ≥ 0.55 evaluates request-socket commands as Lua, so the old `dispatch workspace N` no longer
+    // parses ("')' expected near 'N'"). The current form dispatches a `hl.dsp.focus` action; the socket wraps
+    // `dispatch <expr>` as `hl.dispatch(<expr>)`, so this becomes `hl.dispatch(hl.dsp.focus({ workspace = N }))`.
+    let cmd = format!("dispatch hl.dsp.focus({{ workspace = {id} }})");
+    match request(dir, &cmd) {
+        Ok(resp) if resp.to_ascii_lowercase().contains("error") => {
+            tracing::warn!("hyprshell: `{cmd}` -> {resp:?}")
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("hyprshell: `{cmd}` failed: {e}"),
+    }
 }
 
 fn query_snapshot(dir: &Path) -> Option<Snapshot> {
