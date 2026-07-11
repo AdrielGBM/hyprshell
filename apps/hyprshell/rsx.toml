@@ -1,0 +1,3 @@
+[rsx]
+backend = "software"
+auto_modules = true
