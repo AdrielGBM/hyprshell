@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -6,12 +7,16 @@ use std::time::Duration;
 
 use rsx::{
     Event, EventHandler, Key, ModifiersState, MultiSurfacePlatform, PlatformError, PointerButton,
-    PointerSource, ScrollDelta, SurfaceId, Window, WindowConfig,
+    PointerSource, ScrollDelta, SurfaceId, WindowConfig,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
-use smithay_client_toolkit::reexports::calloop::EventLoop;
+use smithay_client_toolkit::reexports::calloop::channel::{
+    Event as ChannelEvent, Sender as ChannelSender, channel,
+};
 use smithay_client_toolkit::reexports::calloop::ping::make_ping;
+use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers};
@@ -32,9 +37,53 @@ use wayland_client::{Connection, Proxy, QueueHandle};
 use crate::config::{LayerConfig, OutputDescriptor};
 use crate::window::LayerWindow;
 
-/// A wlr-layer-shell [`MultiSurfacePlatform`]: renders one rsx tree per configured surface (a bar/panel/OSD),
-/// each on its own thread with its own wayland connection — so each surface gets a fully isolated reactive/
-/// theme/overlay/focus world.
+thread_local! {
+    static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, SurfaceState>>> = const { RefCell::new(None) };
+}
+
+pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
+    LOOP_HANDLE.with(|h| {
+        if let Some(handle) = h.borrow().as_ref() {
+            let _ = handle.insert_source(
+                Timer::from_duration(period),
+                move |_instant, _meta, _state: &mut SurfaceState| {
+                    callback();
+                    TimeoutAction::ToDuration(period)
+                },
+            );
+        }
+    });
+}
+
+pub struct EventSender<T>(ChannelSender<T>);
+
+impl<T> EventSender<T> {
+    pub fn send(&self, event: T) -> bool {
+        self.0.send(event).is_ok()
+    }
+}
+
+pub fn watch<T, P, F>(producer: P, mut on_event: F)
+where
+    T: Send + 'static,
+    P: FnOnce(EventSender<T>) + Send + 'static,
+    F: FnMut(T) + 'static,
+{
+    LOOP_HANDLE.with(|h| {
+        if let Some(handle) = h.borrow().as_ref() {
+            let (tx, rx) = channel::<T>();
+            let _ = std::thread::Builder::new()
+                .name("hyprshell-watch".to_string())
+                .spawn(move || producer(EventSender(tx)));
+            let _ = handle.insert_source(rx, move |event, _meta, _state: &mut SurfaceState| {
+                if let ChannelEvent::Msg(item) = event {
+                    on_event(item);
+                }
+            });
+        }
+    });
+}
+
 #[derive(Default)]
 pub struct LayerShellPlatform {
     configs: HashMap<SurfaceId, LayerConfig>,
@@ -45,8 +94,6 @@ impl LayerShellPlatform {
         Self::default()
     }
 
-    /// Register the layer config for a surface id (matched against the `SurfaceId`s passed to
-    /// `run_multi_with_platform`).
     pub fn with_surface(mut self, id: SurfaceId, config: LayerConfig) -> Self {
         self.configs.insert(id, config);
         self
@@ -74,8 +121,7 @@ impl MultiSurfacePlatform for LayerShellPlatform {
             let join = std::thread::Builder::new()
                 .name(format!("hyprshell-surface-{}", id.0))
                 .spawn(move || {
-                    // The handler is built here, on this surface's thread, so its whole reactive/theme/overlay
-                    // world lives in this thread's thread-locals — isolated from every other surface.
+                    // The handler is built here, on this surface's thread, so its whole reactive/theme/overlay world lives in this thread's thread-locals — isolated from every other surface.
                     run_surface(id, layer_config, |sid| factory(sid));
                 })
                 .map_err(|e| PlatformError(format!("failed to spawn surface thread: {e}")))?;
@@ -89,9 +135,7 @@ impl MultiSurfacePlatform for LayerShellPlatform {
     }
 }
 
-// Per-surface wayland state. Holds the SCTK sub-states + input objects, and accumulates translated rsx events
-// (drained by the driving loop) plus flags. The rsx handler itself lives in the loop, not here, so SCTK's
-// handler callbacks (which take `&mut Self`) and the rsx handler don't fight over borrows.
+// The rsx handler itself lives in the loop, not here, so SCTK's handler callbacks (which take `&mut Self`) and the rsx handler don't fight over borrows.
 struct SurfaceState {
     registry_state: RegistryState,
     output_state: OutputState,
@@ -101,13 +145,13 @@ struct SurfaceState {
     window: Option<LayerWindow>,
     events: Vec<Event>,
     modifiers: ModifiersState,
+    scale: i32,
+    logical_size: (u32, u32),
     configured: bool,
     exit: bool,
     needs_redraw: bool,
 }
 
-// Drives one layer surface end to end on its own thread: connect, create the surface, run the event loop, and
-// pump the rsx handler (built by `build_handler`) through it.
 fn run_surface<H: EventHandler<LayerWindow>>(
     surface_id: SurfaceId,
     config: LayerConfig,
@@ -153,6 +197,8 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         window: None,
         events: Vec::new(),
         modifiers: ModifiersState::default(),
+        scale: 1,
+        logical_size: (config.size.0.max(1), config.size.1.max(1)),
         configured: false,
         exit: false,
         needs_redraw: false,
@@ -171,7 +217,6 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         return;
     }
 
-    // request_redraw() wakes this loop from another thread (rsx flushes / the hw render thread).
     let (ping, ping_source) = match make_ping() {
         Ok(p) => p,
         Err(e) => {
@@ -189,8 +234,8 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         return;
     }
 
-    // Populate outputs so we can pin to the requested one (a few dispatch cycles let the wl_output/xdg-output
-    // events arrive).
+    LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
+
     for _ in 0..3 {
         if event_loop
             .dispatch(Duration::from_millis(40), &mut state)
@@ -205,8 +250,13 @@ fn run_surface<H: EventHandler<LayerWindow>>(
             .outputs()
             .find(|o| state.output_state.info(o).and_then(|i| i.name).as_deref() == Some(name))
     });
+    state.scale = output
+        .as_ref()
+        .and_then(|o| state.output_state.info(o))
+        .map(|i| i.scale_factor)
+        .unwrap_or(1)
+        .max(1);
 
-    // Create the surface + layer surface, apply the placement, and do the initial (bufferless) commit.
     let surface = compositor.create_surface(&qh);
     let layer = layer_shell.create_layer_surface(
         &qh,
@@ -221,9 +271,9 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     let (mt, mr, mb, ml) = config.margin;
     layer.set_margin(mt, mr, mb, ml);
     layer.set_keyboard_interactivity(config.keyboard_interactivity);
+    layer.wl_surface().set_buffer_scale(state.scale);
     layer.commit();
 
-    // Raw libwayland handles for rsx's wgpu renderer.
     let surface_ptr = NonNull::new(layer.wl_surface().id().as_ptr() as *mut c_void);
     let display_ptr = NonNull::new(conn.backend().display_ptr() as *mut c_void);
     let (Some(surface_ptr), Some(display_ptr)) = (surface_ptr, display_ptr) else {
@@ -232,11 +282,17 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         );
         return;
     };
-    let init_w = config.size.0.max(1);
-    let init_h = config.size.1.max(1);
-    let window = LayerWindow::new(surface_ptr, display_ptr, init_w, init_h, 1.0, move || {
-        ping.ping();
-    });
+    let scale = state.scale.max(1) as u32;
+    let window = LayerWindow::new(
+        surface_ptr,
+        display_ptr,
+        state.logical_size.0 * scale,
+        state.logical_size.1 * scale,
+        state.scale as f64,
+        move || {
+            ping.ping();
+        },
+    );
     state.window = Some(window.clone());
 
     // Wait for the first configure so the surface has a real size before rsx builds its renderer.
@@ -258,8 +314,6 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         return;
     }
 
-    // Main loop: mirror the winit worker's shape (new_events → dispatch → drain events → on_redraw →
-    // about_to_wait), with the dispatch timeout coming from rsx's frame pacing.
     let mut timeout: Option<Duration> = None;
     loop {
         handler.new_events();
@@ -291,7 +345,6 @@ fn map_button(code: u32) -> Option<PointerButton> {
 }
 
 fn map_key(event: &KeyEvent) -> Option<Key> {
-    // Minimal: printable text → Char. Named-key (arrows/Enter/…) mapping is a follow-up.
     let ch = event.utf8.as_deref()?.chars().next()?;
     if ch.is_control() {
         return None;
@@ -299,17 +352,33 @@ fn map_key(event: &KeyEvent) -> Option<Key> {
     Some(Key::Char(ch))
 }
 
-// ---- SCTK handler impls -------------------------------------------------------------------------------
-
 impl CompositorHandler for SurfaceState {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
-        _new_factor: i32,
+        surface: &wl_surface::WlSurface,
+        new_factor: i32,
     ) {
-        // Scale handling is a follow-up; the surface renders at scale 1 for now.
+        let scale = new_factor.max(1);
+        if scale == self.scale {
+            return;
+        }
+        self.scale = scale;
+        surface.set_buffer_scale(scale);
+        let (lw, lh) = self.logical_size;
+        if let Some(window) = &self.window {
+            window.set_size(lw * scale as u32, lh * scale as u32);
+            window.set_scale_factor(scale as f64);
+        }
+        self.events.push(Event::ScaleFactorChanged {
+            scale_factor: scale as f64,
+        });
+        self.events.push(Event::WindowResized {
+            width: lw,
+            height: lh,
+        });
+        self.needs_redraw = true;
     }
     fn transform_changed(
         &mut self,
@@ -363,25 +432,28 @@ impl LayerShellHandler for SurfaceState {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
+        layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        let (mut w, mut h) = configure.new_size;
-        if let Some(window) = &self.window {
-            // 0 means "the compositor left this axis to us"; keep whatever we last had there.
-            if w == 0 {
-                w = window.width().max(1);
-            }
-            if h == 0 {
-                h = window.height().max(1);
-            }
-            window.set_size(w, h);
+        // configure sizes are LOGICAL. `0` on an axis means the compositor left it to us — keep the last value.
+        let (mut lw, mut lh) = configure.new_size;
+        if lw == 0 {
+            lw = self.logical_size.0.max(1);
         }
+        if lh == 0 {
+            lh = self.logical_size.1.max(1);
+        }
+        self.logical_size = (lw, lh);
+        let scale = self.scale.max(1) as u32;
+        if let Some(window) = &self.window {
+            window.set_size(lw * scale, lh * scale);
+        }
+        layer.wl_surface().set_buffer_scale(self.scale.max(1));
         if self.configured {
             self.events.push(Event::WindowResized {
-                width: w,
-                height: h,
+                width: lw,
+                height: lh,
             });
         }
         self.configured = true;
@@ -569,8 +641,6 @@ delegate_keyboard!(SurfaceState);
 delegate_pointer!(SurfaceState);
 delegate_registry!(SurfaceState);
 
-// ---- Output enumeration -------------------------------------------------------------------------------
-
 struct OutputEnumState {
     registry_state: RegistryState,
     output_state: OutputState,
@@ -595,8 +665,6 @@ impl ProvidesRegistryState for OutputEnumState {
 delegate_output!(OutputEnumState);
 delegate_registry!(OutputEnumState);
 
-/// Enumerate the connected outputs (monitors) so a shell can build one surface per monitor. Connects, reads
-/// the outputs, and disconnects. Returns an empty list if the compositor can't be reached.
 pub fn enumerate_outputs() -> Vec<OutputDescriptor> {
     let Ok(conn) = Connection::connect_to_env() else {
         return Vec::new();
@@ -609,7 +677,6 @@ pub fn enumerate_outputs() -> Vec<OutputDescriptor> {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
     };
-    // Two roundtrips: wl_output globals, then their xdg-output geometry.
     for _ in 0..2 {
         if event_queue.roundtrip(&mut state).is_err() {
             break;
