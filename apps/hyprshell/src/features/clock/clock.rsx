@@ -11,4 +11,5 @@ let now_view = now.read_only();
 platform_layershell::interval(Duration::from_secs(1), move || now.set(now_string()));
 
 [view]
-text "{$now_view}" size:14 color:text
+box on_press(|| crate::toggle_drawer("clock")) pad_x:8 pad_y:4 align:center justify:center
+    text "{$now_view}" size:14 color:text

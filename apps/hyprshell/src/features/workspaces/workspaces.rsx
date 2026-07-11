@@ -56,9 +56,17 @@ if let Some(watch_dir) = hyprland::socket_dir() {
 }
 let workspace_ids =
     memo(move || ids_src.with(|s| s.workspaces.iter().map(|w| w.id).collect::<Vec<i32>>()));
+// A vertical bar (left/right edge) stacks the chips as a column of squares; a horizontal one keeps them in a row of pills.
+let vertical = crate::bar_is_vertical();
 
 [view]
-row align:center
-    for id in $workspace_ids key *id gap:8
-        box fill:chip_fill($fill_src, id) radius:6 height:20 pad_x:8 align:center justify:center on_press:|| focus(id)
-            text "{id}" size:13 color:chip_text($text_src, id)
+if vertical
+    col align:center
+        for id in $workspace_ids key *id gap:8
+            box fill:chip_fill($fill_src, id) radius:6 width:24 height:24 align:center justify:center on_press(|| focus(id))
+                text "{id}" size:13 color:chip_text($text_src, id)
+else
+    row align:center
+        for id in $workspace_ids key *id gap:8
+            box fill:chip_fill($fill_src, id) radius:6 height:20 pad_x:8 align:center justify:center on_press(|| focus(id))
+                text "{id}" size:13 color:chip_text($text_src, id)

@@ -7,8 +7,8 @@ use rsx::{
 };
 
 use crate::core::bar::build_bar;
-use crate::core::config::Config;
-use crate::core::module::default_registry;
+use crate::core::config::{Config, Edge};
+use crate::core::module::{SurfaceEnv, default_registry, set_surface_env};
 use crate::core::theme::NordTheme;
 
 struct BarRoot {
@@ -45,12 +45,14 @@ impl Component for BarRoot {
             .ok();
             return EventResult::Handled;
         }
-        EventResult::Ignored
+        // Everything else (pointer press/move/release) must reach the bar tree so module `on_press` handlers fire — the root component is the sole entry point the runner dispatches events to.
+        self.content.on_event(event)
     }
 }
 
 pub struct BarApp {
     pub config: Arc<Config>,
+    pub edge: Edge,
 }
 
 impl App for BarApp {
@@ -58,9 +60,17 @@ impl App for BarApp {
         reset_layout_runtime();
         let theme = NordTheme::new();
         set_theme(theme); // so rsx's built-in components resolve Nord tokens
+        let bar_config = self.config.bars.get(self.edge);
+        // Orientation + drawer seam for the `.rsx` modules built below (they read this thread-local).
+        set_surface_env(SurfaceEnv {
+            edge: self.edge,
+            bar_size: bar_config.size,
+            config: Arc::clone(&self.config),
+        });
         let accent = theme.accent_by_name(&self.config.theme.accent);
         let registry = default_registry();
-        let bar = build_bar(&self.config.bar, accent, &registry, theme).expect("bar build failed");
+        let bar = build_bar(self.edge, bar_config, accent, &registry, theme)
+            .expect("bar build failed");
         Box::new(BarRoot::new(bar).expect("bar layout failed"))
     }
 

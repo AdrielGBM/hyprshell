@@ -3,11 +3,13 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rsx::{
-    Event, EventHandler, Key, ModifiersState, MultiSurfacePlatform, PlatformError, PointerButton,
-    PointerSource, ScrollDelta, SurfaceId, WindowConfig,
+    App, AppConfig, AppPathsProvider, Event, EventHandler, Key, ModifiersState,
+    MultiSurfacePlatform, Platform, PlatformError, PointerButton, PointerSource, ScrollDelta,
+    SurfaceId, WindowConfig, run_with_platform,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -39,6 +41,17 @@ use crate::window::LayerWindow;
 
 thread_local! {
     static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, SurfaceState>>> = const { RefCell::new(None) };
+    // The close flag of a dynamic surface (drawer/OSD), so its own content can ask it to tear down (e.g. a click outside the panel) via `request_close`. `None` on a persistent bar surface.
+    static SURFACE_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+}
+
+/// Asks the *current* surface to close — for a dynamic surface (drawer/OSD), flips its close flag so its event loop tears it down within ~50 ms. No-op on a bar surface, which has no close flag.
+pub fn request_close() {
+    SURFACE_CLOSE.with(|c| {
+        if let Some(flag) = c.borrow().as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    });
 }
 
 pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
@@ -122,7 +135,7 @@ impl MultiSurfacePlatform for LayerShellPlatform {
                 .name(format!("hyprshell-surface-{}", id.0))
                 .spawn(move || {
                     // The handler is built here, on this surface's thread, so its whole reactive/theme/overlay world lives in this thread's thread-locals — isolated from every other surface.
-                    run_surface(id, layer_config, |sid| factory(sid));
+                    run_surface(id, layer_config, |sid| factory(sid), None);
                 })
                 .map_err(|e| PlatformError(format!("failed to spawn surface thread: {e}")))?;
             joins.push(join);
@@ -156,6 +169,7 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     surface_id: SurfaceId,
     config: LayerConfig,
     build_handler: impl FnOnce(SurfaceId) -> H,
+    close: Option<Arc<AtomicBool>>,
 ) {
     let conn = match Connection::connect_to_env() {
         Ok(c) => c,
@@ -235,6 +249,22 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     }
 
     LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
+
+    // A dynamic surface (drawer/OSD/notification) is closed from another thread by flipping this flag. A light 50 ms poll wakes the loop to notice it, since no Wayland event necessarily arrives while the surface just sits open. Only registered for dynamic surfaces, so persistent bars pay nothing.
+    if let Some(close) = close {
+        // Expose the flag to this surface's own content so it can self-close (`request_close`).
+        SURFACE_CLOSE.with(|c| *c.borrow_mut() = Some(Arc::clone(&close)));
+        let poll = Duration::from_millis(50);
+        let _ = loop_handle.insert_source(
+            Timer::from_duration(poll),
+            move |_instant, _meta, state: &mut SurfaceState| {
+                if close.load(Ordering::Relaxed) {
+                    state.exit = true;
+                }
+                TimeoutAction::ToDuration(poll)
+            },
+        );
+    }
 
     for _ in 0..3 {
         if event_loop
@@ -332,6 +362,102 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         }
     }
     handler.on_suspend();
+}
+
+/// A no-op paths provider for dynamically-opened surfaces: a drawer/OSD carries no per-surface config or cache of its own.
+struct NoPaths;
+impl AppPathsProvider for NoPaths {
+    fn config_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+    fn data_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+    fn cache_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+/// A single-surface [`Platform`] over one layer-shell surface. It drives a dynamically-opened surface through
+/// rsx's standard `run_with_platform` path — the same `run_surface` loop the bars use — with a `close` flag so
+/// another thread can ask it to tear down (see [`open_surface`]).
+struct SingleLayerPlatform {
+    config: LayerConfig,
+    close: Arc<AtomicBool>,
+}
+
+impl Platform for SingleLayerPlatform {
+    type Window = LayerWindow;
+
+    fn run<H: EventHandler<LayerWindow>>(
+        self,
+        _config: WindowConfig,
+        handler: H,
+    ) -> Result<(), PlatformError> {
+        run_surface(
+            SurfaceId(0),
+            self.config,
+            move |_| handler,
+            Some(self.close),
+        );
+        Ok(())
+    }
+}
+
+/// A live dynamically-opened surface. Dropping it — or calling [`close`](Self::close) — asks the surface to tear down.
+pub struct SurfaceHandle {
+    close: Arc<AtomicBool>,
+}
+
+impl SurfaceHandle {
+    /// Asks the surface to close. Returns immediately; the surface's thread notices the flag within ~50 ms and tears itself down. Deliberately non-blocking so a UI event handler can close a drawer without stalling.
+    pub fn close(&self) {
+        self.close.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether this surface has been asked to close (by `close`, drop, or the surface closing itself via `request_close`). Lets the owner reconcile its own toggle state after a self-close.
+    pub fn is_closing(&self) -> bool {
+        self.close.load(Ordering::Relaxed)
+    }
+}
+
+impl Drop for SurfaceHandle {
+    fn drop(&mut self) {
+        // Same non-blocking close as `close()`: the surface's own thread (which holds its own clone of the flag) sees it and exits; we never join here so the caller's thread is never stalled.
+        self.close.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Opens a new layer-shell surface at runtime, driving `app` on its own thread with a fully isolated
+/// reactive/theme/overlay world — the same isolation every bar surface gets. This is the seam a shell uses for
+/// drawers, OSD popups, and notifications: surfaces spawned in response to app logic rather than declared up
+/// front. The returned [`SurfaceHandle`] owns the surface — dropping it, or calling [`SurfaceHandle::close`],
+/// tears it down.
+pub fn open_surface<A: App + Send + 'static>(spec: LayerConfig, app: A) -> SurfaceHandle {
+    let close = Arc::new(AtomicBool::new(false));
+    let close_for_thread = Arc::clone(&close);
+    // The thread is detached (its `JoinHandle` is dropped): the surface owns its own lifetime and closes when the flag flips, so nothing needs to join it.
+    let spawned = std::thread::Builder::new()
+        .name("hyprshell-surface-dyn".to_string())
+        .spawn(move || {
+            let platform = SingleLayerPlatform {
+                config: spec,
+                close: close_for_thread,
+            };
+            if let Err(e) = run_with_platform::<_, _, ()>(
+                platform,
+                AppConfig::default(),
+                Box::new(NoPaths),
+                app,
+                "hyprshell",
+            ) {
+                tracing::error!("dynamic surface exited with error: {e}");
+            }
+        });
+    if let Err(e) = spawned {
+        tracing::error!("failed to spawn dynamic surface thread: {e}");
+    }
+    SurfaceHandle { close }
 }
 
 fn map_button(code: u32) -> Option<PointerButton> {
