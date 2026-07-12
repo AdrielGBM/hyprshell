@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use rsx::{
     App, AvailableSpace, Color, Component, Event, EventResult, LayoutError, LayoutItem,
-    LayoutStyle, NodeId, RenderNode, SizeDimension, compute_layout, mark_dirty, new_container,
-    reset_layout_runtime, set_theme,
+    LayoutStyle, NodeId, RenderNode, SizeDimension, WindowConfig, compute_layout, mark_dirty,
+    new_container, reset_layout_runtime, set_theme,
 };
 
 use crate::core::bar::build_bar;
@@ -11,13 +11,14 @@ use crate::core::config::{Config, Edge};
 use crate::core::module::{SurfaceEnv, default_registry, set_surface_env};
 use crate::core::theme::NordTheme;
 
-struct BarRoot {
+/// Root component: full-surface container that re-layouts on WindowResized and forwards events, so widgets resolve correctly.
+pub(crate) struct SurfaceRoot {
     root: NodeId,
     content: Box<dyn LayoutItem>,
 }
 
-impl BarRoot {
-    fn new(content: Box<dyn LayoutItem>) -> Result<Self, LayoutError> {
+impl SurfaceRoot {
+    pub(crate) fn new(content: Box<dyn LayoutItem>) -> Result<Self, LayoutError> {
         let root = new_container(
             LayoutStyle::new()
                 .flex_row()
@@ -29,7 +30,7 @@ impl BarRoot {
     }
 }
 
-impl Component for BarRoot {
+impl Component for SurfaceRoot {
     fn view(&self) -> RenderNode {
         self.content.view()
     }
@@ -45,7 +46,7 @@ impl Component for BarRoot {
             .ok();
             return EventResult::Handled;
         }
-        // Everything else (pointer press/move/release) must reach the bar tree so module `on_press` handlers fire — the root component is the sole entry point the runner dispatches events to.
+        // Forward events to bar tree so module handlers fire — root is the sole entry point for dispatch.
         self.content.on_event(event)
     }
 }
@@ -59,9 +60,9 @@ impl App for BarApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
         let theme = NordTheme::new();
-        set_theme(theme); // so rsx's built-in components resolve Nord tokens
+        set_theme(theme);
         let bar_config = self.config.bars.get(self.edge);
-        // Orientation + drawer seam for the `.rsx` modules built below (they read this thread-local).
+        // Thread-local context for .rsx modules to read orientation and bar config.
         set_surface_env(SurfaceEnv {
             edge: self.edge,
             bar_size: bar_config.size,
@@ -69,12 +70,28 @@ impl App for BarApp {
         });
         let accent = theme.accent_by_name(&self.config.theme.accent);
         let registry = default_registry();
-        let bar = build_bar(self.edge, bar_config, accent, &registry, theme)
+        let bar = build_bar(&self.config, self.edge, accent, &registry, theme)
             .expect("bar build failed");
-        Box::new(BarRoot::new(bar).expect("bar layout failed"))
+        Box::new(SurfaceRoot::new(bar).expect("bar layout failed"))
     }
 
     fn clear_color(&self) -> Option<Color> {
-        Some(NordTheme::new().base)
+        // Opaque bar fills entire surface; floating/sections/chips bar has gaps so surface must be transparent.
+        if self.config.bar_surface_opaque(self.edge) {
+            Some(NordTheme::new().base)
+        } else {
+            None
+        }
+    }
+
+    fn window_config(&self) -> Option<WindowConfig> {
+        if self.config.bar_surface_opaque(self.edge) {
+            None
+        } else {
+            Some(WindowConfig {
+                is_transparent: true,
+                ..WindowConfig::default()
+            })
+        }
     }
 }

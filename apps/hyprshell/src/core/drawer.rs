@@ -175,6 +175,8 @@ fn drawer_spec(output: Option<String>) -> LayerConfig {
         margin: (0, 0, 0, 0),
         keyboard_interactivity: KeyboardInteractivity::None,
         namespace: String::from("hyprshell-drawer"),
+        reserve_only: false,
+        input_transparent: false,
     }
 }
 
