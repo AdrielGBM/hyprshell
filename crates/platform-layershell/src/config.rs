@@ -10,6 +10,10 @@ pub struct LayerConfig {
     pub margin: (i32, i32, i32, i32),
     pub keyboard_interactivity: KeyboardInteractivity,
     pub namespace: String,
+    /// Layer surface reserves exclusive_zone only once mapped (needs a buffer).
+    pub reserve_only: bool,
+    /// Empty input region routes pointer/touch through to surfaces beneath.
+    pub input_transparent: bool,
 }
 
 impl Default for LayerConfig {
@@ -23,6 +27,8 @@ impl Default for LayerConfig {
             margin: (0, 0, 0, 0),
             keyboard_interactivity: KeyboardInteractivity::None,
             namespace: String::from("hyprshell"),
+            reserve_only: false,
+            input_transparent: false,
         }
     }
 }

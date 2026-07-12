@@ -11,7 +11,7 @@ use rsx::{
     MultiSurfacePlatform, Platform, PlatformError, PointerButton, PointerSource, ScrollDelta,
     SurfaceId, WindowConfig, run_with_platform,
 };
-use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
+use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::channel::{
     Event as ChannelEvent, Sender as ChannelSender, channel,
@@ -28,12 +28,14 @@ use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
     LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
 };
+use smithay_client_toolkit::shm::slot::{Buffer, SlotPool};
+use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, registry_handlers,
+    delegate_registry, delegate_seat, delegate_shm, registry_handlers,
 };
 use wayland_client::globals::registry_queue_init;
-use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface};
+use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
 
 use crate::config::{LayerConfig, OutputDescriptor};
@@ -41,7 +43,6 @@ use crate::window::LayerWindow;
 
 thread_local! {
     static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, SurfaceState>>> = const { RefCell::new(None) };
-    // The close flag of a dynamic surface (drawer/OSD), so its own content can ask it to tear down (e.g. a click outside the panel) via `request_close`. `None` on a persistent bar surface.
     static SURFACE_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
 }
 
@@ -100,6 +101,7 @@ where
 #[derive(Default)]
 pub struct LayerShellPlatform {
     configs: HashMap<SurfaceId, LayerConfig>,
+    shutdown: Option<Arc<AtomicBool>>,
 }
 
 impl LayerShellPlatform {
@@ -109,6 +111,12 @@ impl LayerShellPlatform {
 
     pub fn with_surface(mut self, id: SurfaceId, config: LayerConfig) -> Self {
         self.configs.insert(id, config);
+        self
+    }
+
+    /// Shared shutdown flag: flipping tears down all surfaces for config reload.
+    pub fn with_shutdown(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.shutdown = Some(flag);
         self
     }
 }
@@ -127,15 +135,16 @@ impl MultiSurfacePlatform for LayerShellPlatform {
     {
         let factory = Arc::new(factory);
         let configs = self.configs;
+        let shutdown = self.shutdown;
         let mut joins = Vec::with_capacity(surfaces.len());
         for (id, _window_config) in surfaces {
             let layer_config = configs.get(&id).cloned().unwrap_or_default();
             let factory = Arc::clone(&factory);
+            let close = shutdown.clone();
             let join = std::thread::Builder::new()
                 .name(format!("hyprshell-surface-{}", id.0))
                 .spawn(move || {
-                    // The handler is built here, on this surface's thread, so its whole reactive/theme/overlay world lives in this thread's thread-locals — isolated from every other surface.
-                    run_surface(id, layer_config, |sid| factory(sid), None);
+                    run_surface(id, layer_config, |sid| factory(sid), close);
                 })
                 .map_err(|e| PlatformError(format!("failed to spawn surface thread: {e}")))?;
             joins.push(join);
@@ -148,11 +157,11 @@ impl MultiSurfacePlatform for LayerShellPlatform {
     }
 }
 
-// The rsx handler itself lives in the loop, not here, so SCTK's handler callbacks (which take `&mut Self`) and the rsx handler don't fight over borrows.
 struct SurfaceState {
     registry_state: RegistryState,
     output_state: OutputState,
     seat_state: SeatState,
+    shm: Shm,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
     window: Option<LayerWindow>,
@@ -201,11 +210,19 @@ fn run_surface<H: EventHandler<LayerWindow>>(
             return;
         }
     };
+    let shm = match Shm::bind(&globals, &qh) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("wl_shm unavailable: {e}");
+            return;
+        }
+    };
 
     let mut state = SurfaceState {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
         seat_state: SeatState::new(&globals, &qh),
+        shm,
         keyboard: None,
         pointer: None,
         window: None,
@@ -250,9 +267,7 @@ fn run_surface<H: EventHandler<LayerWindow>>(
 
     LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
 
-    // A dynamic surface (drawer/OSD/notification) is closed from another thread by flipping this flag. A light 50 ms poll wakes the loop to notice it, since no Wayland event necessarily arrives while the surface just sits open. Only registered for dynamic surfaces, so persistent bars pay nothing.
     if let Some(close) = close {
-        // Expose the flag to this surface's own content so it can self-close (`request_close`).
         SURFACE_CLOSE.with(|c| *c.borrow_mut() = Some(Arc::clone(&close)));
         let poll = Duration::from_millis(50);
         let _ = loop_handle.insert_source(
@@ -302,7 +317,19 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     layer.set_margin(mt, mr, mb, ml);
     layer.set_keyboard_interactivity(config.keyboard_interactivity);
     layer.wl_surface().set_buffer_scale(state.scale);
+    if config.input_transparent
+        && let Ok(region) = Region::new(&compositor)
+    {
+        layer
+            .wl_surface()
+            .set_input_region(Some(region.wl_region()));
+    }
     layer.commit();
+
+    if config.reserve_only {
+        run_reservation_loop(&mut event_loop, &mut state, &layer);
+        return;
+    }
 
     let surface_ptr = NonNull::new(layer.wl_surface().id().as_ptr() as *mut c_void);
     let display_ptr = NonNull::new(conn.backend().display_ptr() as *mut c_void);
@@ -364,7 +391,56 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     handler.on_suspend();
 }
 
-/// A no-op paths provider for dynamically-opened surfaces: a drawer/OSD carries no per-surface config or cache of its own.
+/// Commits a fully-transparent shm buffer sized to the configured surface to hold its exclusive_zone.
+fn run_reservation_loop(
+    event_loop: &mut EventLoop<SurfaceState>,
+    state: &mut SurfaceState,
+    layer: &LayerSurface,
+) {
+    let mut retained: Option<(SlotPool, Buffer)> = None;
+    let mut committed: (u32, u32) = (0, 0);
+    loop {
+        if event_loop.dispatch(None, state).is_err() || state.exit {
+            drop(retained);
+            return;
+        }
+        if !state.configured {
+            continue;
+        }
+        let scale = state.scale.max(1) as u32;
+        let w = (state.logical_size.0 * scale).max(1);
+        let h = (state.logical_size.1 * scale).max(1);
+        if (w, h) == committed {
+            continue;
+        }
+        let stride = w as i32 * 4;
+        let len = (h as usize) * (stride as usize);
+        let mut pool = match SlotPool::new(len.max(1), &state.shm) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("reservation surface: shm pool failed: {e}");
+                return;
+            }
+        };
+        let buffer = match pool.create_buffer(w as i32, h as i32, stride, wl_shm::Format::Argb8888)
+        {
+            Ok((buffer, _canvas)) => buffer,
+            Err(e) => {
+                tracing::error!("reservation surface: shm buffer failed: {e}");
+                return;
+            }
+        };
+        let surface = layer.wl_surface();
+        surface.set_buffer_scale(scale as i32);
+        if buffer.attach_to(surface).is_ok() {
+            surface.damage_buffer(0, 0, w as i32, h as i32);
+            layer.commit();
+            committed = (w, h);
+        }
+        retained = Some((pool, buffer));
+    }
+}
+
 struct NoPaths;
 impl AppPathsProvider for NoPaths {
     fn config_dir(&self) -> Option<std::path::PathBuf> {
@@ -378,9 +454,6 @@ impl AppPathsProvider for NoPaths {
     }
 }
 
-/// A single-surface [`Platform`] over one layer-shell surface. It drives a dynamically-opened surface through
-/// rsx's standard `run_with_platform` path — the same `run_surface` loop the bars use — with a `close` flag so
-/// another thread can ask it to tear down (see [`open_surface`]).
 struct SingleLayerPlatform {
     config: LayerConfig,
     close: Arc<AtomicBool>,
@@ -423,20 +496,14 @@ impl SurfaceHandle {
 
 impl Drop for SurfaceHandle {
     fn drop(&mut self) {
-        // Same non-blocking close as `close()`: the surface's own thread (which holds its own clone of the flag) sees it and exits; we never join here so the caller's thread is never stalled.
         self.close.store(true, Ordering::Relaxed);
     }
 }
 
-/// Opens a new layer-shell surface at runtime, driving `app` on its own thread with a fully isolated
-/// reactive/theme/overlay world — the same isolation every bar surface gets. This is the seam a shell uses for
-/// drawers, OSD popups, and notifications: surfaces spawned in response to app logic rather than declared up
-/// front. The returned [`SurfaceHandle`] owns the surface — dropping it, or calling [`SurfaceHandle::close`],
-/// tears it down.
+/// Opens a new layer-shell surface at runtime on its own thread (fully isolated reactive/theme/overlay world).
 pub fn open_surface<A: App + Send + 'static>(spec: LayerConfig, app: A) -> SurfaceHandle {
     let close = Arc::new(AtomicBool::new(false));
     let close_for_thread = Arc::clone(&close);
-    // The thread is detached (its `JoinHandle` is dropped): the surface owns its own lifetime and closes when the flag flips, so nothing needs to join it.
     let spawned = std::thread::Builder::new()
         .name("hyprshell-surface-dyn".to_string())
         .spawn(move || {
@@ -759,12 +826,19 @@ impl ProvidesRegistryState for SurfaceState {
     registry_handlers![OutputState, SeatState];
 }
 
+impl ShmHandler for SurfaceState {
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm
+    }
+}
+
 delegate_compositor!(SurfaceState);
 delegate_output!(SurfaceState);
 delegate_layer!(SurfaceState);
 delegate_seat!(SurfaceState);
 delegate_keyboard!(SurfaceState);
 delegate_pointer!(SurfaceState);
+delegate_shm!(SurfaceState);
 delegate_registry!(SurfaceState);
 
 struct OutputEnumState {
