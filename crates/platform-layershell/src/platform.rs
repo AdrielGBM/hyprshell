@@ -69,6 +69,25 @@ pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
     });
 }
 
+/// Runs `callback` once, `delay` from now, on this surface's event loop, then drops the timer. Used for
+/// an OSD's auto-dismiss. No-op when called outside a surface loop (e.g. a headless test).
+pub fn timeout(delay: Duration, callback: impl FnOnce() + 'static) {
+    LOOP_HANDLE.with(|h| {
+        if let Some(handle) = h.borrow().as_ref() {
+            let mut callback = Some(callback);
+            let _ = handle.insert_source(
+                Timer::from_duration(delay),
+                move |_instant, _meta, _state: &mut SurfaceState| {
+                    if let Some(cb) = callback.take() {
+                        cb();
+                    }
+                    TimeoutAction::Drop
+                },
+            );
+        }
+    });
+}
+
 pub struct EventSender<T>(ChannelSender<T>);
 
 impl<T> EventSender<T> {
