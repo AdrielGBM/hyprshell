@@ -2,13 +2,18 @@ rsx::rsx_modules!(crate::core::theme::NordTheme);
 
 pub use crate::core::app::BarApp;
 pub use crate::core::bar::build_bar;
-pub use crate::core::config::{BarConfig, BarsConfig, Config, Corner, Edge, ThemeConfig};
+pub use crate::core::config::{
+    BarConfig, BarsConfig, Config, Corner, Edge, ModuleOverride, ThemeConfig, Variant,
+};
 pub use crate::core::drawer::{DrawerApp, toggle_drawer};
 pub use crate::core::frame::FrameApp;
+pub use crate::core::icon::icon;
 pub use crate::core::module::{
-    ModuleBuilder, ModuleCtx, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
-    default_registry, set_surface_env, surface_env,
+    ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
+    bar_thickness, default_registry, icon_px, module_fg, module_foreground, module_shell,
+    set_module_fg, set_surface_env, surface_env,
 };
+pub use crate::core::osd::{OsdApp, OsdKind};
 pub use crate::core::theme::NordTheme;
 
 use std::collections::HashMap;
@@ -43,14 +48,32 @@ impl AppPathsProvider for NullPaths {
     }
 }
 
-/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
-fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
-    let thickness = config.edge_thickness(edge) as i32;
-    let gap = if config.hugs(edge) {
+/// A bar's effective gap on its own edge: 0 when it hugs (frame, or gap == 0), else its resolved shape gap.
+fn edge_gap(config: &Config, edge: Edge) -> i32 {
+    if config.hugs(edge) {
         0
     } else {
         config.shape_for(edge).gap as i32
-    };
+    }
+}
+
+/// How far a vertical bar insets from a perpendicular edge (`perp` = top/bottom): past that bar's footprint —
+/// its OWN gap plus thickness — so they meet flush; or the vertical bar's own gap when that edge has no bar.
+/// Using the perpendicular bar's gap (not the vertical bar's) is what stops a gapped top bar overlapping a hugging side bar.
+fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
+    if config.edge_present(perp) {
+        edge_gap(config, perp) + config.edge_thickness(perp) as i32
+    } else {
+        own_gap
+    }
+}
+
+/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
+fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
+    let thickness = config.edge_thickness(edge) as i32;
+    let gap = edge_gap(config, edge);
+    let top_inset = perpendicular_inset(config, Edge::Top, gap);
+    let bottom_inset = perpendicular_inset(config, Edge::Bottom, gap);
     // Margin tuple is (top, right, bottom, left).
     let (anchor, surface_size, margin) = match edge {
         Edge::Top => (
@@ -66,22 +89,12 @@ fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> Laye
         Edge::Left => (
             Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM,
             (thickness as u32, 0),
-            (
-                config.edge_thickness(Edge::Top) as i32 + gap,
-                0,
-                config.edge_thickness(Edge::Bottom) as i32 + gap,
-                gap,
-            ),
+            (top_inset, 0, bottom_inset, gap),
         ),
         Edge::Right => (
             Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM,
             (thickness as u32, 0),
-            (
-                config.edge_thickness(Edge::Top) as i32 + gap,
-                gap,
-                config.edge_thickness(Edge::Bottom) as i32 + gap,
-                0,
-            ),
+            (top_inset, gap, bottom_inset, 0),
         ),
     };
     LayerConfig {
@@ -155,7 +168,7 @@ pub fn run() {
     }
 }
 
-/// Builds surfaces from current config, runs until reload flag flips (config changed), then returns for rebuild.
+/// Runs until the reload flag flips (config changed), then returns so `run` rebuilds from fresh config.
 fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
     let config = Arc::new(Config::load_or_default(config_path));
 
@@ -236,7 +249,6 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
             match specs[&id] {
                 SurfaceSpec::Bar(edge) => Box::new(BarApp { config, edge }),
                 SurfaceSpec::Frame => Box::new(FrameApp { config }),
-                // Reservation surfaces are backend-driven (reserve_only) and never build an app.
                 SurfaceSpec::Reservation => {
                     unreachable!("reservation surfaces do not reach the app factory")
                 }
@@ -331,7 +343,7 @@ mod tests {
 
     #[test]
     fn vertical_bar_ends_inset_by_adjacent_bar_thickness() {
-        // Invariant 1: a left bar flanked by top+bottom bars is inset at each end by the adjacent bar's thickness (+ gap), keeping the corner cell clear; horizontal bars keep their full span.
+        // A left bar flanked by top+bottom bars insets at each end to keep the corner cells clear.
         let cfg = config(
             "[bars.top]\nsize=30\ncenter=[\"clock\"]\n\
              [bars.bottom]\nsize=40\nstart=[\"clock\"]\n\
@@ -341,6 +353,23 @@ mod tests {
         assert_eq!(left.margin, (30, 0, 40, 0));
         let top = layer_config_for(&cfg, Edge::Top, None);
         assert_eq!(top.margin, (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn vertical_bar_inset_uses_the_adjacent_bar_gap_not_its_own() {
+        // Regression: a floating top bar (gap:8) ends at y=40, so a hugging left bar must inset by the top bar's gap+thickness, not its own — else it rides up over the top bar.
+        let cfg = config(
+            "[shape]\ngap=0\n\
+             [bars.top]\nsize=32\ncenter=[\"clock\"]\n[bars.top.shape]\ngap=8\n\
+             [bars.bottom]\nsize=64\nstart=[\"clock\"]\n\
+             [bars.left]\nsize=32\nstart=[\"workspaces\"]\n",
+        );
+        let left = layer_config_for(&cfg, Edge::Left, None);
+        assert_eq!(
+            left.margin,
+            (40, 0, 64, 0),
+            "top inset = top gap(8)+thickness(32); bottom inset = bottom gap(0)+thickness(64)"
+        );
     }
 
     #[test]

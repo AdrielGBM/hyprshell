@@ -59,7 +59,7 @@ pub struct BarApp {
 impl App for BarApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = NordTheme::new();
+        let theme = NordTheme::new().with_accent(&self.config.theme.accent);
         set_theme(theme);
         let bar_config = self.config.bars.get(self.edge);
         // Thread-local context for .rsx modules to read orientation and bar config.
@@ -68,7 +68,7 @@ impl App for BarApp {
             bar_size: bar_config.size,
             config: Arc::clone(&self.config),
         });
-        let accent = theme.accent_by_name(&self.config.theme.accent);
+        let accent = theme.accent;
         let registry = default_registry();
         let bar = build_bar(&self.config, self.edge, accent, &registry, theme)
             .expect("bar build failed");

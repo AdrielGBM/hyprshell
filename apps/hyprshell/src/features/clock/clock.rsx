@@ -8,8 +8,10 @@ fn now_string() -> String {
 
 let now = signal(now_string());
 let now_view = now.read_only();
+// The base container (module_shell) provides the box, hover/press feedback, and the click that opens the
+// drawer; this module supplies only its content and paints with the container-chosen foreground.
+let fg = crate::module_fg();
 platform_layershell::interval(Duration::from_secs(1), move || now.set(now_string()));
 
 [view]
-box on_press(|| crate::toggle_drawer("clock")) pad_x:8 pad_y:4 align:center justify:center
-    text "{$now_view}" size:14 color:text
+text "{$now_view}" size:14 color:$fg

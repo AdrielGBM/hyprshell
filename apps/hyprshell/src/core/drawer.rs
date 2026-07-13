@@ -111,12 +111,17 @@ pub struct DrawerApp {
     pub module: String,
     pub edge: Edge,
     pub bar_size: u32,
+    /// The configured accent (resolved on the bar thread when the drawer opens, since this surface has no config).
+    pub accent: Color,
 }
 
 impl App for DrawerApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = NordTheme::new();
+        let theme = NordTheme {
+            accent: self.accent,
+            ..NordTheme::new()
+        };
         set_theme(theme);
         let panel_content = match self.module.as_str() {
             "clock" => crate::clock_panel(),
@@ -190,12 +195,14 @@ pub fn toggle_drawer(module_id: &str) {
             .is_some_and(|(id, handle)| id == module_id && !handle.is_closing());
         *slot = None; // drops the previous handle → closes whatever drawer was open
         if !already_open {
+            let accent = NordTheme::new().accent_by_name(&env.config.theme.accent);
             let handle = open_surface(
                 drawer_spec(None),
                 DrawerApp {
                     module: module_id.to_string(),
                     edge: env.edge,
                     bar_size: env.bar_size,
+                    accent,
                 },
             );
             *slot = Some((module_id.to_string(), handle));

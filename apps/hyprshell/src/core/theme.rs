@@ -42,6 +42,14 @@ impl NordTheme {
         }
     }
 
+    /// Applies the configured accent token to the theme's `accent` field, so everything that reads
+    /// `use_theme().accent` (workspaces' active chip, OSD level bar, module fills) follows `[theme] accent`
+    /// uniformly — not just the modules the bar resolves per-id.
+    pub fn with_accent(mut self, name: &str) -> Self {
+        self.accent = self.accent_by_name(name);
+        self
+    }
+
     pub fn accent_by_name(&self, name: &str) -> Color {
         match name {
             "blue" => self.blue,

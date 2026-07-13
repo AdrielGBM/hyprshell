@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -170,6 +171,26 @@ impl CornersConfig {
     }
 }
 
+/// A module's background treatment inside its base container: `Default` is transparent (blends into the
+/// bar, highlights only on hover/press), `Filled` paints a solid accent behind it with an auto-contrast
+/// foreground.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Variant {
+    #[default]
+    Default,
+    Filled,
+}
+
+/// Per-module presentation override, keyed by module id under `[modules.<id>]`: its container variant and
+/// an accent token that wins over the global `[theme] accent` for this module.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct ModuleOverride {
+    pub variant: Variant,
+    pub accent: Option<String>,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
@@ -177,6 +198,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub shape: ShapeConfig,
     pub corners: CornersConfig,
+    pub modules: HashMap<String, ModuleOverride>,
 }
 
 /// One bar per screen edge; empty bars collapse to zero. Default is all-empty by design (serde fills missing fields), so configs get only what they specify — see [`Config::starter`] for the initial setup.
@@ -262,7 +284,22 @@ impl Config {
             theme: ThemeConfig::default(),
             shape: ShapeConfig::default(),
             corners: CornersConfig::default(),
+            modules: HashMap::new(),
         }
+    }
+
+    /// The container variant for a module id, `Default` when it has no `[modules.<id>]` override.
+    pub fn variant_for(&self, id: &str) -> Variant {
+        self.modules.get(id).map(|m| m.variant).unwrap_or_default()
+    }
+
+    /// The accent-token name for a module id: its `[modules.<id>] accent` override, else the global
+    /// `[theme] accent`. Resolve to a color via [`NordTheme::accent_by_name`](crate::NordTheme).
+    pub fn accent_name_for(&self, id: &str) -> &str {
+        self.modules
+            .get(id)
+            .and_then(|m| m.accent.as_deref())
+            .unwrap_or(&self.theme.accent)
     }
 
     /// Effective shape for edge: per-bar override if set, else global default.
@@ -495,6 +532,19 @@ center = ["clock"]
             radius: 4,
         };
         assert_eq!(tight.chip_radius(), 0, "radius floors at 0, never negative");
+    }
+
+    #[test]
+    fn module_override_parses_variant_and_accent() {
+        let cfg: Config = toml::from_str(
+            "[bars.top]\ncenter=[\"clock\"]\n[modules.battery]\nvariant=\"filled\"\naccent=\"orange\"\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.variant_for("battery"), Variant::Filled);
+        assert_eq!(cfg.accent_name_for("battery"), "orange");
+        // A module with no override is Default and falls back to the global theme accent.
+        assert_eq!(cfg.variant_for("clock"), Variant::Default);
+        assert_eq!(cfg.accent_name_for("clock"), "cyan");
     }
 
     #[test]

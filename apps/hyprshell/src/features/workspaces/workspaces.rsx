@@ -56,17 +56,18 @@ if let Some(watch_dir) = hyprland::socket_dir() {
 }
 let workspace_ids =
     memo(move || ids_src.with(|s| s.workspaces.iter().map(|w| w.id).collect::<Vec<i32>>()));
-// A vertical bar (left/right edge) stacks the chips as a column of squares; a horizontal one keeps them in a row of pills.
 let vertical = crate::bar_is_vertical();
+// A stretched horizontal chip can't derive its width from its height, so size both sides to make a square.
+let side = crate::bar_thickness();
 
 [view]
 if vertical
     col align:center
         for id in $workspace_ids key *id gap:8
-            box fill:chip_fill($fill_src, id) radius:6 width:24 height:24 align:center justify:center on_press(|| focus(id))
-                text "{id}" size:13 color:chip_text($text_src, id)
+            box fill:chip_fill($fill_src, id) radius:6 width:side height:side align:center justify:center on_press(|| focus(id))
+                text "{id}" size:13 align:center color:chip_text($text_src, id)
 else
     row align:center
         for id in $workspace_ids key *id gap:8
-            box fill:chip_fill($fill_src, id) radius:6 height:20 pad_x:8 align:center justify:center on_press(|| focus(id))
-                text "{id}" size:13 color:chip_text($text_src, id)
+            box fill:chip_fill($fill_src, id) radius:6 width:side height:side align:center justify:center on_press(|| focus(id))
+                text "{id}" size:13 align:center color:chip_text($text_src, id)
