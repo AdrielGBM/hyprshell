@@ -23,7 +23,9 @@ use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
-use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers};
+use smithay_client_toolkit::seat::keyboard::{
+    KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers,
+};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::WaylandSurface;
@@ -901,6 +903,22 @@ impl KeyboardHandler for SurfaceState {
             self.needs_redraw = true;
         }
     }
+    fn repeat_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        if let Some(key) = map_key(&event) {
+            self.events.push(Event::KeyPressed {
+                key,
+                modifiers: self.modifiers,
+            });
+            self.needs_redraw = true;
+        }
+    }
     fn update_modifiers(
         &mut self,
         _: &Connection,
@@ -908,6 +926,7 @@ impl KeyboardHandler for SurfaceState {
         _: &wl_keyboard::WlKeyboard,
         _: u32,
         modifiers: Modifiers,
+        _: RawModifiers,
         _layout: u32,
     ) {
         self.modifiers = ModifiersState {

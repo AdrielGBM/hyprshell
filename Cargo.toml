@@ -12,7 +12,7 @@ rsx = { path = "../rsx/crates/rsx", default-features = false, features = [
     "runtime",
     "components",
 ] }
-smithay-client-toolkit = "0.19"
+smithay-client-toolkit = "0.20"
 wayland-client = "0.31"
 raw-window-handle = "0.6"
 
