@@ -6,10 +6,10 @@ use rsx::{
     new_container, reset_layout_runtime, set_theme,
 };
 
-use crate::core::bar::build_bar;
+use crate::modules::bar::build_bar;
 use crate::core::config::{Config, Edge};
-use crate::core::module::{SurfaceEnv, default_registry, set_surface_env};
-use crate::core::theme::NordTheme;
+use crate::shared::module::{SurfaceEnv, default_registry, set_surface_env};
+use crate::shared::theme::NordTheme;
 
 /// Root component: full-surface container that re-layouts on WindowResized and forwards events, so widgets resolve correctly.
 pub(crate) struct SurfaceRoot {

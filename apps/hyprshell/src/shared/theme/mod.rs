@@ -19,6 +19,13 @@ pub struct NordTheme {
     pub yellow: Color,
     pub green: Color,
     pub purple: Color,
+    pub success: Color,
+    pub warning: Color,
+    pub error: Color,
+    pub info: Color,
+    pub highlight_low: Color,
+    pub highlight_med: Color,
+    pub highlight_high: Color,
 }
 
 impl NordTheme {
@@ -39,12 +46,17 @@ impl NordTheme {
             yellow: Color::from_rgb_u8(235, 203, 139),
             green: Color::from_rgb_u8(163, 190, 140),
             purple: Color::from_rgb_u8(180, 142, 173),
+            success: Color::from_rgb_u8(163, 190, 140),
+            warning: Color::from_rgb_u8(235, 203, 139),
+            error: Color::from_rgb_u8(191, 97, 106),
+            info: Color::from_rgb_u8(94, 129, 172),
+            highlight_low: Color::from_rgb_u8(67, 76, 94),
+            highlight_med: Color::from_rgb_u8(76, 86, 106),
+            highlight_high: Color::from_rgb_u8(94, 105, 128),
         }
     }
 
-    /// Applies the configured accent token to the theme's `accent` field, so everything that reads
-    /// `use_theme().accent` (workspaces' active chip, OSD level bar, module fills) follows `[theme] accent`
-    /// uniformly — not just the modules the bar resolves per-id.
+    /// Applies the configured accent to the theme's `accent` field, so everything reading `use_theme().accent` follows `[theme] accent` uniformly, not just the modules the bar resolves per-id.
     pub fn with_accent(mut self, name: &str) -> Self {
         self.accent = self.accent_by_name(name);
         self
@@ -68,6 +80,26 @@ impl NordTheme {
 impl Default for NordTheme {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn semantic_tokens_map_to_nord_palette() {
+        let t = NordTheme::new();
+        assert_eq!(t.success, t.green);
+        assert_eq!(t.warning, t.yellow);
+        assert_eq!(t.error, t.red);
+        assert_eq!(t.info, t.blue);
+        // The catalogue reads them through the ThemeTokens contract.
+        assert_eq!(ThemeTokens::success(&t), t.green);
+        assert_eq!(ThemeTokens::error(&t), t.red);
+        assert_eq!(ThemeTokens::info(&t), t.blue);
+        assert_ne!(t.highlight_low, t.highlight_med);
+        assert_ne!(t.highlight_med, t.highlight_high);
     }
 }
 
@@ -98,5 +130,26 @@ impl ThemeTokens for NordTheme {
     }
     fn border(&self) -> Color {
         self.muted
+    }
+    fn success(&self) -> Color {
+        self.success
+    }
+    fn warning(&self) -> Color {
+        self.warning
+    }
+    fn error(&self) -> Color {
+        self.error
+    }
+    fn info(&self) -> Color {
+        self.info
+    }
+    fn highlight_low(&self) -> Color {
+        self.highlight_low
+    }
+    fn highlight_med(&self) -> Color {
+        self.highlight_med
+    }
+    fn highlight_high(&self) -> Color {
+        self.highlight_high
     }
 }

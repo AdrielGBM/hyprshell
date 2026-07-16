@@ -1,10 +1,9 @@
 [logic]
-use crate::core::icon::icon;
-use crate::core::theme::NordTheme;
-use crate::shared::battery;
+use crate::shared::icon::icon;
+use crate::shared::theme::NordTheme;
+use crate::shared::services::battery;
 
-// Low/critical levels flag with the theme's warning colors; otherwise the icon takes the container
-// foreground (`fg`), so the single glyph still signals a low battery at a glance.
+// Low/critical levels flag with the theme's warning colors, otherwise the icon takes the container foreground, so the single glyph still signals a low battery at a glance.
 fn level_color(level: i32, fg: Color) -> Color {
     let t = use_theme::<NordTheme>();
     if level <= 15 {

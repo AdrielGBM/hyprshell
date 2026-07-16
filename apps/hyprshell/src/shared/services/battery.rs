@@ -25,8 +25,7 @@ fn first_battery_dir() -> Option<PathBuf> {
         .find(|p| fs::read_to_string(p.join("type")).is_ok_and(|t| t.trim() == "Battery"))
 }
 
-/// Reads the first battery's level and charging state, or `None` when there is no battery (a desktop) or
-/// sysfs is unreadable. `Full` and `Charging` both count as charging (the cable is in).
+/// Reads the first battery's level and charging state, or `None` when there is no battery (a desktop) or sysfs is unreadable; `Full` and `Charging` both count as charging.
 pub fn read() -> Option<Battery> {
     let dir = first_battery_dir()?;
     let level = fs::read_to_string(dir.join("capacity"))
@@ -40,11 +39,7 @@ pub fn read() -> Option<Battery> {
     Some(Battery { level, charging })
 }
 
-/// Streams battery updates to `tx`, blocking on UPower's `PropertiesChanged` signal for the aggregate
-/// DisplayDevice — sub-second on plug/unplug, the way waybar/astal do it, instead of a slow poll. UPower is
-/// only the trigger; sysfs holds the authoritative values and is current when it fires. Falls back to a slow
-/// sysfs poll if UPower/DBus is unavailable (a headless box, or no `upowerd`). Runs on the `watch` producer
-/// thread and returns when the channel closes.
+/// Streams battery updates to `tx`, blocking on UPower's DisplayDevice `PropertiesChanged` signal for sub-second plug/unplug updates (UPower only triggers; sysfs holds the authoritative values); falls back to a slow sysfs poll if UPower/DBus is unavailable.
 pub fn stream(tx: EventSender<Battery>) {
     // Push the current value immediately so the bar doesn't wait for the first change.
     if let Some(b) = read()
@@ -91,9 +86,7 @@ fn poll_fallback(tx: &EventSender<Battery>) {
 mod tests {
     use super::*;
 
-    // Live check that the UPower DBus plumbing (bus, destination, path) is correct — gated behind an env
-    // var and a running `upowerd`, so it never runs in a headless CI. Run with:
-    //   HYPRSHELL_TEST_UPOWER=1 cargo test -p hyprshell --lib upower -- --nocapture
+    // Live UPower DBus check, gated behind an env var so it never runs in headless CI: run with `HYPRSHELL_TEST_UPOWER=1 cargo test -p hyprshell --lib upower -- --nocapture`.
     #[test]
     fn upower_connection_reads_percentage() {
         if std::env::var("HYPRSHELL_TEST_UPOWER").is_err() {

@@ -1,8 +1,8 @@
 [logic]
 use std::time::Duration;
 
-use crate::core::icon::icon;
-use crate::shared::volume;
+use crate::shared::icon::icon;
+use crate::shared::services::volume;
 
 fn vol_glyph(muted: bool, level: i32) -> &'static str {
     if muted || level == 0 {
@@ -14,8 +14,7 @@ fn vol_glyph(muted: bool, level: i32) -> &'static str {
     }
 }
 
-// Seed from a real read; poll on the surface loop (no-op headless). The container wires the click that
-// toggles mute and pops the OSD (where the exact level lives).
+// Seed from a real read; poll on the surface loop (no-op headless). The container wires the click that toggles mute and pops the OSD (where the exact level lives).
 let init = volume::read();
 let level = signal(init.map(|v| v.level).unwrap_or(0));
 let muted = signal(init.map(|v| v.muted).unwrap_or(false));

@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// A screen edge; top/bottom use horizontal layout, left/right use vertical.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Edge {
     Top,
     Bottom,
@@ -32,7 +32,6 @@ impl Edge {
         }
     }
 
-    /// The two corners at this bar's leading and trailing ends, in main-axis order.
     pub fn corners(self) -> (Corner, Corner) {
         match self {
             Edge::Top => (Corner::TopLeft, Corner::TopRight),
@@ -43,7 +42,6 @@ impl Edge {
     }
 }
 
-/// One of the four screen corners; routed to the adjacent bar that owns it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Corner {
     TopLeft,
@@ -119,7 +117,6 @@ impl Default for ShapeConfig {
     }
 }
 
-/// Per-bar shape override; each field falls back to the global `[shape]`.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default)]
 #[serde(default)]
 pub struct BarShape {
@@ -129,7 +126,6 @@ pub struct BarShape {
     pub radius: Option<u32>,
 }
 
-/// A bar's resolved shape after merging its override with the global defaults.
 #[derive(Clone, Copy, Debug)]
 pub struct ResolvedShape {
     pub mode: Shape,
@@ -139,7 +135,6 @@ pub struct ResolvedShape {
 }
 
 impl ResolvedShape {
-    /// Inner padding = round(spacing / 2).
     pub fn padding(self) -> u32 {
         (self.spacing as f32 / 2.0).round() as u32
     }
@@ -150,7 +145,6 @@ impl ResolvedShape {
     }
 }
 
-/// Optional module per corner, routed to the leading/trailing zone of the bar that owns that corner.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct CornersConfig {
@@ -171,9 +165,7 @@ impl CornersConfig {
     }
 }
 
-/// A module's background treatment inside its base container: `Default` is transparent (blends into the
-/// bar, highlights only on hover/press), `Filled` paints a solid accent behind it with an auto-contrast
-/// foreground.
+/// Container background: `Default` is transparent (blends into the bar, highlights on hover/press); `Filled` paints a solid accent with an auto-contrast foreground.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Variant {
@@ -182,13 +174,75 @@ pub enum Variant {
     Filled,
 }
 
-/// Per-module presentation override, keyed by module id under `[modules.<id>]`: its container variant and
-/// an accent token that wins over the global `[theme] accent` for this module.
+/// How a module's panel opens: a drawer hanging off the bar edge (default), or a centred floating window with a title bar and close button.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenMode {
+    #[default]
+    Drawer,
+    Float,
+}
+
+/// Per-module presentation override, keyed by module id under `[modules.<id>]`: container variant, an accent token that wins over the global `[theme] accent`, and how its panel opens.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct ModuleOverride {
     pub variant: Variant,
     pub accent: Option<String>,
+    pub open: OpenMode,
+}
+
+/// Which bar zone a module sits in; a drawer derives its cross-axis alignment from this.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Zone {
+    Start,
+    Center,
+    End,
+}
+
+/// The drawer panel's size (§4): a fixed width and a max height its content scrolls within.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct DrawerConfig {
+    pub width: f32,
+    pub max_height: f32,
+}
+
+impl Default for DrawerConfig {
+    fn default() -> Self {
+        Self {
+            width: 320.0,
+            max_height: 280.0,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Align {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+/// Where OSD popups appear: anchored edge, cross-axis alignment, and auto-dismiss timeout in ms (`0` disables auto-dismiss); defaults to top-centre, 1200 ms.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct OsdConfig {
+    pub edge: Edge,
+    pub align: Align,
+    pub timeout_ms: u64,
+}
+
+impl Default for OsdConfig {
+    fn default() -> Self {
+        Self {
+            edge: Edge::Top,
+            align: Align::Center,
+            timeout_ms: 1200,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
@@ -198,6 +252,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub shape: ShapeConfig,
     pub corners: CornersConfig,
+    pub drawer: DrawerConfig,
+    pub osd: OsdConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -222,7 +278,6 @@ impl BarsConfig {
     }
 }
 
-/// A bar's thickness and three module zones.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct BarConfig {
@@ -284,6 +339,8 @@ impl Config {
             theme: ThemeConfig::default(),
             shape: ShapeConfig::default(),
             corners: CornersConfig::default(),
+            drawer: DrawerConfig::default(),
+            osd: OsdConfig::default(),
             modules: HashMap::new(),
         }
     }
@@ -293,13 +350,31 @@ impl Config {
         self.modules.get(id).map(|m| m.variant).unwrap_or_default()
     }
 
-    /// The accent-token name for a module id: its `[modules.<id>] accent` override, else the global
-    /// `[theme] accent`. Resolve to a color via [`NordTheme::accent_by_name`](crate::NordTheme).
+    /// The accent-token name for a module id: its `[modules.<id>] accent` override, else the global `[theme] accent`; resolve via [`NordTheme::accent_by_name`](crate::NordTheme).
     pub fn accent_name_for(&self, id: &str) -> &str {
         self.modules
             .get(id)
             .and_then(|m| m.accent.as_deref())
             .unwrap_or(&self.theme.accent)
+    }
+
+    /// How a module's panel opens when clicked: its `[modules.<id>] open` override, else a drawer.
+    pub fn open_mode_for(&self, id: &str) -> OpenMode {
+        self.modules.get(id).map(|m| m.open).unwrap_or_default()
+    }
+
+    /// Which zone (start/center/end) a module occupies on `edge`, for deriving its drawer's alignment.
+    pub fn zone_of(&self, edge: Edge, module_id: &str) -> Option<Zone> {
+        let bar = self.bars.get(edge);
+        if bar.start.iter().any(|m| m == module_id) {
+            Some(Zone::Start)
+        } else if bar.center.iter().any(|m| m == module_id) {
+            Some(Zone::Center)
+        } else if bar.end.iter().any(|m| m == module_id) {
+            Some(Zone::End)
+        } else {
+            None
+        }
     }
 
     /// Effective shape for edge: per-bar override if set, else global default.
@@ -331,7 +406,6 @@ impl Config {
         }
     }
 
-    /// Whether edge has any surface (active content or frame strip).
     pub fn edge_present(&self, edge: Edge) -> bool {
         self.edge_thickness(edge) > 0
     }
@@ -455,8 +529,48 @@ start = ["workspaces"]
     }
 
     #[test]
+    fn zone_of_reflects_bar_zones() {
+        let toml = r#"
+[bars.top]
+start = ["workspaces"]
+center = ["clock"]
+end = ["battery", "volume"]
+"#;
+        let cfg: Config = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.zone_of(Edge::Top, "workspaces"), Some(Zone::Start));
+        assert_eq!(cfg.zone_of(Edge::Top, "clock"), Some(Zone::Center));
+        assert_eq!(cfg.zone_of(Edge::Top, "volume"), Some(Zone::End));
+        assert_eq!(cfg.zone_of(Edge::Top, "missing"), None);
+        assert_eq!(cfg.zone_of(Edge::Bottom, "clock"), None);
+    }
+
+    #[test]
+    fn drawer_and_open_mode_defaults() {
+        let cfg: Config = toml::from_str("[bars.top]\ncenter = [\"clock\"]\n").unwrap();
+        assert_eq!(cfg.drawer.width, 320.0);
+        assert_eq!(cfg.open_mode_for("clock"), OpenMode::Drawer);
+
+        let floaty: Config =
+            toml::from_str("[modules.clock]\nopen = \"float\"\n[drawer]\nwidth = 400\n").unwrap();
+        assert_eq!(floaty.open_mode_for("clock"), OpenMode::Float);
+        assert_eq!(floaty.drawer.width, 400.0);
+    }
+
+    #[test]
+    fn osd_position_parses_edge_and_align() {
+        let cfg: Config =
+            toml::from_str("[osd]\nedge = \"bottom\"\nalign = \"end\"\ntimeout_ms = 0\n").unwrap();
+        assert_eq!(cfg.osd.edge, Edge::Bottom);
+        assert_eq!(cfg.osd.align, Align::End);
+        assert_eq!(cfg.osd.timeout_ms, 0, "0 ms = no auto-dismiss");
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.osd.edge, Edge::Top);
+        assert_eq!(d.osd.align, Align::Center);
+        assert_eq!(d.osd.timeout_ms, 1200);
+    }
+
+    #[test]
     fn partial_override_takes_precedence_field_by_field() {
-        // top overrides mode+gap; spacing/radius fall back to the global.
         let toml = r#"
 [shape]
 mode = "bar"
@@ -542,7 +656,6 @@ center = ["clock"]
         .unwrap();
         assert_eq!(cfg.variant_for("battery"), Variant::Filled);
         assert_eq!(cfg.accent_name_for("battery"), "orange");
-        // A module with no override is Default and falls back to the global theme accent.
         assert_eq!(cfg.variant_for("clock"), Variant::Default);
         assert_eq!(cfg.accent_name_for("clock"), "cyan");
     }

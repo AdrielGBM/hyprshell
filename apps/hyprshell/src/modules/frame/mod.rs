@@ -7,8 +7,8 @@ use rsx::{
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Config, Edge};
-use crate::core::shape_path::{InnerEdges, frame_path};
-use crate::core::theme::NordTheme;
+use crate::shared::geometry::{InnerEdges, frame_path};
+use crate::shared::theme::NordTheme;
 
 /// Per-output frame: full-screen transparent surface drawing a continuous even-odd ring around content.
 pub struct FrameApp {

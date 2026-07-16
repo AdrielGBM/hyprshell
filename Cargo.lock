@@ -3384,6 +3384,7 @@ dependencies = [
  "geometry-core",
  "layout-core",
  "layout-reactive",
+ "motion-core",
  "platform-core",
  "reactive-core",
  "renderer-assets",

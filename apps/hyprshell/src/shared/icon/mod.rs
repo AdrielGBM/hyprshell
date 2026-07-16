@@ -4,10 +4,7 @@ use std::sync::Arc;
 
 use rsx::SvgData;
 
-/// Lucide icons are stroke-based line art drawn on a 24×24 canvas with `fill="none"` and
-/// `stroke="currentColor"`; the `svg tint:` attribute recolors the stroke at render time. This module
-/// embeds a starter set as raw path bodies — the eventual on-demand CDN cache (features §11) will plug in
-/// behind this same `icon(name)` seam, so modules never learn where the glyph came from.
+/// Lucide icons are 24×24 stroke line art (`stroke="currentColor"`) so `svg tint:` can recolor them at render time; embedded here as raw path bodies behind the `icon(name)` seam an eventual CDN cache can plug into unchanged.
 const STROKE_WIDTH: f32 = 2.0;
 
 /// (name, inner SVG body). Bodies are the exact Lucide 24×24 path data, sans the outer `<svg>` frame.
@@ -60,8 +57,7 @@ thread_local! {
     static CACHE: RefCell<HashMap<&'static str, Arc<SvgData>>> = RefCell::new(HashMap::new());
 }
 
-/// Resolves a Lucide icon by name to shared vector data, parsed once per surface thread. An unknown name
-/// falls back to a hollow placeholder box so a typo renders visibly rather than panicking.
+/// Resolves a Lucide icon by name to shared vector data, parsed once per surface thread; an unknown name falls back to a hollow placeholder box so a typo renders visibly rather than panicking.
 pub fn icon(name: &str) -> Arc<SvgData> {
     let entry = ICONS.iter().find(|(n, _)| *n == name);
     let key = entry.map(|(n, _)| *n).unwrap_or("__placeholder");

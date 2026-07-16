@@ -23,7 +23,6 @@ pub fn read() -> Option<Volume> {
     })
 }
 
-/// Toggles mute on the default sink.
 pub fn toggle_mute() {
     let _ = Command::new("wpctl")
         .args(["set-mute", SINK, "toggle"])

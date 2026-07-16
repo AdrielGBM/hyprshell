@@ -11,8 +11,7 @@ fn first_backlight_dir() -> Option<PathBuf> {
         .find(|p| p.join("brightness").exists() && p.join("max_brightness").exists())
 }
 
-/// The first backlight's brightness as a 0–100 percentage, or `None` when there is no backlight (a
-/// desktop) or sysfs is unreadable.
+/// The first backlight's brightness as a 0–100 percentage, or `None` when there is no backlight (a desktop) or sysfs is unreadable.
 pub fn read() -> Option<i32> {
     let dir = first_backlight_dir()?;
     let read_int = |name: &str| -> Option<i64> {

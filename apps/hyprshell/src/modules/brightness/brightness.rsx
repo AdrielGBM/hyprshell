@@ -1,8 +1,8 @@
 [logic]
 use std::time::Duration;
 
-use crate::core::icon::icon;
-use crate::shared::brightness;
+use crate::shared::icon::icon;
+use crate::shared::services::brightness;
 
 // A dimmer sun below 40%, a full sun above — so the single glyph still reads the level at a glance.
 fn bright_glyph(level: i32) -> &'static str {

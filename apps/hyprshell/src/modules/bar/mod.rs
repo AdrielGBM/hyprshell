@@ -3,11 +3,11 @@ use rsx::{
     SizeDimension, StyledContainer,
 };
 
-use crate::core::config::{Config, Edge, ResolvedShape, Shape};
-use crate::core::module::{
+use crate::core::config::{Config, Edge, OpenMode, ResolvedShape, Shape};
+use crate::shared::module::{
     ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell, set_module_fg,
 };
-use crate::core::theme::NordTheme;
+use crate::shared::theme::NordTheme;
 
 /// Builds the content tree for the bar, branching on its resolved `mode` (bar/sections/chips); visual properties come from gap/spacing/radius, not mode.
 pub fn build_bar(
@@ -71,9 +71,7 @@ fn build_whole_bar(
     let spacing = shape.spacing as f32;
     let mut slots = Vec::with_capacity(3);
     for (ids, justify) in zones {
-        // Modules blend into the shared bar surface (transparent rest); their shell just adds the hover
-        // highlight and a small corner radius. STRETCH so every chip is the bar's height — text pills and
-        // square icon chips line up (same as sections/chips modes).
+        // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up.
         let items = build_items(config, ids, registry, ctx, Color::TRANSPARENT, 6.0)?;
         slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
     }
@@ -103,8 +101,7 @@ fn build_units(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let Chrome { edge, shape, theme } = *chrome;
     let spacing = shape.spacing as f32;
-    // Section: modules blend into a shared per-zone surface panel (transparent rest, wrapped in a `unit`).
-    // Chip: each module IS its own free-standing surface pill — its shell provides the background, no `unit`.
+    // Section: modules share a per-zone surface panel (wrapped in `unit`); Chip: each module is its own free-standing pill, no `unit`.
     let (rest, shell_radius) = match granularity {
         Granularity::Section => (Color::TRANSPARENT, 6.0),
         Granularity::Chip => (theme.surface, shape.chip_radius() as f32),
@@ -137,9 +134,7 @@ fn build_units(
     Ok(Box::new(Container::new(style, slots)?))
 }
 
-/// A shared surface panel behind a zone's modules (sections mode). Its chips STRETCH to fill it (no inner
-/// padding) so a filled chip reaches the panel's edges — otherwise the surface shows as a thin sliver beside
-/// it. The panel groups the zone; the modules provide their own chip.
+/// Shared surface panel behind a zone's modules (sections mode); children STRETCH with no inner padding so a filled chip reaches the panel edges instead of leaving a thin sliver.
 fn unit(
     edge: Edge,
     radius: f32,
@@ -187,9 +182,7 @@ fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
     }
 }
 
-/// Builds each module's content and wraps it in its base container (§3), resolving the per-module variant
-/// and accent from config. `rest` is the container's resting background and `radius` its corner radius,
-/// both chosen by the caller for the bar mode. A self-managed module (workspaces) is placed bare.
+/// Builds each module's content, wraps it in its base container with the per-module variant/accent from config; a self-managed module (workspaces) is placed bare.
 fn build_items(
     config: &Config,
     ids: &[String],
@@ -218,9 +211,12 @@ fn build_items(
             continue;
         }
         let on_press: Option<Box<dyn Fn()>> = match def.and_then(|d| d.click) {
-            Some(ModuleClick::Drawer) => {
+            Some(ModuleClick::Panel) => {
                 let id = id.clone();
-                Some(Box::new(move || crate::toggle_drawer(&id)))
+                match config.open_mode_for(&id) {
+                    OpenMode::Drawer => Some(Box::new(move || crate::toggle_drawer(&id))),
+                    OpenMode::Float => Some(Box::new(move || crate::toggle_float(&id))),
+                }
             }
             Some(ModuleClick::Action(action)) => Some(Box::new(action)),
             None => None,
@@ -236,7 +232,7 @@ fn build_items(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::module::ModuleDef;
+    use crate::shared::module::ModuleDef;
     use rsx::reset_layout_runtime;
 
     fn dummy(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -306,5 +302,73 @@ mod tests {
                 "vertical {mode} builds"
             );
         }
+    }
+
+    use crate::core::app::BarApp;
+    use crate::test_support::render_png;
+    use std::sync::Arc;
+
+    const DEMO: &str = r#"
+[shape]
+mode = "chips"
+gap = 8
+spacing = 8
+radius = 12
+
+[bars.top]
+size = 40
+start = ["workspaces"]
+center = ["clock"]
+end = ["clock"]
+"#;
+
+    fn edge_from_env() -> Edge {
+        match std::env::var("HYPRSHELL_VISUAL_EDGE").as_deref() {
+            Ok("bottom") => Edge::Bottom,
+            Ok("left") => Edge::Left,
+            Ok("right") => Edge::Right,
+            _ => Edge::Top,
+        }
+    }
+
+    fn size_for(edge: Edge, config: &Config) -> (u32, u32) {
+        if let Ok(s) = std::env::var("HYPRSHELL_VISUAL_SIZE") {
+            if let Some((w, h)) = s.split_once('x') {
+                if let (Ok(w), Ok(h)) = (w.parse(), h.parse()) {
+                    return (w, h);
+                }
+            }
+        }
+        let thickness = config.bars.get(edge).size;
+        if edge.is_horizontal() {
+            (1280, thickness)
+        } else {
+            (thickness, 800)
+        }
+    }
+
+    /// Renders a bar surface for eyeballing. Env: `HYPRSHELL_VISUAL_CONFIG` (a config.toml, else a demo), `HYPRSHELL_VISUAL_EDGE` (top|bottom|left|right), `HYPRSHELL_VISUAL_SIZE` (WxH). Gated on `RSX_VISUAL_OUT`.
+    #[test]
+    fn visual_bar_png() {
+        let Ok(out) = std::env::var("RSX_VISUAL_OUT") else {
+            eprintln!("set RSX_VISUAL_OUT to write a PNG; skipping");
+            return;
+        };
+        let toml = std::env::var("HYPRSHELL_VISUAL_CONFIG")
+            .ok()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .unwrap_or_else(|| DEMO.to_string());
+        let config: Config = toml::from_str(&toml).expect("config parses");
+        let edge = edge_from_env();
+        let (w, h) = size_for(edge, &config);
+        render_png(
+            BarApp {
+                config: Arc::new(config),
+                edge,
+            },
+            w,
+            h,
+            &out,
+        );
     }
 }

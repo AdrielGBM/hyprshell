@@ -1,6 +1,6 @@
 [logic]
-use crate::shared::hyprland::{self, Snapshot};
-use crate::core::theme::NordTheme;
+use crate::shared::services::hyprland::{self, Snapshot};
+use crate::shared::theme::NordTheme;
 
 enum ChipState {
     Active,

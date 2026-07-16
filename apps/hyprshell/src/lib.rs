@@ -1,20 +1,75 @@
-rsx::rsx_modules!(crate::core::theme::NordTheme);
+rsx::rsx_modules!(crate::shared::theme::NordTheme);
+
+/// Renders a hyprshell `App` headless and writes a PNG for eyeballing; inlined here (not a `src/*.rs` file) so the auto-module scan doesn't pull its dev-only deps (`platform-headless`, `image`) into non-test builds.
+#[cfg(test)]
+mod test_support {
+    use std::sync::{Arc, Mutex};
+
+    use platform_headless::{FrameSink, HeadlessPlatform};
+    use rsx::{App, AppConfig, AppPathsProvider, run_with_platform};
+
+    pub(crate) struct NullPaths;
+
+    impl AppPathsProvider for NullPaths {
+        fn config_dir(&self) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn data_dir(&self) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn cache_dir(&self) -> Option<std::path::PathBuf> {
+            None
+        }
+    }
+
+    pub(crate) fn render_png<A: App + 'static>(app: A, w: u32, h: u32, out: &str) {
+        render_png_frames(app, w, h, out, 2);
+    }
+
+    /// Drives `frames` renders before capturing; the headless platform paces at a real 60fps, so ~13 frames covers a 200ms enter animation settling.
+    pub(crate) fn render_png_frames<A: App + 'static>(
+        app: A,
+        w: u32,
+        h: u32,
+        out: &str,
+        frames: u32,
+    ) {
+        let sink: FrameSink = Arc::new(Mutex::new(None));
+        let platform = HeadlessPlatform::new(w, h)
+            .with_frames(frames)
+            .capture_into(sink.clone());
+        run_with_platform::<_, _, ()>(
+            platform,
+            AppConfig::default(),
+            Box::new(NullPaths) as Box<dyn AppPathsProvider>,
+            app,
+            "hyprshell-visual",
+        )
+        .expect("headless run failed");
+        let pixels = sink.lock().unwrap().take().expect("no frame captured");
+        let img = image::RgbaImage::from_raw(w, h, pixels).expect("rgba length matches w*h*4");
+        img.save(out).expect("write PNG");
+        eprintln!("wrote {out} ({w}x{h})");
+    }
+}
 
 pub use crate::core::app::BarApp;
-pub use crate::core::bar::build_bar;
 pub use crate::core::config::{
-    BarConfig, BarsConfig, Config, Corner, Edge, ModuleOverride, ThemeConfig, Variant,
+    BarConfig, BarsConfig, Config, Corner, DrawerConfig, Edge, ModuleOverride, OpenMode,
+    ThemeConfig, Variant,
 };
-pub use crate::core::drawer::{DrawerApp, toggle_drawer};
-pub use crate::core::frame::FrameApp;
-pub use crate::core::icon::icon;
-pub use crate::core::module::{
+pub use crate::modules::bar::build_bar;
+pub use crate::modules::drawer::toggle_drawer;
+pub use crate::modules::float::toggle_float;
+pub use crate::modules::frame::FrameApp;
+pub use crate::modules::osd::OsdKind;
+pub use crate::shared::icon::icon;
+pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
     bar_thickness, default_registry, icon_px, module_fg, module_foreground, module_shell,
     set_module_fg, set_surface_env, surface_env,
 };
-pub use crate::core::osd::{OsdApp, OsdKind};
-pub use crate::core::theme::NordTheme;
+pub use crate::shared::theme::NordTheme;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -48,7 +103,6 @@ impl AppPathsProvider for NullPaths {
     }
 }
 
-/// A bar's effective gap on its own edge: 0 when it hugs (frame, or gap == 0), else its resolved shape gap.
 fn edge_gap(config: &Config, edge: Edge) -> i32 {
     if config.hugs(edge) {
         0
@@ -57,9 +111,7 @@ fn edge_gap(config: &Config, edge: Edge) -> i32 {
     }
 }
 
-/// How far a vertical bar insets from a perpendicular edge (`perp` = top/bottom): past that bar's footprint —
-/// its OWN gap plus thickness — so they meet flush; or the vertical bar's own gap when that edge has no bar.
-/// Using the perpendicular bar's gap (not the vertical bar's) is what stops a gapped top bar overlapping a hugging side bar.
+/// Insets past the perpendicular bar's own gap+thickness (not the vertical bar's gap) so a floating perpendicular bar can't overlap a hugging vertical one.
 fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
     if config.edge_present(perp) {
         edge_gap(config, perp) + config.edge_thickness(perp) as i32
@@ -343,7 +395,6 @@ mod tests {
 
     #[test]
     fn vertical_bar_ends_inset_by_adjacent_bar_thickness() {
-        // A left bar flanked by top+bottom bars insets at each end to keep the corner cells clear.
         let cfg = config(
             "[bars.top]\nsize=30\ncenter=[\"clock\"]\n\
              [bars.bottom]\nsize=40\nstart=[\"clock\"]\n\
