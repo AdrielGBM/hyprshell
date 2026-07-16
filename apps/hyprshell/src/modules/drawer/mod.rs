@@ -33,6 +33,7 @@ fn align_for(zone: Option<Zone>) -> SurfaceAlign {
 pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutError> {
     match module {
         "clock" => crate::clock_panel(),
+        "notifications" => crate::modules::notifications::bell_panel(),
         other => {
             tracing::warn!("no panel registered for module '{other}'");
             crate::clock_panel()

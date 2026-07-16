@@ -29,6 +29,12 @@ struct ActiveJson {
     id: i32,
 }
 
+#[derive(Deserialize)]
+struct MonitorJson {
+    name: String,
+    focused: bool,
+}
+
 /// The per-instance Hyprland socket directory, or `None` when not running under Hyprland. Hyprland ≥ 0.40 puts it under `$XDG_RUNTIME_DIR/hypr/$SIG`; older versions used `/tmp/hypr/$SIG`.
 pub fn socket_dir() -> Option<PathBuf> {
     let sig = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
@@ -48,6 +54,23 @@ fn request(dir: &Path, command: &str) -> std::io::Result<String> {
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
     Ok(response)
+}
+
+/// The name of the currently focused monitor, or `None` if Hyprland can't be queried.
+pub fn focused_monitor(dir: &Path) -> Option<String> {
+    let raw = request(dir, "j/monitors").ok()?;
+    serde_json::from_str::<Vec<MonitorJson>>(&raw)
+        .ok()?
+        .into_iter()
+        .find(|m| m.focused)
+        .map(|m| m.name)
+}
+
+/// The monitor name carried by a `focusedmon>>NAME,WORKSPACE` event line, if that's what it is.
+pub fn monitor_from_focus_event(line: &str) -> Option<String> {
+    line.strip_prefix("focusedmon>>")
+        .and_then(|rest| rest.split(',').next())
+        .map(str::to_string)
 }
 
 pub fn focus_workspace(dir: &Path, id: i32) {

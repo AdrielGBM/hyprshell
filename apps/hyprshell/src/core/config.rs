@@ -262,6 +262,33 @@ impl Default for IconsConfig {
     }
 }
 
+/// Notification popups: where the stack anchors (defaults to top-right), how many show at once before the rest queue, the per-popup auto-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct NotificationsConfig {
+    pub edge: Edge,
+    pub align: Align,
+    pub max_visible: u32,
+    pub timeout_ms: u64,
+    pub critical_sticky: bool,
+    pub width: f32,
+    pub gap: f32,
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            edge: Edge::Top,
+            align: Align::End,
+            max_visible: 4,
+            timeout_ms: 5000,
+            critical_sticky: true,
+            width: 380.0,
+            gap: 10.0,
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
@@ -272,6 +299,7 @@ pub struct Config {
     pub drawer: DrawerConfig,
     pub osd: OsdConfig,
     pub icons: IconsConfig,
+    pub notifications: NotificationsConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -360,6 +388,7 @@ impl Config {
             drawer: DrawerConfig::default(),
             osd: OsdConfig::default(),
             icons: IconsConfig::default(),
+            notifications: NotificationsConfig::default(),
             modules: HashMap::new(),
         }
     }
@@ -573,6 +602,24 @@ end = ["battery", "volume"]
             toml::from_str("[modules.clock]\nopen = \"float\"\n[drawer]\nwidth = 400\n").unwrap();
         assert_eq!(floaty.open_mode_for("clock"), OpenMode::Float);
         assert_eq!(floaty.drawer.width, 400.0);
+    }
+
+    #[test]
+    fn notifications_defaults_to_top_right_with_sensible_limits() {
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.notifications.edge, Edge::Top);
+        assert_eq!(d.notifications.align, Align::End, "align=end is the right side");
+        assert_eq!(d.notifications.max_visible, 4);
+        assert_eq!(d.notifications.timeout_ms, 5000);
+        assert!(d.notifications.critical_sticky);
+
+        let cfg: Config =
+            toml::from_str("[notifications]\nmax_visible = 2\ntimeout_ms = 0\nedge = \"bottom\"\n")
+                .unwrap();
+        assert_eq!(cfg.notifications.max_visible, 2);
+        assert_eq!(cfg.notifications.timeout_ms, 0, "0 ms = sticky popups");
+        assert_eq!(cfg.notifications.edge, Edge::Bottom);
+        assert!(cfg.notifications.critical_sticky, "unset fields keep defaults");
     }
 
     #[test]

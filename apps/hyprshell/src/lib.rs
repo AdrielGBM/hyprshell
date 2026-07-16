@@ -210,6 +210,13 @@ fn frame_layer_config(output: Option<String>) -> LayerConfig {
 
 pub fn run() {
     let config_path = Config::default_path();
+    // Start the notification daemon and its popup surface once, before the reload loop, so they survive bar config reloads (§8 "persists across reloads").
+    let initial = Arc::new(Config::load_or_default(&config_path));
+    crate::shared::services::notifications::init(
+        Duration::from_millis(initial.notifications.timeout_ms),
+        initial.notifications.critical_sticky,
+    );
+    crate::modules::notifications::spawn_popup_host(Arc::clone(&initial));
     let reload = Arc::new(AtomicBool::new(false));
     spawn_config_watcher(config_path.clone(), Arc::clone(&reload));
 

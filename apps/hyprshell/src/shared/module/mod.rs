@@ -263,5 +263,9 @@ pub fn default_registry() -> ModuleRegistry {
             .icon()
             .on_click(crate::modules::osd::brightness_action),
     );
+    registry.register(
+        "notifications",
+        ModuleDef::new(|_ctx| crate::modules::notifications::bell_module()).opens(),
+    );
     registry
 }
