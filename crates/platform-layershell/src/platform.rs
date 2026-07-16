@@ -7,9 +7,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rsx::{
-    App, AppConfig, AppPathsProvider, Event, EventHandler, Key, ModifiersState,
+    App, AppConfig, AppPathsProvider, Color, Component, Event, EventHandler, Key, ModifiersState,
     MultiSurfacePlatform, Platform, PlatformError, PointerButton, PointerSource, ScrollDelta,
-    SurfaceId, WindowConfig, run_with_platform,
+    SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
+    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig,
+    reset_layout_runtime, run_with_platform, set_surface_host,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -38,7 +40,7 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
 
-use crate::config::{LayerConfig, OutputDescriptor};
+use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
 use crate::window::LayerWindow;
 
 thread_local! {
@@ -285,6 +287,7 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     }
 
     LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
+    set_surface_host(Box::new(LayerShellSurfaceHost));
 
     if let Some(close) = close {
         SURFACE_CLOSE.with(|c| *c.borrow_mut() = Some(Arc::clone(&close)));
@@ -371,7 +374,6 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     );
     state.window = Some(window.clone());
 
-    // Wait for the first configure so the surface has a real size before rsx builds its renderer.
     while !state.configured {
         if event_loop.dispatch(None, &mut state).is_err() {
             return;
@@ -546,12 +548,145 @@ pub fn open_surface<A: App + Send + 'static>(spec: LayerConfig, app: A) -> Surfa
     SurfaceHandle { close }
 }
 
+impl SurfaceControl for SurfaceHandle {
+    fn close(&self) {
+        SurfaceHandle::close(self);
+    }
+    fn is_closing(&self) -> bool {
+        SurfaceHandle::is_closing(self)
+    }
+}
+
+/// Maps rsx's backend-agnostic [`SurfaceAnchor`] to layer-shell edge flags. `Center` anchors to no edge, so
+/// the compositor centres the surface.
+fn anchor_flags(anchor: SurfaceAnchor) -> Anchor {
+    match anchor {
+        SurfaceAnchor::Top => Anchor::TOP,
+        SurfaceAnchor::Bottom => Anchor::BOTTOM,
+        SurfaceAnchor::Left => Anchor::LEFT,
+        SurfaceAnchor::Right => Anchor::RIGHT,
+        SurfaceAnchor::Center => Anchor::empty(),
+    }
+}
+
+/// Derives the layer-shell surface config from a [`SurfacePlacement`]. A placement needing a scaffold
+/// (scrim or outside-dismiss) becomes a full-screen surface the `SurfaceScaffold` positions its panel
+/// within; a directly-anchored one is sized and anchored by the compositor.
+fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
+    let namespace = match placement.role {
+        SurfaceRole::Drawer => "hyprshell-drawer",
+        SurfaceRole::Popup => "hyprshell-popup",
+        SurfaceRole::Osd => "hyprshell-osd",
+        SurfaceRole::Float => "hyprshell-float",
+    }
+    .to_string();
+    if placement.needs_scaffold() {
+        LayerConfig {
+            output: placement.output.clone(),
+            layer: Layer::Overlay,
+            anchor: Anchor::TOP
+                .union(Anchor::BOTTOM)
+                .union(Anchor::LEFT)
+                .union(Anchor::RIGHT),
+            exclusive_zone: 0,
+            size: (0, 0),
+            margin: (0, 0, 0, 0),
+            keyboard_interactivity: KeyboardInteractivity::None,
+            namespace,
+            reserve_only: false,
+            input_transparent: false,
+        }
+    } else {
+        let size = match placement.size {
+            SurfaceSize::Fixed(w, h) => (w, h),
+            SurfaceSize::Auto => (0, 0),
+        };
+        LayerConfig {
+            output: placement.output.clone(),
+            layer: Layer::Overlay,
+            anchor: anchor_flags(placement.anchor),
+            exclusive_zone: 0,
+            size,
+            margin: placement.margin,
+            keyboard_interactivity: KeyboardInteractivity::None,
+            namespace,
+            reserve_only: false,
+            input_transparent: placement.input_transparent,
+        }
+    }
+}
+
+/// The internal rsx app for a hosted secondary surface: builds the content on its own thread, wraps it in
+/// the placement's scaffold (scrim + outside-dismiss) or a plain full-surface root, and arms an auto-dismiss
+/// timer when the placement asks for one.
+struct HostedSurfaceApp {
+    placement: SurfacePlacement,
+    content: RefCell<Option<SurfaceContent>>,
+}
+
+impl App for HostedSurfaceApp {
+    fn root(&self) -> Box<dyn Component> {
+        reset_layout_runtime();
+        let content = self
+            .content
+            .borrow_mut()
+            .take()
+            .expect("hosted surface content factory taken twice")();
+        if let Some(delay) = self.placement.timeout {
+            timeout(delay, request_close);
+        }
+        if self.placement.needs_scaffold() {
+            let dismiss: Option<std::rc::Rc<dyn Fn()>> = self
+                .placement
+                .dismiss_on_outside
+                .then(|| std::rc::Rc::new(request_close) as std::rc::Rc<dyn Fn()>);
+            Box::new(
+                SurfaceScaffold::new(&self.placement, content, dismiss)
+                    .expect("surface scaffold build failed")
+                    .animate_in(),
+            )
+        } else {
+            Box::new(
+                SurfaceRoot::new(content)
+                    .expect("surface root build failed")
+                    .animate_in(),
+            )
+        }
+    }
+
+    fn window_config(&self) -> Option<WindowConfig> {
+        // The scaffold paints its own scrim; the surface itself stays transparent so the compositor blends it.
+        Some(WindowConfig {
+            is_transparent: true,
+            ..WindowConfig::default()
+        })
+    }
+
+    fn clear_color(&self) -> Option<Color> {
+        None
+    }
+}
+
+/// Installs on every surface thread so its rsx world can open drawers/OSDs/popups via `rsx::open_surface`.
+struct LayerShellSurfaceHost;
+
+impl SurfaceHost for LayerShellSurfaceHost {
+    fn open(&self, placement: SurfacePlacement, content: SurfaceContent) -> SurfaceToken {
+        let config = layer_config_for(&placement);
+        let app = HostedSurfaceApp {
+            placement,
+            content: RefCell::new(Some(content)),
+        };
+        SurfaceToken::new(Box::new(open_surface(config, app)))
+    }
+}
+
 fn map_button(code: u32) -> Option<PointerButton> {
-    // linux/input-event-codes.h
+    // Codes from linux/input-event-codes.h — not immediately obvious why these specific hex values.
     match code {
-        0x110 => Some(PointerButton::Primary),   // BTN_LEFT
-        0x111 => Some(PointerButton::Secondary), // BTN_RIGHT
-        0x112 => Some(PointerButton::Auxiliary), // BTN_MIDDLE
+        0x110 => Some(PointerButton::Primary),
+        0x111 => Some(PointerButton::Secondary),
+        0x112 => Some(PointerButton::Auxiliary),
         _ => None,
     }
 }
