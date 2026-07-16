@@ -1,7 +1,6 @@
 [logic]
 use std::time::Duration;
 
-use crate::shared::icon::icon;
 use crate::shared::services::volume;
 
 fn vol_glyph(muted: bool, level: i32) -> &'static str {
@@ -29,6 +28,7 @@ platform_layershell::interval(Duration::from_secs(3), move || {
 });
 
 let glyph = memo(move || vol_glyph(muted_glyph.get(), level_glyph.get()));
+let icon = crate::icon_view(move || glyph.get().to_string(), move || fg.get(), icon_px())?;
 
 [view]
-svg src:icon($glyph) tint:$fg width:icon_px() height:icon_px()
+widget "icon"

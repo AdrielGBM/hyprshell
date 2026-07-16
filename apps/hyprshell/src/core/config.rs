@@ -245,6 +245,23 @@ impl Default for OsdConfig {
     }
 }
 
+/// Where bar icons come from: an Iconify-compatible HTTP endpoint (`{provider}/{set}/{name}.svg`) and the default set applied to a bare icon name. A name may override the set inline as `set:name` (e.g. `mdi:home`), so multiple icon sets work through one endpoint. `provider` is configurable because Iconify is self-hostable/mirrorable.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct IconsConfig {
+    pub provider: String,
+    pub default_set: String,
+}
+
+impl Default for IconsConfig {
+    fn default() -> Self {
+        Self {
+            provider: "https://api.iconify.design".to_string(),
+            default_set: "lucide".to_string(),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
@@ -254,6 +271,7 @@ pub struct Config {
     pub corners: CornersConfig,
     pub drawer: DrawerConfig,
     pub osd: OsdConfig,
+    pub icons: IconsConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -341,6 +359,7 @@ impl Config {
             corners: CornersConfig::default(),
             drawer: DrawerConfig::default(),
             osd: OsdConfig::default(),
+            icons: IconsConfig::default(),
             modules: HashMap::new(),
         }
     }

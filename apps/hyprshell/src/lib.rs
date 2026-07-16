@@ -63,7 +63,7 @@ pub use crate::modules::drawer::toggle_drawer;
 pub use crate::modules::float::toggle_float;
 pub use crate::modules::frame::FrameApp;
 pub use crate::modules::osd::OsdKind;
-pub use crate::shared::icon::icon;
+pub use crate::shared::icon::icon_view;
 pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
     bar_thickness, default_registry, icon_px, module_fg, module_foreground, module_shell,

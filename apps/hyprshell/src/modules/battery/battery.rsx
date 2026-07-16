@@ -1,5 +1,4 @@
 [logic]
-use crate::shared::icon::icon;
 use crate::shared::theme::NordTheme;
 use crate::shared::services::battery;
 
@@ -21,7 +20,7 @@ let charging = signal(init.map(|b| b.charging).unwrap_or(false));
 let level_tint = level.read_only();
 let charging_glyph = charging.read_only();
 let fg = crate::module_fg();
-// Subscribe to UPower change events (sub-second on plug/unplug), no-op headless where the seed stands.
+// Subscribe to UPower change events (sub-second on plug/unplug), no-op headless.
 platform_layershell::watch(
     move |tx| battery::stream(tx),
     move |b| {
@@ -29,8 +28,13 @@ platform_layershell::watch(
         charging.set(b.charging);
     },
 );
-// The glyph name is reactive; `svg src:icon($glyph)` re-resolves it so the icon swaps battery ↔ charging.
+// The glyph name is reactive; the icon re-resolves so it swaps battery ↔ charging.
 let glyph = memo(move || if charging_glyph.get() { "battery-charging" } else { "battery" });
+let icon = crate::icon_view(
+    move || glyph.get().to_string(),
+    move || level_color(level_tint.get(), fg.get()),
+    icon_px(),
+)?;
 
 [view]
-svg src:icon($glyph) tint:level_color($level_tint, $fg) width:icon_px() height:icon_px()
+widget "icon"

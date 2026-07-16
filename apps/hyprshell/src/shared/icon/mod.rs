@@ -1,79 +1,241 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::Duration;
 
-use rsx::SvgData;
+use platform_layershell::{EventSender, timeout, watch};
+use rsx::{
+    AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
+    ReadSignal, RwSignal, SpinnerProps, Svg, SvgData, signal, spinner,
+};
 
-/// Lucide icons are 24×24 stroke line art (`stroke="currentColor"`) so `svg tint:` can recolor them at render time; embedded here as raw path bodies behind the `icon(name)` seam an eventual CDN cache can plug into unchanged.
-const STROKE_WIDTH: f32 = 2.0;
+use crate::shared::module::surface_env;
 
-/// (name, inner SVG body). Bodies are the exact Lucide 24×24 path data, sans the outer `<svg>` frame.
-const ICONS: &[(&str, &str)] = &[
-    (
-        "bell",
-        r#"<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>"#,
-    ),
-    (
-        "battery",
-        r#"<rect width="16" height="10" x="2" y="7" rx="2" ry="2"/><line x1="22" x2="22" y1="11" y2="13"/>"#,
-    ),
-    (
-        "battery-charging",
-        r#"<path d="M15 7h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2"/><path d="M6 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1"/><path d="m11 7-3 5h4l-3 5"/><line x1="22" x2="22" y1="11" y2="13"/>"#,
-    ),
-    (
-        "volume-2",
-        r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>"#,
-    ),
-    (
-        "volume-1",
-        r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/>"#,
-    ),
-    (
-        "volume-x",
-        r#"<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/>"#,
-    ),
-    (
-        "wifi",
-        r#"<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/>"#,
-    ),
-    (
-        "sun",
-        r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>"#,
-    ),
-    (
-        "sun-dim",
-        r#"<circle cx="12" cy="12" r="4"/><path d="M12 4h.01"/><path d="M20 12h.01"/><path d="M12 20h.01"/><path d="M4 12h.01"/><path d="M17.657 6.343h.01"/><path d="M17.657 17.657h.01"/><path d="M6.343 17.657h.01"/><path d="M6.343 6.343h.01"/>"#,
-    ),
-];
+/// A transient download failure (the shell often starts before the network is up at login) keeps the icon on its spinner and re-tries a bounded number of times, so icons self-heal once connectivity arrives without hammering the endpoint over a genuine 404.
+const MAX_ATTEMPTS: u32 = 8;
+const RETRY_DELAY: Duration = Duration::from_secs(4);
 
-fn frame(body: &str) -> String {
-    format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="{STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round">{body}</svg>"#
-    )
+/// A network icon addressed as `set/name` (Iconify layout). A bare name takes the configured default set; `set:name` overrides it inline, so many sets flow through one endpoint.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+struct IconId {
+    set: String,
+    name: String,
+}
+
+impl IconId {
+    fn parse(raw: &str, default_set: &str) -> Self {
+        match raw.split_once(':') {
+            Some((set, name)) if !set.is_empty() && !name.is_empty() => Self {
+                set: set.to_string(),
+                name: name.to_string(),
+            },
+            _ => Self {
+                set: default_set.to_string(),
+                name: raw.to_string(),
+            },
+        }
+    }
+
+    fn cache_path(&self, root: &Path) -> PathBuf {
+        root.join(&self.set).join(format!("{}.svg", self.name))
+    }
+
+    fn url(&self, provider: &str) -> String {
+        format!(
+            "{}/{}/{}.svg",
+            provider.trim_end_matches('/'),
+            self.set,
+            self.name
+        )
+    }
+}
+
+/// What the download worker needs; owned on its own thread, so it holds only `Send` data (no signals).
+#[derive(Clone)]
+struct FetchConfig {
+    provider: String,
+    cache_dir: PathBuf,
+}
+
+type IconResult = (IconId, Option<Arc<SvgData>>);
+
+/// The per-surface-thread reactive icon registry. Implements [`AssetSource`]: reading an icon returns a signal that starts `Loading` and advances to `Ready`/`Failed` as the download lands, re-rendering whoever read it. Transport lives in [`run_worker`]; this side only holds signals, tracks retries, and enqueues requests.
+struct IconStore {
+    signals: RefCell<HashMap<IconId, RwSignal<AssetState<Arc<SvgData>>>>>,
+    attempts: RefCell<HashMap<IconId, u32>>,
+    requests: Sender<IconId>,
+    default_set: String,
+}
+
+impl AssetSource for IconStore {
+    fn svg(&self, id: &str) -> ReadSignal<AssetState<Arc<SvgData>>> {
+        let icon_id = IconId::parse(id, &self.default_set);
+        let mut signals = self.signals.borrow_mut();
+        let handle = signals.entry(icon_id.clone()).or_insert_with(|| {
+            let _ = self.requests.send(icon_id.clone());
+            signal(AssetState::Loading)
+        });
+        handle.read_only()
+    }
 }
 
 thread_local! {
-    static CACHE: RefCell<HashMap<&'static str, Arc<SvgData>>> = RefCell::new(HashMap::new());
+    static STORE: RefCell<Option<IconStore>> = const { RefCell::new(None) };
 }
 
-/// Resolves a Lucide icon by name to shared vector data, parsed once per surface thread; an unknown name falls back to a hollow placeholder box so a typo renders visibly rather than panicking.
-pub fn icon(name: &str) -> Arc<SvgData> {
-    let entry = ICONS.iter().find(|(n, _)| *n == name);
-    let key = entry.map(|(n, _)| *n).unwrap_or("__placeholder");
-    CACHE.with(|c| {
-        if let Some(data) = c.borrow().get(key) {
-            return Arc::clone(data);
+/// A reactive icon widget: shows the self-animating [`spinner`] while the glyph downloads (nothing is hardcoded — the spinner is rsx's own indeterminate ring), then swaps to the tinted SVG once it lands. `name` and `tint` are reactive closures, so the icon re-resolves when either changes (e.g. battery ↔ charging). Drop this into a `.rsx` view with `widget`.
+pub fn icon_view(
+    name: impl Fn() -> String + 'static,
+    tint: impl Fn() -> Color + Clone + 'static,
+    size: f32,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let source = move || vec![icon_state(&name())];
+    let key = |state: &AssetState<Arc<SvgData>>| state.as_ready().map(|svg| svg.id());
+    let build = move |state: AssetState<Arc<SvgData>>| -> Result<Box<dyn LayoutItem>, LayoutError> {
+        match state {
+            AssetState::Ready(svg) => {
+                let tint = tint.clone();
+                let widget = Svg::new(
+                    LayoutStyle::new().width(size).height(size),
+                    move || svg.clone(),
+                    move || Some(tint()),
+                    || ObjectFit::Contain,
+                )?;
+                Ok(Box::new(widget))
+            }
+            _ => spinner(SpinnerProps {
+                color: Box::new(tint.clone()),
+                size,
+            }),
         }
-        let body = entry
-            .map(|(_, b)| *b)
-            .unwrap_or(r#"<rect width="16" height="16" x="4" y="4" rx="2"/>"#);
-        let data = SvgData::from_str(&frame(body))
-            .map(Arc::new)
-            .unwrap_or_else(|e| panic!("hyprshell: embedded Lucide icon `{name}` failed to parse: {e}"));
-        c.borrow_mut().insert(key, Arc::clone(&data));
-        data
+    };
+    Ok(Box::new(ReactiveList::new(source, key, build)?))
+}
+
+/// The current load state of `name`, subscribing the caller so it re-renders as the icon resolves. `name` is a bare glyph (`bell`) or a `set:name` for another Iconify set (`mdi:home`).
+fn icon_state(name: &str) -> AssetState<Arc<SvgData>> {
+    ensure_store();
+    STORE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .expect("ensure_store initializes the icon store")
+            .svg(name)
+            .get()
     })
+}
+
+fn ensure_store() {
+    if STORE.with(|s| s.borrow().is_some()) {
+        return;
+    }
+
+    let icons = surface_env()
+        .map(|env| env.config.icons.clone())
+        .unwrap_or_default();
+    let (requests, incoming) = channel::<IconId>();
+    STORE.with(|s| {
+        *s.borrow_mut() = Some(IconStore {
+            signals: RefCell::new(HashMap::new()),
+            attempts: RefCell::new(HashMap::new()),
+            requests,
+            default_set: icons.default_set.clone(),
+        });
+    });
+
+    let fetch = FetchConfig {
+        provider: icons.provider,
+        cache_dir: cache_dir(),
+    };
+    // When there is no layer-shell event loop (headless tests), `watch` is a no-op: no worker runs and every icon stays on its spinner, which is exactly what an offline render shows.
+    watch(
+        move |sender| run_worker(incoming, fetch, sender),
+        |(id, data)| deliver(id, data),
+    );
+}
+
+fn deliver(id: IconId, data: Option<Arc<SvgData>>) {
+    STORE.with(|s| {
+        let borrow = s.borrow();
+        let Some(store) = borrow.as_ref() else {
+            return;
+        };
+        match data {
+            Some(svg) => {
+                store.attempts.borrow_mut().remove(&id);
+                if let Some(handle) = store.signals.borrow().get(&id) {
+                    handle.set(AssetState::Ready(svg));
+                }
+            }
+            None => {
+                let attempts = {
+                    let mut map = store.attempts.borrow_mut();
+                    let count = map.entry(id.clone()).or_insert(0);
+                    *count += 1;
+                    *count
+                };
+                if attempts < MAX_ATTEMPTS {
+                    let requests = store.requests.clone();
+                    timeout(RETRY_DELAY, move || {
+                        let _ = requests.send(id);
+                    });
+                } else if let Some(handle) = store.signals.borrow().get(&id) {
+                    handle.set(AssetState::Failed);
+                }
+            }
+        }
+    });
+}
+
+/// Blocks on the request channel, resolving each icon from disk cache or the network and shipping the parsed `SvgData` back to the UI thread. Runs on a dedicated thread (via `watch`) and ends when the store — and thus the request sender — is dropped on surface teardown.
+fn run_worker(incoming: Receiver<IconId>, fetch: FetchConfig, sender: EventSender<IconResult>) {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(15)))
+        .build()
+        .into();
+    for id in incoming {
+        let data = load_icon(&id, &fetch, &agent);
+        if !sender.send((id, data)) {
+            break;
+        }
+    }
+}
+
+fn load_icon(id: &IconId, fetch: &FetchConfig, agent: &ureq::Agent) -> Option<Arc<SvgData>> {
+    let path = id.cache_path(&fetch.cache_dir);
+    if let Ok(cached) = fs::read_to_string(&path)
+        && let Ok(svg) = SvgData::from_str(&cached)
+    {
+        return Some(Arc::new(svg));
+    }
+
+    let body = agent
+        .get(&id.url(&fetch.provider))
+        .call()
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
+    if !body.contains("<svg") {
+        return None;
+    }
+    let svg = SvgData::from_str(&body).ok()?;
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, &body);
+    Some(Arc::new(svg))
+}
+
+fn cache_dir() -> PathBuf {
+    let base = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
+        .unwrap_or_else(|| PathBuf::from(".cache"));
+    base.join("hyprshell").join("icons")
 }
 
 #[cfg(test)]
@@ -81,15 +243,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_embedded_icon_parses() {
-        for (name, _) in ICONS {
-            // `icon` panics if the embedded SVG fails to parse, so resolving each name is the assertion.
-            let _ = icon(name);
-        }
+    fn name_parsing_splits_set_and_defaults() {
+        let bare = IconId::parse("bell", "lucide");
+        assert_eq!((bare.set.as_str(), bare.name.as_str()), ("lucide", "bell"));
+        let qualified = IconId::parse("mdi:home", "lucide");
+        assert_eq!(
+            (qualified.set.as_str(), qualified.name.as_str()),
+            ("mdi", "home")
+        );
+        let empty_set = IconId::parse(":oops", "lucide");
+        assert_eq!(empty_set.set, "lucide", "a leading colon is not a set override");
     }
 
     #[test]
-    fn unknown_icon_falls_back_without_panicking() {
-        let _ = icon("does-not-exist");
+    fn url_and_cache_path_follow_iconify_layout() {
+        let id = IconId::parse("mdi:home", "lucide");
+        assert_eq!(
+            id.url("https://api.iconify.design/"),
+            "https://api.iconify.design/mdi/home.svg",
+            "trailing slash on the provider does not double up"
+        );
+        let root = PathBuf::from("/cache");
+        assert_eq!(id.cache_path(&root), PathBuf::from("/cache/mdi/home.svg"));
+    }
+
+    #[test]
+    fn icon_state_is_loading_without_a_surface_or_network() {
+        assert!(
+            matches!(icon_state("bell"), AssetState::Loading),
+            "with no event loop the icon has nothing to resolve from, so it stays on its spinner"
+        );
     }
 }

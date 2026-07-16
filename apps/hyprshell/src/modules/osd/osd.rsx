@@ -1,5 +1,4 @@
 [logic]
-use crate::shared::icon::icon;
 use crate::modules::osd::{OsdKind, current_osd_kind};
 use crate::shared::theme::NordTheme;
 use crate::shared::services::{brightness, volume};
@@ -38,9 +37,10 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
     }
 };
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);
+let icon = crate::icon_view(move || glyph.to_string(), move || osd_tint(dimmed), 24.0)?;
 
 [view]
 box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100% height:100% fill:surface radius:16
-    svg src:icon(glyph) tint:osd_tint(dimmed) width:24 height:24
+    widget "icon"
     box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:3
         box width:fill_w height:TRACK_H fill:accent radius:3

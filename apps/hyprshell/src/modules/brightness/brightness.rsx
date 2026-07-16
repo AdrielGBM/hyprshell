@@ -1,7 +1,6 @@
 [logic]
 use std::time::Duration;
 
-use crate::shared::icon::icon;
 use crate::shared::services::brightness;
 
 // A dimmer sun below 40%, a full sun above — so the single glyph still reads the level at a glance.
@@ -19,6 +18,7 @@ platform_layershell::interval(Duration::from_secs(5), move || {
 });
 
 let glyph = memo(move || bright_glyph(level_glyph.get()));
+let icon = crate::icon_view(move || glyph.get().to_string(), move || fg.get(), icon_px())?;
 
 [view]
-svg src:icon($glyph) tint:$fg width:icon_px() height:icon_px()
+widget "icon"
