@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 use rsx::{
-    Color, LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize,
+    LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize,
     SurfaceToken, open_surface, set_theme,
 };
 
@@ -11,7 +11,6 @@ use crate::shared::theme::NordTheme;
 
 const OSD_W: u32 = 280;
 const OSD_H: u32 = 60;
-const OSD_MARGIN: i32 = 16;
 
 /// Which live state an OSD reflects. A single-slot OSD (§6): one at a time, replaced on the next trigger.
 #[derive(Clone, Copy)]
@@ -40,6 +39,8 @@ fn osd_align(align: Align) -> SurfaceAlign {
 thread_local! {
     // Set on the OSD thread before its `.rsx` content builds, so `osd.rsx` can read it — the context seam for parameterless `.rsx` modules, like `surface_env`.
     static OSD_KIND: Cell<OsdKind> = const { Cell::new(OsdKind::Volume) };
+    // The bar-matching corner radius for the OSD being built; read by `osd.rsx`.
+    static OSD_RADIUS: Cell<f32> = const { Cell::new(16.0) };
 }
 
 pub fn set_osd_kind(kind: OsdKind) {
@@ -51,14 +52,16 @@ pub fn current_osd_kind() -> OsdKind {
     OSD_KIND.with(|k| k.get())
 }
 
-/// Builds the OSD's content tree for `kind`/`accent` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
-pub(crate) fn osd_content(kind: OsdKind, accent: Color) -> Box<dyn LayoutItem> {
-    let theme = NordTheme {
-        accent,
-        ..NordTheme::new()
-    };
+/// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
+pub fn current_osd_radius() -> f32 {
+    OSD_RADIUS.with(|r| r.get())
+}
+
+/// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
+pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
     set_theme(theme);
     set_osd_kind(kind);
+    OSD_RADIUS.with(|r| r.set(radius));
     crate::osd().expect("osd content build failed")
 }
 
@@ -70,23 +73,34 @@ thread_local! {
 /// Shows (or replaces) the single-slot OSD for `kind`; resolves the configured accent here on the bar thread since the OSD surface has no config of its own.
 pub fn show(kind: OsdKind) {
     let env = crate::surface_env();
-    let accent = env
+    let theme = env
         .as_ref()
-        .map(|e| NordTheme::new().accent_by_name(&e.config.theme.accent))
-        .unwrap_or_else(|| NordTheme::new().accent);
+        .map(|e| e.config.resolve_theme())
+        .unwrap_or_else(NordTheme::new);
     let osd = env.as_ref().map(|e| e.config.osd).unwrap_or_default();
+    let output = env.as_ref().and_then(|e| e.output.clone());
+    let radius = env
+        .as_ref()
+        .map(|e| e.config.panel_radius(osd.edge))
+        .unwrap_or(16.0);
+    // The shared panel gap. The surface's exclusive_zone=0 already clears the bar via the compositor, so this is only the extra gap beyond it — same rule the drawer and notifications use.
+    let inset = env
+        .as_ref()
+        .map(|e| e.config.panel_gap(osd.edge) as i32)
+        .unwrap_or(crate::core::config::DEFAULT_PANEL_GAP as i32);
     let mut placement = SurfacePlacement::new(SurfaceRole::Osd, osd_anchor(osd.edge))
         .align(osd_align(osd.align))
         .input_transparent(true)
         .size(SurfaceSize::Fixed(OSD_W, OSD_H))
-        .inset(OSD_MARGIN);
+        .inset(inset)
+        .output(output);
     // 0 ms disables auto-dismiss; the OSD then stays until replaced by the next trigger.
     if osd.timeout_ms > 0 {
         placement = placement.timeout(Duration::from_millis(osd.timeout_ms));
     }
     OPEN_OSD.with(|slot| {
         *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
-        let token = open_surface(placement, Box::new(move || osd_content(kind, accent)));
+        let token = open_surface(placement, Box::new(move || osd_content(kind, theme, radius)));
         *slot.borrow_mut() = Some(token);
     });
 }
@@ -117,7 +131,15 @@ mod tests {
         fn root(&self) -> Box<dyn Component> {
             reset_layout_runtime();
             Box::new(
-                SurfaceRoot::new(osd_content(self.kind, self.accent)).expect("osd surface root"),
+                SurfaceRoot::new(osd_content(
+                    self.kind,
+                    NordTheme {
+                        accent: self.accent,
+                        ..NordTheme::new()
+                    },
+                    16.0,
+                ))
+                .expect("osd surface root"),
             )
         }
         fn window_config(&self) -> Option<WindowConfig> {

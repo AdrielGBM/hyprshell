@@ -8,7 +8,6 @@ use rsx::{
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Config, Edge};
 use crate::shared::geometry::{InnerEdges, frame_path};
-use crate::shared::theme::NordTheme;
 
 /// Per-output frame: full-screen transparent surface drawing a continuous even-odd ring around content.
 pub struct FrameApp {
@@ -18,11 +17,17 @@ pub struct FrameApp {
 impl App for FrameApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = NordTheme::new();
+        let theme = self.config.resolve_theme();
         set_theme(theme);
         let base = theme.base;
         let config = Arc::clone(&self.config);
-        let inner_radius = (self.config.shape.radius + self.config.shape.gap) as f32;
+        let inner_radius = self
+            .config
+            .shape
+            .radius
+            .map(|r| r as f32)
+            .unwrap_or(theme.radius)
+            + self.config.shape.gap as f32;
         let canvas = Canvas::new(
             LayoutStyle::new()
                 .width(SizeDimension::Percent(1.0))

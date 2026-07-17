@@ -14,9 +14,7 @@ use rsx::{
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, Edge, NotificationsConfig};
 use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
-use crate::shared::theme::NordTheme;
-
-const MARGIN: i32 = 16;
+use crate::shared::theme::{FontRole, NordTheme};
 
 fn urgency_color(urgency: Urgency, theme: &NordTheme) -> Color {
     match urgency {
@@ -43,6 +41,7 @@ fn notification_card(
     width: SizeDimension,
     theme: NordTheme,
     dismissible: bool,
+    radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let accent = urgency_color(notification.urgency, &theme);
     let summary = notification.summary.clone();
@@ -58,7 +57,7 @@ fn notification_card(
         move || summary.clone(),
         LayoutStyle::new(),
         move || {
-            TextStyle::new(14.0, theme.text)
+            TextStyle::new(theme.font(FontRole::Body), theme.text)
                 .with_weight(700)
                 .with_max_lines(1)
                 .with_ellipsis(true)
@@ -71,7 +70,7 @@ fn notification_card(
             move || body.clone(),
             LayoutStyle::new(),
             move || {
-                TextStyle::new(13.0, theme.muted)
+                TextStyle::new(theme.font(FontRole::Caption), theme.muted)
                     .with_max_lines(4)
                     .with_ellipsis(true)
             },
@@ -94,7 +93,7 @@ fn notification_card(
             .gap(10.0)
             .padding_all(12.0)
             .width(width),
-        move |_| RectStyle::filled(theme.surface, 12.0),
+        move |_| RectStyle::filled(theme.surface, radius),
         children,
     )?;
     if dismissible {
@@ -109,6 +108,7 @@ fn card_stack(
     snapshot: ReadSignal<SharedSnapshot>,
     cfg: NotificationsConfig,
     theme: NordTheme,
+    radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let gap = cfg.gap;
     let source = {
@@ -119,13 +119,12 @@ fn card_stack(
     let list = ReactiveList::new(
         source,
         |n: &Notification| n.id,
-        move |n: Notification| notification_card(&n, width.into(), theme, false),
+        move |n: Notification| notification_card(&n, width.into(), theme, false, radius),
     )?;
+    // No outer padding: the surface's layer margin (`Config::panel_margin`) already floats the stack off the
+    // bar and edges, so the cards sit exactly the shared panel distance from the screen — same as a drawer.
     let stack = Container::new(
-        LayoutStyle::new()
-            .flex_column()
-            .gap(gap)
-            .padding_all(MARGIN as f32),
+        LayoutStyle::new().flex_column().gap(gap),
         vec![Box::new(list) as Box<dyn LayoutItem>],
     )?;
     Ok(Box::new(stack))
@@ -135,6 +134,7 @@ fn card_stack(
 fn popup_content(
     cfg: NotificationsConfig,
     theme: NordTheme,
+    radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let snapshot = signal(Arc::new(Snapshot::default()));
     let setter = snapshot.clone();
@@ -143,19 +143,21 @@ fn popup_content(
         notifications::subscribe,
         move |snap: SharedSnapshot| setter.set(snap),
     );
-    card_stack(snapshot.read_only(), cfg, theme)
+    card_stack(snapshot.read_only(), cfg, theme, radius)
 }
 
 struct PopupApp {
     cfg: NotificationsConfig,
     theme: NordTheme,
+    radius: f32,
 }
 
 impl App for PopupApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
         set_theme(self.theme);
-        let content = popup_content(self.cfg.clone(), self.theme).expect("notification content");
+        let content =
+            popup_content(self.cfg.clone(), self.theme, self.radius).expect("notification content");
         Box::new(SurfaceRoot::new(content).expect("notification surface root"))
     }
 
@@ -171,17 +173,21 @@ impl App for PopupApp {
     }
 }
 
-/// Layer-shell config for the popup surface: anchored per `[notifications] edge`/`align` (top-right by default), input-transparent so it never steals clicks from windows beneath, sized to hold `max_visible` cards.
-fn popup_layer_config(cfg: &NotificationsConfig, output: Option<String>) -> LayerConfig {
-    let width = cfg.width as u32 + MARGIN as u32 * 2;
-    let height = (cfg.max_visible.max(1) * 132 + MARGIN as u32 * 2).min(4000);
+/// Layer-shell config for the popup surface: anchored per `[notifications] edge`/`align` (top-right by default), input-transparent so it never steals clicks from windows beneath, sized to hold `max_visible` cards. `margin` is the shared [`Config::panel_margin`](crate::Config), so the stack clears the bar by the same distance as a drawer or OSD.
+fn popup_layer_config(
+    cfg: &NotificationsConfig,
+    margin: (i32, i32, i32, i32),
+    output: Option<String>,
+) -> LayerConfig {
+    let width = cfg.width as u32;
+    let height = (cfg.max_visible.max(1) * 132).min(4000);
     LayerConfig {
         output,
         layer: Layer::Overlay,
         anchor: popup_anchor(cfg),
         exclusive_zone: 0,
         size: (width, height),
-        margin: (MARGIN, MARGIN, MARGIN, MARGIN),
+        margin,
         keyboard_interactivity: KeyboardInteractivity::None,
         namespace: "hyprshell-notifications".to_string(),
         reserve_only: false,
@@ -212,12 +218,19 @@ fn popup_anchor(cfg: &NotificationsConfig) -> Anchor {
     anchor
 }
 
-fn open_popup(cfg: &NotificationsConfig, theme: NordTheme, output: Option<String>) -> SurfaceHandle {
+fn open_popup(
+    cfg: &NotificationsConfig,
+    theme: NordTheme,
+    margin: (i32, i32, i32, i32),
+    radius: f32,
+    output: Option<String>,
+) -> SurfaceHandle {
     open_surface(
-        popup_layer_config(cfg, output),
+        popup_layer_config(cfg, margin, output),
         PopupApp {
             cfg: cfg.clone(),
             theme,
+            radius,
         },
     )
 }
@@ -227,14 +240,17 @@ pub fn spawn_popup_host(config: Arc<Config>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-notif-host".to_string())
         .spawn(move || {
-            let theme = NordTheme::new().with_accent(&config.theme.accent);
+            let theme = config.resolve_theme();
             let cfg = config.notifications.clone();
+            // The shared panel distance and bar-matching radius for the popup's edge, so notifications clear the bar and round their corners exactly like a drawer/OSD.
+            let margin = config.panel_margin(cfg.edge);
+            let radius = config.panel_radius(cfg.edge);
             let dir = crate::shared::services::hyprland::socket_dir();
 
             let mut output = dir
                 .as_deref()
                 .and_then(crate::shared::services::hyprland::focused_monitor);
-            let mut handle = open_popup(&cfg, theme, output.clone());
+            let mut handle = open_popup(&cfg, theme, margin, radius, output.clone());
 
             let events = dir
                 .as_ref()
@@ -254,7 +270,7 @@ pub fn spawn_popup_host(config: Arc<Config>) {
                 if output.as_deref() != Some(monitor.as_str()) {
                     output = Some(monitor);
                     handle.close();
-                    handle = open_popup(&cfg, theme, output.clone());
+                    handle = open_popup(&cfg, theme, margin, radius, output.clone());
                 }
             }
         });
@@ -272,6 +288,7 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
     });
 
     let fg = crate::module_fg();
+    let theme = use_theme::<NordTheme>();
     let glyph = {
         let dnd_read = dnd_read.clone();
         memo(move || if dnd_read.get() { "bell-off" } else { "bell" })
@@ -287,7 +304,7 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let badge = Text::auto(
         move || badge_text(unread_read.get()),
         LayoutStyle::new(),
-        move || TextStyle::new(11.0, fg.get()).with_weight(700),
+        move || TextStyle::new(theme.font(FontRole::Caption), fg.get()).with_weight(700),
     )?;
     let row = Container::new(
         LayoutStyle::new()
@@ -318,8 +335,10 @@ pub fn bell_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     });
     let read = snapshot.read_only();
 
+    // The cards sit inside the panel (drawer or float), so they carry its (bar-matching) radius.
+    let radius = crate::modules::drawer::content_radius();
     let header = panel_header(read.clone(), theme)?;
-    let list = history_list(read, theme)?;
+    let list = history_list(read, theme, radius)?;
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
@@ -337,7 +356,7 @@ fn panel_header(
     let title = Text::auto(
         || "Notifications".to_string(),
         LayoutStyle::new(),
-        move || TextStyle::new(15.0, theme.text).with_weight(700),
+        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
     )?;
     let dnd_label = read.clone();
     let dnd_toggle = read.clone();
@@ -378,7 +397,7 @@ fn pill_button(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(label, LayoutStyle::new(), move || {
-        TextStyle::new(12.0, theme.text)
+        TextStyle::new(theme.font(FontRole::Caption), theme.text)
     })?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
@@ -394,6 +413,7 @@ fn pill_button(
 fn history_list(
     read: ReadSignal<SharedSnapshot>,
     theme: NordTheme,
+    radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let source = move || {
         let mut list = read.get().active.clone();
@@ -403,7 +423,7 @@ fn history_list(
     let list = ReactiveList::new(
         source,
         |n: &Notification| n.id,
-        move |n: Notification| notification_card(&n, SizeDimension::Percent(1.0), theme, true),
+        move |n: Notification| notification_card(&n, SizeDimension::Percent(1.0), theme, true, radius),
     )?;
     let column = Container::new(
         LayoutStyle::new()
@@ -474,7 +494,7 @@ mod tests {
             reset_layout_runtime();
             set_theme(self.theme);
             let signal = signal(Arc::new(self.snapshot.clone()));
-            let content = card_stack(signal.read_only(), self.cfg.clone(), self.theme)
+            let content = card_stack(signal.read_only(), self.cfg.clone(), self.theme, 12.0)
                 .expect("card stack");
             Box::new(SurfaceRoot::new(content).expect("preview root"))
         }
@@ -501,7 +521,7 @@ mod tests {
             let signal = signal(Arc::new(self.snapshot.clone()));
             let read = signal.read_only();
             let header = panel_header(read.clone(), self.theme).expect("header");
-            let list = history_list(read, self.theme).expect("list");
+            let list = history_list(read, self.theme, 12.0).expect("list");
             let panel = Container::new(
                 LayoutStyle::new()
                     .flex_column()
@@ -594,7 +614,7 @@ mod tests {
                 cfg: NotificationsConfig::default(),
                 theme: NordTheme::new().with_accent("teal"),
             },
-            NotificationsConfig::default().width as u32 + MARGIN as u32 * 2,
+            NotificationsConfig::default().width as u32,
             360,
             &out,
         );

@@ -55,21 +55,20 @@ mod test_support {
 
 pub use crate::core::app::BarApp;
 pub use crate::core::config::{
-    BarConfig, BarsConfig, Config, Corner, DrawerConfig, Edge, ModuleOverride, OpenMode,
-    ThemeConfig, Variant,
+    BarConfig, BarsConfig, Config, Corner, DrawerConfig, Edge, FloatConfig, ModuleOverride,
+    OpenMode, PanelsConfig, ThemeConfig, Variant,
 };
 pub use crate::modules::bar::build_bar;
-pub use crate::modules::drawer::toggle_drawer;
-pub use crate::modules::float::toggle_float;
 pub use crate::modules::frame::FrameApp;
 pub use crate::modules::osd::OsdKind;
+pub use crate::modules::panel::toggle_panel;
 pub use crate::shared::icon::icon_view;
 pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
     bar_thickness, default_registry, icon_px, module_fg, module_foreground, module_shell,
     set_module_fg, set_surface_env, surface_env,
 };
-pub use crate::shared::theme::NordTheme;
+pub use crate::shared::theme::{FontRole, NordTheme, ThemeMeta};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -83,9 +82,10 @@ use platform_layershell::{
 use rsx::{App, AppConfig, AppPathsProvider, SurfaceId, run_multi_with_platform};
 
 /// Reservation surfaces are backend-driven and never reach the app factory.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum SurfaceSpec {
-    Bar(Edge),
+    /// A bar on `edge`, carrying the output it lives on so its drawers/floats/OSDs open on the same monitor.
+    Bar(Edge, Option<String>),
     Frame,
     Reservation,
 }
@@ -103,18 +103,10 @@ impl AppPathsProvider for NullPaths {
     }
 }
 
-fn edge_gap(config: &Config, edge: Edge) -> i32 {
-    if config.hugs(edge) {
-        0
-    } else {
-        config.shape_for(edge).gap as i32
-    }
-}
-
 /// Insets past the perpendicular bar's own gap+thickness (not the vertical bar's gap) so a floating perpendicular bar can't overlap a hugging vertical one.
 fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
     if config.edge_present(perp) {
-        edge_gap(config, perp) + config.edge_thickness(perp) as i32
+        config.edge_reserved(perp) as i32
     } else {
         own_gap
     }
@@ -123,7 +115,7 @@ fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
 /// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
 fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
     let thickness = config.edge_thickness(edge) as i32;
-    let gap = edge_gap(config, edge);
+    let gap = config.edge_gap(edge) as i32;
     let top_inset = perpendicular_inset(config, Edge::Top, gap);
     let bottom_inset = perpendicular_inset(config, Edge::Bottom, gap);
     // Margin tuple is (top, right, bottom, left).
@@ -165,13 +157,7 @@ fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> Laye
 
 /// Invisible reservation strip on Layer::Bottom: space-only, no need for Top's interactivity; order-independent.
 fn reservation_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
-    let thickness = config.edge_thickness(edge) as i32;
-    let gap = if config.hugs(edge) {
-        0
-    } else {
-        config.shape_for(edge).gap as i32
-    };
-    let reserve = (thickness + gap) as u32;
+    let reserve = config.edge_reserved(edge);
     let (anchor, size) = match edge {
         Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
         Edge::Bottom => (Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
@@ -261,7 +247,7 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
                     &mut platform,
                     &mut surfaces,
                     &mut specs,
-                    SurfaceSpec::Bar(edge),
+                    SurfaceSpec::Bar(edge, out.name.clone()),
                     cfg,
                 );
                 let reserve = reservation_config_for(&config, edge, out.name.clone());
@@ -305,8 +291,12 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
         |_id| Box::new(NullPaths) as Box<dyn AppPathsProvider>,
         move |id| -> Box<dyn App> {
             let config = Arc::clone(&config_for_factory);
-            match specs[&id] {
-                SurfaceSpec::Bar(edge) => Box::new(BarApp { config, edge }),
+            match specs[&id].clone() {
+                SurfaceSpec::Bar(edge, output) => Box::new(BarApp {
+                    config,
+                    edge,
+                    output,
+                }),
                 SurfaceSpec::Frame => Box::new(FrameApp { config }),
                 SurfaceSpec::Reservation => {
                     unreachable!("reservation surfaces do not reach the app factory")

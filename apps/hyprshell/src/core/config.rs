@@ -1,7 +1,13 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use rsx::Color;
 use serde::{Deserialize, Serialize};
+
+use crate::shared::theme::NordTheme;
+
+/// Fallback gap a panel keeps from a hugging bar (one with no outer gap of its own) and from the screen edges.
+pub const DEFAULT_PANEL_GAP: u32 = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -92,15 +98,15 @@ pub enum Shape {
     Chips,
 }
 
-/// Global shape settings; defaults (gap=0, radius=0) reproduce today's edge-to-edge bar — floating is opt-in.
+/// Global shape settings. `gap` defaults to 0 (edge-to-edge bar; floating is opt-in). `spacing`/`radius` are unset by default so they fall back to the theme's values — set them here (or per-bar) to override the theme.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct ShapeConfig {
     pub mode: Shape,
     pub frame: bool,
     pub gap: u32,
-    pub spacing: u32,
-    pub radius: u32,
+    pub spacing: Option<u32>,
+    pub radius: Option<u32>,
     pub inactive_size: u32,
 }
 
@@ -110,8 +116,8 @@ impl Default for ShapeConfig {
             mode: Shape::Bar,
             frame: false,
             gap: 0,
-            spacing: 6,
-            radius: 0,
+            spacing: None,
+            radius: None,
             inactive_size: 6,
         }
     }
@@ -130,18 +136,20 @@ pub struct BarShape {
 pub struct ResolvedShape {
     pub mode: Shape,
     pub gap: u32,
-    pub spacing: u32,
-    pub radius: u32,
+    /// Resolved from per-bar → global `[shape]` → theme.
+    pub spacing: f32,
+    /// Resolved from per-bar → global `[shape]` → theme.
+    pub radius: f32,
 }
 
 impl ResolvedShape {
-    pub fn padding(self) -> u32 {
-        (self.spacing as f32 / 2.0).round() as u32
+    pub fn padding(self) -> f32 {
+        (self.spacing / 2.0).round()
     }
 
     /// Chip radius shrunk to nest inside a unit.
-    pub fn chip_radius(self) -> u32 {
-        self.radius.saturating_sub(self.padding())
+    pub fn chip_radius(self) -> f32 {
+        (self.radius - self.padding()).max(0.0)
     }
 }
 
@@ -215,6 +223,33 @@ impl Default for DrawerConfig {
             max_height: 280.0,
         }
     }
+}
+
+/// A floating window's size (§5) in logical px.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct FloatConfig {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Default for FloatConfig {
+    fn default() -> Self {
+        Self {
+            width: 360,
+            height: 240,
+        }
+    }
+}
+
+/// Panel presentation shared by drawers and floating windows (`[panels]`): the gap they keep from the bar and the screen edges, and each form's size. One home for both so a drawer and a float are configured the same way.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default)]
+#[serde(default)]
+pub struct PanelsConfig {
+    /// Gap a panel keeps from the bar and the screen edges. Unset (the default) derives it — the bar's own outer gap when it floats, else [`DEFAULT_PANEL_GAP`] — so panels sit off the bar just like tiled apps; set a value to pin a fixed gap on every edge regardless of the bar.
+    pub gap: Option<u32>,
+    pub drawer: DrawerConfig,
+    pub float: FloatConfig,
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -296,7 +331,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub shape: ShapeConfig,
     pub corners: CornersConfig,
-    pub drawer: DrawerConfig,
+    pub panels: PanelsConfig,
     pub osd: OsdConfig,
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
@@ -352,11 +387,17 @@ impl Default for BarConfig {
     }
 }
 
+/// Theme selection and overrides. `name` picks a built-in palette (or `custom`); the rest override individual tokens on top of it — numbers directly, and `[theme.colors]` per-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built-in's value.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct ThemeConfig {
     pub name: String,
     pub accent: String,
+    pub radius: Option<u32>,
+    pub spacing: Option<u32>,
+    pub font_size: Option<f32>,
+    pub icon_size: Option<f32>,
+    pub colors: HashMap<String, String>,
 }
 
 impl Default for ThemeConfig {
@@ -364,6 +405,11 @@ impl Default for ThemeConfig {
         Self {
             name: "nord".to_string(),
             accent: "cyan".to_string(),
+            radius: None,
+            spacing: None,
+            font_size: None,
+            icon_size: None,
+            colors: HashMap::new(),
         }
     }
 }
@@ -385,7 +431,7 @@ impl Config {
             theme: ThemeConfig::default(),
             shape: ShapeConfig::default(),
             corners: CornersConfig::default(),
-            drawer: DrawerConfig::default(),
+            panels: PanelsConfig::default(),
             osd: OsdConfig::default(),
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
@@ -425,21 +471,100 @@ impl Config {
         }
     }
 
-    /// Effective shape for edge: per-bar override if set, else global default.
+    /// Effective shape for edge: per-bar override → global `[shape]` → (for spacing/radius) the theme.
     pub fn shape_for(&self, edge: Edge) -> ResolvedShape {
         let g = &self.shape;
         let b = &self.bars.get(edge).shape;
         ResolvedShape {
             mode: b.mode.unwrap_or(g.mode),
             gap: b.gap.unwrap_or(g.gap),
-            spacing: b.spacing.unwrap_or(g.spacing),
-            radius: b.radius.unwrap_or(g.radius),
+            spacing: self.resolved_spacing(edge),
+            radius: self.resolved_radius(edge),
         }
+    }
+
+    /// The theme this config selects, with every `[theme]` override applied — accent, numeric tokens, and per-token `[theme.colors]` hex. The single place a theme is resolved, so its tokens back the config defaults everywhere.
+    pub fn resolve_theme(&self) -> NordTheme {
+        let t = &self.theme;
+        let mut theme = NordTheme::named(&t.name).with_accent(&t.accent);
+        if let Some(r) = t.radius {
+            theme.radius = r as f32;
+        }
+        if let Some(s) = t.spacing {
+            theme.spacing = s as f32;
+        }
+        if let Some(f) = t.font_size {
+            theme.font_size = f;
+        }
+        if let Some(i) = t.icon_size {
+            theme.icon_size = i;
+        }
+        for (name, hex) in &t.colors {
+            match Color::from_hex(hex) {
+                Some(c) => theme = theme.with_color(name, c),
+                None => tracing::warn!("theme color '{name}': invalid hex '{hex}'"),
+            }
+        }
+        theme
+    }
+
+    /// The corner radius for `edge`: per-bar override → global `[shape] radius` → the theme's `radius`.
+    pub fn resolved_radius(&self, edge: Edge) -> f32 {
+        let b = &self.bars.get(edge).shape;
+        b.radius
+            .or(self.shape.radius)
+            .map(|r| r as f32)
+            .unwrap_or_else(|| self.resolve_theme().radius)
+    }
+
+    /// The module spacing for `edge`: per-bar override → global `[shape] spacing` → the theme's `spacing`.
+    pub fn resolved_spacing(&self, edge: Edge) -> f32 {
+        let b = &self.bars.get(edge).shape;
+        b.spacing
+            .or(self.shape.spacing)
+            .map(|s| s as f32)
+            .unwrap_or_else(|| self.resolve_theme().spacing)
     }
 
     /// Whether a bar hugs its edge; frame forces hug, otherwise only at gap == 0.
     pub fn hugs(&self, edge: Edge) -> bool {
         self.shape.frame || self.shape_for(edge).gap == 0
+    }
+
+    /// The bar's effective outer gap on `edge`: 0 when it hugs (frame or gap == 0), else its configured gap.
+    pub fn edge_gap(&self, edge: Edge) -> u32 {
+        if self.hugs(edge) {
+            0
+        } else {
+            self.shape_for(edge).gap
+        }
+    }
+
+    /// Space the bar reserves from its edge — its outer gap plus thickness — i.e. how far a panel or app must sit from the edge to clear it.
+    pub fn edge_reserved(&self, edge: Edge) -> u32 {
+        self.edge_gap(edge) + self.edge_thickness(edge)
+    }
+
+    /// The standard gap panels (drawers/floats) keep from the bar and the screen edges. A `[panels] gap` override wins; otherwise it's derived — the bar's own outer gap when it floats (so panels float in step with it), else a default so a hugging bar's panels still breathe. This is the "gaps_out"-style spacing that keeps a panel off the bar and off the corners.
+    pub fn panel_gap(&self, edge: Edge) -> u32 {
+        if let Some(gap) = self.panels.gap {
+            return gap;
+        }
+        match self.edge_gap(edge) {
+            0 => DEFAULT_PANEL_GAP,
+            gap => gap,
+        }
+    }
+
+    /// The corner radius a panel uses: the same as the bar on `edge` (its resolved `radius`, which itself falls back to the theme), so a drawer, float, OSD and notification card all carry the bar's rounding instead of a per-panel value.
+    pub fn panel_radius(&self, edge: Edge) -> f32 {
+        self.resolved_radius(edge)
+    }
+
+    /// A panel's margin `(top, right, bottom, left)` off the screen edges: uniformly the [`panel_gap`](Self::panel_gap). A panel surface uses `exclusive_zone = 0`, so the compositor already positions it past every bar's reserved zone (the reservation strip's exclusive zone); the panel only adds the standard gap beyond that — re-adding the bar's thickness here would double the distance off the bar. The one distance rule every panel shares, so a drawer, an OSD and a notification stack all clear the bar by the same config-controlled gap.
+    pub fn panel_margin(&self, edge: Edge) -> (i32, i32, i32, i32) {
+        let g = self.panel_gap(edge) as i32;
+        (g, g, g, g)
     }
 
     /// Thickness of the surface on edge: bar size if active, inactive_size strip under frame, else 0.
@@ -487,7 +612,7 @@ impl Config {
     /// Whether the bar surface is fully opaque; only mode=bar with no gap/radius (or frame) stays opaque.
     pub fn bar_surface_opaque(&self, edge: Edge) -> bool {
         let s = self.shape_for(edge);
-        s.mode == Shape::Bar && (self.shape.frame || (s.gap == 0 && s.radius == 0))
+        s.mode == Shape::Bar && (self.shape.frame || (s.gap == 0 && s.radius == 0.0))
     }
 
     pub fn load_or_default(path: &Path) -> Self {
@@ -567,11 +692,11 @@ start = ["workspaces"]
         assert_eq!(cfg.shape.mode, Shape::Bar);
         assert!(!cfg.shape.frame);
         assert_eq!(cfg.shape.gap, 0);
-        assert_eq!(cfg.shape.radius, 0);
+        assert_eq!(cfg.shape.radius, None, "unset radius falls back to the theme");
         let top = cfg.shape_for(Edge::Top);
         assert_eq!(top.mode, Shape::Bar);
         assert_eq!(top.gap, 0);
-        assert_eq!(top.radius, 0);
+        assert_eq!(top.radius, 0.0, "the nord theme's default radius is 0");
         assert!(cfg.hugs(Edge::Top));
         assert!(cfg.bar_surface_opaque(Edge::Top));
     }
@@ -593,15 +718,107 @@ end = ["battery", "volume"]
     }
 
     #[test]
-    fn drawer_and_open_mode_defaults() {
+    fn panels_and_open_mode_defaults() {
         let cfg: Config = toml::from_str("[bars.top]\ncenter = [\"clock\"]\n").unwrap();
-        assert_eq!(cfg.drawer.width, 320.0);
+        assert_eq!(cfg.panels.drawer.width, 320.0);
+        assert_eq!(cfg.panels.float.width, 360);
+        assert_eq!(cfg.panels.float.height, 240);
+        assert_eq!(cfg.panels.gap, None, "gap is derived unless overridden");
         assert_eq!(cfg.open_mode_for("clock"), OpenMode::Drawer);
 
-        let floaty: Config =
-            toml::from_str("[modules.clock]\nopen = \"float\"\n[drawer]\nwidth = 400\n").unwrap();
+        let floaty: Config = toml::from_str(
+            "[modules.clock]\nopen = \"float\"\n[panels.drawer]\nwidth = 400\n[panels.float]\nwidth = 480\nheight = 320\n",
+        )
+        .unwrap();
         assert_eq!(floaty.open_mode_for("clock"), OpenMode::Float);
-        assert_eq!(floaty.drawer.width, 400.0);
+        assert_eq!(floaty.panels.drawer.width, 400.0);
+        assert_eq!(floaty.panels.float.width, 480);
+        assert_eq!(floaty.panels.float.height, 320);
+    }
+
+    #[test]
+    fn starter_config_round_trips_through_toml() {
+        // load_or_default writes the starter to disk on first run, so it must serialize and re-parse cleanly.
+        let starter = Config::starter();
+        let text = toml::to_string_pretty(&starter).expect("starter serializes");
+        let parsed: Config = toml::from_str(&text).expect("starter re-parses");
+        assert_eq!(parsed.panels.drawer.width, starter.panels.drawer.width);
+        assert_eq!(parsed.panels.float.width, starter.panels.float.width);
+        assert_eq!(parsed.panels.gap, None);
+    }
+
+    #[test]
+    fn theme_config_overrides_colors_and_numbers() {
+        let cfg: Config = toml::from_str(
+            "[theme]\nname=\"custom\"\nradius=12\nfont_size=16\n[theme.colors]\nbase=\"#101010\"\naccent=\"#ff8800\"\n",
+        )
+        .unwrap();
+        let theme = cfg.resolve_theme();
+        assert_eq!(theme.radius, 12.0);
+        assert_eq!(theme.font_size, 16.0);
+        assert_eq!(theme.base, Color::from_hex("#101010").unwrap());
+        assert_eq!(theme.accent, Color::from_hex("#ff8800").unwrap());
+        // An unset token keeps the built-in value.
+        assert_eq!(theme.text, NordTheme::new().text);
+        // The [theme] number override also backs the shape resolution.
+        assert_eq!(cfg.resolved_radius(Edge::Top), 12.0);
+    }
+
+    #[test]
+    fn spacing_and_radius_fall_back_to_the_theme_then_config_overrides() {
+        let theme = NordTheme::new();
+        // Nothing set anywhere → the theme's numeric tokens.
+        let bare: Config = toml::from_str("[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(bare.resolved_radius(Edge::Top), theme.radius);
+        assert_eq!(bare.resolved_spacing(Edge::Top), theme.spacing);
+        // Per-bar wins over [shape], which wins over the theme.
+        let cfg: Config = toml::from_str(
+            "[shape]\nradius=10\nspacing=4\n[bars.top]\ncenter=[\"clock\"]\n[bars.top.shape]\nradius=2\n[bars.bottom]\nstart=[\"clock\"]\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.resolved_radius(Edge::Top), 2.0, "per-bar override wins");
+        assert_eq!(cfg.resolved_spacing(Edge::Top), 4.0, "spacing falls to [shape]");
+        assert_eq!(cfg.resolved_radius(Edge::Bottom), 10.0, "bottom takes [shape]");
+    }
+
+    #[test]
+    fn panel_radius_matches_the_bar_on_each_edge() {
+        // Per-bar radius override on top, global (0) elsewhere: panels inherit the radius of the bar they hang off.
+        let cfg: Config = toml::from_str(
+            "[shape]\nradius=0\n[bars.top]\ncenter=[\"clock\"]\n[bars.top.shape]\nradius=8\n[bars.left]\nstart=[\"clock\"]\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.panel_radius(Edge::Top), 8.0);
+        assert_eq!(cfg.panel_radius(Edge::Left), 0.0, "left inherits the global radius");
+    }
+
+    #[test]
+    fn panel_margin_is_a_uniform_gap_and_never_double_counts_the_bar() {
+        // The reservation strip already offsets a panel (exclusive_zone=0) past the bar, so the margin is just
+        // the gap — adding the bar's reserved thickness here too would put the panel at double the distance.
+        let floating: Config =
+            toml::from_str("[shape]\ngap=8\n[bars.top]\nsize=34\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(floating.panel_gap(Edge::Top), 8);
+        assert_eq!(floating.panel_margin(Edge::Top), (8, 8, 8, 8));
+
+        // Hugging bar with no configured gap still gets the default breathing gap, uniformly.
+        let hug: Config = toml::from_str("[bars.top]\nsize=34\ncenter=[\"clock\"]\n").unwrap();
+        let d = DEFAULT_PANEL_GAP as i32;
+        assert_eq!(hug.panel_margin(Edge::Top), (d, d, d, d));
+    }
+
+    #[test]
+    fn panels_gap_override_pins_a_fixed_gap_on_every_edge() {
+        let cfg: Config = toml::from_str(
+            "[shape]\ngap=20\n[panels]\ngap=4\n[bars.top]\ncenter=[\"clock\"]\n[bars.bottom]\nstart=[\"clock\"]\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.panels.gap, Some(4));
+        assert_eq!(cfg.panel_gap(Edge::Top), 4, "the override wins over the derived bar gap");
+        assert_eq!(cfg.panel_gap(Edge::Bottom), 4);
+
+        let derived: Config = toml::from_str("[shape]\ngap=20\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(derived.panel_gap(Edge::Top), 20, "without an override it tracks the bar gap");
     }
 
     #[test]
@@ -654,8 +871,8 @@ gap = 8
         let top = cfg.shape_for(Edge::Top);
         assert_eq!(top.mode, Shape::Sections);
         assert_eq!(top.gap, 8, "gap overridden");
-        assert_eq!(top.spacing, 6, "spacing inherits the global");
-        assert_eq!(top.radius, 10, "radius inherits the global");
+        assert_eq!(top.spacing, 6.0, "spacing inherits the global");
+        assert_eq!(top.radius, 10.0, "radius inherits the global");
         let bottom = cfg.shape_for(Edge::Bottom);
         assert_eq!(bottom.mode, Shape::Bar);
         assert_eq!(bottom.gap, 0);
@@ -700,18 +917,18 @@ center = ["clock"]
         let s = ResolvedShape {
             mode: Shape::Chips,
             gap: 0,
-            spacing: 6,
-            radius: 12,
+            spacing: 6.0,
+            radius: 12.0,
         };
-        assert_eq!(s.padding(), 3, "round(6/2)");
-        assert_eq!(s.chip_radius(), 9, "max(0, 12 - 3)");
+        assert_eq!(s.padding(), 3.0, "round(6/2)");
+        assert_eq!(s.chip_radius(), 9.0, "max(0, 12 - 3)");
         let tight = ResolvedShape {
             mode: Shape::Chips,
             gap: 0,
-            spacing: 30,
-            radius: 4,
+            spacing: 30.0,
+            radius: 4.0,
         };
-        assert_eq!(tight.chip_radius(), 0, "radius floors at 0, never negative");
+        assert_eq!(tight.chip_radius(), 0.0, "radius floors at 0, never negative");
     }
 
     #[test]
@@ -747,6 +964,37 @@ center = ["clock"]
         assert_eq!(cfg.corner_modules_for(Edge::Top), (Some("logo"), None));
         assert_eq!(cfg.corner_modules_for(Edge::Right), (None, Some("tray")));
         assert_eq!(cfg.corner_modules_for(Edge::Left), (None, None));
+    }
+
+    #[test]
+    fn panel_gap_tracks_the_bar_gap_and_falls_back_when_hugging() {
+        let floating: Config =
+            toml::from_str("[shape]\ngap=12\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(floating.edge_gap(Edge::Top), 12);
+        assert_eq!(floating.panel_gap(Edge::Top), 12, "a floating bar's panels float in step");
+        assert_eq!(
+            floating.edge_reserved(Edge::Top),
+            12 + 34,
+            "reserved = outer gap + thickness"
+        );
+
+        let hugging: Config = toml::from_str("[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(hugging.edge_gap(Edge::Top), 0);
+        assert_eq!(
+            hugging.panel_gap(Edge::Top),
+            DEFAULT_PANEL_GAP,
+            "a hugging bar's panels still get a breathing gap"
+        );
+        assert_eq!(hugging.edge_reserved(Edge::Top), 34);
+    }
+
+    #[test]
+    fn frame_edge_reserves_thickness_without_a_gap() {
+        let cfg: Config =
+            toml::from_str("[shape]\nframe=true\ngap=8\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(cfg.edge_gap(Edge::Top), 0, "frame forces a hug, so no outer gap");
+        assert_eq!(cfg.edge_reserved(Edge::Top), 34);
+        assert_eq!(cfg.panel_gap(Edge::Top), DEFAULT_PANEL_GAP);
     }
 
     #[test]

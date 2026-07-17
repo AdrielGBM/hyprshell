@@ -6,10 +6,7 @@ use rsx::{
 };
 
 use crate::core::config::{DrawerConfig, Edge, Zone};
-use crate::shared::module::surface_env;
-use crate::shared::theme::NordTheme;
-
-const PANEL_GAP: i32 = 8;
+use crate::shared::module::SurfaceEnv;
 
 fn anchor_for(edge: Edge) -> SurfaceAnchor {
     match edge {
@@ -41,62 +38,70 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
     }
 }
 
-thread_local! {
-    // Set on the drawer thread before its `.rsx` content builds, so `drawer_panel.rsx` can read it — the context seam for parameterless `.rsx` modules, like `surface_env`.
-    static DRAWER_CTX: RefCell<(String, DrawerConfig)> =
-        RefCell::new((String::new(), DrawerConfig::default()));
+#[derive(Clone)]
+struct DrawerCtx {
+    module: String,
+    config: DrawerConfig,
+    radius: f32,
 }
 
-pub fn set_drawer_ctx(module: String, drawer: DrawerConfig) {
-    DRAWER_CTX.with(|c| *c.borrow_mut() = (module, drawer));
+thread_local! {
+    // Set on the drawer thread before its `.rsx` content builds, so `drawer_panel.rsx` can read it — the context seam for parameterless `.rsx` modules, like `surface_env`.
+    static DRAWER_CTX: RefCell<DrawerCtx> = RefCell::new(DrawerCtx {
+        module: String::new(),
+        config: DrawerConfig::default(),
+        radius: 0.0,
+    });
+}
+
+pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
+    DRAWER_CTX.with(|c| {
+        *c.borrow_mut() = DrawerCtx {
+            module,
+            config: drawer,
+            radius,
+        }
+    });
 }
 
 /// The module whose panel the drawer being built shows; read by `drawer_panel.rsx`.
 pub fn current_drawer_module() -> String {
-    DRAWER_CTX.with(|c| c.borrow().0.clone())
+    DRAWER_CTX.with(|c| c.borrow().module.clone())
 }
 
 /// The drawer size (width / max height) for the drawer being built; read by `drawer_panel.rsx`.
 pub fn current_drawer_config() -> DrawerConfig {
-    DRAWER_CTX.with(|c| c.borrow().1)
+    DRAWER_CTX.with(|c| c.borrow().config)
 }
 
-thread_local! {
-    // The drawer currently open from THIS bar surface, if any. Dropping the token closes the drawer's surface.
-    static OPEN_DRAWER: RefCell<Option<(String, SurfaceToken)>> = const { RefCell::new(None) };
+/// The bar-matching corner radius of the panel currently being built (drawer or float); read by `drawer_panel.rsx` and by the notification history it hosts, so content rounds its corners like the bar regardless of which panel presents it.
+pub fn content_radius() -> f32 {
+    DRAWER_CTX.with(|c| c.borrow().radius)
 }
 
-/// Toggles the drawer for `module_id`: opens as a scrimmed surface hugging the bar edge, closes if already open (including one dismissed via its scrim, so the next click reopens it); surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`.
-pub fn toggle_drawer(module_id: &str) {
-    let Some(env) = surface_env() else { return };
-    OPEN_DRAWER.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let already_open = slot
-            .as_ref()
-            .is_some_and(|(id, token)| id == module_id && !token.is_closing());
-        *slot = None; // drops the previous token → closes whatever drawer was open
-        if !already_open {
-            let accent = NordTheme::new().accent_by_name(&env.config.theme.accent);
-            let placement = SurfacePlacement::drawer(anchor_for(env.edge))
-                .align(align_for(env.config.zone_of(env.edge, module_id)))
-                .inset(env.bar_size as i32 + PANEL_GAP);
-            let module = module_id.to_string();
-            let drawer = env.config.drawer;
-            let token = open_surface(
-                placement,
-                Box::new(move || {
-                    let theme = NordTheme {
-                        accent,
-                        ..NordTheme::new()
-                    };
-                    set_theme(theme);
-                    set_drawer_ctx(module, drawer);
-                    crate::drawer_panel().expect("drawer panel build failed")
-                }),
-            );
-            *slot = Some((module_id.to_string(), token));
-        }
-    });
+/// Sets just the content radius on this surface thread, leaving module/config — used by a float presenting the same panel content as a drawer, so its cards carry the bar radius too.
+pub fn set_content_radius(radius: f32) {
+    DRAWER_CTX.with(|c| c.borrow_mut().radius = radius);
+}
+
+/// Opens `module_id`'s drawer as a scrimmed surface floating off the bar edge on the bar's own monitor, aligned to the same end of the bar as the module; the distance off the bar is the shared [`Config::panel_margin`](crate::Config), so every panel keeps the same config-controlled gap. The surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
+pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
+    let theme = env.config.resolve_theme();
+    let placement = SurfacePlacement::drawer(anchor_for(env.edge))
+        .align(align_for(env.config.zone_of(env.edge, module_id)))
+        .margin(env.config.panel_margin(env.edge))
+        .output(env.output.clone());
+    let module = module_id.to_string();
+    let drawer = env.config.panels.drawer;
+    let radius = env.config.panel_radius(env.edge);
+    open_surface(
+        placement,
+        Box::new(move || {
+            set_theme(theme);
+            set_drawer_ctx(module, drawer, radius);
+            crate::drawer_panel().expect("drawer panel build failed")
+        }),
+    )
 }
 
 #[cfg(test)]
@@ -117,7 +122,7 @@ mod tests {
         fn root(&self) -> Box<dyn Component> {
             reset_layout_runtime();
             set_theme(NordTheme::new());
-            set_drawer_ctx("clock".to_string(), DrawerConfig::default());
+            set_drawer_ctx("clock".to_string(), DrawerConfig::default(), 14.0);
             let panel = crate::drawer_panel().expect("drawer panel build failed");
             let placement = SurfacePlacement::drawer(SurfaceAnchor::Top).inset(48);
             Box::new(SurfaceScaffold::new(&placement, panel, None).expect("scaffold build failed"))

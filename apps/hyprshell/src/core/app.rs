@@ -9,7 +9,6 @@ use rsx::{
 use crate::modules::bar::build_bar;
 use crate::core::config::{Config, Edge};
 use crate::shared::module::{SurfaceEnv, default_registry, set_surface_env};
-use crate::shared::theme::NordTheme;
 
 /// Root component: full-surface container that re-layouts on WindowResized and forwards events, so widgets resolve correctly.
 pub(crate) struct SurfaceRoot {
@@ -54,18 +53,21 @@ impl Component for SurfaceRoot {
 pub struct BarApp {
     pub config: Arc<Config>,
     pub edge: Edge,
+    /// The monitor this bar surface lives on; threaded into `SurfaceEnv` so its panels open on the same screen.
+    pub output: Option<String>,
 }
 
 impl App for BarApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = NordTheme::new().with_accent(&self.config.theme.accent);
+        let theme = self.config.resolve_theme();
         set_theme(theme);
         let bar_config = self.config.bars.get(self.edge);
         // Thread-local context for .rsx modules to read orientation and bar config.
         set_surface_env(SurfaceEnv {
             edge: self.edge,
             bar_size: bar_config.size,
+            output: self.output.clone(),
             config: Arc::clone(&self.config),
         });
         let accent = theme.accent;
@@ -78,7 +80,7 @@ impl App for BarApp {
     fn clear_color(&self) -> Option<Color> {
         // Opaque bar fills entire surface; floating/sections/chips bar has gaps so surface must be transparent.
         if self.config.bar_surface_opaque(self.edge) {
-            Some(NordTheme::new().base)
+            Some(self.config.resolve_theme().base)
         } else {
             None
         }

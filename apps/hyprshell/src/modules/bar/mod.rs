@@ -3,7 +3,7 @@ use rsx::{
     SizeDimension, StyledContainer,
 };
 
-use crate::core::config::{Config, Edge, OpenMode, ResolvedShape, Shape};
+use crate::core::config::{Config, Edge, ResolvedShape, Shape};
 use crate::shared::module::{
     ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell, set_module_fg,
 };
@@ -68,20 +68,20 @@ fn build_whole_bar(
     ctx: &ModuleCtx,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let Chrome { edge, shape, theme } = *chrome;
-    let spacing = shape.spacing as f32;
+    let spacing = shape.spacing;
     let mut slots = Vec::with_capacity(3);
     for (ids, justify) in zones {
         // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up.
         let items = build_items(config, ids, registry, ctx, Color::TRANSPARENT, 6.0)?;
         slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
     }
-    let radius = shape.radius as f32;
+    let radius = shape.radius;
     let style = axis(
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
             .height(SizeDimension::Percent(1.0))
             .align_items(AlignItems::CENTER)
-            .padding_all(shape.padding() as f32),
+            .padding_all(shape.padding()),
         edge,
     );
     Ok(Box::new(StyledContainer::new(
@@ -100,11 +100,11 @@ fn build_units(
     granularity: Granularity,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let Chrome { edge, shape, theme } = *chrome;
-    let spacing = shape.spacing as f32;
+    let spacing = shape.spacing;
     // Section: modules share a per-zone surface panel (wrapped in `unit`); Chip: each module is its own free-standing pill, no `unit`.
     let (rest, shell_radius) = match granularity {
         Granularity::Section => (Color::TRANSPARENT, 6.0),
-        Granularity::Chip => (theme.surface, shape.chip_radius() as f32),
+        Granularity::Chip => (theme.surface, shape.chip_radius()),
     };
     let mut slots = Vec::with_capacity(3);
     for (ids, justify) in zones {
@@ -114,7 +114,7 @@ fn build_units(
         } else {
             match granularity {
                 Granularity::Section => {
-                    vec![unit(edge, shape.radius as f32, spacing, theme.surface, items)?]
+                    vec![unit(edge, shape.radius, spacing, theme.surface, items)?]
                 }
                 // The shells already are the chips; place them directly.
                 Granularity::Chip => items,
@@ -213,10 +213,7 @@ fn build_items(
         let on_press: Option<Box<dyn Fn()>> = match def.and_then(|d| d.click) {
             Some(ModuleClick::Panel) => {
                 let id = id.clone();
-                match config.open_mode_for(&id) {
-                    OpenMode::Drawer => Some(Box::new(move || crate::toggle_drawer(&id))),
-                    OpenMode::Float => Some(Box::new(move || crate::toggle_float(&id))),
-                }
+                Some(Box::new(move || crate::toggle_panel(&id)))
             }
             Some(ModuleClick::Action(action)) => Some(Box::new(action)),
             None => None,
@@ -365,6 +362,7 @@ end = ["clock"]
             BarApp {
                 config: Arc::new(config),
                 edge,
+                output: None,
             },
             w,
             h,

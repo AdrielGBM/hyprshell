@@ -1,5 +1,5 @@
 [logic]
-use crate::modules::osd::{OsdKind, current_osd_kind};
+use crate::modules::osd::{OsdKind, current_osd_kind, current_osd_radius};
 use crate::shared::theme::NordTheme;
 use crate::shared::services::{brightness, volume};
 
@@ -37,10 +37,12 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
     }
 };
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);
-let icon = crate::icon_view(move || glyph.to_string(), move || osd_tint(dimmed), 24.0)?;
+let rad = current_osd_radius();
+let icon_sz = use_theme::<NordTheme>().icon_size;
+let icon = crate::icon_view(move || glyph.to_string(), move || osd_tint(dimmed), icon_sz)?;
 
 [view]
-box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100% height:100% fill:surface radius:16
+box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100% height:100% fill:surface radius:rad
     widget "icon"
     box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:3
         box width:fill_w height:TRACK_H fill:accent radius:3

@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use platform_layershell::request_close;
@@ -9,53 +7,37 @@ use rsx::{
 };
 
 use crate::modules::drawer::module_panel;
-use crate::shared::module::surface_env;
-use crate::shared::theme::NordTheme;
+use crate::shared::module::SurfaceEnv;
 
-const FLOAT_W: u32 = 360;
-const FLOAT_H: u32 = 240;
-
-thread_local! {
-    // Keyed by module id. Dropping a token closes its window; several named windows can be open at once.
-    static FLOAT_WINDOWS: RefCell<HashMap<String, SurfaceToken>> = RefCell::new(HashMap::new());
-}
-
-/// Toggles the floating window for `module_id`: opens as a centred, titled, closable window, or closes it if already open; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome.
-pub fn toggle_float(module_id: &str) {
-    let Some(env) = surface_env() else { return };
-    FLOAT_WINDOWS.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        let already_open = slot.get(module_id).is_some_and(|t| !t.is_closing());
-        slot.remove(module_id); // drops any existing token → closes that window
-        if !already_open {
-            let accent = NordTheme::new().accent_by_name(&env.config.theme.accent);
-            let title = module_id.to_string();
-            let module = module_id.to_string();
-            let placement = SurfacePlacement::float().size(SurfaceSize::Fixed(FLOAT_W, FLOAT_H));
-            let token = open_surface(
-                placement,
-                Box::new(move || {
-                    let theme = NordTheme {
-                        accent,
-                        ..NordTheme::new()
-                    };
-                    set_theme(theme);
-                    let body = module_panel(&module).expect("float panel build failed");
-                    let style = SurfaceFrameStyle {
-                        background: theme.surface,
-                        title_bar: theme.overlay,
-                        title_text: theme.text,
-                        close: theme.muted,
-                        radius: 14.0,
-                        font_size: 14.0,
-                    };
-                    let close: Rc<dyn Fn()> = Rc::new(request_close);
-                    surface_frame(title, style, close, body).expect("surface frame build failed")
-                }),
-            );
-            slot.insert(module_id.to_string(), token);
-        }
-    });
+/// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
+pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
+    let theme = env.config.resolve_theme();
+    let title = module_id.to_string();
+    let module = module_id.to_string();
+    let float = env.config.panels.float;
+    let radius = env.config.panel_radius(env.edge);
+    let placement = SurfacePlacement::float()
+        .size(SurfaceSize::Fixed(float.width, float.height))
+        .output(env.output.clone());
+    open_surface(
+        placement,
+        Box::new(move || {
+            set_theme(theme);
+            // So panel content that rounds to the bar radius (e.g. notification cards) matches inside the float too.
+            crate::modules::drawer::set_content_radius(radius);
+            let body = module_panel(&module).expect("float panel build failed");
+            let style = SurfaceFrameStyle {
+                background: theme.surface,
+                title_bar: theme.overlay,
+                title_text: theme.text,
+                close: theme.muted,
+                radius,
+                font_size: 14.0,
+            };
+            let close: Rc<dyn Fn()> = Rc::new(request_close);
+            surface_frame(title, style, close, body).expect("surface frame build failed")
+        }),
+    )
 }
 
 #[cfg(test)]

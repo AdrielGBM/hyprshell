@@ -16,6 +16,8 @@ pub struct SurfaceEnv {
     pub edge: Edge,
     /// The bar's thickness in px (height for top/bottom, width for left/right).
     pub bar_size: u32,
+    /// The monitor this bar lives on, so panels it opens (drawer/float/OSD) land on the same screen; `None` = the compositor's active/default output.
+    pub output: Option<String>,
     pub config: Arc<Config>,
 }
 
