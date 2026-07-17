@@ -1204,6 +1204,7 @@ name = "hyprshell"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "fontdb",
  "image",
  "platform-headless",
  "platform-layershell",

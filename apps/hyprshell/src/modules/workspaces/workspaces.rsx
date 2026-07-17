@@ -59,16 +59,18 @@ let workspace_ids =
 let vertical = crate::bar_is_vertical();
 // A stretched horizontal chip can't derive its width from its height, so size both sides to make a square.
 let side = crate::bar_thickness();
+// Pills round like the sibling chips instead of a fixed radius, so they follow the theme/`[shape]` radius.
+let rad = crate::chip_radius();
 let caption = use_theme::<NordTheme>().font(FontRole::Caption);
 
 [view]
 if vertical
     col align:center
         for id in $workspace_ids key *id gap:8
-            box fill:chip_fill($fill_src, id) radius:6 width:side height:side align:center justify:center on_press(|| focus(id))
+            box fill:chip_fill($fill_src, id) radius:rad width:side height:side align:center justify:center on_press(|| focus(id))
                 text "{id}" size:caption align:center color:chip_text($text_src, id)
 else
     row align:center
         for id in $workspace_ids key *id gap:8
-            box fill:chip_fill($fill_src, id) radius:6 width:side height:side align:center justify:center on_press(|| focus(id))
+            box fill:chip_fill($fill_src, id) radius:rad width:side height:side align:center justify:center on_press(|| focus(id))
                 text "{id}" size:caption align:center color:chip_text($text_src, id)

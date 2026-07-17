@@ -74,6 +74,13 @@ pub fn icon_px() -> f32 {
     (bar_thickness() * 0.75).round().clamp(8.0, 64.0)
 }
 
+/// The resolved chip corner radius for this bar (per-bar → `[shape]` → theme), so a self-managed module's inner elements (e.g. workspace pills) round like the sibling chips instead of a hardcoded value.
+pub fn chip_radius() -> f32 {
+    surface_env()
+        .map(|e| e.config.shape_for(e.edge).chip_radius())
+        .unwrap_or(0.0)
+}
+
 /// Chosen so the chip's width (icon ≈ 0.75·thickness + two of these ≈ 0.25·thickness) equals the bar thickness, so a chip stretched to the bar's height comes out square.
 fn chip_pad() -> f32 {
     (bar_thickness() * 0.125).round().max(1.0)

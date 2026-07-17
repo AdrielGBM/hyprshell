@@ -71,8 +71,8 @@ fn build_whole_bar(
     let spacing = shape.spacing;
     let mut slots = Vec::with_capacity(3);
     for (ids, justify) in zones {
-        // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up.
-        let items = build_items(config, ids, registry, ctx, Color::TRANSPARENT, 6.0)?;
+        // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up. The hover/press (and Filled) highlight rounds at the theme's chip radius, matching chip mode.
+        let items = build_items(config, ids, registry, ctx, Color::TRANSPARENT, shape.chip_radius())?;
         slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
     }
     let radius = shape.radius;
@@ -103,7 +103,7 @@ fn build_units(
     let spacing = shape.spacing;
     // Section: modules share a per-zone surface panel (wrapped in `unit`); Chip: each module is its own free-standing pill, no `unit`.
     let (rest, shell_radius) = match granularity {
-        Granularity::Section => (Color::TRANSPARENT, 6.0),
+        Granularity::Section => (Color::TRANSPARENT, shape.chip_radius()),
         Granularity::Chip => (theme.surface, shape.chip_radius()),
     };
     let mut slots = Vec::with_capacity(3);

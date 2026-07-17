@@ -9,10 +9,11 @@ use std::time::Duration;
 use platform_layershell::{EventSender, timeout, watch};
 use rsx::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
-    ReadSignal, RwSignal, SpinnerProps, Svg, SvgData, signal, spinner,
+    ReadSignal, RwSignal, SpinnerProps, Svg, SvgData, signal, spinner, use_theme,
 };
 
 use crate::shared::module::surface_env;
+use crate::shared::theme::NordTheme;
 
 /// A transient download failure (the shell often starts before the network is up at login) keeps the icon on its spinner and re-tries a bounded number of times, so icons self-heal once connectivity arrives without hammering the endpoint over a genuine 404.
 const MAX_ATTEMPTS: u32 = 8;
@@ -92,6 +93,7 @@ pub fn icon_view(
     tint: impl Fn() -> Color + Clone + 'static,
     size: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let icon_stroke = use_theme::<NordTheme>().icon_stroke;
     let source = move || vec![icon_state(&name())];
     let key = |state: &AssetState<Arc<SvgData>>| state.as_ready().map(|svg| svg.id());
     let build = move |state: AssetState<Arc<SvgData>>| -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -103,7 +105,8 @@ pub fn icon_view(
                     move || svg.clone(),
                     move || Some(tint()),
                     || ObjectFit::Contain,
-                )?;
+                )?
+                .with_stroke(move || icon_stroke);
                 Ok(Box::new(widget))
             }
             _ => spinner(SpinnerProps {

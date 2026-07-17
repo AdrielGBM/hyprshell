@@ -25,6 +25,8 @@ pub struct NordTheme {
     pub font_size: f32,
     /// Default size for a standalone icon (px), e.g. the OSD glyph. Bar chips derive their icon size from the bar thickness instead, so they scale with the bar.
     pub icon_size: f32,
+    /// Stroke width (SVG userspace units) forced on stroke-based icon glyphs, e.g. `1.5` to thin Lucide's default `2`. `None` keeps each glyph's own stroke. `[theme] icon_stroke` overrides it.
+    pub icon_stroke: Option<f32>,
     pub base: Color,
     pub surface: Color,
     pub overlay: Color,
@@ -64,6 +66,8 @@ impl NordTheme {
         match name {
             "nord" | "custom" => Self::nord(),
             "rose-pine" | "rose_pine" | "rosepine" => Self::rose_pine(),
+            "rose-pine-moon" | "rose_pine_moon" => Self::rose_pine_moon(),
+            "rose-pine-dawn" | "rose_pine_dawn" => Self::rose_pine_dawn(),
             other => {
                 tracing::warn!("unknown theme '{other}', falling back to nord");
                 Self::nord()
@@ -78,6 +82,18 @@ impl NordTheme {
                 name: "Rosé Pine",
                 author: "Rosé Pine",
                 description: "Soho vibes — a warm, low-contrast dark theme.",
+                version: "1.0.0",
+            },
+            "rose-pine-moon" | "rose_pine_moon" => ThemeMeta {
+                name: "Rosé Pine Moon",
+                author: "Rosé Pine",
+                description: "A softer, slightly brighter take on the dark theme.",
+                version: "1.0.0",
+            },
+            "rose-pine-dawn" | "rose_pine_dawn" => ThemeMeta {
+                name: "Rosé Pine Dawn",
+                author: "Rosé Pine",
+                description: "The light variant — warm parchment tones.",
                 version: "1.0.0",
             },
             _ => ThemeMeta {
@@ -101,6 +117,7 @@ impl NordTheme {
             spacing: 8.0,
             font_size: 14.0,
             icon_size: 24.0,
+            icon_stroke: None,
             base: Color::from_rgb_u8(25, 23, 36),
             surface: Color::from_rgb_u8(31, 29, 46),
             overlay: Color::from_rgb_u8(38, 35, 58),
@@ -126,6 +143,72 @@ impl NordTheme {
         }
     }
 
+    /// Rosé Pine Moon — the softer, slightly brighter sibling of the dark palette; shares Rosé Pine's metrics.
+    pub fn rose_pine_moon() -> Self {
+        Self {
+            radius: 10.0,
+            spacing: 8.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(35, 33, 54),
+            surface: Color::from_rgb_u8(42, 39, 63),
+            overlay: Color::from_rgb_u8(57, 53, 82),
+            muted: Color::from_rgb_u8(110, 106, 134),
+            subtle: Color::from_rgb_u8(144, 140, 170),
+            text: Color::from_rgb_u8(224, 222, 244),
+            accent: Color::from_rgb_u8(156, 207, 216),
+            blue: Color::from_rgb_u8(62, 143, 176),
+            cyan: Color::from_rgb_u8(156, 207, 216),
+            teal: Color::from_rgb_u8(62, 143, 176),
+            red: Color::from_rgb_u8(235, 111, 146),
+            orange: Color::from_rgb_u8(246, 193, 119),
+            yellow: Color::from_rgb_u8(246, 193, 119),
+            green: Color::from_rgb_u8(156, 207, 216),
+            purple: Color::from_rgb_u8(196, 167, 231),
+            success: Color::from_rgb_u8(62, 143, 176),
+            warning: Color::from_rgb_u8(246, 193, 119),
+            error: Color::from_rgb_u8(235, 111, 146),
+            info: Color::from_rgb_u8(62, 143, 176),
+            highlight_low: Color::from_rgb_u8(42, 40, 62),
+            highlight_med: Color::from_rgb_u8(68, 65, 90),
+            highlight_high: Color::from_rgb_u8(86, 82, 110),
+        }
+    }
+
+    /// Rosé Pine Dawn — the light variant, warm parchment tones; shares Rosé Pine's metrics.
+    pub fn rose_pine_dawn() -> Self {
+        Self {
+            radius: 10.0,
+            spacing: 8.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(250, 244, 237),
+            surface: Color::from_rgb_u8(255, 250, 243),
+            overlay: Color::from_rgb_u8(242, 233, 225),
+            muted: Color::from_rgb_u8(152, 147, 165),
+            subtle: Color::from_rgb_u8(121, 117, 147),
+            text: Color::from_rgb_u8(87, 82, 121),
+            accent: Color::from_rgb_u8(86, 148, 159),
+            blue: Color::from_rgb_u8(40, 105, 131),
+            cyan: Color::from_rgb_u8(86, 148, 159),
+            teal: Color::from_rgb_u8(40, 105, 131),
+            red: Color::from_rgb_u8(180, 99, 122),
+            orange: Color::from_rgb_u8(234, 157, 52),
+            yellow: Color::from_rgb_u8(234, 157, 52),
+            green: Color::from_rgb_u8(86, 148, 159),
+            purple: Color::from_rgb_u8(144, 122, 169),
+            success: Color::from_rgb_u8(40, 105, 131),
+            warning: Color::from_rgb_u8(234, 157, 52),
+            error: Color::from_rgb_u8(180, 99, 122),
+            info: Color::from_rgb_u8(40, 105, 131),
+            highlight_low: Color::from_rgb_u8(244, 237, 232),
+            highlight_med: Color::from_rgb_u8(223, 218, 217),
+            highlight_high: Color::from_rgb_u8(206, 202, 205),
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             // Match today's defaults so no config changes look; a theme is free to round more / space wider.
@@ -133,6 +216,7 @@ impl NordTheme {
             spacing: 6.0,
             font_size: 14.0,
             icon_size: 24.0,
+            icon_stroke: None,
             base: Color::from_rgb_u8(46, 52, 64),
             surface: Color::from_rgb_u8(59, 66, 82),
             overlay: Color::from_rgb_u8(67, 76, 94),
@@ -236,10 +320,21 @@ mod tests {
         // Rosé Pine is a different palette with its own metrics.
         assert_ne!(NordTheme::rose_pine().base, NordTheme::nord().base);
         assert_eq!(NordTheme::rose_pine().radius, 10.0);
+        // Moon and Dawn are their own palettes, distinct from the main Rosé Pine, sharing its metrics.
+        assert_eq!(NordTheme::named("rose-pine-moon").base, NordTheme::rose_pine_moon().base);
+        assert_eq!(NordTheme::named("rose-pine-dawn").base, NordTheme::rose_pine_dawn().base);
+        assert_ne!(NordTheme::rose_pine_moon().base, NordTheme::rose_pine().base);
+        assert_ne!(NordTheme::rose_pine_dawn().base, NordTheme::rose_pine().base);
+        assert_eq!(NordTheme::rose_pine_moon().radius, 10.0);
+        assert_eq!(NordTheme::rose_pine_dawn().radius, 10.0);
+        // Dawn is the light variant: a pale base under dark text (the reverse of the dark palettes).
+        assert_ne!(NordTheme::rose_pine_dawn().base, NordTheme::rose_pine_dawn().text);
         // "custom" and unknown names both fall back to nord (custom for config to override).
         assert_eq!(NordTheme::named("custom").base, NordTheme::nord().base);
         assert_eq!(NordTheme::named("does-not-exist").base, NordTheme::nord().base);
         assert_eq!(NordTheme::meta("rose-pine").name, "Rosé Pine");
+        assert_eq!(NordTheme::meta("rose-pine-moon").name, "Rosé Pine Moon");
+        assert_eq!(NordTheme::meta("rose-pine-dawn").name, "Rosé Pine Dawn");
         assert_eq!(NordTheme::meta("whatever").name, "Nord");
     }
 

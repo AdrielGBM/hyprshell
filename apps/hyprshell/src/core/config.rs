@@ -397,6 +397,10 @@ pub struct ThemeConfig {
     pub spacing: Option<u32>,
     pub font_size: Option<f32>,
     pub icon_size: Option<f32>,
+    /// Font family the whole shell renders in (must be installed). Unset keeps the renderer's default. Applied process-wide via [`rsx::set_default_font_family`], not carried in the (`Copy`) theme struct.
+    pub font_family: Option<String>,
+    /// Stroke width forced on stroke-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
+    pub icon_stroke: Option<f32>,
     pub colors: HashMap<String, String>,
 }
 
@@ -409,6 +413,8 @@ impl Default for ThemeConfig {
             spacing: None,
             font_size: None,
             icon_size: None,
+            font_family: None,
+            icon_stroke: None,
             colors: HashMap::new(),
         }
     }
@@ -498,6 +504,9 @@ impl Config {
         }
         if let Some(i) = t.icon_size {
             theme.icon_size = i;
+        }
+        if let Some(s) = t.icon_stroke {
+            theme.icon_stroke = Some(s);
         }
         for (name, hex) in &t.colors {
             match Color::from_hex(hex) {
@@ -762,6 +771,19 @@ end = ["battery", "volume"]
         assert_eq!(theme.text, NordTheme::new().text);
         // The [theme] number override also backs the shape resolution.
         assert_eq!(cfg.resolved_radius(Edge::Top), 12.0);
+    }
+
+    #[test]
+    fn theme_config_parses_font_family_and_icon_stroke() {
+        let cfg: Config =
+            toml::from_str("[theme]\nfont_family = \"JetBrains Mono\"\nicon_stroke = 1.5\n").unwrap();
+        // font_family stays in config (applied process-wide, not carried in the Copy theme struct).
+        assert_eq!(cfg.theme.font_family.as_deref(), Some("JetBrains Mono"));
+        // icon_stroke flows into the resolved theme so icon_view can read it.
+        assert_eq!(cfg.resolve_theme().icon_stroke, Some(1.5));
+        let bare: Config = toml::from_str("").unwrap();
+        assert_eq!(bare.theme.font_family, None);
+        assert_eq!(bare.resolve_theme().icon_stroke, None);
     }
 
     #[test]

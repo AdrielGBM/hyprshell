@@ -8,6 +8,7 @@ use rsx::{
 
 use crate::modules::drawer::module_panel;
 use crate::shared::module::SurfaceEnv;
+use crate::shared::theme::FontRole;
 
 /// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
@@ -32,7 +33,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
                 title_text: theme.text,
                 close: theme.muted,
                 radius,
-                font_size: 14.0,
+                font_size: theme.font(FontRole::Title),
             };
             let close: Rc<dyn Fn()> = Rc::new(request_close);
             surface_frame(title, style, close, body).expect("surface frame build failed")
@@ -42,7 +43,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
 
 #[cfg(test)]
 mod tests {
-    use crate::shared::theme::NordTheme;
+    use crate::shared::theme::{FontRole, NordTheme};
     use crate::test_support::{render_png, render_png_frames};
     use rsx::{
         App, Color, Component, LayoutStyle, RectStyle, StyledContainer, SurfaceFrameStyle,
@@ -72,7 +73,7 @@ mod tests {
                 title_text: theme.text,
                 close: theme.muted,
                 radius: 14.0,
-                font_size: 14.0,
+                font_size: theme.font(FontRole::Title),
             };
             let frame = surface_frame("Clock", style, std::rc::Rc::new(|| {}), body).unwrap();
             let root = SurfaceRoot::new(frame).expect("float surface root failed");

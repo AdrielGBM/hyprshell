@@ -65,8 +65,8 @@ pub use crate::modules::panel::toggle_panel;
 pub use crate::shared::icon::icon_view;
 pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
-    bar_thickness, default_registry, icon_px, module_fg, module_foreground, module_shell,
-    set_module_fg, set_surface_env, surface_env,
+    bar_thickness, chip_radius, default_registry, icon_px, module_fg, module_foreground,
+    module_shell, set_module_fg, set_surface_env, surface_env,
 };
 pub use crate::shared::theme::{FontRole, NordTheme, ThemeMeta};
 
@@ -198,6 +198,9 @@ pub fn run() {
     let config_path = Config::default_path();
     // Start the notification daemon and its popup surface once, before the reload loop, so they survive bar config reloads (§8 "persists across reloads").
     let initial = Arc::new(Config::load_or_default(&config_path));
+    // Process-wide so every surface — bars, drawers, popups, OSD — renders in the theme's font family.
+    // `run_once` re-applies (and warns) on every reload, so the popup host spawned here also gets it.
+    rsx::set_default_font_family(initial.theme.font_family.clone());
     crate::shared::services::notifications::init(
         Duration::from_millis(initial.notifications.timeout_ms),
         initial.notifications.critical_sticky,
@@ -216,6 +219,10 @@ pub fn run() {
 /// Runs until the reload flag flips (config changed), then returns so `run` rebuilds from fresh config.
 fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
     let config = Arc::new(Config::load_or_default(config_path));
+    // Re-apply on reload so a `[theme] font_family` change reaches the bars this run rebuilds; warn here (not
+    // just at process start) so editing the font name and reloading surfaces the mismatch, like the theme warn.
+    warn_if_font_missing(config.theme.font_family.as_deref());
+    rsx::set_default_font_family(config.theme.font_family.clone());
 
     let outputs = enumerate_outputs();
     if outputs.is_empty() {
@@ -331,6 +338,29 @@ fn spawn_config_watcher(path: PathBuf, reload: Arc<AtomicBool>) {
 
 fn config_mtime(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Logs whether a configured `[theme] font_family` resolves against the installed fonts. A wrong family name
+/// (e.g. `"Fira Code Nerd Font"` instead of the installed `"FiraCode Nerd Font"`) otherwise falls back to the
+/// default font silently; this turns that into a visible log line. The query mirrors the text shaper's own
+/// `FontSystem::new()` resolution, so a hit here means the shell will actually render in that family.
+fn warn_if_font_missing(family: Option<&str>) {
+    let Some(family) = family else { return };
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    let found = db
+        .query(&fontdb::Query {
+            families: &[fontdb::Family::Name(family)],
+            ..fontdb::Query::default()
+        })
+        .is_some();
+    if found {
+        tracing::info!("theme font_family '{family}' resolved");
+    } else {
+        tracing::warn!(
+            "theme font_family '{family}' is not installed; using the default font. List exact names with `fc-list : family`."
+        );
+    }
 }
 
 #[cfg(test)]
