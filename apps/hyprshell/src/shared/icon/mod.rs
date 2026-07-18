@@ -11,9 +11,13 @@ use rsx::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
     ReadSignal, RwSignal, SpinnerProps, Svg, SvgData, signal, spinner, use_theme,
 };
+use serde::Deserialize;
 
 use crate::shared::module::surface_env;
 use crate::shared::theme::NordTheme;
+
+mod picker;
+pub use picker::icon_picker_overlay;
 
 /// A transient download failure (the shell often starts before the network is up at login) keeps the icon on its spinner and re-tries a bounded number of times, so icons self-heal once connectivity arrives without hammering the endpoint over a genuine 404.
 const MAX_ATTEMPTS: u32 = 8;
@@ -116,6 +120,20 @@ pub fn icon_view(
         }
     };
     Ok(Box::new(ReactiveList::new(source, key, build)?))
+}
+
+/// Whether `name` has been requested from the icon store yet — i.e. some widget read it via [`icon_view`].
+/// Test-only, so a picker test can assert a cell actually became visible and asked for its glyph.
+#[cfg(test)]
+pub(crate) fn was_requested(name: &str) -> bool {
+    STORE.with(|s| {
+        let borrow = s.borrow();
+        let Some(store) = borrow.as_ref() else {
+            return false;
+        };
+        let id = IconId::parse(name, &store.default_set);
+        store.signals.borrow().contains_key(&id)
+    })
 }
 
 /// The current load state of `name`, subscribing the caller so it re-renders as the icon resolves. `name` is a bare glyph (`bell`) or a `set:name` for another Iconify set (`mdi:home`).
@@ -241,6 +259,102 @@ fn cache_dir() -> PathBuf {
     base.join("hyprshell").join("icons")
 }
 
+/// The state of loading an icon set from Iconify's `/collection` endpoint. `Ready` carries the set's
+/// `set:name` ids (ready for [`icon_view`]); `Unavailable` covers a provider that can't list icons (a 404) or
+/// a transport error — the picker shows a hint rather than failing. The picker filters `Ready` client-side.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CollectionState {
+    Loading,
+    Ready(Vec<String>),
+    Unavailable,
+}
+
+#[derive(Deserialize)]
+struct CollectionResponse {
+    #[serde(default)]
+    uncategorized: Vec<String>,
+    #[serde(default)]
+    categories: HashMap<String, Vec<String>>,
+}
+
+thread_local! {
+    // Per-surface cache: a set is fetched once, so reopening the picker reuses the loaded list instead of
+    // re-downloading it (and re-registering a worker) every time.
+    static COLLECTIONS: RefCell<HashMap<String, ReadSignal<CollectionState>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Loads icon set `set`'s full name list from the configured provider's `/collection` endpoint on a worker
+/// thread, returning a reactive [`CollectionState`] that advances from `Loading` to `Ready`/`Unavailable`.
+/// Cached per surface thread, so the set is fetched at most once.
+pub fn icon_collection(set: &str) -> ReadSignal<CollectionState> {
+    if let Some(existing) = COLLECTIONS.with(|c| c.borrow().get(set).cloned()) {
+        return existing;
+    }
+    let result = signal(CollectionState::Loading);
+    let read = result.read_only();
+    COLLECTIONS.with(|c| c.borrow_mut().insert(set.to_string(), read.clone()));
+
+    let provider = search_provider();
+    let set = set.to_string();
+    let setter = result.clone();
+    watch(
+        move |sender| {
+            let _ = sender.send(load_collection(&provider, &set));
+        },
+        move |state: CollectionState| setter.set(state),
+    );
+    read
+}
+
+fn search_provider() -> String {
+    surface_env()
+        .map(|e| e.config.icons.provider.clone())
+        .unwrap_or_else(|| "https://api.iconify.design".to_string())
+}
+
+fn load_collection(provider: &str, set: &str) -> CollectionState {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(15)))
+        .build()
+        .into();
+    let url = format!("{}/collection?prefix={}", provider.trim_end_matches('/'), set);
+    let body = match agent.get(&url).call() {
+        Ok(mut resp) => match resp.body_mut().read_to_string() {
+            Ok(body) => body,
+            Err(_) => return CollectionState::Unavailable,
+        },
+        // A 404 (provider that can't list icons) or any transport error: nothing to show.
+        Err(_) => return CollectionState::Unavailable,
+    };
+    match serde_json::from_str::<CollectionResponse>(&body) {
+        Ok(collection) => {
+            let ids = collection_ids(set, collection);
+            if ids.is_empty() {
+                CollectionState::Unavailable
+            } else {
+                CollectionState::Ready(ids)
+            }
+        }
+        Err(_) => CollectionState::Unavailable,
+    }
+}
+
+/// Flattens a `/collection` response (uncategorized plus every category) into a sorted, de-duplicated list of
+/// `set:name` ids.
+fn collection_ids(set: &str, collection: CollectionResponse) -> Vec<String> {
+    let mut names = collection.uncategorized;
+    for list in collection.categories.into_values() {
+        names.extend(list);
+    }
+    names.sort();
+    names.dedup();
+    names
+        .into_iter()
+        .map(|name| format!("{set}:{name}"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,6 +389,24 @@ mod tests {
         assert!(
             matches!(icon_state("bell"), AssetState::Loading),
             "with no event loop the icon has nothing to resolve from, so it stays on its spinner"
+        );
+    }
+
+    #[test]
+    fn collection_ids_flattens_prefixes_sorts_and_dedups() {
+        let response: CollectionResponse = serde_json::from_str(
+            r#"{"prefix":"lucide","uncategorized":["home","bell"],"categories":{"Arrows":["arrow-up","home"]}}"#,
+        )
+        .unwrap();
+        let ids = collection_ids("lucide", response);
+        // Uncategorized + every category, prefixed with the set, sorted, with the duplicate `home` removed.
+        assert_eq!(
+            ids,
+            vec![
+                "lucide:arrow-up".to_string(),
+                "lucide:bell".to_string(),
+                "lucide:home".to_string(),
+            ]
         );
     }
 }

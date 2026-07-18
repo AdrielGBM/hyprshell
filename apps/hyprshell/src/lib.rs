@@ -62,7 +62,7 @@ pub use crate::modules::bar::build_bar;
 pub use crate::modules::frame::FrameApp;
 pub use crate::modules::osd::OsdKind;
 pub use crate::modules::panel::toggle_panel;
-pub use crate::shared::icon::icon_view;
+pub use crate::shared::icon::{icon_picker_overlay, icon_view};
 pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
     bar_thickness, chip_radius, default_registry, icon_px, module_fg, module_foreground,
