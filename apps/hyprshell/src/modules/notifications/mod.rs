@@ -7,8 +7,8 @@ use platform_layershell::{
 };
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
-    LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList, ReadSignal, RectStyle,
-    SizeDimension, StyledContainer, Svg, Text, TextStyle, WindowConfig, box_item, memo,
+    LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList, ReadSignal, RectStyle, RichText,
+    SizeDimension, StyledContainer, Svg, Text, TextRun, TextStyle, WindowConfig, box_item, memo,
     reset_layout_runtime, set_theme, signal, use_theme,
 };
 
@@ -19,19 +19,21 @@ use crate::shared::module::surface_env;
 use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
 use crate::shared::theme::{FontRole, NordTheme};
 
-/// Flattens the freedesktop notification body's limited HTML markup to plain text: `<br>` becomes a newline,
-/// every other tag is dropped (keeping its inner text, and an `<img>`'s `alt`), then the entities are decoded.
-/// rsx `Text` renders a single style, so inline bold/italic/links can't be styled — this at least stops the
-/// raw tags from showing.
-fn plain_text(markup: &str) -> String {
-    let mut out = String::with_capacity(markup.len());
-    let mut chars = markup.chars().peekable();
+/// Parses the freedesktop notification body's limited HTML markup into styled runs for a [`RichText`]: `<b>`/
+/// `<strong>` bold, `<i>`/`<em>` italic, `<a href>` links (painted `link_color`), `<br>` a newline, and an
+/// `<img>`'s `alt` text. Each run carries its own weight/slant/colour; unknown tags are dropped, keeping their
+/// inner text, and entities are decoded per segment.
+fn body_runs(markup: &str, text_color: Color, link_color: Color) -> Vec<TextRun> {
+    let mut runs: Vec<TextRun> = Vec::new();
+    let mut current = String::new();
+    let (mut bold, mut italic, mut link) = (0i32, 0i32, 0i32);
+    let mut chars = markup.chars();
+
     while let Some(c) = chars.next() {
         if c != '<' {
-            out.push(c);
+            current.push(c);
             continue;
         }
-        // Read the whole tag.
         let mut tag = String::new();
         for t in chars.by_ref() {
             if t == '>' {
@@ -40,16 +42,64 @@ fn plain_text(markup: &str) -> String {
             tag.push(t);
         }
         let lower = tag.trim().to_ascii_lowercase();
+        // `<br>` and `<img>` don't change style: they stay within the current run.
         if lower == "br" || lower == "br/" || lower.starts_with("br ") {
-            out.push('\n');
-        } else if lower.starts_with("img")
-            && let Some(alt) = attr_value(&tag, "alt")
-        {
-            out.push_str(&alt);
+            current.push('\n');
+            continue;
         }
-        // All other tags (b, i, u, a, closing tags) are dropped, keeping their inner text.
+        if lower.starts_with("img") {
+            if let Some(alt) = attr_value(&tag, "alt") {
+                current.push_str(&alt);
+            }
+            continue;
+        }
+        // A style-changing tag ends the current run before the new style takes effect. `kind`: 0 bold, 1
+        // italic, 2 link — chosen so the counter can be bumped after the borrow of `current` ends.
+        let (kind, delta): (u8, i32) = match lower.as_str() {
+            "b" | "strong" => (0, 1),
+            "/b" | "/strong" => (0, -1),
+            "i" | "em" => (1, 1),
+            "/i" | "/em" => (1, -1),
+            "/a" => (2, -1),
+            _ if lower == "a" || lower.starts_with("a ") => (2, 1),
+            _ => continue,
+        };
+        push_run(&mut runs, &mut current, bold > 0, italic > 0, link > 0, text_color, link_color);
+        match kind {
+            0 => bold = (bold + delta).max(0),
+            1 => italic = (italic + delta).max(0),
+            _ => link = (link + delta).max(0),
+        }
     }
-    decode_entities(&out)
+    push_run(&mut runs, &mut current, bold > 0, italic > 0, link > 0, text_color, link_color);
+    runs
+}
+
+/// Flushes the accumulated segment as one [`TextRun`] with the active weight/slant/colour, decoding entities.
+#[allow(clippy::too_many_arguments)]
+fn push_run(
+    runs: &mut Vec<TextRun>,
+    current: &mut String,
+    bold: bool,
+    italic: bool,
+    link: bool,
+    text_color: Color,
+    link_color: Color,
+) {
+    if current.is_empty() {
+        return;
+    }
+    let text = decode_entities(current);
+    current.clear();
+    if text.is_empty() {
+        return;
+    }
+    runs.push(TextRun {
+        text: Arc::from(text.as_str()),
+        weight: if bold { 700 } else { 400 },
+        italic,
+        color: if link { link_color } else { text_color },
+    });
 }
 
 /// The value of `name="..."` (or `name='...'`) within a tag body, if present.
@@ -133,11 +183,11 @@ fn notification_card(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let accent = urgency_color(notification.urgency, &theme);
     let summary = notification.summary.clone();
-    let body = plain_text(&notification.body);
+    let body = body_runs(&notification.body, theme.muted, theme.accent);
 
     let leading = leading_visual(notification, accent)?;
 
-    let summary_text = Text::new(
+    let summary_text = Text::auto(
         move || summary.clone(),
         LayoutStyle::new(),
         move || {
@@ -150,7 +200,7 @@ fn notification_card(
 
     let mut column: Vec<Box<dyn LayoutItem>> = vec![Box::new(summary_text)];
     if !body.is_empty() {
-        let body_text = Text::auto(
+        let body_text = RichText::auto(
             move || body.clone(),
             LayoutStyle::new(),
             move || {
@@ -644,15 +694,28 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_strips_markup_and_decodes_entities() {
-        assert_eq!(plain_text("<b>Bold</b> &amp; <i>italic</i>"), "Bold & italic");
-        assert_eq!(plain_text("line1<br>line2"), "line1\nline2");
-        assert_eq!(plain_text(r#"<a href="http://x">click</a>"#), "click");
-        assert_eq!(plain_text(r#"<img src="a.png" alt="pic"/>"#), "pic");
-        assert_eq!(plain_text("&lt;tag&gt; &#65;&#x42;"), "<tag> AB");
-        assert_eq!(plain_text("plain"), "plain");
-        // A stray, unterminated entity is left as a literal ampersand.
-        assert_eq!(plain_text("Q&A"), "Q&A");
+    fn body_runs_parses_inline_markup_into_styled_runs() {
+        let text = Color::rgb(1.0, 1.0, 1.0);
+        let link = Color::rgb(0.0, 0.0, 1.0);
+
+        let runs = body_runs("<b>Bold</b> &amp; <i>italic</i>", text, link);
+        assert_eq!(runs.len(), 3);
+        assert_eq!((&*runs[0].text, runs[0].weight, runs[0].italic), ("Bold", 700, false));
+        assert_eq!((&*runs[1].text, runs[1].weight), (" & ", 400));
+        assert_eq!((&*runs[2].text, runs[2].italic), ("italic", true));
+
+        // A link carries the link colour; `<br>` stays within the run as a newline.
+        let linked = body_runs(r#"a <a href="http://x">click</a> b"#, text, link);
+        let click = linked.iter().find(|r| &*r.text == "click").unwrap();
+        assert_eq!(click.color.to_rgba8(), link.to_rgba8());
+
+        let br = body_runs("line1<br>line2", text, link);
+        assert_eq!((br.len(), &*br[0].text), (1, "line1\nline2"));
+
+        // `<img>` alt text, decoded entities, and unknown tags (kept inner, tag dropped).
+        assert_eq!(&*body_runs(r#"<img src="a.png" alt="pic"/>"#, text, link)[0].text, "pic");
+        assert_eq!(&*body_runs("&lt;tag&gt; &#65;&#x42;", text, link)[0].text, "<tag> AB");
+        assert_eq!(&*body_runs("Q&A", text, link)[0].text, "Q&A");
     }
 
     #[test]
