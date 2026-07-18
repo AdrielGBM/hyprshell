@@ -156,6 +156,7 @@ fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> Laye
         namespace: format!("hyprshell-{}", edge.as_str()),
         reserve_only: false,
         input_transparent: false,
+        interactive_input_region: false,
     }
 }
 
@@ -179,6 +180,7 @@ fn reservation_config_for(config: &Config, edge: Edge, output: Option<String>) -
         namespace: format!("hyprshell-reserve-{}", edge.as_str()),
         reserve_only: true,
         input_transparent: true,
+        interactive_input_region: false,
     }
 }
 
@@ -195,6 +197,7 @@ fn wallpaper_layer_config(output: Option<String>) -> LayerConfig {
         namespace: String::from("hyprshell-wallpaper"),
         reserve_only: false,
         input_transparent: true,
+        interactive_input_region: false,
     }
 }
 
@@ -211,6 +214,7 @@ fn frame_layer_config(output: Option<String>) -> LayerConfig {
         namespace: String::from("hyprshell-frame"),
         reserve_only: false,
         input_transparent: true,
+        interactive_input_region: false,
     }
 }
 

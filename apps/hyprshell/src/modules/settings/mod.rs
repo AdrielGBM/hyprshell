@@ -294,10 +294,12 @@ fn icons_section(
     let i = &config.icons;
     let provider = signal(i.provider.clone());
     let default_set = signal(i.default_set.clone());
+    let app_icon_theme = signal(i.app_icon_theme.clone());
 
     let rows = vec![
         text_field("Provider", provider.clone(), "https://api.iconify.design", theme)?,
         text_field("Default set", default_set.clone(), "lucide", theme)?,
+        text_field("App icon theme", app_icon_theme.clone(), "auto", theme)?,
     ];
 
     let path = path.to_path_buf();
@@ -305,6 +307,7 @@ fn icons_section(
         let value = IconsConfig {
             provider: provider.peek(),
             default_set: default_set.peek(),
+            app_icon_theme: app_icon_theme.peek(),
         };
         persist(&path, "icons", &value);
     })?;

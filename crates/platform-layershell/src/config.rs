@@ -14,6 +14,10 @@ pub struct LayerConfig {
     pub reserve_only: bool,
     /// Empty input region routes pointer/touch through to surfaces beneath.
     pub input_transparent: bool,
+    /// Carves the input region from the surface's interactive widgets each frame (via `rsx::interactive_rects`):
+    /// pointer input lands on pressable content, everything else falls through. For click-through overlays with
+    /// tappable parts, such as notification popups. Takes precedence over `input_transparent`.
+    pub interactive_input_region: bool,
 }
 
 impl Default for LayerConfig {
@@ -29,6 +33,7 @@ impl Default for LayerConfig {
             namespace: String::from("hyprshell"),
             reserve_only: false,
             input_transparent: false,
+            interactive_input_region: false,
         }
     }
 }

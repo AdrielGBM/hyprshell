@@ -399,6 +399,10 @@ impl NotificationsIface {
             .map(Urgency::from_hint)
             .unwrap_or(Urgency::Normal);
         let image = extract_image(&hints);
+        // freedesktop icon precedence for the card's leading visual: raw `image-data` (kept in `image`) wins,
+        // then the `image-path` hint, then the `app_icon` parameter. Folding image-path into `app_icon` lets
+        // the UI resolve a single reference — and, unlike the raw pixels, it persists into the history.
+        let app_icon = image_path_hint(&hints).unwrap_or(app_icon);
         let id = self.inner.push(
             Notification {
                 id: 0,
@@ -446,6 +450,18 @@ fn extract_image(hints: &HashMap<String, Value<'_>>) -> Option<NotificationImage
     ["image-data", "image_data", "icon_data"]
         .iter()
         .find_map(|key| hints.get(*key).and_then(image_from_hint))
+}
+
+/// The `image-path` hint (or its underscore variant): a file path, `file://` URI, or themed icon name for the
+/// notification's image. `None` if absent or empty.
+fn image_path_hint(hints: &HashMap<String, Value<'_>>) -> Option<String> {
+    ["image-path", "image_path"]
+        .iter()
+        .find_map(|key| match hints.get(*key) {
+            Some(Value::Str(s)) => Some(s.to_string()),
+            _ => None,
+        })
+        .filter(|s| !s.is_empty())
 }
 
 fn image_from_hint(value: &Value<'_>) -> Option<NotificationImage> {

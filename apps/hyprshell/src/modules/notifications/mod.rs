@@ -8,12 +8,14 @@ use platform_layershell::{
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList, ReadSignal, RectStyle,
-    SizeDimension, StyledContainer, Text, TextStyle, WindowConfig, box_item, memo,
+    SizeDimension, StyledContainer, Svg, Text, TextStyle, WindowConfig, box_item, memo,
     reset_layout_runtime, set_theme, signal, use_theme,
 };
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, Edge, NotificationsConfig};
+use crate::shared::icon::{AppIcon, resolve_app_icon};
+use crate::shared::module::surface_env;
 use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -126,7 +128,7 @@ fn notification_card(
     notification: &Notification,
     width: SizeDimension,
     theme: NordTheme,
-    dismissible: bool,
+    dismiss: Option<fn(u32)>,
     radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let accent = urgency_color(notification.urgency, &theme);
@@ -159,8 +161,9 @@ fn notification_card(
         )?;
         column.push(Box::new(body_text));
     }
-    // Action buttons only in the panel: popups are click-through, so their buttons wouldn't be tappable.
-    if dismissible && let Some(actions) = action_buttons(notification, theme)? {
+    // Shown wherever the card is interactive (the panel, and now popups via their carved input region): an
+    // action pill hit-tests before the card, so tapping one invokes it while tapping elsewhere dismisses.
+    if dismiss.is_some() && let Some(actions) = action_buttons(notification, theme)? {
         column.push(actions);
     }
     let text_column = Container::new(
@@ -182,14 +185,15 @@ fn notification_card(
         move |_| RectStyle::filled(theme.surface, radius),
         children,
     )?;
-    if dismissible {
+    if let Some(dismiss) = dismiss {
         let id = notification.id;
-        card = card.on_press(move || notifications::close(id));
+        card = card.on_press(move || dismiss(id));
     }
     Ok(Box::new(card))
 }
 
-/// The card's leading visual: the notification's own image when it carried one, else the urgency dot.
+/// The card's leading visual, in freedesktop priority: the notification's own raw image, then its resolved
+/// application icon, else the urgency dot.
 fn leading_visual(
     notification: &Notification,
     accent: Color,
@@ -204,12 +208,39 @@ fn leading_visual(
         )?;
         return Ok(Box::new(image));
     }
+    if let Some(icon) = app_icon_visual(&notification.app_icon)? {
+        return Ok(icon);
+    }
     let dot = StyledContainer::new(
         LayoutStyle::new().width(8.0).height(8.0).flex_shrink(0.0),
         move |_| RectStyle::filled(accent, 4.0),
         Vec::new(),
     )?;
     Ok(Box::new(dot))
+}
+
+/// The resolved application icon as a 36px visual — an untinted SVG (keeping the app's own colours) or its
+/// raster pixels — or `None` when the reference is empty or can't be resolved.
+fn app_icon_visual(reference: &str) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+    let Some(icon) = resolve_app_icon(reference) else {
+        return Ok(None);
+    };
+    let style = LayoutStyle::new().width(36.0).height(36.0).flex_shrink(0.0);
+    let widget: Box<dyn LayoutItem> = match icon {
+        AppIcon::Vector(svg) => Box::new(Svg::new(
+            style,
+            move || svg.clone(),
+            || None::<Color>,
+            || ObjectFit::Contain,
+        )?),
+        AppIcon::Raster(data) => Box::new(Image::new(
+            style,
+            move || data.clone(),
+            || ImageFilter::Linear,
+            || ObjectFit::Contain,
+        )?),
+    };
+    Ok(Some(widget))
 }
 
 /// A wrapping row of the notification's non-default actions, or `None` when it has none. Tapping one invokes
@@ -274,18 +305,17 @@ fn card_stack(
         move || visible(&snapshot.get(), &cfg)
     };
     let width = cfg.width;
-    let list = ReactiveList::new(
+    // The gap belongs on the list itself (it lays out the cards); a gap on a wrapper holding the single list
+    // node separates nothing. This spacing is also what falls through the popup's carved input region.
+    let list = ReactiveList::with_gap(
         source,
         |n: &Notification| n.id,
-        move |n: Notification| notification_card(&n, width.into(), theme, false, radius),
+        move |n: Notification| notification_card(&n, width.into(), theme, Some(notifications::expire), radius),
+        gap,
     )?;
     // No outer padding: the surface's layer margin (`Config::panel_margin`) already floats the stack off the
     // bar and edges, so the cards sit exactly the shared panel distance from the screen — same as a drawer.
-    let stack = Container::new(
-        LayoutStyle::new().flex_column().gap(gap),
-        vec![Box::new(list) as Box<dyn LayoutItem>],
-    )?;
-    Ok(Box::new(stack))
+    Ok(Box::new(list))
 }
 
 /// The popup surface content: subscribes to the daemon on this surface's thread and renders the live stack.
@@ -331,7 +361,7 @@ impl App for PopupApp {
     }
 }
 
-/// Layer-shell config for the popup surface: anchored per `[notifications] edge`/`align` (top-right by default), input-transparent so it never steals clicks from windows beneath, sized to hold `max_visible` cards. `margin` is the shared [`Config::panel_margin`](crate::Config), so the stack clears the bar by the same distance as a drawer or OSD.
+/// Layer-shell config for the popup surface: anchored per `[notifications] edge`/`align` (top-right by default), sized to hold `max_visible` cards. Its input region is carved from the cards (`interactive_input_region`), so a tap dismisses a popup while the gaps around them fall through to windows beneath. `margin` is the shared [`Config::panel_margin`](crate::Config), so the stack clears the bar by the same distance as a drawer or OSD.
 fn popup_layer_config(
     cfg: &NotificationsConfig,
     margin: (i32, i32, i32, i32),
@@ -349,7 +379,8 @@ fn popup_layer_config(
         keyboard_interactivity: KeyboardInteractivity::None,
         namespace: "hyprshell-notifications".to_string(),
         reserve_only: false,
-        input_transparent: true,
+        input_transparent: false,
+        interactive_input_region: true,
     }
 }
 
@@ -495,8 +526,10 @@ pub fn bell_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
 
     // The cards sit inside the panel (drawer or float), so they carry its (bar-matching) radius.
     let radius = crate::modules::drawer::content_radius();
+    // Same `[notifications] gap` that spaces the popup stack, so history and popups look consistent.
+    let gap = surface_env().map_or(8.0, |env| env.config.notifications.gap);
     let header = panel_header(read.clone(), theme)?;
-    let list = history_list(read, theme, radius)?;
+    let list = history_list(read, theme, radius, gap)?;
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
@@ -572,21 +605,26 @@ fn history_list(
     read: ReadSignal<SharedSnapshot>,
     theme: NordTheme,
     radius: f32,
+    gap: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let source = move || {
         let mut list = read.get().active.clone();
         list.reverse();
         list
     };
-    let list = ReactiveList::new(
+    // Gap on the list itself (which lays the cards out); the wrapper only pins the full width so the
+    // percent-width cards resolve against it.
+    let list = ReactiveList::with_gap(
         source,
         |n: &Notification| n.id,
-        move |n: Notification| notification_card(&n, SizeDimension::Percent(1.0), theme, true, radius),
+        move |n: Notification| {
+            notification_card(&n, SizeDimension::Percent(1.0), theme, Some(notifications::close), radius)
+        },
+        gap,
     )?;
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(list) as Box<dyn LayoutItem>],
     )?;
@@ -718,7 +756,7 @@ mod tests {
             let signal = signal(Arc::new(self.snapshot.clone()));
             let read = signal.read_only();
             let header = panel_header(read.clone(), self.theme).expect("header");
-            let list = history_list(read, self.theme, 12.0).expect("list");
+            let list = history_list(read, self.theme, 12.0, 8.0).expect("list");
             let panel = Container::new(
                 LayoutStyle::new()
                     .flex_column()

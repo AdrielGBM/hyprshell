@@ -341,7 +341,9 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     layer.set_margin(mt, mr, mb, ml);
     layer.set_keyboard_interactivity(config.keyboard_interactivity);
     layer.wl_surface().set_buffer_scale(state.scale);
-    if config.input_transparent
+    // A fully click-through surface, and an interactive-region one before its first frame computes its rects,
+    // both start with an empty input region so they never steal clicks from windows beneath.
+    if (config.input_transparent || config.interactive_input_region)
         && let Ok(region) = Region::new(&compositor)
     {
         layer
@@ -395,6 +397,7 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     }
 
     let mut timeout: Option<Duration> = None;
+    let mut input_region: Vec<(i32, i32, i32, i32)> = Vec::new();
     loop {
         handler.new_events();
         if event_loop.dispatch(timeout, &mut state).is_err() {
@@ -406,12 +409,53 @@ fn run_surface<H: EventHandler<LayerWindow>>(
         // Gated internally by tree-dirty / keepalive; `needs_redraw` is advisory (a ping/input woke us).
         state.needs_redraw = false;
         handler.on_redraw(&window);
+        // The frame just laid the tree out, so the interactive rects are current: refresh the carved input
+        // region to match (a no-op commit when unchanged).
+        if config.interactive_input_region {
+            update_input_region(&compositor, &layer, &mut input_region);
+        }
         timeout = handler.about_to_wait();
         if state.exit {
             break;
         }
     }
     handler.on_suspend();
+}
+
+/// Rebuilds the surface's input region from [`rsx::interactive_rects`] — the laid-out pressable widgets, in
+/// logical surface coordinates — committing only when the set changed (`last` is the previously applied set,
+/// sorted so a reordered read isn't mistaken for a change). An empty set yields an empty region, i.e. fully
+/// click-through, so an overlay with no interactive content never blocks the windows beneath.
+fn update_input_region(
+    compositor: &CompositorState,
+    layer: &LayerSurface,
+    last: &mut Vec<(i32, i32, i32, i32)>,
+) {
+    let mut rects: Vec<(i32, i32, i32, i32)> = rsx::interactive_rects()
+        .into_iter()
+        .map(|r| {
+            let x = r.x.floor() as i32;
+            let y = r.y.floor() as i32;
+            let right = (r.x + r.width).ceil() as i32;
+            let bottom = (r.y + r.height).ceil() as i32;
+            (x, y, right - x, bottom - y)
+        })
+        .collect();
+    rects.sort_unstable();
+    if rects == *last {
+        return;
+    }
+    let Ok(region) = Region::new(compositor) else {
+        return;
+    };
+    for (x, y, w, h) in &rects {
+        region.add(*x, *y, *w, *h);
+    }
+    layer
+        .wl_surface()
+        .set_input_region(Some(region.wl_region()));
+    layer.wl_surface().commit();
+    *last = rects;
 }
 
 /// Commits a fully-transparent shm buffer sized to the configured surface to hold its exclusive_zone.
@@ -604,6 +648,7 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
             namespace,
             reserve_only: false,
             input_transparent: false,
+            interactive_input_region: false,
         }
     } else {
         let size = match placement.size {
@@ -621,6 +666,7 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
             namespace,
             reserve_only: false,
             input_transparent: placement.input_transparent,
+            interactive_input_region: false,
         }
     }
 }

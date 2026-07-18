@@ -16,7 +16,9 @@ use serde::Deserialize;
 use crate::shared::module::surface_env;
 use crate::shared::theme::NordTheme;
 
+mod freedesktop;
 mod picker;
+pub use freedesktop::{AppIcon, resolve_app_icon};
 pub use picker::icon_picker_overlay;
 
 /// A transient download failure (the shell often starts before the network is up at login) keeps the icon on its spinner and re-tries a bounded number of times, so icons self-heal once connectivity arrives without hammering the endpoint over a genuine 404.
