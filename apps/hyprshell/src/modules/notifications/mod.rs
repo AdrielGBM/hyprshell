@@ -6,15 +6,100 @@ use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface,
 };
 use rsx::{
-    AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
-    LayoutStyle, ReactiveList, ReadSignal, RectStyle, SizeDimension, StyledContainer, Text,
-    TextStyle, WindowConfig, memo, reset_layout_runtime, set_theme, signal, use_theme,
+    AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
+    LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList, ReadSignal, RectStyle,
+    SizeDimension, StyledContainer, Text, TextStyle, WindowConfig, box_item, memo,
+    reset_layout_runtime, set_theme, signal, use_theme,
 };
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, Edge, NotificationsConfig};
 use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
 use crate::shared::theme::{FontRole, NordTheme};
+
+/// Flattens the freedesktop notification body's limited HTML markup to plain text: `<br>` becomes a newline,
+/// every other tag is dropped (keeping its inner text, and an `<img>`'s `alt`), then the entities are decoded.
+/// rsx `Text` renders a single style, so inline bold/italic/links can't be styled — this at least stops the
+/// raw tags from showing.
+fn plain_text(markup: &str) -> String {
+    let mut out = String::with_capacity(markup.len());
+    let mut chars = markup.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '<' {
+            out.push(c);
+            continue;
+        }
+        // Read the whole tag.
+        let mut tag = String::new();
+        for t in chars.by_ref() {
+            if t == '>' {
+                break;
+            }
+            tag.push(t);
+        }
+        let lower = tag.trim().to_ascii_lowercase();
+        if lower == "br" || lower == "br/" || lower.starts_with("br ") {
+            out.push('\n');
+        } else if lower.starts_with("img")
+            && let Some(alt) = attr_value(&tag, "alt")
+        {
+            out.push_str(&alt);
+        }
+        // All other tags (b, i, u, a, closing tags) are dropped, keeping their inner text.
+    }
+    decode_entities(&out)
+}
+
+/// The value of `name="..."` (or `name='...'`) within a tag body, if present.
+fn attr_value(tag: &str, name: &str) -> Option<String> {
+    let start = tag.find(&format!("{name}="))? + name.len() + 1;
+    let rest = &tag[start..];
+    let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    let end = rest[1..].find(quote)?;
+    Some(rest[1..1 + end].to_string())
+}
+
+fn decode_entities(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let after = &rest[amp..];
+        let Some(semi) = after.find(';').filter(|&s| s <= 8) else {
+            out.push('&');
+            rest = &after[1..];
+            continue;
+        };
+        let entity = &after[1..semi];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            _ => entity
+                .strip_prefix('#')
+                .and_then(|n| {
+                    n.strip_prefix('x')
+                        .and_then(|h| u32::from_str_radix(h, 16).ok())
+                        .or_else(|| n.parse().ok())
+                })
+                .and_then(char::from_u32),
+        };
+        match decoded {
+            Some(ch) => {
+                out.push(ch);
+                rest = &after[semi + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &after[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
 
 fn urgency_color(urgency: Urgency, theme: &NordTheme) -> Color {
     match urgency {
@@ -29,7 +114,8 @@ fn visible(snapshot: &Snapshot, cfg: &NotificationsConfig) -> Vec<Notification> 
     if snapshot.dnd {
         return Vec::new();
     }
-    let mut list = snapshot.active.clone();
+    // Only fresh arrivals pop up; notifications restored from persisted history stay in the panel, unpopped.
+    let mut list: Vec<Notification> = snapshot.active.iter().filter(|n| n.popup).cloned().collect();
     list.reverse();
     list.sort_by_key(|n| u8::from(n.urgency != Urgency::Critical));
     list.truncate(cfg.max_visible.max(1) as usize);
@@ -45,13 +131,9 @@ fn notification_card(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let accent = urgency_color(notification.urgency, &theme);
     let summary = notification.summary.clone();
-    let body = notification.body.clone();
+    let body = plain_text(&notification.body);
 
-    let dot = StyledContainer::new(
-        LayoutStyle::new().width(8.0).height(8.0),
-        move |_| RectStyle::filled(accent, 4.0),
-        Vec::new(),
-    )?;
+    let leading = leading_visual(notification, accent)?;
 
     let summary_text = Text::new(
         move || summary.clone(),
@@ -65,7 +147,7 @@ fn notification_card(
     )?;
 
     let mut column: Vec<Box<dyn LayoutItem>> = vec![Box::new(summary_text)];
-    if !notification.body.is_empty() {
+    if !body.is_empty() {
         let body_text = Text::auto(
             move || body.clone(),
             LayoutStyle::new(),
@@ -77,6 +159,10 @@ fn notification_card(
         )?;
         column.push(Box::new(body_text));
     }
+    // Action buttons only in the panel: popups are click-through, so their buttons wouldn't be tappable.
+    if dismissible && let Some(actions) = action_buttons(notification, theme)? {
+        column.push(actions);
+    }
     let text_column = Container::new(
         LayoutStyle::new()
             .flex_column()
@@ -86,7 +172,7 @@ fn notification_card(
         column,
     )?;
 
-    let children: Vec<Box<dyn LayoutItem>> = vec![Box::new(dot), Box::new(text_column)];
+    let children: Vec<Box<dyn LayoutItem>> = vec![leading, Box::new(text_column)];
     let mut card = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
@@ -101,6 +187,78 @@ fn notification_card(
         card = card.on_press(move || notifications::close(id));
     }
     Ok(Box::new(card))
+}
+
+/// The card's leading visual: the notification's own image when it carried one, else the urgency dot.
+fn leading_visual(
+    notification: &Notification,
+    accent: Color,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    if let Some(img) = &notification.image {
+        let data = Arc::new(ImageData::new(img.rgba.clone(), img.width, img.height));
+        let image = Image::new(
+            LayoutStyle::new().width(36.0).height(36.0).flex_shrink(0.0),
+            move || data.clone(),
+            || ImageFilter::Linear,
+            || ObjectFit::Cover,
+        )?;
+        return Ok(Box::new(image));
+    }
+    let dot = StyledContainer::new(
+        LayoutStyle::new().width(8.0).height(8.0).flex_shrink(0.0),
+        move |_| RectStyle::filled(accent, 4.0),
+        Vec::new(),
+    )?;
+    Ok(Box::new(dot))
+}
+
+/// A wrapping row of the notification's non-default actions, or `None` when it has none. Tapping one invokes
+/// it (emitting `ActionInvoked`) and closes the notification.
+fn action_buttons(
+    notification: &Notification,
+    theme: NordTheme,
+) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+    let buttons: Vec<Box<dyn LayoutItem>> = notification
+        .actions
+        .chunks_exact(2)
+        .filter(|pair| pair[0] != "default")
+        .map(|pair| action_pill(notification.id, pair[0].clone(), pair[1].clone(), theme))
+        .collect::<Result<_, _>>()?;
+    if buttons.is_empty() {
+        return Ok(None);
+    }
+    let row = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .width(SizeDimension::Percent(1.0)),
+        buttons,
+    )?;
+    Ok(Some(Box::new(row)))
+}
+
+fn action_pill(
+    id: u32,
+    key: String,
+    label: String,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let text = Text::auto(
+        move || label.clone(),
+        LayoutStyle::new(),
+        move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
+    )?;
+    let pill = StyledContainer::new(
+        LayoutStyle::new()
+            .padding_horizontal(10.0)
+            .padding_vertical(4.0),
+        move |_| RectStyle::filled(theme.overlay, 8.0),
+        vec![box_item(text)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay.darken(0.12), 8.0))
+    .on_press(move || notifications::invoke_action(id, &key));
+    Ok(Box::new(pill))
 }
 
 /// Builds the reactive card stack from a snapshot signal. Split out so tests can drive it with a fixed snapshot instead of a live subscription.
@@ -448,6 +606,18 @@ mod tests {
     }
 
     #[test]
+    fn plain_text_strips_markup_and_decodes_entities() {
+        assert_eq!(plain_text("<b>Bold</b> &amp; <i>italic</i>"), "Bold & italic");
+        assert_eq!(plain_text("line1<br>line2"), "line1\nline2");
+        assert_eq!(plain_text(r#"<a href="http://x">click</a>"#), "click");
+        assert_eq!(plain_text(r#"<img src="a.png" alt="pic"/>"#), "pic");
+        assert_eq!(plain_text("&lt;tag&gt; &#65;&#x42;"), "<tag> AB");
+        assert_eq!(plain_text("plain"), "plain");
+        // A stray, unterminated entity is left as a literal ampersand.
+        assert_eq!(plain_text("Q&A"), "Q&A");
+    }
+
+    #[test]
     fn dnd_hides_everything_and_max_visible_caps_the_rest() {
         let mk = |id: u32, urgency: Urgency| Notification {
             id,
@@ -457,6 +627,8 @@ mod tests {
             body: String::new(),
             actions: Vec::new(),
             urgency,
+            popup: true,
+            image: None,
         };
         let cfg = NotificationsConfig {
             max_visible: 2,
@@ -481,6 +653,31 @@ mod tests {
             ..snap
         };
         assert!(visible(&dnd, &cfg).is_empty(), "DND suppresses all popups");
+    }
+
+    #[test]
+    fn restored_history_stays_in_the_panel_and_never_pops_up() {
+        let mk = |id: u32, popup: bool| Notification {
+            id,
+            app_name: "a".into(),
+            app_icon: String::new(),
+            summary: format!("n{id}"),
+            body: String::new(),
+            actions: Vec::new(),
+            urgency: Urgency::Normal,
+            popup,
+            image: None,
+        };
+        // One restored (non-popping) and one fresh notification: only the fresh one becomes a popup, while the
+        // history panel (which reads all of `active`) still holds both.
+        let snap = Snapshot {
+            active: vec![mk(1, false), mk(2, true)],
+            unread: 1,
+            dnd: false,
+        };
+        let shown = visible(&snap, &NotificationsConfig::default());
+        assert_eq!(shown.len(), 1, "only the fresh notification pops up");
+        assert_eq!(shown[0].id, 2);
     }
 
     struct PreviewApp {
@@ -553,10 +750,15 @@ mod tests {
             body: body.into(),
             actions: Vec::new(),
             urgency,
+            popup: true,
+            image: None,
         };
         Snapshot {
             active: vec![
-                mk(1, "Slack", "Ada Lovelace", "Are we still on for the review at 3?", Urgency::Normal),
+                Notification {
+                    actions: vec!["reply".into(), "Reply".into(), "archive".into(), "Archive".into()],
+                    ..mk(1, "Slack", "Ada Lovelace", "Still on for the review at <b>3pm</b>? &amp; bring notes", Urgency::Normal)
+                },
                 mk(2, "Battery", "Battery low", "12% remaining — plug in soon.", Urgency::Critical),
                 mk(3, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
             ],
@@ -598,6 +800,8 @@ mod tests {
             body: body.into(),
             actions: Vec::new(),
             urgency,
+            popup: true,
+            image: None,
         };
         let snapshot = Snapshot {
             active: vec![
