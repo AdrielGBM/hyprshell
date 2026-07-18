@@ -31,6 +31,7 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
     match module {
         "clock" => crate::clock_panel(),
         "notifications" => crate::modules::notifications::bell_panel(),
+        "notes" => crate::notes_panel(),
         other => {
             tracing::warn!("no panel registered for module '{other}'");
             crate::clock_panel()
@@ -90,6 +91,7 @@ pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let placement = SurfacePlacement::drawer(anchor_for(env.edge))
         .align(align_for(env.config.zone_of(env.edge, module_id)))
         .margin(env.config.panel_margin(env.edge))
+        .keyboard(true)
         .output(env.output.clone());
     let module = module_id.to_string();
     let drawer = env.config.panels.drawer;

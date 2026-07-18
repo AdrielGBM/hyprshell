@@ -60,6 +60,7 @@ pub use crate::core::config::{
 };
 pub use crate::modules::bar::build_bar;
 pub use crate::modules::frame::FrameApp;
+pub use crate::modules::notes::{notes_chip, notes_panel};
 pub use crate::modules::osd::OsdKind;
 pub use crate::modules::panel::toggle_panel;
 pub use crate::shared::icon::{icon_picker_overlay, icon_view};

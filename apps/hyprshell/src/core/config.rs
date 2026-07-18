@@ -429,7 +429,7 @@ impl Config {
                     size: 34,
                     start: vec!["workspaces".to_string()],
                     center: vec!["clock".to_string()],
-                    end: Vec::new(),
+                    end: vec!["notes".to_string()],
                     shape: BarShape::default(),
                 },
                 ..BarsConfig::default()

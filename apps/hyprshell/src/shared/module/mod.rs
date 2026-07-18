@@ -276,5 +276,9 @@ pub fn default_registry() -> ModuleRegistry {
         "notifications",
         ModuleDef::new(|_ctx| crate::modules::notifications::bell_module()).opens(),
     );
+    registry.register(
+        "notes",
+        ModuleDef::new(|_ctx| crate::notes_chip()).icon().opens(),
+    );
     registry
 }

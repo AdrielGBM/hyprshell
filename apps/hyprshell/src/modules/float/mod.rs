@@ -19,6 +19,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let radius = env.config.panel_radius(env.edge);
     let placement = SurfacePlacement::float()
         .size(SurfaceSize::Fixed(float.width, float.height))
+        .keyboard(true)
         .output(env.output.clone());
     open_surface(
         placement,
