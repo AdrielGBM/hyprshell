@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use rsx::Color;
 use serde::{Deserialize, Serialize};
+use toml_edit::{DocumentMut, Item};
 
 use crate::shared::theme::NordTheme;
 
@@ -679,11 +680,83 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from(".config"));
         base.join("hyprshell").join("config.toml")
     }
+
+    /// Persists a single `[name]` section back to `config.toml`, replacing just that table while preserving every other section, key order, and comment in the file (format-preserving via `toml_edit`). `value` is a section struct such as [`ThemeConfig`]. Creates the file and its parent directory if missing. The running shell's config watcher then hot-reloads the change, so a save applies live.
+    pub fn save_section<T: Serialize>(path: &Path, name: &str, value: &T) -> Result<(), SaveError> {
+        let mut doc = std::fs::read_to_string(path)
+            .unwrap_or_default()
+            .parse::<DocumentMut>()
+            .map_err(SaveError::Parse)?;
+        let rendered = toml::to_string(value).map_err(SaveError::Serialize)?;
+        let section = rendered.parse::<DocumentMut>().map_err(SaveError::Parse)?;
+        let mut table = section.as_table().clone();
+        // Carry over the existing header's decor (its leading comment) so replacing the table keeps the section's surrounding comments, not just its values.
+        if let Some(existing) = doc.get(name).and_then(Item::as_table) {
+            *table.decor_mut() = existing.decor().clone();
+        }
+        doc.insert(name, Item::Table(table));
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(SaveError::Io)?;
+        }
+        std::fs::write(path, doc.to_string()).map_err(SaveError::Io)
+    }
 }
+
+/// Why persisting a config section failed.
+#[derive(Debug)]
+pub enum SaveError {
+    Serialize(toml::ser::Error),
+    Parse(toml_edit::TomlError),
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SaveError::Serialize(e) => write!(f, "serializing config section: {e}"),
+            SaveError::Parse(e) => write!(f, "parsing config file: {e}"),
+            SaveError::Io(e) => write!(f, "writing config file: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SaveError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_section_replaces_one_table_and_preserves_the_rest() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "# hand-written\n[theme]\nname = \"nord\"\naccent = \"cyan\"\n\n[icons]\ndefault_set = \"lucide\"\n",
+        )
+        .unwrap();
+
+        let theme = ThemeConfig {
+            accent: "orange".to_string(),
+            ..ThemeConfig::default()
+        };
+        Config::save_section(&path, "theme", &theme).unwrap();
+
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("# hand-written"), "top comment survives");
+        assert!(
+            out.contains("[icons]") && out.contains("lucide"),
+            "the untouched section survives"
+        );
+        let reloaded: Config = toml::from_str(&out).unwrap();
+        assert_eq!(reloaded.theme.accent, "orange", "the edited value persisted");
+        assert_eq!(
+            reloaded.icons.default_set, "lucide",
+            "the other section round-trips"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn starter_shows_only_a_top_bar() {

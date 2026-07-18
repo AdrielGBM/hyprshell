@@ -288,5 +288,11 @@ pub fn default_registry() -> ModuleRegistry {
         "notes",
         ModuleDef::new(|_ctx| crate::notes_chip()).icon().opens(),
     );
+    registry.register(
+        "settings",
+        ModuleDef::new(|_ctx| crate::modules::settings::settings_chip())
+            .icon()
+            .opens(),
+    );
     registry
 }
