@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use rsx::{
     App, AppConfig, AppPathsProvider, Color, Component, Event, EventHandler, Key, ModifiersState,
-    MultiSurfacePlatform, Platform, PlatformError, PointerButton, PointerSource, ScrollDelta,
-    SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
-    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig,
-    reset_layout_runtime, run_with_platform, set_surface_host,
+    MultiSurfacePlatform, NamedKey, Platform, PlatformError, PointerButton, PointerSource,
+    ScrollDelta, SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId,
+    SurfacePlacement, SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken,
+    WindowConfig, reset_layout_runtime, run_with_platform, set_surface_host,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -582,6 +582,13 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
         SurfaceRole::Float => "hyprshell-float",
     }
     .to_string();
+    // `on-demand` lets the compositor grant keyboard focus on interaction (e.g. a click) for panels that
+    // host editable text, without seizing it like `exclusive` would; display-only panels stay `none`.
+    let keyboard_interactivity = if placement.wants_keyboard {
+        KeyboardInteractivity::OnDemand
+    } else {
+        KeyboardInteractivity::None
+    };
     if placement.needs_scaffold() {
         LayerConfig {
             output: placement.output.clone(),
@@ -593,7 +600,7 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
             exclusive_zone: 0,
             size: (0, 0),
             margin: (0, 0, 0, 0),
-            keyboard_interactivity: KeyboardInteractivity::None,
+            keyboard_interactivity,
             namespace,
             reserve_only: false,
             input_transparent: false,
@@ -610,7 +617,7 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
             exclusive_zone: 0,
             size,
             margin: placement.margin,
-            keyboard_interactivity: KeyboardInteractivity::None,
+            keyboard_interactivity,
             namespace,
             reserve_only: false,
             input_transparent: placement.input_transparent,
@@ -694,11 +701,39 @@ fn map_button(code: u32) -> Option<PointerButton> {
 }
 
 fn map_key(event: &KeyEvent) -> Option<Key> {
+    // Editing keys carry a control-char `utf8` (or none), so they must be resolved from the keysym — the
+    // printable `utf8` path below drops them.
+    if let Some(named) = named_from_keysym(event.keysym) {
+        return Some(Key::Named(named));
+    }
+    // Printable characters: take the resolved UTF-8, dropping any remaining control char.
     let ch = event.utf8.as_deref()?.chars().next()?;
     if ch.is_control() {
         return None;
     }
     Some(Key::Char(ch))
+}
+
+/// Maps an xkb keysym to the editing/navigation [`NamedKey`] it represents, or `None` for keys that carry
+/// their own printable character. Mirrors platform-winit's named-key mapping, over xkb keysyms.
+fn named_from_keysym(keysym: Keysym) -> Option<NamedKey> {
+    match keysym {
+        Keysym::Return | Keysym::KP_Enter => Some(NamedKey::Enter),
+        Keysym::BackSpace => Some(NamedKey::Backspace),
+        Keysym::Escape => Some(NamedKey::Escape),
+        Keysym::Tab | Keysym::ISO_Left_Tab => Some(NamedKey::Tab),
+        Keysym::Delete => Some(NamedKey::Delete),
+        Keysym::Left => Some(NamedKey::ArrowLeft),
+        Keysym::Right => Some(NamedKey::ArrowRight),
+        Keysym::Up => Some(NamedKey::ArrowUp),
+        Keysym::Down => Some(NamedKey::ArrowDown),
+        Keysym::Home => Some(NamedKey::Home),
+        Keysym::End => Some(NamedKey::End),
+        Keysym::Page_Up => Some(NamedKey::PageUp),
+        Keysym::Page_Down => Some(NamedKey::PageDown),
+        Keysym::Insert => Some(NamedKey::Insert),
+        _ => None,
+    }
 }
 
 impl CompositorHandler for SurfaceState {
@@ -1066,4 +1101,28 @@ pub fn enumerate_outputs() -> Vec<OutputDescriptor> {
             scale: info.scale_factor,
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editing_keysyms_map_to_named_keys() {
+        assert_eq!(named_from_keysym(Keysym::Return), Some(NamedKey::Enter));
+        assert_eq!(named_from_keysym(Keysym::KP_Enter), Some(NamedKey::Enter));
+        assert_eq!(
+            named_from_keysym(Keysym::BackSpace),
+            Some(NamedKey::Backspace)
+        );
+        assert_eq!(named_from_keysym(Keysym::Escape), Some(NamedKey::Escape));
+        assert_eq!(named_from_keysym(Keysym::Tab), Some(NamedKey::Tab));
+        assert_eq!(named_from_keysym(Keysym::Left), Some(NamedKey::ArrowLeft));
+        assert_eq!(
+            named_from_keysym(Keysym::Page_Down),
+            Some(NamedKey::PageDown)
+        );
+        // A printable key has no named mapping — it flows through the utf8 char path instead.
+        assert_eq!(named_from_keysym(Keysym::a), None);
+    }
 }
