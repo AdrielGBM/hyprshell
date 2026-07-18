@@ -30,6 +30,7 @@ fn align_for(zone: Option<Zone>) -> SurfaceAlign {
 pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutError> {
     match module {
         "clock" => crate::clock_panel(),
+        "battery" => crate::battery_panel(),
         "notifications" => crate::modules::notifications::bell_panel(),
         "notes" => crate::notes_panel(),
         other => {

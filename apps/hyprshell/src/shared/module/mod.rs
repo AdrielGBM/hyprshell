@@ -246,8 +246,12 @@ mod tests {
             "workspaces manages its own layout"
         );
         assert!(
-            r.def("battery").unwrap().click.is_none(),
-            "battery is a display-only chip"
+            matches!(r.def("battery").unwrap().click, Some(ModuleClick::Panel)),
+            "battery opens its detail panel"
+        );
+        assert!(
+            r.def("network").unwrap().icon && r.def("network").unwrap().click.is_none(),
+            "network is a display-only icon chip"
         );
     }
 }
@@ -259,7 +263,11 @@ pub fn default_registry() -> ModuleRegistry {
         "workspaces",
         ModuleDef::new(|_ctx| crate::workspaces()).self_managed(),
     );
-    registry.register("battery", ModuleDef::new(|_ctx| crate::battery()).icon());
+    registry.register(
+        "battery",
+        ModuleDef::new(|_ctx| crate::battery()).icon().opens(),
+    );
+    registry.register("network", ModuleDef::new(|_ctx| crate::network()).icon());
     registry.register(
         "volume",
         ModuleDef::new(|_ctx| crate::volume())
