@@ -1016,9 +1016,10 @@ impl PointerHandler for SurfaceState {
                     vertical,
                     ..
                 } => self.events.push(Event::Scrolled {
+                    // Wayland axis is positive down/right; negate to the winit convention the shared scroll area expects (`offset -= delta`) so the view tracks the gesture.
                     delta: ScrollDelta::Pixels {
-                        x: horizontal.absolute as f32,
-                        y: vertical.absolute as f32,
+                        x: -(horizontal.absolute as f32),
+                        y: -(vertical.absolute as f32),
                     },
                 }),
             }
