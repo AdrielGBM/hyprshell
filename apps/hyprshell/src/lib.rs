@@ -63,6 +63,7 @@ pub use crate::modules::frame::FrameApp;
 pub use crate::modules::notes::{notes_chip, notes_panel};
 pub use crate::modules::osd::OsdKind;
 pub use crate::modules::panel::toggle_panel;
+pub use crate::modules::wallpaper::WallpaperApp;
 pub use crate::shared::icon::{icon_picker_overlay, icon_view};
 pub use crate::shared::module::{
     ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
@@ -87,6 +88,8 @@ use rsx::{App, AppConfig, AppPathsProvider, SurfaceId, run_multi_with_platform};
 enum SurfaceSpec {
     /// A bar on `edge`, carrying the output it lives on so its drawers/floats/OSDs open on the same monitor.
     Bar(Edge, Option<String>),
+    /// A full-screen wallpaper on `output`, carried so a per-monitor image can target it.
+    Wallpaper(Option<String>),
     Frame,
     Reservation,
 }
@@ -179,6 +182,22 @@ fn reservation_config_for(config: &Config, edge: Edge, output: Option<String>) -
     }
 }
 
+/// Full-screen wallpaper on Layer::Background: click-through, spans the whole output (exclusive_zone -1 ignores bar reservations). Declared before the bars/frame so it stacks at the bottom of the background layer.
+fn wallpaper_layer_config(output: Option<String>) -> LayerConfig {
+    LayerConfig {
+        output,
+        layer: Layer::Background,
+        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+        exclusive_zone: -1,
+        size: (0, 0),
+        margin: (0, 0, 0, 0),
+        keyboard_interactivity: KeyboardInteractivity::None,
+        namespace: String::from("hyprshell-wallpaper"),
+        reserve_only: false,
+        input_transparent: true,
+    }
+}
+
 /// Full-screen frame on Layer::Background: not on Top since ring visibility depends on window z-order.
 fn frame_layer_config(output: Option<String>) -> LayerConfig {
     LayerConfig {
@@ -248,6 +267,17 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
         *platform = taken.with_surface(id, cfg);
     };
     for out in &outputs {
+        // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
+        if config.background.is_enabled() {
+            let cfg = wallpaper_layer_config(out.name.clone());
+            declare(
+                &mut platform,
+                &mut surfaces,
+                &mut specs,
+                SurfaceSpec::Wallpaper(out.name.clone()),
+                cfg,
+            );
+        }
         for edge in Edge::ALL {
             if config.edge_present(edge) {
                 let cfg = layer_config_for(&config, edge, out.name.clone());
@@ -305,6 +335,7 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
                     edge,
                     output,
                 }),
+                SurfaceSpec::Wallpaper(output) => Box::new(WallpaperApp { config, output }),
                 SurfaceSpec::Frame => Box::new(FrameApp { config }),
                 SurfaceSpec::Reservation => {
                     unreachable!("reservation surfaces do not reach the app factory")

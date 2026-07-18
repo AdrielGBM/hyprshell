@@ -21,7 +21,7 @@ serde_json = "1.0.150"
 zbus = "5.17.0"
 ureq = "3.3.0"
 fontdb = "0.23"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
 
 [dev-dependencies]
-image = { version = "0.25.10", default-features = false, features = ["png"] }
 platform-headless = { path = "../../../rsx/crates/platform/platform-headless" }

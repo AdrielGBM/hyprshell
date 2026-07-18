@@ -324,6 +324,29 @@ impl Default for NotificationsConfig {
     }
 }
 
+/// Full-screen wallpaper behind everything, one surface per monitor. Off by default so the compositor's own background shows through; setting an `image` — or `enabled = true` for a plain themed background — turns it on. `[background.monitors]` maps output names to per-monitor images, each falling back to the global `image`. Paths may use `~`.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct BackgroundConfig {
+    pub enabled: bool,
+    pub image: Option<PathBuf>,
+    pub monitors: HashMap<String, PathBuf>,
+}
+
+impl BackgroundConfig {
+    /// Whether hyprshell paints a background surface at all; opt-in so it never clobbers the compositor's wallpaper unless asked (an image or per-monitor entry implies it).
+    pub fn is_enabled(&self) -> bool {
+        self.enabled || self.image.is_some() || !self.monitors.is_empty()
+    }
+
+    /// The image for `output`: its per-monitor entry, else the global `image`; `None` paints the theme base colour.
+    pub fn image_for(&self, output: Option<&str>) -> Option<&PathBuf> {
+        output
+            .and_then(|name| self.monitors.get(name))
+            .or(self.image.as_ref())
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
@@ -335,6 +358,7 @@ pub struct Config {
     pub osd: OsdConfig,
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
+    pub background: BackgroundConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -441,6 +465,7 @@ impl Config {
             osd: OsdConfig::default(),
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
+            background: BackgroundConfig::default(),
             modules: HashMap::new(),
         }
     }
