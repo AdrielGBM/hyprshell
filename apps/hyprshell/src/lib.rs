@@ -222,6 +222,8 @@ pub fn run() {
     let config_path = Config::default_path();
     // Start the notification daemon and its popup surface once, before the reload loop, so they survive bar config reloads (§8 "persists across reloads").
     let initial = Arc::new(Config::load_or_default(&config_path));
+    // Seed the shared UI-language source so every surface starts in the configured locale and stays live.
+    crate::shared::services::locale::init(initial.language());
     // Process-wide so every surface — bars, drawers, popups, OSD — renders in the theme's font family.
     // `run_once` re-applies (and warns) on every reload, so the popup host spawned here also gets it.
     rsx::set_default_font_family(initial.theme.font_family.clone());
@@ -243,6 +245,8 @@ pub fn run() {
 /// Runs until the reload flag flips (config changed), then returns so `run` rebuilds from fresh config.
 fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
     let config = Arc::new(Config::load_or_default(config_path));
+    // Re-seed the language on reload so a `[general] language` edit reaches the surfaces this run rebuilds.
+    crate::shared::services::locale::init(config.language());
     // Re-apply on reload so a `[theme] font_family` change reaches the bars this run rebuilds; warn here (not
     // just at process start) so editing the font name and reloading surfaces the mismatch, like the theme warn.
     warn_if_font_missing(config.theme.font_family.as_deref());
@@ -494,5 +498,22 @@ mod tests {
         assert_eq!(lc.exclusive_zone, -1);
         let r = reservation_config_for(&cfg, Edge::Top, None);
         assert_eq!(r.exclusive_zone, 34);
+    }
+}
+
+#[cfg(test)]
+mod i18n_tests {
+    // The baked catalog resolves hyprshell's keys and switching the locale changes the output — the same
+    // reactive `t!` calls back every migrated label, so a live locale switch re-renders them.
+    #[test]
+    fn catalog_translates_and_switches() {
+        rsx::set_locale("en");
+        assert_eq!(rsx::t!("settings.title"), "Settings");
+        assert_eq!(rsx::t!("common.on"), "On");
+        assert_eq!(rsx::t!("battery.remaining", time = "5m"), "5m remaining");
+        rsx::set_locale("es");
+        assert_eq!(rsx::t!("settings.title"), "Ajustes");
+        assert_eq!(rsx::t!("common.on"), "Sí");
+        assert_eq!(rsx::t!("battery.remaining", time = "5m"), "5m restante");
     }
 }

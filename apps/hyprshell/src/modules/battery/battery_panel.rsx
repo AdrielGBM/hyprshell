@@ -31,14 +31,17 @@ fn duration_text(secs: i64) -> String {
 fn status_text(d: &BatteryDetails) -> String {
     match d.state {
         ChargeState::Charging => match duration_text(d.time_to_full).as_str() {
-            "" => "Charging".to_string(),
-            t => format!("Charging · {t} until full"),
+            "" => rsx::t!("battery.charging"),
+            t => rsx::t!("battery.until_full", time = t),
         },
         ChargeState::Discharging => match duration_text(d.time_to_empty).as_str() {
-            "" => "On battery".to_string(),
-            t => format!("{t} remaining"),
+            "" => rsx::t!("battery.on_battery"),
+            t => rsx::t!("battery.remaining", time = t),
         },
-        other => other.label().to_string(),
+        ChargeState::Full => rsx::t!("battery.full"),
+        ChargeState::Empty => rsx::t!("battery.empty"),
+        ChargeState::Pending => rsx::t!("battery.pending"),
+        ChargeState::Unknown => rsx::t!("battery.unknown"),
     }
 }
 

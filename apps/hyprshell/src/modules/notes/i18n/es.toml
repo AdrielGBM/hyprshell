@@ -1,0 +1,5 @@
+[notes]
+title = "Notas"
+new = "Nueva nota"
+title_placeholder = "Título"
+body_placeholder = "Escribe una nota…"

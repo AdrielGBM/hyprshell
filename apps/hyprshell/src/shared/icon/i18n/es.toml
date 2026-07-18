@@ -1,0 +1,5 @@
+[icon_picker]
+filter_placeholder = "Filtrar iconos…"
+loading = "Cargando iconos…"
+load_error = "No se pudieron cargar iconos de este proveedor"
+no_match = "Ningún icono coincide"

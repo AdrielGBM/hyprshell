@@ -1,0 +1,5 @@
+[notifications]
+title = "Notificaciones"
+dnd_on = "No molestar activado"
+dnd_off = "No molestar desactivado"
+clear_all = "Limpiar todo"

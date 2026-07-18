@@ -1,3 +1,7 @@
 [rsx]
 backend = "software"
 auto_modules = true
+
+[rsx.i18n]
+scan = "i18n"
+default = "en"

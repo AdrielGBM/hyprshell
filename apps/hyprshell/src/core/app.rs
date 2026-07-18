@@ -62,6 +62,8 @@ impl App for BarApp {
         reset_layout_runtime();
         let theme = self.config.resolve_theme();
         set_theme(theme);
+        // Apply the configured UI language on this surface's thread and subscribe it to live language switches.
+        crate::shared::services::locale::attach(self.config.language());
         let bar_config = self.config.bars.get(self.edge);
         // Thread-local context for .rsx modules to read orientation and bar config.
         set_surface_env(SurfaceEnv {

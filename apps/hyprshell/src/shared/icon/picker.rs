@@ -36,6 +36,9 @@ pub fn icon_picker_overlay(
     on_select: impl Fn(String) + 'static,
     on_close: impl Fn() + 'static,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    if let Some(env) = surface_env() {
+        crate::shared::services::locale::attach(env.config.language());
+    }
     let theme = use_theme::<NordTheme>();
     let on_close: Rc<dyn Fn()> = Rc::new(on_close);
     // Picking an icon both reports it and closes the popover.
@@ -166,9 +169,9 @@ fn results_view(
         move || vec![view_kind(&source_collection, &source_filtered)],
         |k: &u8| *k,
         move |kind| match kind {
-            0 => message("Loading icons…", theme),
-            1 => message("Couldn't load icons for this provider", theme),
-            2 => message("No icons match", theme),
+            0 => message(|| rsx::t!("icon_picker.loading"), theme),
+            1 => message(|| rsx::t!("icon_picker.load_error"), theme),
+            2 => message(|| rsx::t!("icon_picker.no_match"), theme),
             _ => grid(vp.clone(), build_filtered.clone(), theme, pick.clone()),
         },
     )?;
@@ -307,7 +310,7 @@ fn search_box(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn Layou
             .height(theme.font(FontRole::Body) * 1.4),
         move || TextStyle::new(theme.font(FontRole::Body), theme.text),
     )?
-    .placeholder("Filter icons…");
+    .placeholder(rsx::t!("icon_picker.filter_placeholder"));
     let boxed = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
@@ -320,9 +323,12 @@ fn search_box(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn Layou
     Ok(Box::new(boxed))
 }
 
-fn message(text: &'static str, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+fn message(
+    text: impl Fn() -> String + 'static,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let label = Text::auto(
-        move || text.to_string(),
+        move || text(),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
     )?;

@@ -1,0 +1,5 @@
+[notifications]
+title = "Notifications"
+dnd_on = "DND on"
+dnd_off = "DND off"
+clear_all = "Clear all"

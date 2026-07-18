@@ -1,0 +1,9 @@
+[battery]
+charging = "Charging"
+on_battery = "On battery"
+full = "Fully charged"
+empty = "Empty"
+pending = "Pending"
+unknown = "Unknown"
+remaining = "{time} remaining"
+until_full = "Charging · {time} until full"

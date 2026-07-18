@@ -350,9 +350,18 @@ impl BackgroundConfig {
     }
 }
 
+/// App-wide settings that don't belong to a specific visual section. `language` is a BCP-47 tag
+/// (`"en"`, `"es"`); empty means "follow the OS locale, else English".
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct GeneralConfig {
+    pub language: String,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
+    pub general: GeneralConfig,
     pub bars: BarsConfig,
     pub theme: ThemeConfig,
     pub shape: ShapeConfig,
@@ -470,7 +479,18 @@ impl Config {
             notifications: NotificationsConfig::default(),
             background: BackgroundConfig::default(),
             modules: HashMap::new(),
+            general: GeneralConfig::default(),
         }
+    }
+
+    /// The effective UI language (BCP-47 tag): the `[general] language` override, else the OS locale, else
+    /// English. Each surface applies it via `rsx::set_locale` when it builds.
+    pub fn language(&self) -> String {
+        let configured = self.general.language.trim();
+        if !configured.is_empty() {
+            return configured.to_string();
+        }
+        rsx::detect_system_locale().unwrap_or_else(|| "en".to_string())
     }
 
     /// The container variant for a module id, `Default` when it has no `[modules.<id>]` override.

@@ -8,8 +8,8 @@ use serde::Serialize;
 
 use crate::core::config::{
     Align, BackgroundConfig, BarConfig, BarsConfig, Config, CornersConfig, DrawerConfig, Edge,
-    FloatConfig, IconsConfig, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
-    ThemeConfig,
+    FloatConfig, GeneralConfig, IconsConfig, NotificationsConfig, OsdConfig, PanelsConfig, Shape,
+    ShapeConfig, ThemeConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -18,6 +18,7 @@ use crate::shared::theme::{FontRole, NordTheme};
 const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 const ALIGNS: &[&str] = &["start", "center", "end"];
 const SHAPES: &[&str] = &["bar", "sections", "chips"];
+const LANGUAGES: &[&str] = &["en", "es"];
 
 /// The bar chip: a gear that opens the settings panel.
 pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -33,15 +34,17 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let path = Config::default_path();
     let config = Config::load_or_default(&path);
+    crate::shared::services::locale::attach(config.language());
 
     let title = Text::auto(
-        || "Settings".to_string(),
+        || rsx::t!("settings.title"),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
     )?;
 
     let sections = vec![
         Box::new(title) as Box<dyn LayoutItem>,
+        general_section(&config, &path, theme)?,
         theme_section(&config, &path, theme)?,
         shape_section(&config, &path, theme)?,
         bars_section(&config, &path, theme)?,
@@ -63,6 +66,68 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(panel))
 }
 
+fn general_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let lang = signal(rsx::current_locale().unwrap_or_else(|| config.language()));
+
+    let rows = vec![language_field(
+        || rsx::t!("settings.field.language"),
+        lang.clone(),
+        theme,
+    )?];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.general"), theme, move || {
+        persist(&path, "general", &GeneralConfig {
+            language: lang.peek(),
+        });
+    })?;
+    section(|| rsx::t!("settings.section.general"), rows, save, theme)
+}
+
+/// A cycle control over UI languages: shows the current one's native name; each press advances to the next code
+/// and broadcasts the new locale to every surface via [`crate::shared::services::locale::set`].
+fn language_field(
+    label: impl Fn() -> String + 'static,
+    value: RwSignal<String>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let value_text = value.read_only();
+    let text = Text::auto(
+        move || language_name(&value_text.get()),
+        LayoutStyle::new(),
+        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+    )?;
+    let control = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_grow(1.0)
+            .padding_horizontal(8.0)
+            .padding_vertical(4.0),
+        move |_| RectStyle::filled(theme.base, 8.0),
+        vec![box_item(text)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || {
+        let current = value.peek();
+        let index = LANGUAGES.iter().position(|o| *o == current).unwrap_or(0);
+        let next = LANGUAGES[(index + 1) % LANGUAGES.len()].to_string();
+        value.set(next.clone());
+        crate::shared::services::locale::set(next);
+    });
+    labelled(label, Box::new(control), theme)
+}
+
+fn language_name(code: &str) -> String {
+    match code {
+        "en" => "English".to_string(),
+        "es" => "Español".to_string(),
+        other => other.to_uppercase(),
+    }
+}
+
 fn theme_section(
     config: &Config,
     path: &Path,
@@ -79,19 +144,54 @@ fn theme_section(
     let icon_stroke = signal(opt_num(t.icon_stroke));
 
     let rows = vec![
-        text_field("Name", name.clone(), "nord", theme)?,
-        text_field("Accent", accent.clone(), "cyan", theme)?,
-        text_field("Font family", font_family.clone(), "(default)", theme)?,
-        text_field("Radius", radius.clone(), "(theme)", theme)?,
-        text_field("Spacing", spacing.clone(), "(theme)", theme)?,
-        text_field("Font size", font_size.clone(), "(theme)", theme)?,
-        text_field("Icon size", icon_size.clone(), "(theme)", theme)?,
-        text_field("Icon stroke", icon_stroke.clone(), "(glyph)", theme)?,
+        text_field(|| rsx::t!("settings.field.name"), name.clone(), "nord", theme)?,
+        text_field(
+            || rsx::t!("settings.field.accent"),
+            accent.clone(),
+            "cyan",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.font_family"),
+            font_family.clone(),
+            "(default)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.radius"),
+            radius.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.spacing"),
+            spacing.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.font_size"),
+            font_size.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.icon_size"),
+            icon_size.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.icon_stroke"),
+            icon_stroke.clone(),
+            "(glyph)",
+            theme,
+        )?,
     ];
 
     let base = t.clone();
     let path = path.to_path_buf();
-    let save = save_button("Save theme", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.theme"), theme, move || {
         let value = ThemeConfig {
             name: name.peek(),
             accent: accent.peek(),
@@ -105,7 +205,7 @@ fn theme_section(
         };
         persist(&path, "theme", &value);
     })?;
-    section("Theme", rows, save, theme)
+    section(|| rsx::t!("settings.section.theme"), rows, save, theme)
 }
 
 fn shape_section(
@@ -122,17 +222,32 @@ fn shape_section(
     let inactive = signal(s.inactive_size.to_string());
 
     let rows = vec![
-        enum_field("Mode", mode.clone(), SHAPES, theme)?,
-        toggle_field("Frame ring", frame.clone(), theme)?,
-        text_field("Gap", gap.clone(), "0", theme)?,
-        text_field("Spacing", spacing.clone(), "(theme)", theme)?,
-        text_field("Radius", radius.clone(), "(theme)", theme)?,
-        text_field("Inactive size", inactive.clone(), "6", theme)?,
+        enum_field(|| rsx::t!("settings.field.mode"), mode.clone(), SHAPES, theme)?,
+        toggle_field(|| rsx::t!("settings.field.frame_ring"), frame.clone(), theme)?,
+        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "0", theme)?,
+        text_field(
+            || rsx::t!("settings.field.spacing"),
+            spacing.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.radius"),
+            radius.clone(),
+            "(theme)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.inactive_size"),
+            inactive.clone(),
+            "6",
+            theme,
+        )?,
     ];
 
     let base = s.clone();
     let path = path.to_path_buf();
-    let save = save_button("Save shape", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.shape"), theme, move || {
         let value = ShapeConfig {
             mode: parse_shape(&mode.peek()),
             frame: frame.peek(),
@@ -143,7 +258,7 @@ fn shape_section(
         };
         persist(&path, "shape", &value);
     })?;
-    section("Shape", rows, save, theme)
+    section(|| rsx::t!("settings.section.shape"), rows, save, theme)
 }
 
 #[derive(Clone)]
@@ -164,16 +279,31 @@ fn bar_signals(bar: &BarConfig) -> BarSignals {
 }
 
 fn bar_rows(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     s: &BarSignals,
     theme: NordTheme,
 ) -> Result<Vec<Box<dyn LayoutItem>>, LayoutError> {
     Ok(vec![
         subheader(label, theme)?,
-        text_field("Size", s.size.clone(), "34", theme)?,
-        text_field("Start", s.start.clone(), "module ids", theme)?,
-        text_field("Center", s.center.clone(), "module ids", theme)?,
-        text_field("End", s.end.clone(), "module ids", theme)?,
+        text_field(|| rsx::t!("settings.field.size"), s.size.clone(), "34", theme)?,
+        text_field(
+            || rsx::t!("settings.field.start"),
+            s.start.clone(),
+            "module ids",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.center"),
+            s.center.clone(),
+            "module ids",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.end"),
+            s.end.clone(),
+            "module ids",
+            theme,
+        )?,
     ])
 }
 
@@ -199,14 +329,22 @@ fn bars_section(
     let right = bar_signals(&bars.right);
 
     let mut rows = Vec::new();
-    rows.extend(bar_rows("Top", &top, theme)?);
-    rows.extend(bar_rows("Bottom", &bottom, theme)?);
-    rows.extend(bar_rows("Left", &left, theme)?);
-    rows.extend(bar_rows("Right", &right, theme)?);
+    rows.extend(bar_rows(|| rsx::t!("settings.subheader.top"), &top, theme)?);
+    rows.extend(bar_rows(
+        || rsx::t!("settings.subheader.bottom"),
+        &bottom,
+        theme,
+    )?);
+    rows.extend(bar_rows(|| rsx::t!("settings.subheader.left"), &left, theme)?);
+    rows.extend(bar_rows(
+        || rsx::t!("settings.subheader.right"),
+        &right,
+        theme,
+    )?);
 
     let base = bars.clone();
     let path = path.to_path_buf();
-    let save = save_button("Save bars", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.bars"), theme, move || {
         let value = BarsConfig {
             top: bar_from(&top, &base.top),
             bottom: bar_from(&bottom, &base.bottom),
@@ -215,7 +353,7 @@ fn bars_section(
         };
         persist(&path, "bars", &value);
     })?;
-    section("Bars", rows, save, theme)
+    section(|| rsx::t!("settings.section.bars"), rows, save, theme)
 }
 
 fn panels_section(
@@ -231,16 +369,36 @@ fn panels_section(
     let float_h = signal(p.float.height.to_string());
 
     let rows = vec![
-        text_field("Gap", gap.clone(), "(auto)", theme)?,
-        text_field("Drawer width", drawer_w.clone(), "320", theme)?,
-        text_field("Drawer max height", drawer_h.clone(), "280", theme)?,
-        text_field("Float width", float_w.clone(), "360", theme)?,
-        text_field("Float height", float_h.clone(), "240", theme)?,
+        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "(auto)", theme)?,
+        text_field(
+            || rsx::t!("settings.field.drawer_width"),
+            drawer_w.clone(),
+            "320",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.drawer_max_height"),
+            drawer_h.clone(),
+            "280",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.float_width"),
+            float_w.clone(),
+            "360",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.float_height"),
+            float_h.clone(),
+            "240",
+            theme,
+        )?,
     ];
 
     let base = *p;
     let path = path.to_path_buf();
-    let save = save_button("Save panels", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.panels"), theme, move || {
         let value = PanelsConfig {
             gap: opt_u32(&gap.peek()),
             drawer: DrawerConfig {
@@ -254,7 +412,7 @@ fn panels_section(
         };
         persist(&path, "panels", &value);
     })?;
-    section("Panels", rows, save, theme)
+    section(|| rsx::t!("settings.section.panels"), rows, save, theme)
 }
 
 fn osd_section(
@@ -268,14 +426,24 @@ fn osd_section(
     let timeout = signal(o.timeout_ms.to_string());
 
     let rows = vec![
-        enum_field("Edge", edge.clone(), EDGES, theme)?,
-        enum_field("Align", align.clone(), ALIGNS, theme)?,
-        text_field("Timeout (ms)", timeout.clone(), "1200", theme)?,
+        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.align"),
+            align.clone(),
+            ALIGNS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.timeout_ms"),
+            timeout.clone(),
+            "1200",
+            theme,
+        )?,
     ];
 
     let base = *o;
     let path = path.to_path_buf();
-    let save = save_button("Save OSD", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.osd"), theme, move || {
         let value = OsdConfig {
             edge: parse_edge(&edge.peek()),
             align: parse_align(&align.peek()),
@@ -283,7 +451,7 @@ fn osd_section(
         };
         persist(&path, "osd", &value);
     })?;
-    section("OSD", rows, save, theme)
+    section(|| rsx::t!("settings.section.osd"), rows, save, theme)
 }
 
 fn icons_section(
@@ -297,13 +465,28 @@ fn icons_section(
     let app_icon_theme = signal(i.app_icon_theme.clone());
 
     let rows = vec![
-        text_field("Provider", provider.clone(), "https://api.iconify.design", theme)?,
-        text_field("Default set", default_set.clone(), "lucide", theme)?,
-        text_field("App icon theme", app_icon_theme.clone(), "auto", theme)?,
+        text_field(
+            || rsx::t!("settings.field.provider"),
+            provider.clone(),
+            "https://api.iconify.design",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.default_set"),
+            default_set.clone(),
+            "lucide",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.app_icon_theme"),
+            app_icon_theme.clone(),
+            "auto",
+            theme,
+        )?,
     ];
 
     let path = path.to_path_buf();
-    let save = save_button("Save icons", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.icons"), theme, move || {
         let value = IconsConfig {
             provider: provider.peek(),
             default_set: default_set.peek(),
@@ -311,7 +494,7 @@ fn icons_section(
         };
         persist(&path, "icons", &value);
     })?;
-    section("Icons", rows, save, theme)
+    section(|| rsx::t!("settings.section.icons"), rows, save, theme)
 }
 
 fn notifications_section(
@@ -329,18 +512,37 @@ fn notifications_section(
     let gap = signal(n.gap.to_string());
 
     let rows = vec![
-        enum_field("Edge", edge.clone(), EDGES, theme)?,
-        enum_field("Align", align.clone(), ALIGNS, theme)?,
-        text_field("Max visible", max_visible.clone(), "4", theme)?,
-        text_field("Timeout (ms)", timeout.clone(), "5000", theme)?,
-        toggle_field("Critical sticky", critical.clone(), theme)?,
-        text_field("Width", width.clone(), "380", theme)?,
-        text_field("Gap", gap.clone(), "10", theme)?,
+        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.align"),
+            align.clone(),
+            ALIGNS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_visible"),
+            max_visible.clone(),
+            "4",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.timeout_ms"),
+            timeout.clone(),
+            "5000",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.critical_sticky"),
+            critical.clone(),
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.width"), width.clone(), "380", theme)?,
+        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "10", theme)?,
     ];
 
     let base = n.clone();
     let path = path.to_path_buf();
-    let save = save_button("Save notifications", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.notifications"), theme, move || {
         let value = NotificationsConfig {
             edge: parse_edge(&edge.peek()),
             align: parse_align(&align.peek()),
@@ -352,7 +554,7 @@ fn notifications_section(
         };
         persist(&path, "notifications", &value);
     })?;
-    section("Notifications", rows, save, theme)
+    section(|| rsx::t!("settings.section.notifications"), rows, save, theme)
 }
 
 fn background_section(
@@ -370,13 +572,18 @@ fn background_section(
     );
 
     let rows = vec![
-        toggle_field("Enabled", enabled.clone(), theme)?,
-        text_field("Image", image.clone(), "~/wall.png", theme)?,
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.image"),
+            image.clone(),
+            "~/wall.png",
+            theme,
+        )?,
     ];
 
     let base = b.clone();
     let path = path.to_path_buf();
-    let save = save_button("Save background", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.background"), theme, move || {
         let value = BackgroundConfig {
             enabled: enabled.peek(),
             image: opt_string(&image.peek()).map(PathBuf::from),
@@ -384,7 +591,7 @@ fn background_section(
         };
         persist(&path, "background", &value);
     })?;
-    section("Background", rows, save, theme)
+    section(|| rsx::t!("settings.section.background"), rows, save, theme)
 }
 
 fn corners_section(
@@ -399,14 +606,34 @@ fn corners_section(
     let br = signal(c.bottom_right.clone().unwrap_or_default());
 
     let rows = vec![
-        text_field("Top left", tl.clone(), "module id", theme)?,
-        text_field("Top right", tr.clone(), "module id", theme)?,
-        text_field("Bottom left", bl.clone(), "module id", theme)?,
-        text_field("Bottom right", br.clone(), "module id", theme)?,
+        text_field(
+            || rsx::t!("settings.field.top_left"),
+            tl.clone(),
+            "module id",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.top_right"),
+            tr.clone(),
+            "module id",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.bottom_left"),
+            bl.clone(),
+            "module id",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.bottom_right"),
+            br.clone(),
+            "module id",
+            theme,
+        )?,
     ];
 
     let path = path.to_path_buf();
-    let save = save_button("Save corners", theme, move || {
+    let save = save_button(|| rsx::t!("settings.save.corners"), theme, move || {
         let value = CornersConfig {
             top_left: opt_string(&tl.peek()),
             top_right: opt_string(&tr.peek()),
@@ -415,7 +642,7 @@ fn corners_section(
         };
         persist(&path, "corners", &value);
     })?;
-    section("Corners", rows, save, theme)
+    section(|| rsx::t!("settings.section.corners"), rows, save, theme)
 }
 
 fn persist<T: Serialize>(path: &Path, name: &str, value: &T) {
@@ -425,7 +652,7 @@ fn persist<T: Serialize>(path: &Path, name: &str, value: &T) {
 }
 
 fn section(
-    title: &str,
+    title: impl Fn() -> String + 'static,
     mut rows: Vec<Box<dyn LayoutItem>>,
     save: Box<dyn LayoutItem>,
     theme: NordTheme,
@@ -443,20 +670,24 @@ fn section(
     Ok(Box::new(column))
 }
 
-fn section_label(label: &str, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label = label.to_string();
+fn section_label(
+    label: impl Fn() -> String + 'static,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label.clone(),
+        move || label(),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Body), theme.text).with_weight(700),
     )?;
     Ok(Box::new(text))
 }
 
-fn subheader(label: &str, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label = label.to_string();
+fn subheader(
+    label: impl Fn() -> String + 'static,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label.clone(),
+        move || label(),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.muted).with_weight(700),
     )?;
@@ -464,13 +695,12 @@ fn subheader(label: &str, theme: NordTheme) -> Result<Box<dyn LayoutItem>, Layou
 }
 
 fn labelled(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     control: Box<dyn LayoutItem>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label = label.to_string();
     let label_text = Text::auto(
-        move || label.clone(),
+        move || label(),
         LayoutStyle::new().width(120.0),
         move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
     )?;
@@ -486,7 +716,7 @@ fn labelled(
 }
 
 fn text_field(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     value: RwSignal<String>,
     placeholder: &str,
     theme: NordTheme,
@@ -511,7 +741,7 @@ fn text_field(
 }
 
 fn toggle_field(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     value: RwSignal<bool>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -520,7 +750,13 @@ fn toggle_field(
     let value_fill = value.read_only();
     let value_color = value.read_only();
     let text = Text::auto(
-        move || (if value_text.get() { "On" } else { "Off" }).to_string(),
+        move || {
+            if value_text.get() {
+                rsx::t!("common.on")
+            } else {
+                rsx::t!("common.off")
+            }
+        },
         LayoutStyle::new(),
         move || {
             let fg = if value_color.get() { on_fg } else { theme.text };
@@ -548,7 +784,7 @@ fn toggle_field(
 
 /// A cycle control: shows the current option; each press advances to the next.
 fn enum_field(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     value: RwSignal<String>,
     options: &'static [&'static str],
     theme: NordTheme,
@@ -577,14 +813,13 @@ fn enum_field(
 }
 
 fn save_button(
-    label: &str,
+    label: impl Fn() -> String + 'static,
     theme: NordTheme,
     on_press: impl Fn() + 'static,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label = label.to_string();
     let fg = theme.accent.most_readable(&[theme.text, theme.base]);
     let text = Text::auto(
-        move || label.clone(),
+        move || label(),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Body), fg).with_weight(700),
     )?;
@@ -693,6 +928,33 @@ mod tests {
     use super::*;
     use crate::core::app::SurfaceRoot;
     use rsx::{App, Color, Component, WindowConfig, reset_layout_runtime, set_theme};
+
+    // Switching the locale after the panel is built re-renders its labels live: the section titles are
+    // reactive `t!` closures, so the rendered text changes from English to Spanish without a rebuild.
+    #[test]
+    fn labels_live_switch_locale() {
+        use rsx::{ComponentList, DrawCommand, Event};
+
+        fn has_text(tree: &ComponentList, needle: &str) -> bool {
+            tree.commands().iter().any(|c| matches!(c, DrawCommand::Text { text, .. } if text.contains(needle)))
+        }
+
+        reset_layout_runtime();
+        set_theme(NordTheme::new());
+        let panel = settings_panel().expect("settings panel");
+        let mut tree = ComponentList::new(SurfaceRoot::new(panel).expect("root"));
+        tree.on_event(&Event::WindowResized { width: 380, height: 1200 });
+
+        // Force the locale after building so the assertion is independent of the machine's system locale; the
+        // labels are reactive `t!` closures, so `commands()` re-renders in whatever locale is active now.
+        rsx::set_locale("en");
+        assert!(has_text(&tree, "Settings"), "English title before switch");
+        assert!(!has_text(&tree, "Ajustes"));
+
+        rsx::set_locale("es");
+        assert!(has_text(&tree, "Ajustes"), "Spanish title after live switch");
+        assert!(!has_text(&tree, "Settings"), "English title gone after switch");
+    }
 
     #[test]
     fn csv_round_trips_and_trims() {

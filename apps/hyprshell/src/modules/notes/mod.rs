@@ -11,7 +11,7 @@ use rsx::{
 
 use crate::modules::drawer::content_radius;
 use crate::shared::icon::{icon_picker_overlay, icon_view};
-use crate::shared::module::{icon_px, module_fg};
+use crate::shared::module::{icon_px, module_fg, surface_env};
 use crate::shared::services::notes::{self, Note};
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -39,6 +39,9 @@ pub fn notes_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
 /// The notes panel: a header (title + add) over the editable note list, each note an icon, title, body, and
 /// delete, with an inline icon picker per note. Loads from disk on open; every edit persists (debounced).
 pub fn notes_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    if let Some(env) = surface_env() {
+        crate::shared::services::locale::attach(env.config.language());
+    }
     let theme = use_theme::<NordTheme>();
     let radius = content_radius();
     let state = PanelState {
@@ -61,12 +64,12 @@ pub fn notes_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
 
 fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || "Notes".to_string(),
+        || rsx::t!("notes.title"),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
     )?;
     let add_state = state.clone();
-    let add = pill_button("New note", move || add_note(&add_state), theme)?;
+    let add = pill_button(|| rsx::t!("notes.new"), move || add_note(&add_state), theme)?;
     let header = Container::new(
         LayoutStyle::new()
             .flex_row()
@@ -142,7 +145,7 @@ fn note_card(
             .height(theme.font(FontRole::Body) * 1.4),
         move || TextStyle::new(theme.font(FontRole::Body), theme.text).with_weight(700),
     )?
-    .placeholder("Title");
+    .placeholder(rsx::t!("notes.title_placeholder"));
 
     let delete_state = state.clone();
     let delete = StyledContainer::new(
@@ -167,7 +170,7 @@ fn note_card(
         LayoutStyle::new().width(SizeDimension::Percent(1.0)),
         move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
     )?
-    .placeholder("Take a note…");
+    .placeholder(rsx::t!("notes.body_placeholder"));
 
     let card = StyledContainer::new(
         LayoutStyle::new()
@@ -282,12 +285,12 @@ fn square_style() -> LayoutStyle {
 }
 
 fn pill_button(
-    label: &'static str,
+    label: impl Fn() -> String + 'static,
     on_press: impl Fn() + 'static,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label.to_string(),
+        move || label(),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
     )?;

@@ -566,6 +566,9 @@ fn badge_text(unread: u32) -> String {
 /// The drawer panel: a header (title, Do-Not-Disturb toggle, clear-all) over the full history, newest first, each card click-to-dismiss. Opening it marks the history read.
 pub fn bell_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     notifications::mark_read();
+    if let Some(env) = surface_env() {
+        crate::shared::services::locale::attach(env.config.language());
+    }
     let theme = use_theme::<NordTheme>();
     let snapshot = signal(notifications::snapshot_now().unwrap_or_default());
     let setter = snapshot.clone();
@@ -595,7 +598,7 @@ fn panel_header(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || "Notifications".to_string(),
+        || rsx::t!("notifications.title"),
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
     )?;
@@ -604,15 +607,15 @@ fn panel_header(
     let dnd = pill_button(
         move || {
             if dnd_label.get().dnd {
-                "DND on".to_string()
+                rsx::t!("notifications.dnd_on")
             } else {
-                "DND off".to_string()
+                rsx::t!("notifications.dnd_off")
             }
         },
         move || notifications::set_dnd(!dnd_toggle.peek().dnd),
         theme,
     )?;
-    let clear = pill_button(|| "Clear all".to_string(), notifications::clear_all, theme)?;
+    let clear = pill_button(|| rsx::t!("notifications.clear_all"), notifications::clear_all, theme)?;
     let actions = Container::new(
         LayoutStyle::new()
             .flex_row()
