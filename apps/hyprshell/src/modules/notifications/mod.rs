@@ -2,8 +2,11 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface,
+    Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, watch,
 };
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
@@ -474,45 +477,54 @@ fn open_popup(
     )
 }
 
-/// Spawns the persistent popup host: shows the notification surface on the focused monitor and moves it there whenever Hyprland's focus changes. The surface lives for the whole process (surviving bar config reloads); notification state lives in the daemon, so recreating the surface on a monitor switch loses nothing.
-pub fn spawn_popup_host(config: Arc<Config>) {
-    let _ = std::thread::Builder::new()
-        .name("hyprshell-notif-host".to_string())
-        .spawn(move || {
-            let theme = config.resolve_theme();
-            let cfg = config.notifications.clone();
-            // The shared panel distance and bar-matching radius for the popup's edge, so notifications clear the bar and round their corners exactly like a drawer/OSD.
-            let margin = config.panel_margin(cfg.edge);
-            let radius = config.panel_radius(cfg.edge);
-            let dir = crate::shared::services::hyprland::socket_dir();
+/// Sets up the notification popup host on the driver thread (called from `setup_shell`): shows the popup on the
+/// focused monitor and moves it there whenever Hyprland's focus changes. The focus stream is read off-thread via
+/// `watch`. Long-lived — it persists across config reloads (notification state lives in the daemon).
+pub fn popup_host(config: Arc<Config>) {
+    let theme = config.resolve_theme();
+    let cfg = config.notifications.clone();
+    // The shared panel distance and bar-matching radius for the popup's edge, so notifications clear the bar and round their corners exactly like a drawer/OSD.
+    let margin = config.panel_margin(cfg.edge);
+    let radius = config.panel_radius(cfg.edge);
+    let dir = crate::shared::services::hyprland::socket_dir();
 
-            let mut output = dir
-                .as_deref()
-                .and_then(crate::shared::services::hyprland::focused_monitor);
-            let mut handle = open_popup(&cfg, theme, margin, radius, output.clone());
+    let output = dir
+        .as_deref()
+        .and_then(crate::shared::services::hyprland::focused_monitor);
+    // The live popup handle and its monitor, moved between screens by the focus watcher on the driver thread.
+    let state = Rc::new(RefCell::new((
+        output.clone(),
+        open_popup(&cfg, theme, margin, radius, output),
+    )));
 
-            let events = dir
-                .as_ref()
-                .and_then(|d| UnixStream::connect(d.join(".socket2.sock")).ok());
-            let Some(events) = events else {
-                // No Hyprland event stream: keep the single surface up.
-                loop {
-                    std::thread::park();
-                }
+    let producer_dir = dir.clone();
+    let cfg_watch = cfg.clone();
+    watch(
+        move |tx| {
+            let Some(dir) = producer_dir else {
+                return;
+            };
+            let Ok(events) = UnixStream::connect(dir.join(".socket2.sock")) else {
+                return;
             };
             for line in BufReader::new(events).lines().map_while(Result::ok) {
-                let Some(monitor) =
+                if let Some(monitor) =
                     crate::shared::services::hyprland::monitor_from_focus_event(&line)
-                else {
-                    continue;
-                };
-                if output.as_deref() != Some(monitor.as_str()) {
-                    output = Some(monitor);
-                    handle.close();
-                    handle = open_popup(&cfg, theme, margin, radius, output.clone());
+                    && !tx.send(monitor)
+                {
+                    break;
                 }
             }
-        });
+        },
+        move |monitor: String| {
+            let mut state = state.borrow_mut();
+            if state.0.as_deref() != Some(monitor.as_str()) {
+                state.0 = Some(monitor.clone());
+                state.1.close();
+                state.1 = open_popup(&cfg_watch, theme, margin, radius, Some(monitor));
+            }
+        },
+    );
 }
 
 /// The bar chip: a bell whose glyph flips to `bell-off` under Do-Not-Disturb, with an unread-count badge. Subscribes to the daemon like any other module reflecting a shared service; registered with `.opens()` so a click drops the history panel.

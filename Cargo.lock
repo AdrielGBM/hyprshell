@@ -2910,6 +2910,10 @@ dependencies = [
 [[package]]
 name = "services-core"
 version = "0.1.0"
+dependencies = [
+ "rustc-hash 2.1.3",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "sharded-slab"
@@ -3528,6 +3532,7 @@ dependencies = [
  "renderer-assets",
  "renderer-core",
  "renderer-text",
+ "services-core",
  "theme-core",
  "ui-tree",
 ]

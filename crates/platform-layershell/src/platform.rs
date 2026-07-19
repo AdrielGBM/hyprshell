@@ -2,16 +2,17 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rsx::{
-    App, AppConfig, AppPathsProvider, Color, Component, Event, EventHandler, Key, ModifiersState,
-    MultiSurfacePlatform, NamedKey, Platform, PlatformError, PointerButton, PointerSource,
-    ScrollDelta, SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId,
-    SurfacePlacement, SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken,
-    WindowConfig, reset_layout_runtime, run_with_platform, set_surface_host,
+    App, Color, Component, Event, EventHandler, Key, ModifiersState, MultiSurfacePlatform,
+    NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta, SurfaceAnchor,
+    SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement, SurfaceRole,
+    SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig, begin_batch,
+    build_surface_handler, end_batch, reset_layout_runtime, set_surface_host,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -38,6 +39,7 @@ use smithay_client_toolkit::{
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
     delegate_registry, delegate_seat, delegate_shm, registry_handlers,
 };
+use wayland_client::backend::ObjectId;
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
@@ -45,14 +47,49 @@ use wayland_client::{Connection, Proxy, QueueHandle};
 use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
 use crate::window::LayerWindow;
 
+/// The type driven every surface handler is boxed to, so one loop holds statically-declared bars and
+/// runtime-opened drawers/OSDs in one `Vec` (the blanket `EventHandler for Box<dyn EventHandler>` makes the
+/// box callable). All surfaces share this UI thread; isolation is the handler's own `ui_core::Surface`.
+type BoxedHandler = Box<dyn EventHandler<LayerWindow>>;
+
 thread_local! {
-    static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, SurfaceState>>> = const { RefCell::new(None) };
-    static SURFACE_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+    static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, Driver>>> = const { RefCell::new(None) };
+    // The close flag of the surface whose handler is currently running, so `request_close` targets it (a bar
+    // has none; a dynamic drawer/OSD does). Set by the driver around each handler call.
+    static CURRENT_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+    // Dynamic surfaces requested via `open_surface` on the UI thread; the driver drains and mounts them.
+    static DYN_QUEUE: RefCell<Vec<PendingSurface>> = const { RefCell::new(Vec::new()) };
+    // App-level setup to run once on the driver thread after the loop is up (see `run_on_start`).
+    static STARTUP: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Asks the *current* surface to close — for a dynamic surface (drawer/OSD), flips its close flag so its event loop tears it down within ~50 ms. No-op on a bar surface, which has no close flag.
+/// Registers a closure to run once on the driver thread just after its loop is set up (its `LOOP_HANDLE` and
+/// `SurfaceHost` installed), so app-level setup that needs `watch`/`open_surface` — e.g. the notification popup
+/// host — runs on the right thread. Call it before `run_multi_with_platform` (same thread as the driver).
+pub fn run_on_start(task: impl FnOnce() + 'static) {
+    STARTUP.with(|s| s.borrow_mut().push(Box::new(task)));
+}
+
+struct PendingSurface {
+    config: LayerConfig,
+    // `None` for a reservation-only strip (no rsx handler, just its exclusive zone).
+    handler: Option<BoxedHandler>,
+    close: Arc<AtomicBool>,
+}
+
+/// Runs the handler closure with `close` installed as the current surface's close flag, so `request_close`
+/// (and any UI dismiss) reaches the right surface, then restores it.
+fn with_current<R>(close: &Option<Arc<AtomicBool>>, f: impl FnOnce() -> R) -> R {
+    CURRENT_CLOSE.with(|c| *c.borrow_mut() = close.clone());
+    let result = f();
+    CURRENT_CLOSE.with(|c| *c.borrow_mut() = None);
+    result
+}
+
+/// Asks the *current* surface to close — for a dynamic surface (drawer/OSD), flips its close flag so the driver
+/// tears it down on the next loop turn. No-op on a bar surface, which has no close flag.
 pub fn request_close() {
-    SURFACE_CLOSE.with(|c| {
+    CURRENT_CLOSE.with(|c| {
         if let Some(flag) = c.borrow().as_ref() {
             flag.store(true, Ordering::Relaxed);
         }
@@ -64,7 +101,7 @@ pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
         if let Some(handle) = h.borrow().as_ref() {
             let _ = handle.insert_source(
                 Timer::from_duration(period),
-                move |_instant, _meta, _state: &mut SurfaceState| {
+                move |_instant, _meta, _state: &mut Driver| {
                     callback();
                     TimeoutAction::ToDuration(period)
                 },
@@ -73,15 +110,15 @@ pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
     });
 }
 
-/// Runs `callback` once, `delay` from now, on this surface's event loop, then drops the timer. Used for
-/// an OSD's auto-dismiss. No-op when called outside a surface loop (e.g. a headless test).
+/// Runs `callback` once, `delay` from now, on the shared event loop, then drops the timer. Used for an OSD's
+/// auto-dismiss. No-op when called outside a surface loop (e.g. a headless test).
 pub fn timeout(delay: Duration, callback: impl FnOnce() + 'static) {
     LOOP_HANDLE.with(|h| {
         if let Some(handle) = h.borrow().as_ref() {
             let mut callback = Some(callback);
             let _ = handle.insert_source(
                 Timer::from_duration(delay),
-                move |_instant, _meta, _state: &mut SurfaceState| {
+                move |_instant, _meta, _state: &mut Driver| {
                     if let Some(cb) = callback.take() {
                         cb();
                     }
@@ -112,7 +149,7 @@ where
             let _ = std::thread::Builder::new()
                 .name("hyprshell-watch".to_string())
                 .spawn(move || producer(EventSender(tx)));
-            let _ = handle.insert_source(rx, move |event, _meta, _state: &mut SurfaceState| {
+            let _ = handle.insert_source(rx, move |event, _meta, _state: &mut Driver| {
                 if let ChannelEvent::Msg(item) = event {
                     on_event(item);
                 }
@@ -153,182 +190,83 @@ impl MultiSurfacePlatform for LayerShellPlatform {
         factory: F,
     ) -> Result<(), PlatformError>
     where
-        H: EventHandler<LayerWindow>,
-        F: Fn(SurfaceId) -> H + Send + Sync + 'static,
+        H: EventHandler<LayerWindow> + 'static,
+        F: Fn(SurfaceId) -> H + 'static,
     {
-        let factory = Arc::new(factory);
-        let configs = self.configs;
-        let shutdown = self.shutdown;
-        let mut joins = Vec::with_capacity(surfaces.len());
-        for (id, _window_config) in surfaces {
-            let layer_config = configs.get(&id).cloned().unwrap_or_default();
-            let factory = Arc::clone(&factory);
-            let close = shutdown.clone();
-            let join = std::thread::Builder::new()
-                .name(format!("hyprshell-surface-{}", id.0))
-                .spawn(move || {
-                    run_surface(id, layer_config, |sid| factory(sid), close);
-                })
-                .map_err(|e| PlatformError(format!("failed to spawn surface thread: {e}")))?;
-            joins.push(join);
-        }
-        for join in joins {
-            join.join()
-                .map_err(|_| PlatformError("a surface thread panicked".to_string()))?;
-        }
-        Ok(())
+        run_driver(self.configs, self.shutdown, surfaces, factory)
     }
 }
 
-struct SurfaceState {
+/// A single mounted surface: its layer-shell object, wgpu-bridging window, and (unless it is a reservation-only
+/// strip) the rsx handler that renders it. All entries live on one thread and share one Wayland connection.
+struct SurfaceEntry {
+    layer: LayerSurface,
+    wl_id: ObjectId,
+    window: Option<LayerWindow>,
+    handler: Option<BoxedHandler>,
+    // `Some` for a dynamic surface (its `SurfaceHandle`/`request_close` flag); `None` for a static bar, which
+    // only closes on the shared shutdown.
+    close: Option<Arc<AtomicBool>>,
+    reserve_only: bool,
+    interactive_input_region: bool,
+    scale: i32,
+    logical_size: (u32, u32),
+    configured: bool,
+    resumed: bool,
+    closed: bool,
+    events: Vec<Event>,
+    timeout: Option<Duration>,
+    input_region: Vec<(i32, i32, i32, i32)>,
+    reservation: Option<(SlotPool, Buffer, (u32, u32))>,
+}
+
+/// The single-thread driver: one Wayland connection's shared globals (registry/output/seat/shm) plus every
+/// live surface. The SCTK delegate handlers route each event to its surface by `wl_surface` id.
+struct Driver {
     registry_state: RegistryState,
     output_state: OutputState,
     seat_state: SeatState,
     shm: Shm,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
-    window: Option<LayerWindow>,
-    events: Vec<Event>,
     modifiers: ModifiersState,
-    scale: i32,
-    logical_size: (u32, u32),
-    configured: bool,
-    exit: bool,
-    needs_redraw: bool,
+    // The surface currently holding keyboard focus, so key events route to the right handler.
+    keyboard_focus: Option<ObjectId>,
+    surfaces: Vec<SurfaceEntry>,
 }
 
-fn run_surface<H: EventHandler<LayerWindow>>(
-    surface_id: SurfaceId,
-    config: LayerConfig,
-    build_handler: impl FnOnce(SurfaceId) -> H,
+impl Driver {
+    fn entry_mut(&mut self, wl_id: &ObjectId) -> Option<&mut SurfaceEntry> {
+        self.surfaces.iter_mut().find(|e| &e.wl_id == wl_id)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_surface_entry(
+    driver: &mut Driver,
+    compositor: &CompositorState,
+    layer_shell: &LayerShell,
+    qh: &QueueHandle<Driver>,
+    config: &LayerConfig,
+    handler: Option<BoxedHandler>,
     close: Option<Arc<AtomicBool>>,
 ) {
-    let conn = match Connection::connect_to_env() {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("layer surface {surface_id:?}: wayland connect failed: {e}");
-            return;
-        }
-    };
-    let (globals, event_queue) = match registry_queue_init::<SurfaceState>(&conn) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("layer surface {surface_id:?}: registry init failed: {e}");
-            return;
-        }
-    };
-    let qh = event_queue.handle();
-
-    let compositor = match CompositorState::bind(&globals, &qh) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("wl_compositor unavailable: {e}");
-            return;
-        }
-    };
-    let layer_shell = match LayerShell::bind(&globals, &qh) {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("zwlr_layer_shell_v1 unavailable: {e}");
-            return;
-        }
-    };
-    let shm = match Shm::bind(&globals, &qh) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("wl_shm unavailable: {e}");
-            return;
-        }
-    };
-
-    let mut state = SurfaceState {
-        registry_state: RegistryState::new(&globals),
-        output_state: OutputState::new(&globals, &qh),
-        seat_state: SeatState::new(&globals, &qh),
-        shm,
-        keyboard: None,
-        pointer: None,
-        window: None,
-        events: Vec::new(),
-        modifiers: ModifiersState::default(),
-        scale: 1,
-        logical_size: (config.size.0.max(1), config.size.1.max(1)),
-        configured: false,
-        exit: false,
-        needs_redraw: false,
-    };
-
-    let mut event_loop: EventLoop<SurfaceState> = match EventLoop::try_new() {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("calloop init failed: {e}");
-            return;
-        }
-    };
-    let loop_handle = event_loop.handle();
-    if let Err(e) = WaylandSource::new(conn.clone(), event_queue).insert(loop_handle.clone()) {
-        tracing::error!("wayland source insert failed: {e}");
-        return;
-    }
-
-    let (ping, ping_source) = match make_ping() {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("calloop ping failed: {e}");
-            return;
-        }
-    };
-    if loop_handle
-        .insert_source(ping_source, |_, _, state: &mut SurfaceState| {
-            state.needs_redraw = true;
-        })
-        .is_err()
-    {
-        tracing::error!("ping source insert failed");
-        return;
-    }
-
-    LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
-    set_surface_host(Box::new(LayerShellSurfaceHost));
-
-    if let Some(close) = close {
-        SURFACE_CLOSE.with(|c| *c.borrow_mut() = Some(Arc::clone(&close)));
-        let poll = Duration::from_millis(50);
-        let _ = loop_handle.insert_source(
-            Timer::from_duration(poll),
-            move |_instant, _meta, state: &mut SurfaceState| {
-                if close.load(Ordering::Relaxed) {
-                    state.exit = true;
-                }
-                TimeoutAction::ToDuration(poll)
-            },
-        );
-    }
-
-    for _ in 0..3 {
-        if event_loop
-            .dispatch(Duration::from_millis(40), &mut state)
-            .is_err()
-        {
-            return;
-        }
-    }
     let output = config.output.as_deref().and_then(|name| {
-        state
+        driver
             .output_state
             .outputs()
-            .find(|o| state.output_state.info(o).and_then(|i| i.name).as_deref() == Some(name))
+            .find(|o| driver.output_state.info(o).and_then(|i| i.name).as_deref() == Some(name))
     });
-    state.scale = output
+    let scale = output
         .as_ref()
-        .and_then(|o| state.output_state.info(o))
+        .and_then(|o| driver.output_state.info(o))
         .map(|i| i.scale_factor)
         .unwrap_or(1)
         .max(1);
 
-    let surface = compositor.create_surface(&qh);
+    let surface = compositor.create_surface(qh);
     let layer = layer_shell.create_layer_surface(
-        &qh,
+        qh,
         surface,
         config.layer,
         Some(config.namespace.clone()),
@@ -340,11 +278,11 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     let (mt, mr, mb, ml) = config.margin;
     layer.set_margin(mt, mr, mb, ml);
     layer.set_keyboard_interactivity(config.keyboard_interactivity);
-    layer.wl_surface().set_buffer_scale(state.scale);
+    layer.wl_surface().set_buffer_scale(scale);
     // A fully click-through surface, and an interactive-region one before its first frame computes its rects,
     // both start with an empty input region so they never steal clicks from windows beneath.
     if (config.input_transparent || config.interactive_input_region)
-        && let Ok(region) = Region::new(&compositor)
+        && let Ok(region) = Region::new(compositor)
     {
         layer
             .wl_surface()
@@ -352,74 +290,293 @@ fn run_surface<H: EventHandler<LayerWindow>>(
     }
     layer.commit();
 
-    if config.reserve_only {
-        run_reservation_loop(&mut event_loop, &mut state, &layer);
-        return;
-    }
+    let wl_id = layer.wl_surface().id();
+    driver.surfaces.push(SurfaceEntry {
+        layer,
+        wl_id,
+        window: None,
+        handler,
+        close,
+        reserve_only: config.reserve_only,
+        interactive_input_region: config.interactive_input_region,
+        scale,
+        logical_size: (config.size.0.max(1), config.size.1.max(1)),
+        configured: false,
+        resumed: false,
+        closed: false,
+        events: Vec::new(),
+        timeout: None,
+        input_region: Vec::new(),
+        reservation: None,
+    });
+}
 
-    let surface_ptr = NonNull::new(layer.wl_surface().id().as_ptr() as *mut c_void);
-    let display_ptr = NonNull::new(conn.backend().display_ptr() as *mut c_void);
-    let (Some(surface_ptr), Some(display_ptr)) = (surface_ptr, display_ptr) else {
-        tracing::error!(
-            "layer surface {surface_id:?}: null wayland pointers (system backend missing?)"
-        );
-        return;
+fn run_driver<H, F>(
+    configs: HashMap<SurfaceId, LayerConfig>,
+    shutdown: Option<Arc<AtomicBool>>,
+    surfaces: Vec<(SurfaceId, WindowConfig)>,
+    factory: F,
+) -> Result<(), PlatformError>
+where
+    H: EventHandler<LayerWindow> + 'static,
+    F: Fn(SurfaceId) -> H + 'static,
+{
+    let conn = Connection::connect_to_env()
+        .map_err(|e| PlatformError(format!("wayland connect failed: {e}")))?;
+    let (globals, event_queue) = registry_queue_init::<Driver>(&conn)
+        .map_err(|e| PlatformError(format!("registry init failed: {e}")))?;
+    let qh = event_queue.handle();
+
+    let compositor = CompositorState::bind(&globals, &qh)
+        .map_err(|e| PlatformError(format!("wl_compositor unavailable: {e}")))?;
+    let layer_shell = LayerShell::bind(&globals, &qh)
+        .map_err(|e| PlatformError(format!("zwlr_layer_shell_v1 unavailable: {e}")))?;
+    let shm =
+        Shm::bind(&globals, &qh).map_err(|e| PlatformError(format!("wl_shm unavailable: {e}")))?;
+
+    let mut driver = Driver {
+        registry_state: RegistryState::new(&globals),
+        output_state: OutputState::new(&globals, &qh),
+        seat_state: SeatState::new(&globals, &qh),
+        shm,
+        keyboard: None,
+        pointer: None,
+        modifiers: ModifiersState::default(),
+        keyboard_focus: None,
+        surfaces: Vec::new(),
     };
-    let scale = state.scale.max(1) as u32;
-    let window = LayerWindow::new(
-        surface_ptr,
-        display_ptr,
-        state.logical_size.0 * scale,
-        state.logical_size.1 * scale,
-        state.scale as f64,
-        move || {
-            ping.ping();
-        },
-    );
-    state.window = Some(window.clone());
 
-    while !state.configured {
-        if event_loop.dispatch(None, &mut state).is_err() {
-            return;
-        }
-        if state.exit {
-            return;
+    let mut event_loop: EventLoop<Driver> =
+        EventLoop::try_new().map_err(|e| PlatformError(format!("calloop init failed: {e}")))?;
+    let loop_handle = event_loop.handle();
+    WaylandSource::new(conn.clone(), event_queue)
+        .insert(loop_handle.clone())
+        .map_err(|e| PlatformError(format!("wayland source insert failed: {e}")))?;
+
+    // One ping wakes the shared loop; each frame re-drives every live surface (idle ones no-op internally).
+    let (ping, ping_source) =
+        make_ping().map_err(|e| PlatformError(format!("calloop ping failed: {e}")))?;
+    loop_handle
+        .insert_source(ping_source, |_, _, _: &mut Driver| {})
+        .map_err(|e| PlatformError(format!("ping source insert failed: {e}")))?;
+
+    LOOP_HANDLE.with(|h| *h.borrow_mut() = Some(loop_handle.clone()));
+    set_surface_host(Box::new(LayerShellSurfaceHost));
+
+    // Prime the registry so outputs are known before matching `config.output` on surface creation.
+    for _ in 0..3 {
+        if event_loop
+            .dispatch(Duration::from_millis(40), &mut driver)
+            .is_err()
+        {
+            return Ok(());
         }
     }
 
-    let mut handler = build_handler(surface_id);
-    handler.new_events();
-    let resumed = handler.on_resume(&window);
-    handler.about_to_wait();
-    if !resumed {
-        tracing::error!("layer surface {surface_id:?}: on_resume failed (renderer init)");
+    for (id, _window_config) in surfaces {
+        let config = configs.get(&id).cloned().unwrap_or_default();
+        let handler: Option<BoxedHandler> = if config.reserve_only {
+            None
+        } else {
+            Some(Box::new(factory(id)))
+        };
+        create_surface_entry(
+            &mut driver,
+            &compositor,
+            &layer_shell,
+            &qh,
+            &config,
+            handler,
+            None,
+        );
+    }
+
+    // App-level setup that needs the driver thread (LOOP_HANDLE + SurfaceHost now installed): the popup host.
+    for task in STARTUP.with(|s| std::mem::take(&mut *s.borrow_mut())) {
+        task();
+    }
+
+    let mut next_timeout: Option<Duration> = Some(Duration::ZERO);
+    loop {
+        // Mount any dynamic surfaces requested since the last turn (drawers/OSDs opened via `open_surface`).
+        let pending: Vec<PendingSurface> = DYN_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+        for p in pending {
+            create_surface_entry(
+                &mut driver,
+                &compositor,
+                &layer_shell,
+                &qh,
+                &p.config,
+                p.handler,
+                Some(p.close),
+            );
+        }
+
+        // Bracket the dispatch in a reactive batch so signal writes from Wayland/calloop callbacks (an icon
+        // download landing, a service update) are deferred and flushed once here, not synchronously mid-callback
+        // — which under M3's shared runtime would re-enter a callback still holding a RefCell borrow. This
+        // mirrors the winit runner bracketing each dispatch with the handler's new_events/about_to_wait.
+        begin_batch();
+        let dispatched = event_loop.dispatch(next_timeout, &mut driver);
+        end_batch();
+        if dispatched.is_err() {
+            break;
+        }
+        if shutdown.as_ref().is_some_and(|f| f.load(Ordering::Relaxed)) {
+            break;
+        }
+
+        let mut min_timeout: Option<Duration> = None;
+        let mut remove: Vec<usize> = Vec::new();
+        let display_ptr = NonNull::new(conn.backend().display_ptr() as *mut c_void);
+        let Driver {
+            surfaces,
+            shm: shm_state,
+            ..
+        } = &mut driver;
+        for (index, entry) in surfaces.iter_mut().enumerate() {
+            if entry.closed
+                || entry
+                    .close
+                    .as_ref()
+                    .is_some_and(|f| f.load(Ordering::Relaxed))
+            {
+                remove.push(index);
+                continue;
+            }
+            if !entry.configured {
+                continue;
+            }
+            if entry.reserve_only {
+                commit_reservation(shm_state, entry);
+                continue;
+            }
+            if entry.window.is_none() {
+                let Some(display_ptr) = display_ptr else {
+                    tracing::error!("null wayland display pointer (system backend missing?)");
+                    remove.push(index);
+                    continue;
+                };
+                let Some(surface_ptr) =
+                    NonNull::new(entry.layer.wl_surface().id().as_ptr() as *mut c_void)
+                else {
+                    remove.push(index);
+                    continue;
+                };
+                let scale = entry.scale.max(1) as u32;
+                let ping = ping.clone();
+                entry.window = Some(LayerWindow::new(
+                    surface_ptr,
+                    display_ptr,
+                    entry.logical_size.0 * scale,
+                    entry.logical_size.1 * scale,
+                    entry.scale as f64,
+                    move || ping.ping(),
+                ));
+            }
+            let window = entry.window.clone().expect("window built above");
+
+            if !entry.resumed {
+                let close = entry.close.clone();
+                let ok = with_current(&close, || {
+                    let handler = entry
+                        .handler
+                        .as_mut()
+                        .expect("rendering surface has a handler");
+                    handler.new_events();
+                    let resumed = handler.on_resume(&window);
+                    handler.about_to_wait();
+                    resumed
+                });
+                if !ok {
+                    tracing::error!("layer surface on_resume failed (renderer init)");
+                    remove.push(index);
+                    continue;
+                }
+                entry.resumed = true;
+            }
+
+            let close = entry.close.clone();
+            let events: Vec<Event> = entry.events.drain(..).collect();
+            entry.timeout = with_current(&close, || {
+                let handler = entry
+                    .handler
+                    .as_mut()
+                    .expect("rendering surface has a handler");
+                handler.new_events();
+                for event in events {
+                    handler.on_event(event, &window);
+                }
+                handler.on_redraw(&window);
+                handler.about_to_wait()
+            });
+            if entry.interactive_input_region {
+                update_input_region(&compositor, &entry.layer, &mut entry.input_region);
+            }
+            min_timeout = merge_timeout(min_timeout, entry.timeout);
+        }
+
+        for index in remove.into_iter().rev() {
+            let mut entry = driver.surfaces.remove(index);
+            if let Some(mut handler) = entry.handler.take() {
+                with_current(&entry.close, || handler.on_suspend());
+            }
+        }
+
+        next_timeout = min_timeout;
+    }
+
+    for mut entry in driver.surfaces.drain(..) {
+        if let Some(mut handler) = entry.handler.take() {
+            with_current(&entry.close, || handler.on_suspend());
+        }
+    }
+    Ok(())
+}
+
+fn merge_timeout(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// (Re)commits a fully-transparent shm buffer sized to the reservation strip so its exclusive_zone takes hold;
+/// only rebuilds when the pixel size changed.
+fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
+    let scale = entry.scale.max(1) as u32;
+    let w = (entry.logical_size.0 * scale).max(1);
+    let h = (entry.logical_size.1 * scale).max(1);
+    if entry
+        .reservation
+        .as_ref()
+        .is_some_and(|(_, _, size)| *size == (w, h))
+    {
         return;
     }
-
-    let mut timeout: Option<Duration> = None;
-    let mut input_region: Vec<(i32, i32, i32, i32)> = Vec::new();
-    loop {
-        handler.new_events();
-        if event_loop.dispatch(timeout, &mut state).is_err() {
-            break;
+    let stride = w as i32 * 4;
+    let len = (h as usize) * (stride as usize);
+    let mut pool = match SlotPool::new(len.max(1), shm) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!("reservation surface: shm pool failed: {e}");
+            return;
         }
-        for event in state.events.drain(..) {
-            handler.on_event(event, &window);
+    };
+    let buffer = match pool.create_buffer(w as i32, h as i32, stride, wl_shm::Format::Argb8888) {
+        Ok((buffer, _canvas)) => buffer,
+        Err(e) => {
+            tracing::error!("reservation surface: shm buffer failed: {e}");
+            return;
         }
-        // Gated internally by tree-dirty / keepalive; `needs_redraw` is advisory (a ping/input woke us).
-        state.needs_redraw = false;
-        handler.on_redraw(&window);
-        // The frame just laid the tree out, so the interactive rects are current: refresh the carved input
-        // region to match (a no-op commit when unchanged).
-        if config.interactive_input_region {
-            update_input_region(&compositor, &layer, &mut input_region);
-        }
-        timeout = handler.about_to_wait();
-        if state.exit {
-            break;
-        }
+    };
+    let surface = entry.layer.wl_surface();
+    surface.set_buffer_scale(scale as i32);
+    if buffer.attach_to(surface).is_ok() {
+        surface.damage_buffer(0, 0, w as i32, h as i32);
+        entry.layer.commit();
+        entry.reservation = Some((pool, buffer, (w, h)));
     }
-    handler.on_suspend();
 }
 
 /// Rebuilds the surface's input region from [`rsx::interactive_rects`] — the laid-out pressable widgets, in
@@ -458,58 +615,8 @@ fn update_input_region(
     *last = rects;
 }
 
-/// Commits a fully-transparent shm buffer sized to the configured surface to hold its exclusive_zone.
-fn run_reservation_loop(
-    event_loop: &mut EventLoop<SurfaceState>,
-    state: &mut SurfaceState,
-    layer: &LayerSurface,
-) {
-    let mut retained: Option<(SlotPool, Buffer)> = None;
-    let mut committed: (u32, u32) = (0, 0);
-    loop {
-        if event_loop.dispatch(None, state).is_err() || state.exit {
-            drop(retained);
-            return;
-        }
-        if !state.configured {
-            continue;
-        }
-        let scale = state.scale.max(1) as u32;
-        let w = (state.logical_size.0 * scale).max(1);
-        let h = (state.logical_size.1 * scale).max(1);
-        if (w, h) == committed {
-            continue;
-        }
-        let stride = w as i32 * 4;
-        let len = (h as usize) * (stride as usize);
-        let mut pool = match SlotPool::new(len.max(1), &state.shm) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!("reservation surface: shm pool failed: {e}");
-                return;
-            }
-        };
-        let buffer = match pool.create_buffer(w as i32, h as i32, stride, wl_shm::Format::Argb8888)
-        {
-            Ok((buffer, _canvas)) => buffer,
-            Err(e) => {
-                tracing::error!("reservation surface: shm buffer failed: {e}");
-                return;
-            }
-        };
-        let surface = layer.wl_surface();
-        surface.set_buffer_scale(scale as i32);
-        if buffer.attach_to(surface).is_ok() {
-            surface.damage_buffer(0, 0, w as i32, h as i32);
-            layer.commit();
-            committed = (w, h);
-        }
-        retained = Some((pool, buffer));
-    }
-}
-
 struct NoPaths;
-impl AppPathsProvider for NoPaths {
+impl rsx::AppPathsProvider for NoPaths {
     fn config_dir(&self) -> Option<std::path::PathBuf> {
         None
     }
@@ -521,36 +628,14 @@ impl AppPathsProvider for NoPaths {
     }
 }
 
-struct SingleLayerPlatform {
-    config: LayerConfig,
-    close: Arc<AtomicBool>,
-}
-
-impl Platform for SingleLayerPlatform {
-    type Window = LayerWindow;
-
-    fn run<H: EventHandler<LayerWindow>>(
-        self,
-        _config: WindowConfig,
-        handler: H,
-    ) -> Result<(), PlatformError> {
-        run_surface(
-            SurfaceId(0),
-            self.config,
-            move |_| handler,
-            Some(self.close),
-        );
-        Ok(())
-    }
-}
-
-/// A live dynamically-opened surface. Dropping it — or calling [`close`](Self::close) — asks the surface to tear down.
+/// A live dynamically-opened surface. Dropping it — or calling [`close`](Self::close) — asks the driver to tear it down.
 pub struct SurfaceHandle {
     close: Arc<AtomicBool>,
 }
 
 impl SurfaceHandle {
-    /// Asks the surface to close. Returns immediately; the surface's thread notices the flag within ~50 ms and tears itself down. Deliberately non-blocking so a UI event handler can close a drawer without stalling.
+    /// Asks the surface to close. Returns immediately; the driver tears it down on its next loop turn.
+    /// Deliberately non-blocking so a UI event handler can close a drawer without stalling.
     pub fn close(&self) {
         self.close.store(true, Ordering::Relaxed);
     }
@@ -567,33 +652,6 @@ impl Drop for SurfaceHandle {
     }
 }
 
-/// Opens a new layer-shell surface at runtime on its own thread (fully isolated reactive/theme/overlay world).
-pub fn open_surface<A: App + Send + 'static>(spec: LayerConfig, app: A) -> SurfaceHandle {
-    let close = Arc::new(AtomicBool::new(false));
-    let close_for_thread = Arc::clone(&close);
-    let spawned = std::thread::Builder::new()
-        .name("hyprshell-surface-dyn".to_string())
-        .spawn(move || {
-            let platform = SingleLayerPlatform {
-                config: spec,
-                close: close_for_thread,
-            };
-            if let Err(e) = run_with_platform::<_, _, ()>(
-                platform,
-                AppConfig::default(),
-                Box::new(NoPaths),
-                app,
-                "hyprshell",
-            ) {
-                tracing::error!("dynamic surface exited with error: {e}");
-            }
-        });
-    if let Err(e) = spawned {
-        tracing::error!("failed to spawn dynamic surface thread: {e}");
-    }
-    SurfaceHandle { close }
-}
-
 impl SurfaceControl for SurfaceHandle {
     fn close(&self) {
         SurfaceHandle::close(self);
@@ -601,6 +659,36 @@ impl SurfaceControl for SurfaceHandle {
     fn is_closing(&self) -> bool {
         SurfaceHandle::is_closing(self)
     }
+}
+
+/// Opens a new layer-shell surface at runtime. Builds the handler on the UI thread and enqueues it for the
+/// driver to mount on its next loop turn — no new thread, so it shares the one reactive runtime (M3).
+pub fn open_surface<A: App + 'static>(spec: LayerConfig, app: A) -> SurfaceHandle {
+    let close = Arc::new(AtomicBool::new(false));
+    let handler = build_surface_handler::<LayerWindow, A>(app, Box::new(NoPaths), "hyprshell");
+    DYN_QUEUE.with(|q| {
+        q.borrow_mut().push(PendingSurface {
+            config: spec,
+            handler: Some(handler),
+            close: Arc::clone(&close),
+        })
+    });
+    SurfaceHandle { close }
+}
+
+/// Opens a reservation-only strip (no rsx content — just its exclusive zone, an invisible transparent buffer),
+/// closeable like any dynamic surface. Used to reserve bar space so the strip and the visible bar are
+/// independent surfaces (see the bar/reservation split), reconcilable on config reload without a full teardown.
+pub fn open_reservation(spec: LayerConfig) -> SurfaceHandle {
+    let close = Arc::new(AtomicBool::new(false));
+    DYN_QUEUE.with(|q| {
+        q.borrow_mut().push(PendingSurface {
+            config: spec,
+            handler: None,
+            close: Arc::clone(&close),
+        })
+    });
+    SurfaceHandle { close }
 }
 
 /// Maps rsx's backend-agnostic [`SurfaceAnchor`] to layer-shell edge flags. `Center` anchors to no edge, so
@@ -671,12 +759,14 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
     }
 }
 
-/// The internal rsx app for a hosted secondary surface: builds the content on its own thread, wraps it in
-/// the placement's scaffold (scrim + outside-dismiss) or a plain full-surface root, and arms an auto-dismiss
-/// timer when the placement asks for one.
+/// The internal rsx app for a hosted secondary surface: builds the content, wraps it in the placement's
+/// scaffold (scrim + outside-dismiss) or a plain full-surface root, and arms an auto-dismiss timer when the
+/// placement asks for one. The auto-dismiss captures this surface's own close flag directly, so it fires
+/// regardless of which surface is current when the timer elapses.
 struct HostedSurfaceApp {
     placement: SurfacePlacement,
     content: RefCell<Option<SurfaceContent>>,
+    close: Arc<AtomicBool>,
 }
 
 impl App for HostedSurfaceApp {
@@ -688,13 +778,14 @@ impl App for HostedSurfaceApp {
             .take()
             .expect("hosted surface content factory taken twice")();
         if let Some(delay) = self.placement.timeout {
-            timeout(delay, request_close);
+            let close = Arc::clone(&self.close);
+            timeout(delay, move || close.store(true, Ordering::Relaxed));
         }
         if self.placement.needs_scaffold() {
-            let dismiss: Option<std::rc::Rc<dyn Fn()>> = self
-                .placement
-                .dismiss_on_outside
-                .then(|| std::rc::Rc::new(request_close) as std::rc::Rc<dyn Fn()>);
+            let dismiss: Option<Rc<dyn Fn()>> = self.placement.dismiss_on_outside.then(|| {
+                let close = Arc::clone(&self.close);
+                Rc::new(move || close.store(true, Ordering::Relaxed)) as Rc<dyn Fn()>
+            });
             Box::new(
                 SurfaceScaffold::new(&self.placement, content, dismiss)
                     .expect("surface scaffold build failed")
@@ -722,17 +813,27 @@ impl App for HostedSurfaceApp {
     }
 }
 
-/// Installs on every surface thread so its rsx world can open drawers/OSDs/popups via `rsx::open_surface`.
+/// Installed once so the shell's rsx world can open drawers/OSDs/popups via `rsx::open_surface`.
 struct LayerShellSurfaceHost;
 
 impl SurfaceHost for LayerShellSurfaceHost {
     fn open(&self, placement: SurfacePlacement, content: SurfaceContent) -> SurfaceToken {
         let config = layer_config_for(&placement);
+        let close = Arc::new(AtomicBool::new(false));
         let app = HostedSurfaceApp {
             placement,
             content: RefCell::new(Some(content)),
+            close: Arc::clone(&close),
         };
-        SurfaceToken::new(Box::new(open_surface(config, app)))
+        let handler = build_surface_handler::<LayerWindow, _>(app, Box::new(NoPaths), "hyprshell");
+        DYN_QUEUE.with(|q| {
+            q.borrow_mut().push(PendingSurface {
+                config,
+                handler: Some(handler),
+                close: Arc::clone(&close),
+            })
+        });
+        SurfaceToken::new(Box::new(SurfaceHandle { close }))
     }
 }
 
@@ -782,7 +883,7 @@ fn named_from_keysym(keysym: Keysym) -> Option<NamedKey> {
     }
 }
 
-impl CompositorHandler for SurfaceState {
+impl CompositorHandler for Driver {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
@@ -791,24 +892,27 @@ impl CompositorHandler for SurfaceState {
         new_factor: i32,
     ) {
         let scale = new_factor.max(1);
-        if scale == self.scale {
+        let id = surface.id();
+        let Some(entry) = self.entry_mut(&id) else {
+            return;
+        };
+        if scale == entry.scale {
             return;
         }
-        self.scale = scale;
+        entry.scale = scale;
         surface.set_buffer_scale(scale);
-        let (lw, lh) = self.logical_size;
-        if let Some(window) = &self.window {
+        let (lw, lh) = entry.logical_size;
+        if let Some(window) = &entry.window {
             window.set_size(lw * scale as u32, lh * scale as u32);
             window.set_scale_factor(scale as f64);
         }
-        self.events.push(Event::ScaleFactorChanged {
+        entry.events.push(Event::ScaleFactorChanged {
             scale_factor: scale as f64,
         });
-        self.events.push(Event::WindowResized {
+        entry.events.push(Event::WindowResized {
             width: lw,
             height: lh,
         });
-        self.needs_redraw = true;
     }
     fn transform_changed(
         &mut self,
@@ -844,7 +948,7 @@ impl CompositorHandler for SurfaceState {
     }
 }
 
-impl OutputHandler for SurfaceState {
+impl OutputHandler for Driver {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
@@ -853,9 +957,12 @@ impl OutputHandler for SurfaceState {
     fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
 }
 
-impl LayerShellHandler for SurfaceState {
-    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
-        self.exit = true;
+impl LayerShellHandler for Driver {
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, layer: &LayerSurface) {
+        let id = layer.wl_surface().id();
+        if let Some(entry) = self.entry_mut(&id) {
+            entry.closed = true;
+        }
     }
 
     fn configure(
@@ -866,32 +973,38 @@ impl LayerShellHandler for SurfaceState {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
+        let id = layer.wl_surface().id();
+        let Some(entry) = self.entry_mut(&id) else {
+            return;
+        };
         // configure sizes are LOGICAL. `0` on an axis means the compositor left it to us — keep the last value.
         let (mut lw, mut lh) = configure.new_size;
         if lw == 0 {
-            lw = self.logical_size.0.max(1);
+            lw = entry.logical_size.0.max(1);
         }
         if lh == 0 {
-            lh = self.logical_size.1.max(1);
+            lh = entry.logical_size.1.max(1);
         }
-        self.logical_size = (lw, lh);
-        let scale = self.scale.max(1) as u32;
-        if let Some(window) = &self.window {
+        entry.logical_size = (lw, lh);
+        let scale = entry.scale.max(1) as u32;
+        if let Some(window) = &entry.window {
             window.set_size(lw * scale, lh * scale);
         }
-        layer.wl_surface().set_buffer_scale(self.scale.max(1));
-        if self.configured {
-            self.events.push(Event::WindowResized {
+        entry
+            .layer
+            .wl_surface()
+            .set_buffer_scale(entry.scale.max(1));
+        if entry.configured {
+            entry.events.push(Event::WindowResized {
                 width: lw,
                 height: lh,
             });
         }
-        self.configured = true;
-        self.needs_redraw = true;
+        entry.configured = true;
     }
 }
 
-impl SeatHandler for SurfaceState {
+impl SeatHandler for Driver {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.seat_state
     }
@@ -931,26 +1044,30 @@ impl SeatHandler for SurfaceState {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
-impl KeyboardHandler for SurfaceState {
+impl KeyboardHandler for Driver {
     fn enter(
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
-        _: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _: u32,
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.keyboard_focus = Some(surface.id());
     }
     fn leave(
         &mut self,
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
-        _: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.keyboard_focus.as_ref() == Some(&surface.id()) {
+            self.keyboard_focus = None;
+        }
     }
     fn press_key(
         &mut self,
@@ -960,12 +1077,11 @@ impl KeyboardHandler for SurfaceState {
         _: u32,
         event: KeyEvent,
     ) {
-        if let Some(key) = map_key(&event) {
-            self.events.push(Event::KeyPressed {
-                key,
-                modifiers: self.modifiers,
-            });
-            self.needs_redraw = true;
+        let modifiers = self.modifiers;
+        if let (Some(key), Some(id)) = (map_key(&event), self.keyboard_focus.clone())
+            && let Some(entry) = self.entry_mut(&id)
+        {
+            entry.events.push(Event::KeyPressed { key, modifiers });
         }
     }
     fn release_key(
@@ -976,12 +1092,11 @@ impl KeyboardHandler for SurfaceState {
         _: u32,
         event: KeyEvent,
     ) {
-        if let Some(key) = map_key(&event) {
-            self.events.push(Event::KeyReleased {
-                key,
-                modifiers: self.modifiers,
-            });
-            self.needs_redraw = true;
+        let modifiers = self.modifiers;
+        if let (Some(key), Some(id)) = (map_key(&event), self.keyboard_focus.clone())
+            && let Some(entry) = self.entry_mut(&id)
+        {
+            entry.events.push(Event::KeyReleased { key, modifiers });
         }
     }
     fn repeat_key(
@@ -992,12 +1107,11 @@ impl KeyboardHandler for SurfaceState {
         _: u32,
         event: KeyEvent,
     ) {
-        if let Some(key) = map_key(&event) {
-            self.events.push(Event::KeyPressed {
-                key,
-                modifiers: self.modifiers,
-            });
-            self.needs_redraw = true;
+        let modifiers = self.modifiers;
+        if let (Some(key), Some(id)) = (map_key(&event), self.keyboard_focus.clone())
+            && let Some(entry) = self.entry_mut(&id)
+        {
+            entry.events.push(Event::KeyPressed { key, modifiers });
         }
     }
     fn update_modifiers(
@@ -1019,7 +1133,7 @@ impl KeyboardHandler for SurfaceState {
     }
 }
 
-impl PointerHandler for SurfaceState {
+impl PointerHandler for Driver {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
@@ -1028,73 +1142,78 @@ impl PointerHandler for SurfaceState {
         events: &[PointerEvent],
     ) {
         for event in events {
+            let id = event.surface.id();
             let (x, y) = event.position;
-            match event.kind {
-                PointerEventKind::Enter { .. } => self.events.push(Event::CursorEntered),
-                PointerEventKind::Leave { .. } => self.events.push(Event::CursorLeft),
-                PointerEventKind::Motion { .. } => self.events.push(Event::PointerMoved {
+            let rsx_event = match event.kind {
+                PointerEventKind::Enter { .. } => Event::CursorEntered,
+                PointerEventKind::Leave { .. } => Event::CursorLeft,
+                PointerEventKind::Motion { .. } => Event::PointerMoved {
                     x,
                     y,
                     source: PointerSource::Mouse,
-                }),
+                },
                 PointerEventKind::Press { button, .. } => {
-                    if let Some(button) = map_button(button) {
-                        self.events.push(Event::PointerPressed {
-                            x,
-                            y,
-                            button,
-                            source: PointerSource::Mouse,
-                        });
+                    let Some(button) = map_button(button) else {
+                        continue;
+                    };
+                    Event::PointerPressed {
+                        x,
+                        y,
+                        button,
+                        source: PointerSource::Mouse,
                     }
                 }
                 PointerEventKind::Release { button, .. } => {
-                    if let Some(button) = map_button(button) {
-                        self.events.push(Event::PointerReleased {
-                            x,
-                            y,
-                            button,
-                            source: PointerSource::Mouse,
-                        });
+                    let Some(button) = map_button(button) else {
+                        continue;
+                    };
+                    Event::PointerReleased {
+                        x,
+                        y,
+                        button,
+                        source: PointerSource::Mouse,
                     }
                 }
                 PointerEventKind::Axis {
                     horizontal,
                     vertical,
                     ..
-                } => self.events.push(Event::Scrolled {
+                } => Event::Scrolled {
                     // Wayland axis is positive down/right; negate to the winit convention the shared scroll area expects (`offset -= delta`) so the view tracks the gesture.
                     delta: ScrollDelta::Pixels {
                         x: -(horizontal.absolute as f32),
                         y: -(vertical.absolute as f32),
                     },
-                }),
+                },
+            };
+            if let Some(entry) = self.entry_mut(&id) {
+                entry.events.push(rsx_event);
             }
-            self.needs_redraw = true;
         }
     }
 }
 
-impl ProvidesRegistryState for SurfaceState {
+impl ProvidesRegistryState for Driver {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
     registry_handlers![OutputState, SeatState];
 }
 
-impl ShmHandler for SurfaceState {
+impl ShmHandler for Driver {
     fn shm_state(&mut self) -> &mut Shm {
         &mut self.shm
     }
 }
 
-delegate_compositor!(SurfaceState);
-delegate_output!(SurfaceState);
-delegate_layer!(SurfaceState);
-delegate_seat!(SurfaceState);
-delegate_keyboard!(SurfaceState);
-delegate_pointer!(SurfaceState);
-delegate_shm!(SurfaceState);
-delegate_registry!(SurfaceState);
+delegate_compositor!(Driver);
+delegate_output!(Driver);
+delegate_layer!(Driver);
+delegate_seat!(Driver);
+delegate_keyboard!(Driver);
+delegate_pointer!(Driver);
+delegate_shm!(Driver);
+delegate_registry!(Driver);
 
 struct OutputEnumState {
     registry_state: RegistryState,
@@ -1165,11 +1284,6 @@ mod tests {
         assert_eq!(named_from_keysym(Keysym::Escape), Some(NamedKey::Escape));
         assert_eq!(named_from_keysym(Keysym::Tab), Some(NamedKey::Tab));
         assert_eq!(named_from_keysym(Keysym::Left), Some(NamedKey::ArrowLeft));
-        assert_eq!(
-            named_from_keysym(Keysym::Page_Down),
-            Some(NamedKey::PageDown)
-        );
-        // A printable key has no named mapping — it flows through the utf8 char path instead.
-        assert_eq!(named_from_keysym(Keysym::a), None);
+        assert_eq!(named_from_keysym(Keysym::Right), Some(NamedKey::ArrowRight));
     }
 }

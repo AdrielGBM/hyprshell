@@ -72,27 +72,17 @@ pub use crate::shared::module::{
 };
 pub use crate::shared::theme::{FontRole, NordTheme, ThemeMeta};
 
-use std::collections::HashMap;
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 
 use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, LayerShellPlatform, enumerate_outputs,
+    Anchor, KeyboardInteractivity, Layer, LayerConfig, LayerShellPlatform, SurfaceHandle,
+    enumerate_outputs,
 };
-use rsx::{App, AppConfig, AppPathsProvider, SurfaceId, run_multi_with_platform};
-
-/// Reservation surfaces are backend-driven and never reach the app factory.
-#[derive(Clone)]
-enum SurfaceSpec {
-    /// A bar on `edge`, carrying the output it lives on so its drawers/floats/OSDs open on the same monitor.
-    Bar(Edge, Option<String>),
-    /// A full-screen wallpaper on `output`, carried so a per-monitor image can target it.
-    Wallpaper(Option<String>),
-    Frame,
-    Reservation,
-}
+use rsx::{App, AppPathsProvider, run_multi_with_platform};
 
 struct NullPaths;
 impl AppPathsProvider for NullPaths {
@@ -220,7 +210,9 @@ fn frame_layer_config(output: Option<String>) -> LayerConfig {
 
 pub fn run() {
     let config_path = Config::default_path();
-    // Start the notification daemon and its popup surface once, before the reload loop, so they survive bar config reloads (§8 "persists across reloads").
+    // Start the notification daemon once, before the reload loop, so it keeps owning the D-Bus name across bar
+    // config reloads (§8 "persists across reloads"). The popup surface itself is (re)established inside
+    // `run_once` on the driver thread — notification state lives in the daemon, so recreating it loses nothing.
     let initial = Arc::new(Config::load_or_default(&config_path));
     // Seed the shared UI-language source so every surface starts in the configured locale and stays live.
     crate::shared::services::locale::init(initial.language());
@@ -231,125 +223,16 @@ pub fn run() {
         Duration::from_millis(initial.notifications.timeout_ms),
         initial.notifications.critical_sticky,
     );
-    crate::modules::notifications::spawn_popup_host(Arc::clone(&initial));
-    let reload = Arc::new(AtomicBool::new(false));
-    spawn_config_watcher(config_path.clone(), Arc::clone(&reload));
 
-    loop {
-        reload.store(false, Ordering::Relaxed);
-        run_once(&config_path, Arc::clone(&reload));
-        tracing::info!("hyprshell: reloading config");
-    }
-}
-
-/// Runs until the reload flag flips (config changed), then returns so `run` rebuilds from fresh config.
-fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
-    let config = Arc::new(Config::load_or_default(config_path));
-    // Re-seed the language on reload so a `[general] language` edit reaches the surfaces this run rebuilds.
-    crate::shared::services::locale::init(config.language());
-    // Re-apply on reload so a `[theme] font_family` change reaches the bars this run rebuilds; warn here (not
-    // just at process start) so editing the font name and reloading surfaces the mismatch, like the theme warn.
-    warn_if_font_missing(config.theme.font_family.as_deref());
-    rsx::set_default_font_family(config.theme.font_family.clone());
-
-    let outputs = enumerate_outputs();
-    if outputs.is_empty() {
-        eprintln!("hyprshell: no Wayland outputs found (is a compositor running?)");
-        std::process::exit(1);
-    }
-
-    let mut platform = LayerShellPlatform::new();
-    let mut surfaces = Vec::new();
-    let mut specs: HashMap<SurfaceId, SurfaceSpec> = HashMap::new();
-    let mut next_id = 0u64;
-    let mut declare = |platform: &mut LayerShellPlatform,
-                       surfaces: &mut Vec<(SurfaceId, AppConfig)>,
-                       specs: &mut HashMap<SurfaceId, SurfaceSpec>,
-                       spec: SurfaceSpec,
-                       cfg: LayerConfig| {
-        let id = SurfaceId(next_id);
-        next_id += 1;
-        specs.insert(id, spec);
-        surfaces.push((id, AppConfig::default()));
-        let taken = std::mem::take(platform);
-        *platform = taken.with_surface(id, cfg);
-    };
-    for out in &outputs {
-        // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
-        if config.background.is_enabled() {
-            let cfg = wallpaper_layer_config(out.name.clone());
-            declare(
-                &mut platform,
-                &mut surfaces,
-                &mut specs,
-                SurfaceSpec::Wallpaper(out.name.clone()),
-                cfg,
-            );
-        }
-        for edge in Edge::ALL {
-            if config.edge_present(edge) {
-                let cfg = layer_config_for(&config, edge, out.name.clone());
-                declare(
-                    &mut platform,
-                    &mut surfaces,
-                    &mut specs,
-                    SurfaceSpec::Bar(edge, out.name.clone()),
-                    cfg,
-                );
-                let reserve = reservation_config_for(&config, edge, out.name.clone());
-                declare(
-                    &mut platform,
-                    &mut surfaces,
-                    &mut specs,
-                    SurfaceSpec::Reservation,
-                    reserve,
-                );
-            }
-        }
-        if config.shape.frame {
-            let cfg = frame_layer_config(out.name.clone());
-            declare(
-                &mut platform,
-                &mut surfaces,
-                &mut specs,
-                SurfaceSpec::Frame,
-                cfg,
-            );
-        }
-    }
-
-    if surfaces.is_empty() {
-        eprintln!("hyprshell: every bar is empty — nothing to show");
-        std::process::exit(1);
-    }
-    println!(
-        "hyprshell: {} surface(s) across {} output(s)",
-        surfaces.len(),
-        outputs.len()
-    );
-
-    let platform = platform.with_shutdown(reload);
-    let config_for_factory = Arc::clone(&config);
-    let specs = Arc::new(specs);
+    // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
+    // (via `setup_shell`, deferred with `run_on_start`) and reconciled on config change, so a reload never tears
+    // down the connection, the popup, or the shared services — only the bars/wallpaper/frame that changed.
+    platform_layershell::run_on_start(move || setup_shell(config_path));
     if let Err(e) = run_multi_with_platform(
-        platform,
-        surfaces,
-        |_id| Box::new(NullPaths) as Box<dyn AppPathsProvider>,
-        move |id| -> Box<dyn App> {
-            let config = Arc::clone(&config_for_factory);
-            match specs[&id].clone() {
-                SurfaceSpec::Bar(edge, output) => Box::new(BarApp {
-                    config,
-                    edge,
-                    output,
-                }),
-                SurfaceSpec::Wallpaper(output) => Box::new(WallpaperApp { config, output }),
-                SurfaceSpec::Frame => Box::new(FrameApp { config }),
-                SurfaceSpec::Reservation => {
-                    unreachable!("reservation surfaces do not reach the app factory")
-                }
-            }
-        },
+        LayerShellPlatform::new(),
+        Vec::new(),
+        |_| Box::new(NullPaths) as Box<dyn AppPathsProvider>,
+        |_id| -> Box<dyn App> { unreachable!("hyprshell opens every surface dynamically") },
         "hyprshell",
     ) {
         eprintln!("hyprshell exited with error: {e}");
@@ -357,23 +240,100 @@ fn run_once(config_path: &Path, reload: Arc<AtomicBool>) {
     }
 }
 
-/// Polls config.toml mtime on background thread; polling (vs inotify) is dependency-free and naturally debounces.
-fn spawn_config_watcher(path: PathBuf, reload: Arc<AtomicBool>) {
-    let _ = std::thread::Builder::new()
-        .name("hyprshell-config-watch".to_string())
-        .spawn(move || {
-            let mut last = config_mtime(&path);
-            loop {
-                std::thread::sleep(Duration::from_millis(500));
-                let now = config_mtime(&path);
-                if now != last {
-                    last = now;
-                    if now.is_some() {
-                        reload.store(true, Ordering::Relaxed);
-                    }
-                }
+/// Runs on the driver thread once its loop is up (deferred via `run_on_start`): brings up the popup host and
+/// opens every surface, then watches the config file and reconciles the surface set on change — closing the old
+/// surfaces and opening the new ones — without tearing the driver, connection, popup or services down.
+fn setup_shell(config_path: PathBuf) {
+    let config = Arc::new(Config::load_or_default(&config_path));
+    crate::shared::services::locale::init(config.language());
+    warn_if_font_missing(config.theme.font_family.as_deref());
+    rsx::set_default_font_family(config.theme.font_family.clone());
+    if enumerate_outputs().is_empty() {
+        eprintln!("hyprshell: no Wayland outputs found (is a compositor running?)");
+        std::process::exit(1);
+    }
+
+    // The popup host is long-lived: set up once, it persists across reloads (its edge/radius are read at
+    // startup; notification state lives in the daemon, so it need not be rebuilt on a bar-config change).
+    crate::modules::notifications::popup_host(Arc::clone(&config));
+
+    let initial = open_surfaces(&config);
+    println!("hyprshell: {} surface(s) up", initial.len());
+    let handles = Rc::new(RefCell::new(initial));
+
+    let watch_path = config_path.clone();
+    platform_layershell::watch(
+        move |tx| watch_config_changes(watch_path, tx),
+        move |_| {
+            // Reconcile: re-read config, drop the old surfaces (closing them), open the new set.
+            let config = Arc::new(Config::load_or_default(&config_path));
+            crate::shared::services::locale::init(config.language());
+            warn_if_font_missing(config.theme.font_family.as_deref());
+            rsx::set_default_font_family(config.theme.font_family.clone());
+            for handle in handles.borrow_mut().drain(..) {
+                handle.close();
             }
-        });
+            *handles.borrow_mut() = open_surfaces(&config);
+        },
+    );
+}
+
+/// Opens every bar / reservation / wallpaper / frame surface for the current config across all outputs and
+/// returns their handles — kept alive to keep the surfaces up; closing a handle tears its surface down.
+fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
+    let mut handles = Vec::new();
+    for out in enumerate_outputs() {
+        // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
+        if config.background.is_enabled() {
+            handles.push(platform_layershell::open_surface(
+                wallpaper_layer_config(out.name.clone()),
+                WallpaperApp {
+                    config: Arc::clone(config),
+                    output: out.name.clone(),
+                },
+            ));
+        }
+        for edge in Edge::ALL {
+            if config.edge_present(edge) {
+                handles.push(platform_layershell::open_surface(
+                    layer_config_for(config, edge, out.name.clone()),
+                    BarApp {
+                        config: Arc::clone(config),
+                        edge,
+                        output: out.name.clone(),
+                    },
+                ));
+                handles.push(platform_layershell::open_reservation(
+                    reservation_config_for(config, edge, out.name.clone()),
+                ));
+            }
+        }
+        if config.shape.frame {
+            handles.push(platform_layershell::open_surface(
+                frame_layer_config(out.name.clone()),
+                FrameApp {
+                    config: Arc::clone(config),
+                },
+            ));
+        }
+    }
+    handles
+}
+
+/// The config-watch producer for `watch`: polls config.toml mtime (dependency-free, naturally debounced) and
+/// sends a tick on each change so the driver thread reconciles the surface set.
+fn watch_config_changes(path: PathBuf, tx: platform_layershell::EventSender<()>) {
+    let mut last = config_mtime(&path);
+    loop {
+        std::thread::sleep(Duration::from_millis(500));
+        let now = config_mtime(&path);
+        if now != last {
+            last = now;
+            if now.is_some() && !tx.send(()) {
+                return;
+            }
+        }
+    }
 }
 
 fn config_mtime(path: &Path) -> Option<SystemTime> {
