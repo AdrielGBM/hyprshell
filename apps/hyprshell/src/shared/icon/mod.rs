@@ -188,7 +188,11 @@ fn deliver(id: IconId, data: Option<Arc<SvgData>>) {
         match data {
             Some(svg) => {
                 store.attempts.borrow_mut().remove(&id);
-                if let Some(handle) = store.signals.borrow().get(&id) {
+                // Clone the signal handle out and drop the `signals` borrow BEFORE `set`: under M3's shared
+                // runtime a signal write flushes effects synchronously, which re-renders an icon → `svg()` →
+                // `signals.borrow_mut()`; holding the borrow across `set` would re-enter and panic.
+                let handle = store.signals.borrow().get(&id).cloned();
+                if let Some(handle) = handle {
                     handle.set(AssetState::Ready(svg));
                 }
             }
@@ -204,8 +208,11 @@ fn deliver(id: IconId, data: Option<Arc<SvgData>>) {
                     timeout(RETRY_DELAY, move || {
                         let _ = requests.send(id);
                     });
-                } else if let Some(handle) = store.signals.borrow().get(&id) {
-                    handle.set(AssetState::Failed);
+                } else {
+                    let handle = store.signals.borrow().get(&id).cloned();
+                    if let Some(handle) = handle {
+                        handle.set(AssetState::Failed);
+                    }
                 }
             }
         }

@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use rsx::{
     LayoutError, LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceToken,
     open_surface, set_theme,
@@ -41,6 +39,9 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
     }
 }
 
+/// The per-panel-surface context (which module, its config, and the bar-matching corner radius), provided into
+/// the drawer/float surface's scope so `drawer_panel.rsx` reads it via `inject` — scoped to the surface, not a
+/// global thread-local. Drawer and float are separate surfaces, so each provides its own.
 #[derive(Clone)]
 struct DrawerCtx {
     module: String,
@@ -48,43 +49,43 @@ struct DrawerCtx {
     radius: f32,
 }
 
-thread_local! {
-    // Set on the drawer thread before its `.rsx` content builds, so `drawer_panel.rsx` can read it — the context seam for parameterless `.rsx` modules, like `surface_env`.
-    static DRAWER_CTX: RefCell<DrawerCtx> = RefCell::new(DrawerCtx {
-        module: String::new(),
-        config: DrawerConfig::default(),
-        radius: 0.0,
-    });
-}
-
 pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
-    DRAWER_CTX.with(|c| {
-        *c.borrow_mut() = DrawerCtx {
-            module,
-            config: drawer,
-            radius,
-        }
+    let _ = rsx::provide(DrawerCtx {
+        module,
+        config: drawer,
+        radius,
     });
 }
 
 /// The module whose panel the drawer being built shows; read by `drawer_panel.rsx`.
 pub fn current_drawer_module() -> String {
-    DRAWER_CTX.with(|c| c.borrow().module.clone())
+    rsx::try_inject::<DrawerCtx>()
+        .map(|ctx| ctx.module)
+        .unwrap_or_default()
 }
 
 /// The drawer size (width / max height) for the drawer being built; read by `drawer_panel.rsx`.
 pub fn current_drawer_config() -> DrawerConfig {
-    DRAWER_CTX.with(|c| c.borrow().config)
+    rsx::try_inject::<DrawerCtx>()
+        .map(|ctx| ctx.config)
+        .unwrap_or_default()
 }
 
 /// The bar-matching corner radius of the panel currently being built (drawer or float); read by `drawer_panel.rsx` and by the notification history it hosts, so content rounds its corners like the bar regardless of which panel presents it.
 pub fn content_radius() -> f32 {
-    DRAWER_CTX.with(|c| c.borrow().radius)
+    rsx::try_inject::<DrawerCtx>()
+        .map(|ctx| ctx.radius)
+        .unwrap_or(0.0)
 }
 
-/// Sets just the content radius on this surface thread, leaving module/config — used by a float presenting the same panel content as a drawer, so its cards carry the bar radius too.
+/// Provides a panel context carrying just the content radius (module/config defaulted) — used by a float
+/// presenting the same panel content as a drawer, so its cards carry the bar radius too.
 pub fn set_content_radius(radius: f32) {
-    DRAWER_CTX.with(|c| c.borrow_mut().radius = radius);
+    let _ = rsx::provide(DrawerCtx {
+        module: String::new(),
+        config: DrawerConfig::default(),
+        radius,
+    });
 }
 
 /// Opens `module_id`'s drawer as a scrimmed surface floating off the bar edge on the bar's own monitor, aligned to the same end of the bar as the module; the distance off the bar is the shared [`Config::panel_margin`](crate::Config), so every panel keeps the same config-controlled gap. The surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.

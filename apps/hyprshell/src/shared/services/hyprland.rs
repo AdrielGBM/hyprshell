@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Deserialize;
 
@@ -119,24 +120,64 @@ fn affects_workspaces(line: &str) -> bool {
     PREFIXES.iter().any(|prefix| line.starts_with(prefix))
 }
 
-pub fn stream_workspaces(dir: PathBuf, tx: EventSender<Snapshot>) {
-    if let Some(snapshot) = query_snapshot(&dir) {
-        if !tx.send(snapshot) {
-            return;
-        }
-    }
+/// The single shared workspaces source: one Hyprland event socket, fanned out to every bar that subscribed —
+/// so N bars cost one connection + one parse per change (the M3 "one producer, N readers"), not N sockets.
+struct WorkspacesService {
+    current: Mutex<Snapshot>,
+    subscribers: Mutex<Vec<EventSender<Snapshot>>>,
+}
 
+impl WorkspacesService {
+    fn publish(&self, snapshot: Snapshot) {
+        *self.current.lock().unwrap() = snapshot.clone();
+        self.subscribers
+            .lock()
+            .unwrap()
+            .retain(|tx| tx.send(snapshot.clone()));
+    }
+}
+
+static WORKSPACES: OnceLock<Arc<WorkspacesService>> = OnceLock::new();
+
+fn workspaces_service() -> &'static Arc<WorkspacesService> {
+    WORKSPACES.get_or_init(|| {
+        let service = Arc::new(WorkspacesService {
+            current: Mutex::new(Snapshot::default()),
+            subscribers: Mutex::new(Vec::new()),
+        });
+        if let Some(dir) = socket_dir() {
+            let producer = Arc::clone(&service);
+            let _ = std::thread::Builder::new()
+                .name("hyprshell-workspaces".to_string())
+                .spawn(move || run_workspaces(dir, producer));
+        }
+        service
+    })
+}
+
+fn run_workspaces(dir: PathBuf, service: Arc<WorkspacesService>) {
+    if let Some(snapshot) = query_snapshot(&dir) {
+        service.publish(snapshot);
+    }
     let Ok(stream) = UnixStream::connect(dir.join(".socket2.sock")) else {
         return;
     };
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        if affects_workspaces(&line) {
-            if let Some(snapshot) = query_snapshot(&dir) {
-                if !tx.send(snapshot) {
-                    break;
-                }
-            }
+        if affects_workspaces(&line)
+            && let Some(snapshot) = query_snapshot(&dir)
+        {
+            service.publish(snapshot);
         }
+    }
+}
+
+/// Registers `tx` (bound to a bar's event loop) for live workspace snapshots and sends the current one, spinning
+/// up the single shared Hyprland listener on first use. Called from a bar's `watch` producer.
+pub fn subscribe(tx: EventSender<Snapshot>) {
+    let service = workspaces_service();
+    let current = service.current.lock().unwrap().clone();
+    if tx.send(current) {
+        service.subscribers.lock().unwrap().push(tx);
     }
 }

@@ -20,14 +20,11 @@ let charging = signal(init.map(|b| b.charging).unwrap_or(false));
 let level_tint = level.read_only();
 let charging_glyph = charging.read_only();
 let fg = crate::module_fg();
-// Subscribe to UPower change events (sub-second on plug/unplug), no-op headless.
-platform_layershell::watch(
-    move |tx| battery::stream(tx),
-    move |b| {
-        level.set(b.level);
-        charging.set(b.charging);
-    },
-);
+// Subscribe to the single shared battery source (UPower sub-second on plug/unplug), no-op headless.
+platform_layershell::watch(battery::subscribe, move |b| {
+    level.set(b.level);
+    charging.set(b.charging);
+});
 // The glyph name is reactive; the icon re-resolves so it swaps battery ↔ charging.
 let glyph = memo(move || if charging_glyph.get() { "battery-charging" } else { "battery" });
 let icon = crate::icon_view(

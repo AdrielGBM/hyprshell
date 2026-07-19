@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use platform_layershell::EventSender;
@@ -95,20 +96,52 @@ pub fn read() -> Option<Battery> {
     Some(Battery { level, charging })
 }
 
-/// Streams battery updates to `tx`, blocking on UPower's DisplayDevice `PropertiesChanged` signal for sub-second plug/unplug updates (UPower only triggers; sysfs holds the authoritative values); falls back to a slow sysfs poll if UPower/DBus is unavailable.
-pub fn stream(tx: EventSender<Battery>) {
-    // Push the current value immediately so the bar doesn't wait for the first change.
-    if let Some(b) = read()
-        && !tx.send(b)
-    {
-        return;
-    }
-    if watch_upower(&tx).is_none() {
-        poll_fallback(&tx);
+/// The single shared battery source: one UPower connection (or sysfs poll) fanned out to every bar chip that
+/// subscribed — one connection + one read per change, not one per bar (the M3 "one producer, N readers").
+struct BatteryService {
+    current: Mutex<Option<Battery>>,
+    subscribers: Mutex<Vec<EventSender<Battery>>>,
+}
+
+impl BatteryService {
+    fn publish(&self, battery: Battery) {
+        *self.current.lock().unwrap() = Some(battery);
+        self.subscribers
+            .lock()
+            .unwrap()
+            .retain(|tx| tx.send(battery));
     }
 }
 
-fn watch_upower(tx: &EventSender<Battery>) -> Option<()> {
+static BATTERY: OnceLock<Arc<BatteryService>> = OnceLock::new();
+
+fn battery_service() -> &'static Arc<BatteryService> {
+    BATTERY.get_or_init(|| {
+        let service = Arc::new(BatteryService {
+            current: Mutex::new(None),
+            subscribers: Mutex::new(Vec::new()),
+        });
+        let producer = Arc::clone(&service);
+        let _ = std::thread::Builder::new()
+            .name("hyprshell-battery".to_string())
+            .spawn(move || run_battery(producer));
+        service
+    })
+}
+
+fn run_battery(service: Arc<BatteryService>) {
+    // Push the current value immediately so bars don't wait for the first change.
+    if let Some(b) = read() {
+        service.publish(b);
+    }
+    // UPower's DisplayDevice `PropertiesChanged` for sub-second plug/unplug (it only triggers; sysfs holds the
+    // authoritative values); slow sysfs poll when UPower/DBus is unavailable.
+    if watch_upower(&service).is_none() {
+        poll_fallback(&service);
+    }
+}
+
+fn watch_upower(service: &BatteryService) -> Option<()> {
     let conn = Connection::system().ok()?;
     let props = PropertiesProxy::builder(&conn)
         .destination(UPOWER)
@@ -119,22 +152,31 @@ fn watch_upower(tx: &EventSender<Battery>) -> Option<()> {
         .ok()?;
     let changes = props.receive_properties_changed().ok()?;
     for _ in changes {
-        match read() {
-            Some(b) if tx.send(b) => {}
-            _ => return Some(()),
+        if let Some(b) = read() {
+            service.publish(b);
         }
     }
     Some(())
 }
 
 /// Belt-and-suspenders when UPower is missing: the pre-existing 30 s sysfs poll.
-fn poll_fallback(tx: &EventSender<Battery>) {
+fn poll_fallback(service: &BatteryService) {
     loop {
         std::thread::sleep(Duration::from_secs(30));
         match read() {
-            Some(b) if tx.send(b) => {}
-            _ => return,
+            Some(b) => service.publish(b),
+            None => return,
         }
+    }
+}
+
+/// Registers `tx` (bound to a bar's event loop) for live battery readings and sends the current one, spinning up
+/// the single shared UPower/sysfs source on first use. Called from a bar chip's `watch` producer.
+pub fn subscribe(tx: EventSender<Battery>) {
+    let service = battery_service();
+    let current = *service.current.lock().unwrap();
+    if current.is_none_or(|b| tx.send(b)) {
+        service.subscribers.lock().unwrap().push(tx);
     }
 }
 

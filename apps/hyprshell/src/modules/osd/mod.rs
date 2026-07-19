@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::time::Duration;
 
 use rsx::{
@@ -36,32 +36,30 @@ fn osd_align(align: Align) -> SurfaceAlign {
     }
 }
 
-thread_local! {
-    // Set on the OSD thread before its `.rsx` content builds, so `osd.rsx` can read it — the context seam for parameterless `.rsx` modules, like `surface_env`.
-    static OSD_KIND: Cell<OsdKind> = const { Cell::new(OsdKind::Volume) };
-    // The bar-matching corner radius for the OSD being built; read by `osd.rsx`.
-    static OSD_RADIUS: Cell<f32> = const { Cell::new(16.0) };
-}
-
-pub fn set_osd_kind(kind: OsdKind) {
-    OSD_KIND.with(|k| k.set(kind));
+/// The per-OSD-surface context (which state it reflects, and the bar-matching corner radius), provided into the
+/// OSD surface's scope so `osd.rsx` reads it via `inject` — scoped to the surface, not a global thread-local.
+#[derive(Clone, Copy)]
+struct OsdCtx {
+    kind: OsdKind,
+    radius: f32,
 }
 
 /// The kind the OSD being built reflects; read by `osd.rsx`.
 pub fn current_osd_kind() -> OsdKind {
-    OSD_KIND.with(|k| k.get())
+    rsx::try_inject::<OsdCtx>()
+        .map(|ctx| ctx.kind)
+        .unwrap_or(OsdKind::Volume)
 }
 
 /// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
 pub fn current_osd_radius() -> f32 {
-    OSD_RADIUS.with(|r| r.get())
+    rsx::try_inject::<OsdCtx>().map(|ctx| ctx.radius).unwrap_or(16.0)
 }
 
 /// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
 pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
     set_theme(theme);
-    set_osd_kind(kind);
-    OSD_RADIUS.with(|r| r.set(radius));
+    let _ = rsx::provide(OsdCtx { kind, radius });
     crate::osd().expect("osd content build failed")
 }
 

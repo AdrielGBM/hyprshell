@@ -47,13 +47,8 @@ let snapshot = signal(Snapshot::default());
 let ids_src = snapshot.read_only();
 let fill_src = snapshot.read_only();
 let text_src = snapshot.read_only();
-// The producer blocks on the socket; the consumer writes the signal on this surface's thread.
-if let Some(watch_dir) = hyprland::socket_dir() {
-    platform_layershell::watch(
-        move |tx| hyprland::stream_workspaces(watch_dir, tx),
-        move |snap| snapshot.set(snap),
-    );
-}
+// Subscribe to the single shared workspaces source; the consumer writes the signal on this surface's thread.
+platform_layershell::watch(hyprland::subscribe, move |snap| snapshot.set(snap));
 let workspace_ids =
     memo(move || ids_src.with(|s| s.workspaces.iter().map(|w| w.id).collect::<Vec<i32>>()));
 let vertical = crate::bar_is_vertical();

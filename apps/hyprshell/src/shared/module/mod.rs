@@ -10,7 +10,8 @@ use rsx::{
 use crate::core::config::{Config, Edge, Variant};
 use crate::shared::theme::NordTheme;
 
-/// What a module needs to know about its bar; a thread-local carries it into the parameterless `.rsx` module entrypoints with no prop plumbing (each surface is one bar on its own thread).
+/// What a module needs to know about its bar; carried into the parameterless `.rsx` module entrypoints as
+/// per-surface context (rsx `provide`/`inject`, scoped to each surface) with no prop plumbing.
 #[derive(Clone)]
 pub struct SurfaceEnv {
     pub edge: Edge,
@@ -21,16 +22,16 @@ pub struct SurfaceEnv {
     pub config: Arc<Config>,
 }
 
-thread_local! {
-    static SURFACE_ENV: RefCell<Option<SurfaceEnv>> = const { RefCell::new(None) };
-}
-
 pub fn set_surface_env(env: SurfaceEnv) {
-    SURFACE_ENV.with(|e| *e.borrow_mut() = Some(env));
+    // Per-surface context (rsx `provide`): resolves against this surface's service scope, so a module reading
+    // `surface_env()` — including from an effect — gets THIS bar's env even though all surfaces share one UI
+    // thread under M3 (the reactive flush re-enters the surface). Provided once per surface build; a fresh
+    // surface per config reload means no duplicate registration.
+    let _ = rsx::provide(env);
 }
 
 pub fn surface_env() -> Option<SurfaceEnv> {
-    SURFACE_ENV.with(|e| e.borrow().clone())
+    rsx::try_inject::<SurfaceEnv>()
 }
 
 pub fn bar_edge() -> Edge {
