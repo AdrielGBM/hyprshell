@@ -2639,6 +2639,7 @@ dependencies = [
  "motion-core",
  "platform-android",
  "platform-core",
+ "raw-window-handle",
  "reactive-core",
  "renderer-assets",
  "renderer-core",
