@@ -9,7 +9,8 @@ use std::time::Duration;
 use platform_layershell::{EventSender, timeout, watch};
 use rsx::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
-    ReadSignal, RwSignal, SpinnerProps, Svg, SvgData, signal, spinner, use_theme,
+    ReadSignal, RectStyle, RwSignal, SpinnerProps, StyledContainer, Svg, SvgData, signal, spinner,
+    use_theme,
 };
 use serde::Deserialize;
 
@@ -20,6 +21,36 @@ mod freedesktop;
 mod picker;
 pub use freedesktop::{AppIcon, resolve_app_icon};
 pub use picker::icon_picker_overlay;
+
+/// An **application's own** icon at `size`, or `None` when `reference` resolves to nothing.
+///
+/// Distinct from [`icon_view`], which fetches a themable Iconify glyph and tints it: this renders the app's
+/// artwork untinted and at its own colours, which is what a notification card, a window chip and a launcher row
+/// all want. Resolution follows the freedesktop icon spec via [`resolve_app_icon`] and is memoized per surface.
+pub fn app_icon_view(
+    reference: &str,
+    size: f32,
+) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+    let Some(icon) = resolve_app_icon(reference) else {
+        return Ok(None);
+    };
+    let style = LayoutStyle::new().width(size).height(size).flex_shrink(0.0);
+    let widget: Box<dyn LayoutItem> = match icon {
+        AppIcon::Vector(svg) => Box::new(Svg::new(
+            style,
+            move || svg.clone(),
+            || None::<Color>,
+            || ObjectFit::Contain,
+        )?),
+        AppIcon::Raster(data) => Box::new(rsx::Image::new(
+            style,
+            move || data.clone(),
+            || rsx::ImageFilter::Linear,
+            || ObjectFit::Contain,
+        )?),
+    };
+    Ok(Some(widget))
+}
 
 /// A transient download failure (the shell often starts before the network is up at login) keeps the icon on its spinner and re-tries a bounded number of times, so icons self-heal once connectivity arrives without hammering the endpoint over a genuine 404.
 const MAX_ATTEMPTS: u32 = 8;
@@ -118,6 +149,21 @@ pub fn icon_view(
                 .with_stroke(move || icon_stroke);
                 Ok(Box::new(widget))
             }
+            // A glyph that has run out of retries is not still loading, and must not keep spinning as though it
+            // were: an unreachable provider and a misspelled icon name would look identical to a working one
+            // forever. It settles into a dim placeholder instead, which reads as "this icon is missing".
+            AssetState::Failed => {
+                let tint = tint.clone();
+                // Inset so the placeholder reads as a gap in the row rather than a filled chip, and keeps the
+                // module's footprint identical to a loaded glyph so nothing shifts when it settles.
+                let inset = (size * 0.25).max(1.0);
+                let side = size - inset * 2.0;
+                Ok(Box::new(StyledContainer::new(
+                    LayoutStyle::new().width(side).height(side).margin_all(inset),
+                    move |_| RectStyle::filled(tint().with_alpha(0.3), side * 0.25),
+                    vec![],
+                )?))
+            }
             _ => spinner(SpinnerProps {
                 color: Box::new(tint.clone()),
                 size,
@@ -153,16 +199,37 @@ fn icon_state(name: &str) -> AssetState<Arc<SvgData>> {
     })
 }
 
-fn ensure_store() {
-    let icons = surface_env()
+/// The `[icons]` config to resolve against: the bar surface in scope, else the config the shell is running.
+///
+/// Falling back to `IconsConfig::default()` here would be wrong, not merely imprecise. A panel, OSD or popup
+/// has no `SurfaceEnv`, so with a customised `[icons]` it would disagree with the bar about the store's config
+/// and [`ensure_store`] would tear the store down and rebuild it on every panel open — cancelling every
+/// in-flight download in the process.
+fn icons_config() -> crate::core::config::IconsConfig {
+    surface_env()
         .map(|env| env.config.icons.clone())
-        .unwrap_or_default();
-    // Rebuilt when `[icons]` changes, so editing the provider or default set applies on the next reload like
-    // every other setting. Dropping the old store closes its request channel, which retires its worker thread;
-    // the cached signals go with it, so each icon re-resolves against the new endpoint (disk cache first).
-    let current = STORE.with(|s| s.borrow().as_ref().map(|store| store.config == icons));
+        .or_else(|| crate::core::shell::config().map(|c| c.icons.clone()))
+        .unwrap_or_default()
+}
+
+/// Builds the process-wide icon store and starts its download worker.
+///
+/// **Must be called at app level, not from inside a surface build.** `watch` binds its channel to whichever
+/// surface is being built when it runs, and tears that channel down with the surface. The store is
+/// process-wide (one UI thread, one thread-local), so a worker owned by one surface dies the moment that
+/// surface is replaced — a monitor hotplug or a config reload rebuilds every bar — and because the store then
+/// still exists with a matching config, [`ensure_store`] returns early and never starts another. Every icon
+/// requested afterwards would spin forever. Registering from the app level leaves `CURRENT_SOURCES` unset, so
+/// the channel is process-lived like the config watcher.
+///
+/// Idempotent: a call with the same `[icons]` config is a no-op, so the reload path can call it unconditionally.
+/// A changed config rebuilds the store, which is how editing the provider or default set takes effect.
+pub fn init_store(icons: &crate::core::config::IconsConfig) {
+    let current = STORE.with(|s| s.borrow().as_ref().map(|store| store.config == *icons));
     match current {
         Some(true) => return,
+        // Dropping the old store closes its request channel, which retires its worker thread; the cached
+        // signals go with it, so each icon re-resolves against the new endpoint (disk cache first).
         Some(false) => {
             STORE.with(|s| *s.borrow_mut() = None);
             COLLECTIONS.with(|c| c.borrow_mut().clear());
@@ -182,7 +249,7 @@ fn ensure_store() {
     });
 
     let fetch = FetchConfig {
-        provider: icons.provider,
+        provider: icons.provider.clone(),
         cache_dir: cache_dir(),
     };
     // When there is no layer-shell event loop (headless tests), `watch` is a no-op: no worker runs and every icon stays on its spinner, which is exactly what an offline render shows.
@@ -190,6 +257,15 @@ fn ensure_store() {
         move |sender| run_worker(incoming, fetch, sender),
         |(id, data)| deliver(id, data),
     );
+}
+
+/// Lazy fallback for call sites the shell's startup doesn't reach — a headless render, a unit test. The running
+/// shell builds the store up front via [`init_store`]; this only fills in when nothing has.
+fn ensure_store() {
+    if STORE.with(|s| s.borrow().is_some()) {
+        return;
+    }
+    init_store(&icons_config());
 }
 
 fn deliver(id: IconId, data: Option<Arc<SvgData>>) {
@@ -222,6 +298,11 @@ fn deliver(id: IconId, data: Option<Arc<SvgData>>) {
                         let _ = requests.send(id);
                     });
                 } else {
+                    tracing::warn!(
+                        "icon '{}:{}' gave up after {MAX_ATTEMPTS} attempts; check the name and the [icons] provider",
+                        id.set,
+                        id.name
+                    );
                     let handle = store.signals.borrow().get(&id).cloned();
                     if let Some(handle) = handle {
                         handle.set(AssetState::Failed);
@@ -310,7 +391,13 @@ thread_local! {
 /// thread, returning a reactive [`CollectionState`] that advances from `Loading` to `Ready`/`Unavailable`.
 /// Cached per surface thread, so the set is fetched at most once.
 pub fn icon_collection(set: &str) -> ReadSignal<CollectionState> {
-    if let Some(existing) = COLLECTIONS.with(|c| c.borrow().get(set).cloned()) {
+    // A settled result is reused; one still `Loading` is treated as a miss and re-fetched. That entry belongs
+    // to a picker that closed mid-download, and its worker died with that surface — caching it would leave the
+    // set stuck on its spinner for the rest of the session, however many times the picker is reopened.
+    let cached = COLLECTIONS.with(|c| c.borrow().get(set).cloned());
+    if let Some(existing) = cached
+        && existing.peek() != CollectionState::Loading
+    {
         return existing;
     }
     let result = signal(CollectionState::Loading);
@@ -412,6 +499,81 @@ mod tests {
             matches!(icon_state("bell"), AssetState::Loading),
             "with no event loop the icon has nothing to resolve from, so it stays on its spinner"
         );
+    }
+
+    #[test]
+    fn init_store_is_idempotent_and_rebuilds_only_on_a_config_change() {
+        use crate::core::config::IconsConfig;
+
+        let base = IconsConfig::default();
+        init_store(&base);
+        // Requesting an icon registers its signal. Whether that registration survives is what distinguishes a
+        // no-op from a rebuild — a rebuild drops the store, and with it every in-flight download.
+        let _ = icon_state("bell");
+        assert!(was_requested("bell"), "the icon was registered");
+
+        init_store(&base);
+        assert!(
+            was_requested("bell"),
+            "an unchanged config must not tear the store down — doing so cancels every in-flight download"
+        );
+
+        let changed = IconsConfig {
+            default_set: "mdi".to_string(),
+            ..IconsConfig::default()
+        };
+        init_store(&changed);
+        let rebuilt = STORE.with(|s| s.borrow().as_ref().map(|store| store.default_set.clone()));
+        assert_eq!(
+            rebuilt.as_deref(),
+            Some("mdi"),
+            "a changed [icons] config re-resolves icons against the new set"
+        );
+        assert!(
+            !was_requested("bell"),
+            "and the old set's cached signals go with it"
+        );
+
+        // Leave the thread-local as the rest of the suite expects to find it.
+        STORE.with(|s| *s.borrow_mut() = None);
+        COLLECTIONS.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_collection_stuck_loading_is_not_served_from_cache() {
+        // Regression: a picker closed mid-download takes its worker with it (the `watch` channel is bound to
+        // that surface). Serving the still-`Loading` signal back would strand the set on its spinner for the
+        // rest of the session, however many times the picker is reopened.
+        COLLECTIONS.with(|c| c.borrow_mut().clear());
+        let stalled = signal(CollectionState::Loading);
+        COLLECTIONS.with(|c| {
+            c.borrow_mut()
+                .insert("lucide".to_string(), stalled.read_only())
+        });
+
+        let handed_out = icon_collection("lucide");
+        // Moving the stalled signal proves the caller was handed a different one: a reused entry would follow.
+        stalled.set(CollectionState::Unavailable);
+        assert_eq!(
+            handed_out.peek(),
+            CollectionState::Loading,
+            "a stalled entry must be replaced by a fresh fetch, not reused"
+        );
+
+        // A settled entry, by contrast, is exactly what the cache is for.
+        let ready = CollectionState::Ready(vec!["lucide:home".to_string()]);
+        let settled = signal(ready.clone());
+        COLLECTIONS.with(|c| {
+            c.borrow_mut()
+                .insert("mdi".to_string(), settled.read_only())
+        });
+        assert_eq!(
+            icon_collection("mdi").peek(),
+            ready,
+            "a loaded set is reused instead of re-downloaded"
+        );
+
+        COLLECTIONS.with(|c| c.borrow_mut().clear());
     }
 
     #[test]

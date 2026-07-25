@@ -58,11 +58,14 @@ pub use crate::core::config::{
     BarConfig, BarsConfig, Config, Corner, DrawerConfig, Edge, FloatConfig, ModuleOverride,
     OpenMode, PanelsConfig, ThemeConfig, Variant,
 };
+pub use crate::core::ipc::{
+    call as ipc_call, describe as ipc_describe, dispatch as ipc_dispatch, socket_path,
+};
 pub use crate::modules::bar::build_bar;
 pub use crate::modules::frame::FrameApp;
 pub use crate::modules::notes::{notes_chip, notes_panel};
 pub use crate::modules::osd::OsdKind;
-pub use crate::modules::panel::toggle_panel;
+pub use crate::modules::panel::{close_panel, is_panel_open, open_panel, toggle_panel};
 pub use crate::modules::wallpaper::WallpaperApp;
 pub use crate::shared::icon::{icon_picker_overlay, icon_view};
 pub use crate::shared::module::{
@@ -105,6 +108,16 @@ fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
     }
 }
 
+/// The layer the shell's own chrome sits on: `Overlay` keeps the bars above a fullscreen window when
+/// `[general] show_over_fullscreen` asks for it, `Top` (the default) lets fullscreen cover them.
+fn chrome_layer(config: &Config) -> Layer {
+    if config.general.show_over_fullscreen {
+        Layer::Overlay
+    } else {
+        Layer::Top
+    }
+}
+
 /// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
 fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
     let thickness = config.edge_thickness(edge) as i32;
@@ -136,7 +149,7 @@ fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> Laye
     };
     LayerConfig {
         output,
-        layer: Layer::Top,
+        layer: chrome_layer(config),
         anchor,
         exclusive_zone: -1,
         size: surface_size,
@@ -208,6 +221,16 @@ fn frame_layer_config(output: Option<String>) -> LayerConfig {
 }
 
 pub fn run() {
+    // One shell per compositor instance: a second one would fight over the notification bus name and the IPC
+    // socket, and the user would see two of every bar. Checked before anything is opened so the failure is a
+    // clean message rather than a half-started shell.
+    if crate::core::ipc::another_instance_is_running() {
+        eprintln!(
+            "hyprshell: already running (IPC socket {} is live). Use `hyprshell shell quit` to stop it.",
+            crate::core::ipc::socket_path().display()
+        );
+        std::process::exit(1);
+    }
     let config_path = Config::default_path();
     // Start the notification daemon once, before the reload loop, so it keeps owning the D-Bus name across bar
     // config reloads (§8 "persists across reloads"). The popup surface itself is (re)established inside
@@ -244,9 +267,7 @@ pub fn run() {
 /// surfaces and opening the new ones — without tearing the driver, connection, popup or services down.
 fn setup_shell(config_path: PathBuf) {
     let config = Arc::new(Config::load_or_default(&config_path));
-    crate::shared::services::locale::init(config.language());
-    warn_if_font_missing(config.theme.font_family.as_deref());
-    rsx::set_default_font_family(config.theme.font_family.clone());
+    apply_config(&config);
     if platform_layershell::outputs().is_empty() {
         eprintln!("hyprshell: no Wayland outputs found (is a compositor running?)");
         std::process::exit(1);
@@ -259,25 +280,46 @@ fn setup_shell(config_path: PathBuf) {
     let initial = open_surfaces(&config);
     println!("hyprshell: {} surface(s) up", initial.len());
     let handles = Rc::new(RefCell::new(initial));
+    // The config the shell is currently running. A reload that fails to parse keeps this one rather than
+    // falling back to the starter bar, so a typo costs the user an error message, not their whole layout.
+    let live = Rc::new(RefCell::new(config));
 
-    // One reconciliation, shared by both triggers: re-read the config, close the old surfaces and open the set
-    // the current config and monitor layout call for. Driven by a config edit and by a monitor being plugged in
-    // or unplugged, since either changes which surfaces should exist.
+    // One reconciliation, shared by every trigger: re-read the config, close the old surfaces and open the set
+    // the current config and monitor layout call for. Driven by a config edit, by a monitor being plugged in or
+    // unplugged, and by `hyprshell shell reload` — all of which change which surfaces should exist.
     let reconcile = {
         let handles = Rc::clone(&handles);
+        let live = Rc::clone(&live);
         let config_path = config_path.clone();
         move || {
-            let config = Arc::new(Config::load_or_default(&config_path));
-            crate::shared::services::locale::init(config.language());
-            warn_if_font_missing(config.theme.font_family.as_deref());
-            rsx::set_default_font_family(config.theme.font_family.clone());
+            let config = match Config::load(&config_path) {
+                Ok(config) => Arc::new(config),
+                Err(e) => {
+                    report_config_error(&e);
+                    Arc::clone(&live.borrow())
+                }
+            };
+            apply_config(&config);
+            // Panels were built against the outgoing config; leaving one up would leave a stale theme and a
+            // dangling anchor on screen.
+            crate::core::shell::close_all();
             for handle in handles.borrow_mut().drain(..) {
                 handle.close();
             }
             *handles.borrow_mut() = open_surfaces(&config);
+            *live.borrow_mut() = config;
         }
     };
     let reconcile = Rc::new(reconcile);
+
+    crate::core::shell::set_reload_hook({
+        let reconcile = Rc::clone(&reconcile);
+        move || reconcile()
+    });
+
+    // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
+    // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
+    platform_layershell::watch(crate::core::ipc::serve, crate::core::ipc::handle);
 
     let on_config_change = Rc::clone(&reconcile);
     platform_layershell::watch(
@@ -285,6 +327,31 @@ fn setup_shell(config_path: PathBuf) {
         move |_| on_config_change(),
     );
     platform_layershell::on_outputs_changed(move || reconcile());
+}
+
+/// Everything a config change affects outside the surfaces themselves: the UI language, the process-wide font,
+/// the icon store, and the context that code reached from outside a surface resolves against.
+///
+/// Called from the driver thread at app level — deliberately not from inside a surface build, since the icon
+/// store's download worker must outlive any single surface (see [`shared::icon::init_store`]).
+fn apply_config(config: &Arc<Config>) {
+    crate::shared::services::locale::init(config.language());
+    warn_if_font_missing(config.theme.font_family.as_deref());
+    rsx::set_default_font_family(config.theme.font_family.clone());
+    crate::core::shell::set_config(Arc::clone(config));
+    crate::shared::icon::init_store(&config.icons);
+}
+
+/// Tells the user their edit didn't take, through the shell's own notification daemon so the message lands on
+/// screen rather than in a log they aren't reading. Falls back to stderr when the daemon isn't up yet.
+fn report_config_error(error: &crate::core::config::LoadError) {
+    let message = error.to_string();
+    tracing::warn!("{message}; keeping the last working config");
+    crate::shared::services::notifications::notify_local(
+        "hyprshell",
+        &rsx::t!("config.error_title"),
+        &message,
+    );
 }
 
 /// Opens every bar / reservation / wallpaper / frame surface for the current config across all outputs and

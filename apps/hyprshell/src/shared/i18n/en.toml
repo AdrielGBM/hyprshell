@@ -1,3 +1,6 @@
 [common]
 on = "On"
 off = "Off"
+
+[config]
+error_title = "Configuration not applied"

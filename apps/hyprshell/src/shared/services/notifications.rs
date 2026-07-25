@@ -232,6 +232,31 @@ pub fn subscribe(tx: EventSender<SharedSnapshot>) {
     }
 }
 
+/// Raises a notification from inside the shell itself, without a D-Bus round-trip — how hyprshell reports its
+/// own problems (a config that won't parse, a service that won't start) through the same surface every other
+/// app's notifications land on. `Critical` urgency, so with the default `critical_sticky` it waits to be read
+/// rather than timing out. Falls back to stderr before the daemon is up.
+pub fn notify_local(app_name: &str, summary: &str, body: &str) {
+    let Some(service) = SERVICE.get() else {
+        eprintln!("{app_name}: {summary} — {body}");
+        return;
+    };
+    service.inner.push(
+        Notification {
+            id: 0,
+            app_name: app_name.to_string(),
+            app_icon: String::new(),
+            summary: summary.to_string(),
+            body: body.to_string(),
+            actions: Vec::new(),
+            urgency: Urgency::Critical,
+            popup: true,
+            image: None,
+        },
+        0,
+    );
+}
+
 /// The current state without subscribing — for an initial read or tests; surfaces should [`subscribe`] to stay live.
 pub fn snapshot_now() -> Option<SharedSnapshot> {
     SERVICE
