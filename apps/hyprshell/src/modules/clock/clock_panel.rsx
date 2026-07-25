@@ -1,5 +1,5 @@
 [logic]
-use std::time::Duration;
+use crate::shared::services::clock;
 use crate::shared::theme::{FontRole, NordTheme};
 
 fn now_time() -> String {
@@ -16,9 +16,10 @@ let date_view = date.read_only();
 let theme = use_theme::<NordTheme>();
 let display = theme.font(FontRole::Display);
 let body = theme.font(FontRole::Body);
-platform_layershell::interval(Duration::from_secs(1), move || {
-    time.set(now_time());
-    date.set(now_date());
+// The shared ticker, so reopening this panel never stacks a second timer on the first.
+platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
+    time.set(t.format("%H:%M:%S").to_string());
+    date.set(t.format("%A, %d %B %Y").to_string());
 });
 
 [view]

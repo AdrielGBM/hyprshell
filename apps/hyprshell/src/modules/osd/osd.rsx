@@ -21,10 +21,12 @@ fn osd_tint(dimmed: bool) -> Color {
     if dimmed { t.muted } else { t.text }
 }
 
-// A single-shot snapshot of the triggering service, read once — the OSD is transient (shown, then replaced).
+// A single-shot snapshot — the OSD is transient, and every trigger (click, scroll, key) replaces it with a
+// freshly built one. It reads the shared services' cached value rather than the system: `volume::read()` forks
+// `wpctl`, which has no business running while a surface is being laid out.
 let (glyph, frac, dimmed) = match current_osd_kind() {
     OsdKind::Volume => {
-        let v = volume::read().unwrap_or(volume::Volume {
+        let v = volume::current().unwrap_or(volume::Volume {
             level: 0,
             muted: false,
         });
@@ -32,7 +34,7 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
         (vol_glyph(v.muted, level), level as f32 / 100.0, v.muted)
     }
     OsdKind::Brightness => {
-        let level = brightness::read().unwrap_or(0).clamp(0, 100);
+        let level = brightness::current().unwrap_or(0).clamp(0, 100);
         ("sun", level as f32 / 100.0, false)
     }
 };

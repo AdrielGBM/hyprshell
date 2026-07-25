@@ -1,6 +1,4 @@
 [logic]
-use std::time::Duration;
-
 use crate::shared::services::network::{self, Network, NetworkKind};
 
 // The single glyph reads the connection at a glance: a wired port, an off symbol when down, or a Wi-Fi arc whose fill tracks the signal strength.
@@ -20,8 +18,8 @@ fn net_glyph(net: Network) -> &'static str {
 let glyph = signal(net_glyph(network::read()).to_string());
 let glyph_read = glyph.read_only();
 let fg = crate::module_fg();
-platform_layershell::interval(Duration::from_secs(5), move || {
-    glyph.set(net_glyph(network::read()).to_string());
+platform_layershell::watch(network::subscribe, move |net: Network| {
+    glyph.set(net_glyph(net).to_string());
 });
 
 let icon = crate::icon_view(move || glyph_read.get(), move || fg.get(), icon_px())?;

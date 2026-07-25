@@ -1,7 +1,17 @@
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
+
+use platform_layershell::EventSender;
+use zbus::blocking::{Connection, MessageIterator};
+use zbus::message::Type as MessageType;
+
+use crate::shared::services::broadcast::{Broadcast, Service};
 
 const NET_DIR: &str = "/sys/class/net";
+const NM_BUS: &str = "org.freedesktop.NetworkManager";
+/// Poll used only when NetworkManager isn't on the bus and there is nothing to subscribe to.
+const FALLBACK_POLL: Duration = Duration::from_secs(5);
 const WIRELESS_STATUS: &str = "/proc/net/wireless";
 /// `/proc/net/wireless` reports link quality on a 0–70 scale on most drivers; used to normalise it to a percentage.
 const LINK_QUALITY_MAX: f32 = 70.0;
@@ -90,6 +100,63 @@ fn wifi_signal(iface: &str) -> Option<i32> {
         return Some((link / LINK_QUALITY_MAX * 100.0).round().clamp(0.0, 100.0) as i32);
     }
     None
+}
+
+static NETWORK: Service<Network> = Service::new("hyprshell-network", run);
+
+/// Registers `tx` for live network state, starting the single shared producer on first use. Called from a bar
+/// chip's `watch` producer.
+pub fn subscribe(tx: EventSender<Network>) {
+    NETWORK.subscribe(tx);
+}
+
+fn run(out: &Broadcast<Network>) {
+    out.publish(read());
+    // sysfs stays the source of truth — it needs no NetworkManager and is already covered by tests — while
+    // NetworkManager is used purely as the trigger telling us when it is worth re-reading.
+    if watch_network_manager(out).is_none() {
+        poll_fallback(out);
+    }
+}
+
+/// Blocks on every `PropertiesChanged` NetworkManager emits, on any of its objects: the manager's own state
+/// (connect/disconnect, primary connection type) and each access point's signal strength. One subscription
+/// therefore covers both what the icon's shape shows and how full its arc is, with no polling.
+fn watch_network_manager(out: &Broadcast<Network>) -> Option<()> {
+    let conn = Connection::system().ok()?;
+    let rule = zbus::MatchRule::builder()
+        .msg_type(MessageType::Signal)
+        .sender(NM_BUS)
+        .ok()?
+        .interface("org.freedesktop.DBus.Properties")
+        .ok()?
+        .member("PropertiesChanged")
+        .ok()?
+        .build();
+    let signals = MessageIterator::for_match_rule(rule, &conn, None).ok()?;
+    let mut last = read();
+    for _ in signals {
+        // Strength updates are chatty and mostly land in the same display bucket, so only a reading that
+        // actually differs is worth waking every surface for.
+        let current = read();
+        if current != last {
+            last = current;
+            out.publish(current);
+        }
+    }
+    Some(())
+}
+
+fn poll_fallback(out: &Broadcast<Network>) {
+    let mut last = read();
+    loop {
+        std::thread::sleep(FALLBACK_POLL);
+        let current = read();
+        if current != last {
+            last = current;
+            out.publish(current);
+        }
+    }
 }
 
 #[cfg(test)]

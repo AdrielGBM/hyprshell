@@ -1,6 +1,6 @@
 [logic]
 // No-op under a headless test (the clock shows its initial value there).
-use std::time::Duration;
+use crate::shared::services::clock;
 use crate::shared::theme::{FontRole, NordTheme};
 
 fn now_string() -> String {
@@ -12,7 +12,10 @@ let now_view = now.read_only();
 // module_shell provides the box, hover/press feedback and drawer-opening click; this module supplies only content, painted with the container-chosen foreground.
 let fg = crate::module_fg();
 let body = use_theme::<NordTheme>().font(FontRole::Body);
-platform_layershell::interval(Duration::from_secs(1), move || now.set(now_string()));
+// One ticker for the whole shell, aligned to the second boundary; every clock surface reads the same broadcast.
+platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
+    now.set(t.format("%H:%M:%S").to_string());
+});
 
 [view]
 text "{$now_view}" size:body color:$fg
