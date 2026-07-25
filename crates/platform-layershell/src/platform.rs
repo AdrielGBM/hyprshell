@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use rsx::{
-    App, Color, Component, Event, EventHandler, Key, ModifiersState, MultiSurfacePlatform,
-    NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta, SurfaceAnchor,
-    SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement, SurfaceRole,
-    SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig, begin_batch,
-    build_surface_handler, end_batch, reset_layout_runtime, set_surface_host,
+    App, Color, Component, Event, EventHandler, Key, KeyboardMode, ModifiersState,
+    MultiSurfacePlatform, NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta,
+    SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
+    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig,
+    begin_batch, build_surface_handler, end_batch, reset_layout_runtime, set_surface_host,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -267,6 +267,8 @@ struct SurfaceEntry {
     /// Timers and channel sources this surface registered (via `interval`/`watch`), removed from the loop when
     /// it is torn down so a closed drawer stops ticking instead of outliving its own signals.
     sources: SourceSink,
+    /// The layer-shell namespace, so a diagnostic can name which surface an event reached.
+    namespace: String,
     reserve_only: bool,
     interactive_input_region: bool,
     scale: i32,
@@ -298,6 +300,15 @@ struct Driver {
 impl Driver {
     fn entry_mut(&mut self, wl_id: &ObjectId) -> Option<&mut SurfaceEntry> {
         self.surfaces.iter_mut().find(|e| &e.wl_id == wl_id)
+    }
+
+    /// The layer-shell namespace of the surface an event landed on, for diagnostics. `None` means the event
+    /// named a surface this driver does not own.
+    fn surface_namespace(&self, wl_id: &ObjectId) -> Option<&str> {
+        self.surfaces
+            .iter()
+            .find(|e| &e.wl_id == wl_id)
+            .map(|e| e.namespace.as_str())
     }
 
     fn descriptors(&mut self) -> Vec<OutputDescriptor> {
@@ -397,6 +408,7 @@ fn create_surface_entry(
         handler,
         close,
         sources: SourceSink::default(),
+        namespace: config.namespace.clone(),
         reserve_only: config.reserve_only,
         interactive_input_region: config.interactive_input_region,
         scale,
@@ -822,14 +834,16 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
         SurfaceRole::Popup => "hyprshell-popup",
         SurfaceRole::Osd => "hyprshell-osd",
         SurfaceRole::Float => "hyprshell-float",
+        SurfaceRole::Overlay => "hyprshell-overlay",
     }
     .to_string();
-    // `on-demand` lets the compositor grant keyboard focus on interaction (e.g. a click) for panels that
-    // host editable text, without seizing it like `exclusive` would; display-only panels stay `none`.
-    let keyboard_interactivity = if placement.wants_keyboard {
-        KeyboardInteractivity::OnDemand
-    } else {
-        KeyboardInteractivity::None
+    // `on-demand` grants focus on interaction (a click into a text field) without seizing it; `exclusive` holds
+    // the keyboard from the moment the surface maps, which is what a launcher needs — it opens on a keybind and
+    // the next keystroke is already its first search character.
+    let keyboard_interactivity = match placement.keyboard {
+        KeyboardMode::None => KeyboardInteractivity::None,
+        KeyboardMode::OnDemand => KeyboardInteractivity::OnDemand,
+        KeyboardMode::Exclusive => KeyboardInteractivity::Exclusive,
     };
     if placement.needs_scaffold() {
         LayerConfig {
@@ -1272,6 +1286,13 @@ impl PointerHandler for Driver {
                     let Some(button) = map_button(button) else {
                         continue;
                     };
+                    // Whether a press reached a surface at all is the one thing that distinguishes "our input
+                    // region is wrong" from "the compositor acted on an event it also delivered to us". Logged
+                    // at debug so `RUST_LOG=platform_layershell=debug` can answer it without a custom build.
+                    tracing::debug!(
+                        "pointer press {button:?} at ({x:.0},{y:.0}) delivered to surface {:?}",
+                        self.surface_namespace(&id)
+                    );
                     Event::PointerPressed {
                         x,
                         y,
