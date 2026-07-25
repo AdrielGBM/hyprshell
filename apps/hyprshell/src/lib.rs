@@ -80,7 +80,6 @@ use std::time::{Duration, SystemTime};
 
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, LayerShellPlatform, SurfaceHandle,
-    enumerate_outputs,
 };
 use rsx::{App, AppPathsProvider, run_multi_with_platform};
 
@@ -248,7 +247,7 @@ fn setup_shell(config_path: PathBuf) {
     crate::shared::services::locale::init(config.language());
     warn_if_font_missing(config.theme.font_family.as_deref());
     rsx::set_default_font_family(config.theme.font_family.clone());
-    if enumerate_outputs().is_empty() {
+    if platform_layershell::outputs().is_empty() {
         eprintln!("hyprshell: no Wayland outputs found (is a compositor running?)");
         std::process::exit(1);
     }
@@ -261,11 +260,13 @@ fn setup_shell(config_path: PathBuf) {
     println!("hyprshell: {} surface(s) up", initial.len());
     let handles = Rc::new(RefCell::new(initial));
 
-    let watch_path = config_path.clone();
-    platform_layershell::watch(
-        move |tx| watch_config_changes(watch_path, tx),
-        move |_| {
-            // Reconcile: re-read config, drop the old surfaces (closing them), open the new set.
+    // One reconciliation, shared by both triggers: re-read the config, close the old surfaces and open the set
+    // the current config and monitor layout call for. Driven by a config edit and by a monitor being plugged in
+    // or unplugged, since either changes which surfaces should exist.
+    let reconcile = {
+        let handles = Rc::clone(&handles);
+        let config_path = config_path.clone();
+        move || {
             let config = Arc::new(Config::load_or_default(&config_path));
             crate::shared::services::locale::init(config.language());
             warn_if_font_missing(config.theme.font_family.as_deref());
@@ -274,15 +275,23 @@ fn setup_shell(config_path: PathBuf) {
                 handle.close();
             }
             *handles.borrow_mut() = open_surfaces(&config);
-        },
+        }
+    };
+    let reconcile = Rc::new(reconcile);
+
+    let on_config_change = Rc::clone(&reconcile);
+    platform_layershell::watch(
+        move |tx| watch_config_changes(config_path, tx),
+        move |_| on_config_change(),
     );
+    platform_layershell::on_outputs_changed(move || reconcile());
 }
 
 /// Opens every bar / reservation / wallpaper / frame surface for the current config across all outputs and
 /// returns their handles — kept alive to keep the surfaces up; closing a handle tears its surface down.
 fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
     let mut handles = Vec::new();
-    for out in enumerate_outputs() {
+    for out in platform_layershell::outputs() {
         // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
         if config.background.is_enabled() {
             handles.push(platform_layershell::open_surface(
@@ -344,16 +353,32 @@ fn config_mtime(path: &Path) -> Option<SystemTime> {
 /// (e.g. `"Fira Code Nerd Font"` instead of the installed `"FiraCode Nerd Font"`) otherwise falls back to the
 /// default font silently; this turns that into a visible log line. The query mirrors the text shaper's own
 /// `FontSystem::new()` resolution, so a hit here means the shell will actually render in that family.
+///
+/// Scanning the system fonts costs hundreds of ms, and every save from the settings panel triggers a config
+/// reload, so the database is loaded at most once and each family's verdict is remembered. The cost of that is
+/// a font installed while the shell runs isn't picked up until restart — worth it to keep reloads cheap.
 fn warn_if_font_missing(family: Option<&str>) {
     let Some(family) = family else { return };
-    let mut db = fontdb::Database::new();
-    db.load_system_fonts();
+    thread_local! {
+        static CHECKED: RefCell<std::collections::HashMap<String, bool>> =
+            RefCell::new(std::collections::HashMap::new());
+    }
+    if CHECKED.with(|c| c.borrow().contains_key(family)) {
+        return;
+    }
+    static FONTS: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
+    let db = FONTS.get_or_init(|| {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        db
+    });
     let found = db
         .query(&fontdb::Query {
             families: &[fontdb::Family::Name(family)],
             ..fontdb::Query::default()
         })
         .is_some();
+    CHECKED.with(|c| c.borrow_mut().insert(family.to_string(), found));
     if found {
         tracing::info!("theme font_family '{family}' resolved");
     } else {

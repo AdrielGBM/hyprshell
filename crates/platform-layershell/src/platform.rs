@@ -21,7 +21,7 @@ use smithay_client_toolkit::reexports::calloop::channel::{
 };
 use smithay_client_toolkit::reexports::calloop::ping::make_ping;
 use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
-use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle};
+use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle, RegistrationToken};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{
@@ -52,15 +52,37 @@ use crate::window::LayerWindow;
 /// box callable). All surfaces share this UI thread; isolation is the handler's own `ui_core::Surface`.
 type BoxedHandler = Box<dyn EventHandler<LayerWindow>>;
 
+/// The calloop sources (timers, channels) a surface registered while its handler ran, removed together when the
+/// surface is torn down. Shared by `Rc` so `with_current` can hand the sink to `interval`/`watch` without
+/// borrowing the driver's `SurfaceEntry`.
+type SourceSink = Rc<RefCell<Vec<RegistrationToken>>>;
+
 thread_local! {
     static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, Driver>>> = const { RefCell::new(None) };
     // The close flag of the surface whose handler is currently running, so `request_close` targets it (a bar
     // has none; a dynamic drawer/OSD does). Set by the driver around each handler call.
     static CURRENT_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+    // Where `interval`/`watch` file their registration tokens while a surface's handler runs, so the driver can
+    // drop them with that surface. `None` outside a surface (app-level setup), where sources are process-lived.
+    static CURRENT_SOURCES: RefCell<Option<SourceSink>> = const { RefCell::new(None) };
     // Dynamic surfaces requested via `open_surface` on the UI thread; the driver drains and mounts them.
     static DYN_QUEUE: RefCell<Vec<PendingSurface>> = const { RefCell::new(Vec::new()) };
     // App-level setup to run once on the driver thread after the loop is up (see `run_on_start`).
     static STARTUP: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+    // The driver's live view of the compositor's outputs, so `outputs()` needs no second Wayland connection.
+    static OUTPUTS: RefCell<Vec<OutputDescriptor>> = const { RefCell::new(Vec::new()) };
+    // Notified when the output set changes once the shell is up, so the app can reconcile its surfaces (hotplug).
+    static OUTPUTS_CHANGED: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+}
+
+/// Files `token` against the surface currently being driven, so its teardown removes the source. Outside a
+/// surface the token is dropped: app-level sources (the config watcher) live as long as the process.
+fn track_source(token: RegistrationToken) {
+    CURRENT_SOURCES.with(|s| {
+        if let Some(sink) = s.borrow().as_ref() {
+            sink.borrow_mut().push(token);
+        }
+    });
 }
 
 /// Registers a closure to run once on the driver thread just after its loop is set up (its `LOOP_HANDLE` and
@@ -77,12 +99,19 @@ struct PendingSurface {
     close: Arc<AtomicBool>,
 }
 
-/// Runs the handler closure with `close` installed as the current surface's close flag, so `request_close`
-/// (and any UI dismiss) reaches the right surface, then restores it.
-fn with_current<R>(close: &Option<Arc<AtomicBool>>, f: impl FnOnce() -> R) -> R {
+/// Runs the handler closure with `close` installed as the current surface's close flag (so `request_close` and
+/// any UI dismiss reach the right surface) and `sources` as the sink `interval`/`watch` file their registration
+/// tokens into (so the surface's timers and channels die with it), then restores both.
+fn with_current<R>(
+    close: &Option<Arc<AtomicBool>>,
+    sources: &SourceSink,
+    f: impl FnOnce() -> R,
+) -> R {
     CURRENT_CLOSE.with(|c| *c.borrow_mut() = close.clone());
+    CURRENT_SOURCES.with(|s| *s.borrow_mut() = Some(Rc::clone(sources)));
     let result = f();
     CURRENT_CLOSE.with(|c| *c.borrow_mut() = None);
+    CURRENT_SOURCES.with(|s| *s.borrow_mut() = None);
     result
 }
 
@@ -96,16 +125,22 @@ pub fn request_close() {
     });
 }
 
+/// Repeats `callback` every `period` on the shared loop. Bound to the surface that registered it: when that
+/// surface is torn down (a drawer closing, a bar replaced on config reload) the timer is removed with it, so a
+/// reopened panel never stacks a second ticker on the first.
 pub fn interval(period: Duration, mut callback: impl FnMut() + 'static) {
     LOOP_HANDLE.with(|h| {
         if let Some(handle) = h.borrow().as_ref() {
-            let _ = handle.insert_source(
+            let registered = handle.insert_source(
                 Timer::from_duration(period),
                 move |_instant, _meta, _state: &mut Driver| {
                     callback();
                     TimeoutAction::ToDuration(period)
                 },
             );
+            if let Ok(token) = registered {
+                track_source(token);
+            }
         }
     });
 }
@@ -137,6 +172,9 @@ impl<T> EventSender<T> {
     }
 }
 
+/// Runs `producer` on its own thread and delivers what it sends to `on_event` on the loop thread. Bound to the
+/// surface that registered it: tearing that surface down removes the channel source, which drops the receiver
+/// so the producer's next `send` fails and it winds itself down (every producer here checks that result).
 pub fn watch<T, P, F>(producer: P, mut on_event: F)
 where
     T: Send + 'static,
@@ -149,13 +187,32 @@ where
             let _ = std::thread::Builder::new()
                 .name("hyprshell-watch".to_string())
                 .spawn(move || producer(EventSender(tx)));
-            let _ = handle.insert_source(rx, move |event, _meta, _state: &mut Driver| {
+            let registered = handle.insert_source(rx, move |event, _meta, _state: &mut Driver| {
                 if let ChannelEvent::Msg(item) = event {
                     on_event(item);
                 }
             });
+            if let Ok(token) = registered {
+                track_source(token);
+            }
         }
     });
+}
+
+/// Registers the app's reaction to the compositor's output set changing after startup — a monitor plugged in or
+/// unplugged — so it can open bars on the new screen and drop the ones on the old. Fires on the driver thread.
+pub fn on_outputs_changed(callback: impl Fn() + 'static) {
+    OUTPUTS_CHANGED.with(|c| *c.borrow_mut() = Some(Box::new(callback)));
+}
+
+/// The compositor's outputs. On the driver thread this reads the live set the driver already tracks; anywhere
+/// else (before the loop is up) it falls back to a throwaway connection via [`enumerate_outputs`].
+pub fn outputs() -> Vec<OutputDescriptor> {
+    let cached = OUTPUTS.with(|o| o.borrow().clone());
+    if cached.is_empty() {
+        return enumerate_outputs();
+    }
+    cached
 }
 
 #[derive(Default)]
@@ -207,6 +264,9 @@ struct SurfaceEntry {
     // `Some` for a dynamic surface (its `SurfaceHandle`/`request_close` flag); `None` for a static bar, which
     // only closes on the shared shutdown.
     close: Option<Arc<AtomicBool>>,
+    /// Timers and channel sources this surface registered (via `interval`/`watch`), removed from the loop when
+    /// it is torn down so a closed drawer stops ticking instead of outliving its own signals.
+    sources: SourceSink,
     reserve_only: bool,
     interactive_input_region: bool,
     scale: i32,
@@ -239,6 +299,45 @@ impl Driver {
     fn entry_mut(&mut self, wl_id: &ObjectId) -> Option<&mut SurfaceEntry> {
         self.surfaces.iter_mut().find(|e| &e.wl_id == wl_id)
     }
+
+    fn descriptors(&mut self) -> Vec<OutputDescriptor> {
+        let outputs: Vec<_> = self.output_state.outputs().collect();
+        outputs
+            .into_iter()
+            .filter_map(|o| self.output_state.info(&o))
+            .map(|info| OutputDescriptor {
+                name: info.name,
+                logical_size: info.logical_size,
+                position: info.logical_position.unwrap_or(info.location),
+                scale: info.scale_factor,
+            })
+            .collect()
+    }
+
+    /// Refreshes the cached output set and, once the shell is up, notifies the app when it actually changed so
+    /// it can open bars on a newly connected monitor and drop the ones on a disconnected one.
+    fn refresh_outputs(&mut self) {
+        let next = self.descriptors();
+        let changed = OUTPUTS.with(|o| {
+            let mut cache = o.borrow_mut();
+            let changed = names(&cache) != names(&next);
+            *cache = next;
+            changed
+        });
+        if changed {
+            OUTPUTS_CHANGED.with(|c| {
+                if let Some(callback) = c.borrow().as_ref() {
+                    callback();
+                }
+            });
+        }
+    }
+}
+
+/// Outputs compared by name: the identity a `LayerConfig` pins a surface to, so a scale or resolution change
+/// (which the surface handles through `configure`) doesn't trigger a full surface reconciliation.
+fn names(outputs: &[OutputDescriptor]) -> Vec<Option<String>> {
+    outputs.iter().map(|o| o.name.clone()).collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -297,6 +396,7 @@ fn create_surface_entry(
         window: None,
         handler,
         close,
+        sources: SourceSink::default(),
         reserve_only: config.reserve_only,
         interactive_input_region: config.interactive_input_region,
         scale,
@@ -478,7 +578,8 @@ where
 
             if !entry.resumed {
                 let close = entry.close.clone();
-                let ok = with_current(&close, || {
+                let sources = Rc::clone(&entry.sources);
+                let ok = with_current(&close, &sources, || {
                     let handler = entry
                         .handler
                         .as_mut()
@@ -497,8 +598,9 @@ where
             }
 
             let close = entry.close.clone();
+            let sources = Rc::clone(&entry.sources);
             let events: Vec<Event> = entry.events.drain(..).collect();
-            entry.timeout = with_current(&close, || {
+            entry.timeout = with_current(&close, &sources, || {
                 let handler = entry
                     .handler
                     .as_mut()
@@ -517,21 +619,29 @@ where
         }
 
         for index in remove.into_iter().rev() {
-            let mut entry = driver.surfaces.remove(index);
-            if let Some(mut handler) = entry.handler.take() {
-                with_current(&entry.close, || handler.on_suspend());
-            }
+            let entry = driver.surfaces.remove(index);
+            tear_down(entry, &loop_handle);
         }
 
         next_timeout = min_timeout;
     }
 
-    for mut entry in driver.surfaces.drain(..) {
-        if let Some(mut handler) = entry.handler.take() {
-            with_current(&entry.close, || handler.on_suspend());
-        }
+    for entry in driver.surfaces.drain(..) {
+        tear_down(entry, &loop_handle);
     }
     Ok(())
+}
+
+/// Suspends a surface's handler and then removes every loop source it registered, so its timers and watch
+/// channels stop with it. Dropping the channel receivers also ends the producer threads feeding them.
+fn tear_down(mut entry: SurfaceEntry, loop_handle: &LoopHandle<'static, Driver>) {
+    if let Some(mut handler) = entry.handler.take() {
+        let sources = Rc::clone(&entry.sources);
+        with_current(&entry.close, &sources, || handler.on_suspend());
+    }
+    for token in entry.sources.borrow_mut().drain(..) {
+        loop_handle.remove(token);
+    }
 }
 
 fn merge_timeout(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
@@ -952,9 +1062,15 @@ impl OutputHandler for Driver {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
-    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
-    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        self.refresh_outputs();
+    }
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        self.refresh_outputs();
+    }
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        self.refresh_outputs();
+    }
 }
 
 impl LayerShellHandler for Driver {
