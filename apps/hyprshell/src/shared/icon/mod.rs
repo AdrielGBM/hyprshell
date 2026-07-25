@@ -75,6 +75,9 @@ struct IconStore {
     attempts: RefCell<HashMap<IconId, u32>>,
     requests: Sender<IconId>,
     default_set: String,
+    /// The `[icons]` config this store was built from. All surfaces share the UI thread, so the store is
+    /// process-wide; recording its config is what lets a reload notice the endpoint or default set changed.
+    config: crate::core::config::IconsConfig,
 }
 
 impl AssetSource for IconStore {
@@ -151,13 +154,22 @@ fn icon_state(name: &str) -> AssetState<Arc<SvgData>> {
 }
 
 fn ensure_store() {
-    if STORE.with(|s| s.borrow().is_some()) {
-        return;
-    }
-
     let icons = surface_env()
         .map(|env| env.config.icons.clone())
         .unwrap_or_default();
+    // Rebuilt when `[icons]` changes, so editing the provider or default set applies on the next reload like
+    // every other setting. Dropping the old store closes its request channel, which retires its worker thread;
+    // the cached signals go with it, so each icon re-resolves against the new endpoint (disk cache first).
+    let current = STORE.with(|s| s.borrow().as_ref().map(|store| store.config == icons));
+    match current {
+        Some(true) => return,
+        Some(false) => {
+            STORE.with(|s| *s.borrow_mut() = None);
+            COLLECTIONS.with(|c| c.borrow_mut().clear());
+        }
+        None => {}
+    }
+
     let (requests, incoming) = channel::<IconId>();
     STORE.with(|s| {
         *s.borrow_mut() = Some(IconStore {
@@ -165,6 +177,7 @@ fn ensure_store() {
             attempts: RefCell::new(HashMap::new()),
             requests,
             default_set: icons.default_set.clone(),
+            config: icons.clone(),
         });
     });
 
