@@ -58,7 +58,7 @@ let init = battery::details();
 
 let level = signal(init.map(|d| d.level).unwrap_or(0));
 let charging = signal(init.map(|d| d.state.is_charging()).unwrap_or(false));
-let status = signal(init.map(|d| status_text(&d)).unwrap_or_else(|| "No battery".to_string()));
+let status = signal(init.map(|d| status_text(&d)).unwrap_or_else(|| rsx::t!("battery.none")));
 let rate = signal(init.map(|d| rate_text(&d)).unwrap_or_default());
 
 let level_pct = level.read_only();
