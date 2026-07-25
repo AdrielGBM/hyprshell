@@ -1209,6 +1209,7 @@ dependencies = [
  "platform-headless",
  "platform-layershell",
  "rsx",
+ "rustix 1.1.4",
  "serde",
  "serde_json",
  "toml",
