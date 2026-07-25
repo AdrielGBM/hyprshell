@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use platform_layershell::EventSender;
 use zbus::blocking::{Connection, fdo::PropertiesProxy};
+
+use crate::shared::services::broadcast::{Broadcast, Service};
 
 const SUPPLY_DIR: &str = "/sys/class/power_supply";
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -39,18 +40,6 @@ impl ChargeState {
             4 => Self::Full,
             5 | 6 => Self::Pending,
             _ => Self::Unknown,
-        }
-    }
-
-    /// A human label for the detail panel; `Discharging` reads as "On battery" since that's the state users recognise.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Charging => "Charging",
-            Self::Discharging => "On battery",
-            Self::Full => "Fully charged",
-            Self::Empty => "Empty",
-            Self::Pending => "Pending",
-            Self::Unknown => "Unknown",
         }
     }
 
@@ -96,52 +85,21 @@ pub fn read() -> Option<Battery> {
     Some(Battery { level, charging })
 }
 
-/// The single shared battery source: one UPower connection (or sysfs poll) fanned out to every bar chip that
-/// subscribed — one connection + one read per change, not one per bar (the M3 "one producer, N readers").
-struct BatteryService {
-    current: Mutex<Option<Battery>>,
-    subscribers: Mutex<Vec<EventSender<Battery>>>,
-}
+static BATTERY: Service<Battery> = Service::new("hyprshell-battery", run_battery);
 
-impl BatteryService {
-    fn publish(&self, battery: Battery) {
-        *self.current.lock().unwrap() = Some(battery);
-        self.subscribers
-            .lock()
-            .unwrap()
-            .retain(|tx| tx.send(battery));
-    }
-}
-
-static BATTERY: OnceLock<Arc<BatteryService>> = OnceLock::new();
-
-fn battery_service() -> &'static Arc<BatteryService> {
-    BATTERY.get_or_init(|| {
-        let service = Arc::new(BatteryService {
-            current: Mutex::new(None),
-            subscribers: Mutex::new(Vec::new()),
-        });
-        let producer = Arc::clone(&service);
-        let _ = std::thread::Builder::new()
-            .name("hyprshell-battery".to_string())
-            .spawn(move || run_battery(producer));
-        service
-    })
-}
-
-fn run_battery(service: Arc<BatteryService>) {
+fn run_battery(service: &Broadcast<Battery>) {
     // Push the current value immediately so bars don't wait for the first change.
     if let Some(b) = read() {
         service.publish(b);
     }
     // UPower's DisplayDevice `PropertiesChanged` for sub-second plug/unplug (it only triggers; sysfs holds the
     // authoritative values); slow sysfs poll when UPower/DBus is unavailable.
-    if watch_upower(&service).is_none() {
-        poll_fallback(&service);
+    if watch_upower(service).is_none() {
+        poll_fallback(service);
     }
 }
 
-fn watch_upower(service: &BatteryService) -> Option<()> {
+fn watch_upower(service: &Broadcast<Battery>) -> Option<()> {
     let conn = Connection::system().ok()?;
     let props = PropertiesProxy::builder(&conn)
         .destination(UPOWER)
@@ -160,7 +118,7 @@ fn watch_upower(service: &BatteryService) -> Option<()> {
 }
 
 /// Belt-and-suspenders when UPower is missing: the pre-existing 30 s sysfs poll.
-fn poll_fallback(service: &BatteryService) {
+fn poll_fallback(service: &Broadcast<Battery>) {
     loop {
         std::thread::sleep(Duration::from_secs(30));
         match read() {
@@ -173,11 +131,7 @@ fn poll_fallback(service: &BatteryService) {
 /// Registers `tx` (bound to a bar's event loop) for live battery readings and sends the current one, spinning up
 /// the single shared UPower/sysfs source on first use. Called from a bar chip's `watch` producer.
 pub fn subscribe(tx: EventSender<Battery>) {
-    let service = battery_service();
-    let current = *service.current.lock().unwrap();
-    if current.is_none_or(|b| tx.send(b)) {
-        service.subscribers.lock().unwrap().push(tx);
-    }
+    BATTERY.subscribe(tx);
 }
 
 /// Reads the full battery detail for the panel: UPower's DisplayDevice when available (level, state, time-to-empty/full, power draw), else a sysfs-only reading with no time/rate; `None` on a machine with no battery.
