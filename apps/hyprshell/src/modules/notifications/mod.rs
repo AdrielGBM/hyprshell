@@ -11,13 +11,12 @@ use platform_layershell::{
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList, ReadSignal, RectStyle, RichText,
-    SizeDimension, StyledContainer, Svg, Text, TextRun, TextStyle, WindowConfig, box_item, memo,
+    SizeDimension, StyledContainer, Text, TextRun, TextStyle, WindowConfig, box_item, memo,
     reset_layout_runtime, set_theme, signal, use_theme,
 };
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, Edge, NotificationsConfig};
-use crate::shared::icon::{AppIcon, resolve_app_icon};
 use crate::shared::module::surface_env;
 use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
 use crate::shared::theme::{FontRole, NordTheme};
@@ -275,25 +274,7 @@ fn leading_visual(
 /// The resolved application icon as a 36px visual — an untinted SVG (keeping the app's own colours) or its
 /// raster pixels — or `None` when the reference is empty or can't be resolved.
 fn app_icon_visual(reference: &str) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
-    let Some(icon) = resolve_app_icon(reference) else {
-        return Ok(None);
-    };
-    let style = LayoutStyle::new().width(36.0).height(36.0).flex_shrink(0.0);
-    let widget: Box<dyn LayoutItem> = match icon {
-        AppIcon::Vector(svg) => Box::new(Svg::new(
-            style,
-            move || svg.clone(),
-            || None::<Color>,
-            || ObjectFit::Contain,
-        )?),
-        AppIcon::Raster(data) => Box::new(Image::new(
-            style,
-            move || data.clone(),
-            || ImageFilter::Linear,
-            || ObjectFit::Contain,
-        )?),
-    };
-    Ok(Some(widget))
+    crate::shared::icon::app_icon_view(reference, 36.0)
 }
 
 /// A wrapping row of the notification's non-default actions, or `None` when it has none. Tapping one invokes
