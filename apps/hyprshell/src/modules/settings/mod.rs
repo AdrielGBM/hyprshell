@@ -7,9 +7,10 @@ use rsx::{
 use serde::Serialize;
 
 use crate::core::config::{
-    Align, BackgroundConfig, BarConfig, BarsConfig, Config, CornersConfig, DrawerConfig, Edge,
-    FloatConfig, GeneralConfig, IconsConfig, NotificationsConfig, OsdConfig, PanelsConfig, Shape,
-    ShapeConfig, ThemeConfig,
+    ActiveWindowConfig, Align, BackgroundConfig, BarConfig, BarsConfig, ClockConfig, Config,
+    CornersConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig, MediaConfig,
+    MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig, ThemeConfig,
+    WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -19,6 +20,7 @@ const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 const ALIGNS: &[&str] = &["start", "center", "end"];
 const SHAPES: &[&str] = &["bar", "sections", "chips"];
 const LANGUAGES: &[&str] = &["en", "es"];
+const MEDIA_SCROLLS: &[&str] = &["volume", "track", "none"];
 
 /// The bar chip: a gear that opens the settings panel.
 pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -49,6 +51,10 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         shape_section(&config, &path, theme)?,
         bars_section(&config, &path, theme)?,
         panels_section(&config, &path, theme)?,
+        clock_section(&config, &path, theme)?,
+        active_window_section(&config, &path, theme)?,
+        media_section(&config, &path, theme)?,
+        workspaces_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -72,17 +78,38 @@ fn general_section(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let lang = signal(rsx::current_locale().unwrap_or_else(|| config.language()));
+    let over_fullscreen = signal(config.general.show_over_fullscreen);
+    let logo = signal(config.general.logo.clone());
+    let terminal = signal(config.general.terminal.clone());
 
-    let rows = vec![language_field(
-        || rsx::t!("settings.field.language"),
-        lang.clone(),
-        theme,
-    )?];
+    let rows = vec![
+        language_field(|| rsx::t!("settings.field.language"), lang.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.show_over_fullscreen"),
+            over_fullscreen.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.logo"),
+            logo.clone(),
+            "auto",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.terminal"),
+            terminal.clone(),
+            "xterm",
+            theme,
+        )?,
+    ];
 
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.general"), theme, move || {
         persist(&path, "general", &GeneralConfig {
             language: lang.peek(),
+            show_over_fullscreen: over_fullscreen.peek(),
+            logo: logo.peek(),
+            terminal: terminal.peek(),
         });
     })?;
     section(|| rsx::t!("settings.section.general"), rows, save, theme)
@@ -495,6 +522,244 @@ fn icons_section(
         persist(&path, "icons", &value);
     })?;
     section(|| rsx::t!("settings.section.icons"), rows, save, theme)
+}
+
+fn clock_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let c = &config.clock;
+    let twelve_hour = signal(c.twelve_hour);
+    // An empty field means "no override", which is what `Option<String>` carries; the placeholder shows what
+    // the 12/24-hour switch would produce, so it is clear what leaving it blank does.
+    let format = signal(c.format.clone().unwrap_or_default());
+    let show_date = signal(c.show_date);
+    let date_format = signal(c.date_format.clone());
+
+    let rows = vec![
+        toggle_field(
+            || rsx::t!("settings.field.twelve_hour"),
+            twelve_hour.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.time_format"),
+            format.clone(),
+            "%H:%M:%S",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_date"),
+            show_date.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.date_format"),
+            date_format.clone(),
+            "%a %d %b",
+            theme,
+        )?,
+    ];
+
+    let base = c.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.clock"), theme, move || {
+        let typed = format.peek();
+        let value = ClockConfig {
+            twelve_hour: twelve_hour.peek(),
+            format: (!typed.trim().is_empty()).then_some(typed),
+            show_date: show_date.peek(),
+            date_format: {
+                let typed = date_format.peek();
+                if typed.trim().is_empty() {
+                    base.date_format.clone()
+                } else {
+                    typed
+                }
+            },
+        };
+        persist(&path, "clock", &value);
+    })?;
+    section(|| rsx::t!("settings.section.clock"), rows, save, theme)
+}
+
+fn workspaces_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let w = &config.workspaces;
+    let shown = signal(w.shown.to_string());
+    let per_monitor = signal(w.per_monitor);
+    let show_special = signal(w.show_special);
+    let window_icons = signal(w.window_icons);
+    let max_icons = signal(w.max_window_icons.to_string());
+    let occupied = signal(w.occupied_background);
+    let scroll = signal(w.scroll);
+    let label = signal(w.label.clone());
+
+    let rows = vec![
+        text_field(|| rsx::t!("settings.field.shown"), shown.clone(), "0", theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.per_monitor"),
+            per_monitor.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_special"),
+            show_special.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.window_icons"),
+            window_icons.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_window_icons"),
+            max_icons.clone(),
+            "4",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.occupied_background"),
+            occupied.clone(),
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.scroll"), scroll.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.label"),
+            label.clone(),
+            "{id}",
+            theme,
+        )?,
+    ];
+
+    let base = w.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.workspaces"), theme, move || {
+        let typed = label.peek();
+        let value = WorkspacesConfig {
+            shown: parse_u32(&shown.peek(), base.shown),
+            per_monitor: per_monitor.peek(),
+            show_special: show_special.peek(),
+            window_icons: window_icons.peek(),
+            max_window_icons: parse_u32(&max_icons.peek(), base.max_window_icons),
+            occupied_background: occupied.peek(),
+            scroll: scroll.peek(),
+            label: if typed.trim().is_empty() {
+                base.label.clone()
+            } else {
+                typed
+            },
+            // Map-valued, so it stays hand-edited in the TOML; carrying it through means saving here does not
+            // silently drop the user's scratchpad icons.
+            special_icons: base.special_icons.clone(),
+        };
+        persist(&path, "workspaces", &value);
+    })?;
+    section(|| rsx::t!("settings.section.workspaces"), rows, save, theme)
+}
+
+fn media_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let m = &config.media;
+    let preferred = signal(m.preferred_player.clone());
+    let max_chars = signal(m.max_chars.to_string());
+    let scroll = signal(media_scroll_str(m.scroll).to_string());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.preferred_player"),
+            preferred.clone(),
+            "auto",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_chars"),
+            max_chars.clone(),
+            "40",
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.scroll"),
+            scroll.clone(),
+            MEDIA_SCROLLS,
+            theme,
+        )?,
+    ];
+
+    // Aliases are map-valued, so they stay hand-edited in the TOML for now, like `theme.colors`; carrying the
+    // existing map through means saving this section does not silently drop them.
+    let base = m.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.media"), theme, move || {
+        let value = MediaConfig {
+            preferred_player: preferred.peek(),
+            max_chars: parse_u32(&max_chars.peek(), base.max_chars),
+            scroll: parse_media_scroll(&scroll.peek()),
+            aliases: base.aliases.clone(),
+        };
+        persist(&path, "media", &value);
+    })?;
+    section(|| rsx::t!("settings.section.media"), rows, save, theme)
+}
+
+fn media_scroll_str(scroll: MediaScroll) -> &'static str {
+    match scroll {
+        MediaScroll::Volume => "volume",
+        MediaScroll::Track => "track",
+        MediaScroll::None => "none",
+    }
+}
+
+fn parse_media_scroll(raw: &str) -> MediaScroll {
+    match raw {
+        "track" => MediaScroll::Track,
+        "none" => MediaScroll::None,
+        _ => MediaScroll::Volume,
+    }
+}
+
+fn active_window_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let w = config.active_window;
+    let compact = signal(w.compact);
+    let show_icon = signal(w.show_icon);
+    let max_chars = signal(w.max_chars.to_string());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.show_icon"),
+            show_icon.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_chars"),
+            max_chars.clone(),
+            "60",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.active_window"), theme, move || {
+        let value = ActiveWindowConfig {
+            compact: compact.peek(),
+            show_icon: show_icon.peek(),
+            max_chars: parse_u32(&max_chars.peek(), w.max_chars),
+        };
+        persist(&path, "active_window", &value);
+    })?;
+    section(|| rsx::t!("settings.section.active_window"), rows, save, theme)
 }
 
 fn notifications_section(

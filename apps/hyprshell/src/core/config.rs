@@ -351,11 +351,191 @@ impl BackgroundConfig {
 }
 
 /// App-wide settings that don't belong to a specific visual section. `language` is a BCP-47 tag
-/// (`"en"`, `"es"`); empty means "follow the OS locale, else English".
+/// (`"en"`, `"es"`); empty means "follow the OS locale, else English". `show_over_fullscreen` lifts the bars
+/// onto the overlay layer so they stay visible over a fullscreen window — off by default, since a fullscreen
+/// game or video is normally meant to cover them. `logo` is the icon the `logo` module shows; empty detects the
+/// distribution from `/etc/os-release`.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct GeneralConfig {
     pub language: String,
+    pub show_over_fullscreen: bool,
+    pub logo: String,
+    /// The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
+    pub terminal: String,
+}
+
+/// The `active_window` module. `compact` shows the app's class instead of the document title — stable while you
+/// move around inside one app, and much narrower. `max_chars` bounds the one bar value with no natural size: a
+/// browser tab title can be a paragraph, and letting it size the chip would push every other module off the bar.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct ActiveWindowConfig {
+    pub compact: bool,
+    pub show_icon: bool,
+    pub max_chars: u32,
+}
+
+impl Default for ActiveWindowConfig {
+    fn default() -> Self {
+        Self {
+            compact: false,
+            show_icon: true,
+            max_chars: 60,
+        }
+    }
+}
+
+/// The `workspaces` module.
+///
+/// `shown` pins how many pills the bar draws regardless of how many workspaces exist, which is what keeps the
+/// bar's width from shifting every time one is created or destroyed; `0` shows exactly the ones that exist.
+/// `label` is a `{id}`/`{name}`/`{index}` template so a user can have numbers, names or icons without the
+/// shell enumerating presets, and `special_icons` maps a scratchpad's bare name to an Iconify glyph.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct WorkspacesConfig {
+    pub shown: u32,
+    /// Show only the workspaces belonging to this bar's own monitor.
+    pub per_monitor: bool,
+    pub show_special: bool,
+    /// Draw an app icon per window inside each pill, capped at `max_window_icons`.
+    pub window_icons: bool,
+    pub max_window_icons: u32,
+    /// Tint a pill that holds windows differently from an empty one.
+    pub occupied_background: bool,
+    /// The wheel over the pills switches workspace.
+    pub scroll: bool,
+    pub label: String,
+    pub special_icons: HashMap<String, String>,
+}
+
+impl Default for WorkspacesConfig {
+    fn default() -> Self {
+        Self {
+            shown: 0,
+            per_monitor: false,
+            show_special: true,
+            window_icons: false,
+            max_window_icons: 4,
+            occupied_background: true,
+            scroll: true,
+            label: "{id}".to_string(),
+            special_icons: HashMap::new(),
+        }
+    }
+}
+
+impl WorkspacesConfig {
+    /// Renders a pill's label from the template. `{index}` is the pill's position, which is what a fixed-width
+    /// bar wants when the ids themselves are sparse.
+    pub fn render_label(&self, id: i32, name: &str, index: usize) -> String {
+        self.label
+            .replace("{id}", &id.to_string())
+            .replace("{name}", name)
+            .replace("{index}", &(index + 1).to_string())
+    }
+}
+
+/// The application launcher: a modal opened by keybind or IPC.
+///
+/// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
+/// `hidden` lists desktop-entry ids to keep out of the results entirely.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct LauncherConfig {
+    pub width: u32,
+    pub height: u32,
+    pub radius: f32,
+    pub max_results: u32,
+    pub fuzzy: bool,
+    pub hidden: Vec<String>,
+}
+
+impl Default for LauncherConfig {
+    fn default() -> Self {
+        Self {
+            width: 640,
+            height: 420,
+            radius: 14.0,
+            max_results: 12,
+            fuzzy: true,
+            hidden: Vec::new(),
+        }
+    }
+}
+
+/// The `media` module. `preferred_player` names an MPRIS bus suffix (`spotify`, `mpv`) to favour when several
+/// players are running — it only wins while that player is actually up, so naming one you don't always run
+/// never blanks the chip. `aliases` renames a player for display, since players name themselves badly often
+/// enough (`com.github.th_ch.youtube_music` → `YT Music`) to be worth a config key.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct MediaConfig {
+    pub preferred_player: String,
+    /// Max characters of `artist — title` on the bar, bounding a value with no natural size.
+    pub max_chars: u32,
+    /// What the wheel over the chip does: `volume`, `track`, or `none`.
+    pub scroll: MediaScroll,
+    pub aliases: HashMap<String, String>,
+}
+
+impl Default for MediaConfig {
+    fn default() -> Self {
+        Self {
+            preferred_player: String::new(),
+            max_chars: 40,
+            scroll: MediaScroll::default(),
+            aliases: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaScroll {
+    #[default]
+    Volume,
+    Track,
+    None,
+}
+
+/// The `clock` module and its panel. `format` and `date_format` are `strftime` patterns, so a user can have
+/// anything from `%H:%M` to a full locale date without the shell enumerating presets; `twelve_hour` is the one
+/// switch worth naming, since it is what most people actually mean by "change the clock format".
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct ClockConfig {
+    pub twelve_hour: bool,
+    /// Overrides `twelve_hour` when set, for a user who wants seconds, a weekday, or anything else.
+    pub format: Option<String>,
+    pub show_date: bool,
+    pub date_format: String,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            twelve_hour: false,
+            format: None,
+            show_date: false,
+            date_format: "%a %d %b".to_string(),
+        }
+    }
+}
+
+impl ClockConfig {
+    /// The `strftime` pattern the chip renders: the explicit override, else a 12- or 24-hour clock with seconds.
+    pub fn time_format(&self) -> &str {
+        if let Some(format) = &self.format {
+            return format;
+        }
+        if self.twelve_hour {
+            "%I:%M:%S %p"
+        } else {
+            "%H:%M:%S"
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
@@ -371,6 +551,11 @@ pub struct Config {
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
     pub background: BackgroundConfig,
+    pub active_window: ActiveWindowConfig,
+    pub clock: ClockConfig,
+    pub media: MediaConfig,
+    pub workspaces: WorkspacesConfig,
+    pub launcher: LauncherConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -478,6 +663,11 @@ impl Config {
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
             background: BackgroundConfig::default(),
+            active_window: ActiveWindowConfig::default(),
+            clock: ClockConfig::default(),
+            media: MediaConfig::default(),
+            workspaces: WorkspacesConfig::default(),
+            launcher: LauncherConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -672,26 +862,43 @@ impl Config {
         s.mode == Shape::Bar && (self.shape.frame || (s.gap == 0 && s.radius == 0.0))
     }
 
-    pub fn load_or_default(path: &Path) -> Self {
-        match std::fs::read_to_string(path) {
-            Ok(text) => match toml::from_str(&text) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    tracing::warn!("config parse error ({e}); using the starter config");
-                    Config::starter()
-                }
-            },
-            Err(_) => {
+    /// Reads and parses `config.toml`, writing the starter config on a fresh install (the `Missing` arm's job is
+    /// the caller's, so the distinction survives). Parse failures are returned rather than swallowed — a typo
+    /// must not silently replace a user's whole setup with the starter bar, which is what discarding the error
+    /// would do; the caller keeps the last config that worked and reports the error instead.
+    pub fn load(path: &Path) -> Result<Self, LoadError> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 let cfg = Config::starter();
-                if let Ok(text) = toml::to_string_pretty(&cfg) {
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    let _ = std::fs::write(path, text);
-                }
-                cfg
+                cfg.write_to(path);
+                return Ok(cfg);
             }
+            Err(e) => return Err(LoadError::Io(e)),
+        };
+        toml::from_str(&text).map_err(LoadError::Parse)
+    }
+
+    /// Serializes the whole config to `path`, creating its directory. Used only to seed a fresh install; edits
+    /// to an existing file go through [`save_section`](Self::save_section), which preserves formatting.
+    fn write_to(&self, path: &Path) {
+        let Ok(text) = toml::to_string_pretty(self) else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
+        let _ = std::fs::write(path, text);
+    }
+
+    /// [`load`](Self::load) with the starter config as the fallback. For call sites with nothing better to fall
+    /// back to (a panel building itself, a test); the running shell uses `load` so it can keep its last good
+    /// config instead.
+    pub fn load_or_default(path: &Path) -> Self {
+        Config::load(path).unwrap_or_else(|e| {
+            tracing::warn!("{e}; using the starter config");
+            Config::starter()
+        })
     }
 
     pub fn default_path() -> PathBuf {
@@ -723,6 +930,25 @@ impl Config {
         std::fs::write(path, doc.to_string()).map_err(SaveError::Io)
     }
 }
+
+/// Why reading `config.toml` failed. Carries the `toml` error verbatim so the message the user sees names the
+/// offending key and line rather than just "invalid config".
+#[derive(Debug)]
+pub enum LoadError {
+    Parse(toml::de::Error),
+    Io(std::io::Error),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::Parse(e) => write!(f, "config parse error: {e}"),
+            LoadError::Io(e) => write!(f, "config read error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {}
 
 /// Why persisting a config section failed.
 #[derive(Debug)]
@@ -961,6 +1187,90 @@ end = ["battery", "volume"]
 
         let derived: Config = toml::from_str("[shape]\ngap=20\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
         assert_eq!(derived.panel_gap(Edge::Top), 20, "without an override it tracks the bar gap");
+    }
+
+    #[test]
+    fn clock_format_follows_the_twelve_hour_switch_unless_overridden() {
+        let d = ClockConfig::default();
+        assert_eq!(d.time_format(), "%H:%M:%S");
+
+        let twelve: Config = toml::from_str("[clock]\ntwelve_hour = true\n").unwrap();
+        assert_eq!(twelve.clock.time_format(), "%I:%M:%S %p");
+
+        let explicit: Config =
+            toml::from_str("[clock]\ntwelve_hour = true\nformat = \"%H:%M\"\n").unwrap();
+        assert_eq!(
+            explicit.clock.time_format(),
+            "%H:%M",
+            "an explicit pattern wins over the switch"
+        );
+    }
+
+    #[test]
+    fn active_window_defaults_bound_the_title() {
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.active_window.max_chars, 60);
+        assert!(d.active_window.show_icon);
+        assert!(!d.active_window.compact);
+
+        let cfg: Config = toml::from_str("[active_window]\ncompact = true\n").unwrap();
+        assert!(cfg.active_window.compact);
+        assert_eq!(
+            cfg.active_window.max_chars, 60,
+            "unset fields keep their defaults"
+        );
+    }
+
+    #[test]
+    fn general_defaults_keep_bars_under_fullscreen_windows() {
+        let d: Config = toml::from_str("").unwrap();
+        assert!(
+            !d.general.show_over_fullscreen,
+            "a fullscreen game is meant to cover the bar unless asked otherwise"
+        );
+        assert!(d.general.logo.is_empty(), "an empty logo means auto-detect");
+    }
+
+    #[test]
+    fn a_parse_error_is_returned_rather_than_swallowed() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-load-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "[bars.top\nstart = [\"clock\"]\n").unwrap();
+
+        let error = Config::load(&path).expect_err("a malformed file must not parse");
+        assert!(
+            matches!(error, LoadError::Parse(_)),
+            "the caller needs to distinguish a typo from a missing file"
+        );
+        // `load_or_default` is the lossy convenience wrapper — it answers a typo with the starter bar, throwing
+        // the user's layout away. That is exactly why the running shell uses `load`: so it can keep the last
+        // config that worked and report the error instead.
+        let lossy = Config::load_or_default(&path);
+        assert_eq!(
+            lossy.bars.top.start,
+            Config::starter().bars.top.start,
+            "the wrapper substitutes the starter, losing whatever the user had"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_file_seeds_the_starter_config_on_disk() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-seed-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+
+        let seeded = Config::load(&path).expect("a fresh install is not an error");
+        assert_eq!(seeded.bars.top.start, vec!["workspaces".to_string()]);
+        assert!(path.exists(), "the starter is written for the user to edit");
+        assert!(
+            Config::load(&path).is_ok(),
+            "and what was written parses back"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

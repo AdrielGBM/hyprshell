@@ -1,20 +1,33 @@
 [logic]
 // No-op under a headless test (the clock shows its initial value there).
+use crate::core::config::ClockConfig;
 use crate::shared::services::clock;
 use crate::shared::theme::{FontRole, NordTheme};
 
-fn now_string() -> String {
-    chrono::Local::now().format("%H:%M:%S").to_string()
+// `strftime` patterns come from config, so a user can have seconds, a weekday or a 12-hour clock without the
+// shell enumerating presets.
+fn render(now: &chrono::DateTime<chrono::Local>, config: &ClockConfig) -> String {
+    let time = now.format(config.time_format()).to_string();
+    if config.show_date {
+        format!("{} · {}", now.format(&config.date_format), time)
+    } else {
+        time
+    }
 }
 
-let now = signal(now_string());
+let config = crate::surface_env()
+    .map(|e| e.config.clock.clone())
+    .unwrap_or_default();
+let for_tick = config.clone();
+
+let now = signal(render(&chrono::Local::now(), &config));
 let now_view = now.read_only();
 // module_shell provides the box, hover/press feedback and drawer-opening click; this module supplies only content, painted with the container-chosen foreground.
 let fg = crate::module_fg();
 let body = use_theme::<NordTheme>().font(FontRole::Body);
 // One ticker for the whole shell, aligned to the second boundary; every clock surface reads the same broadcast.
 platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
-    now.set(t.format("%H:%M:%S").to_string());
+    now.set(render(&t, &for_tick));
 });
 
 [view]
