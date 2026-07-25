@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::Duration;
 
 use rsx::{
@@ -17,6 +18,7 @@ const OSD_H: u32 = 60;
 pub enum OsdKind {
     Volume,
     Brightness,
+    Microphone,
 }
 
 fn osd_anchor(edge: Edge) -> SurfaceAnchor {
@@ -69,22 +71,33 @@ thread_local! {
 }
 
 /// Shows (or replaces) the single-slot OSD for `kind`; resolves the configured accent here on the bar thread since the OSD surface has no config of its own.
+///
+/// The bar surface in scope supplies the monitor when a chip triggered this. Triggered from outside a surface —
+/// an IPC call or a keybind — there is none, so it falls back to the running config and the focused monitor
+/// rather than to bare defaults, which would flash an unthemed OSD on the wrong screen.
 pub fn show(kind: OsdKind) {
     let env = crate::surface_env();
-    let theme = env
+    let config = env
         .as_ref()
-        .map(|e| e.config.resolve_theme())
+        .map(|e| Arc::clone(&e.config))
+        .or_else(crate::core::shell::config);
+    let theme = config
+        .as_ref()
+        .map(|c| c.resolve_theme())
         .unwrap_or_else(NordTheme::new);
-    let osd = env.as_ref().map(|e| e.config.osd).unwrap_or_default();
-    let output = env.as_ref().and_then(|e| e.output.clone());
-    let radius = env
+    let osd = config.as_ref().map(|c| c.osd).unwrap_or_default();
+    let output = match env.as_ref() {
+        Some(env) => env.output.clone(),
+        None => crate::core::shell::focused_output(),
+    };
+    let radius = config
         .as_ref()
-        .map(|e| e.config.panel_radius(osd.edge))
+        .map(|c| c.panel_radius(osd.edge))
         .unwrap_or(16.0);
     // The shared panel gap. The surface's exclusive_zone=0 already clears the bar via the compositor, so this is only the extra gap beyond it — same rule the drawer and notifications use.
-    let inset = env
+    let inset = config
         .as_ref()
-        .map(|e| e.config.panel_gap(osd.edge) as i32)
+        .map(|c| c.panel_gap(osd.edge) as i32)
         .unwrap_or(crate::core::config::DEFAULT_PANEL_GAP as i32);
     let mut placement = SurfacePlacement::new(SurfaceRole::Osd, osd_anchor(osd.edge))
         .align(osd_align(osd.align))
@@ -110,6 +123,30 @@ const STEP: i32 = 5;
 /// scrolling up (the platform already flips Wayland's axis), which is the direction that raises the level.
 fn scroll_step(dy: f32) -> i32 {
     if dy > 0.0 { STEP } else { -STEP }
+}
+
+/// Flashes the volume OSD without changing anything — for callers that already moved the level (a keybind
+/// routed through IPC) and only want the feedback.
+pub fn show_volume() {
+    show(OsdKind::Volume);
+}
+
+pub fn show_brightness() {
+    show(OsdKind::Brightness);
+}
+
+pub fn show_microphone() {
+    show(OsdKind::Microphone);
+}
+
+pub fn mic_action() {
+    crate::shared::services::volume::toggle_mic_mute();
+    show(OsdKind::Microphone);
+}
+
+pub fn mic_scroll(_dx: f32, dy: f32) {
+    crate::shared::services::volume::step_mic(scroll_step(dy));
+    show(OsdKind::Microphone);
 }
 
 pub fn volume_action() {

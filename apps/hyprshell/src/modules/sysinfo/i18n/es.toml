@@ -1,0 +1,5 @@
+[sysinfo]
+cpu = "CPU"
+memory = "Memoria"
+temperature = "Temperatura"
+no_reading = "—"

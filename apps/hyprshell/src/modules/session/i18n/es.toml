@@ -1,0 +1,9 @@
+[session]
+title = "Sesión"
+confirm = "Pulsa de nuevo"
+lock = "Bloquear"
+logout = "Cerrar sesión"
+suspend = "Suspender"
+hibernate = "Hibernar"
+reboot = "Reiniciar"
+shutdown = "Apagar"

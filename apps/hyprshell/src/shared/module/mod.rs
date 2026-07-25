@@ -263,6 +263,54 @@ mod tests {
     }
 
     #[test]
+    fn every_module_that_opens_a_panel_has_one() {
+        // `module_panel` falls back to the clock panel with a warning for an unregistered module; a module
+        // registered with `.opens()` and no panel would silently show the clock, which is a shipping bug.
+        const HAS_PANEL: &[&str] = &[
+            "clock",
+            "battery",
+            "notifications",
+            "notes",
+            "settings",
+            "session",
+        ];
+        let registry = default_registry();
+        for id in ["clock", "battery", "notifications", "notes", "settings", "session"] {
+            let def = registry.def(id).unwrap_or_else(|| panic!("'{id}' is registered"));
+            assert!(
+                matches!(def.click, Some(ModuleClick::Panel)),
+                "'{id}' should open a panel"
+            );
+            assert!(HAS_PANEL.contains(&id), "'{id}' must be routed in module_panel");
+        }
+    }
+
+    #[test]
+    fn the_new_bar_modules_are_registered_with_the_right_roles() {
+        let r = default_registry();
+        assert!(
+            r.def("spacer").unwrap().self_managed,
+            "a gap gets no chip shell, padding or hover state"
+        );
+        assert!(
+            r.def("activewindow").unwrap().click.is_some(),
+            "clicking the title focuses the window it names"
+        );
+        assert!(
+            matches!(r.def("mic").unwrap().click, Some(ModuleClick::Action(_)))
+                && r.def("mic").unwrap().scroll.is_some(),
+            "the mic chip mutes on click and adjusts on scroll, like the volume chip"
+        );
+        for id in ["cpu", "memory", "temperature", "netspeed"] {
+            assert!(
+                r.def(id).unwrap().click.is_none(),
+                "'{id}' is a readout, not a control"
+            );
+        }
+        assert!(r.def("logo").unwrap().icon, "the logo is a square icon chip");
+    }
+
+    #[test]
     fn registry_flags_reflect_module_roles() {
         let r = default_registry();
         assert!(
@@ -293,8 +341,61 @@ pub fn default_registry() -> ModuleRegistry {
     registry.register("clock", ModuleDef::new(|_ctx| crate::clock()).opens());
     registry.register(
         "workspaces",
-        ModuleDef::new(|_ctx| crate::workspaces()).self_managed(),
+        ModuleDef::new(|_ctx| crate::workspaces())
+            .self_managed()
+            .on_scroll(crate::modules::workspaces::scroll),
     );
+    registry.register(
+        "activewindow",
+        ModuleDef::new(|_ctx| crate::activewindow())
+            .on_click(crate::modules::activewindow::focus_active),
+    );
+    registry.register(
+        "logo",
+        ModuleDef::new(|_ctx| crate::modules::logo::logo_chip())
+            .icon()
+            .on_click(|| crate::toggle_panel("session")),
+    );
+    // A gap has no chip: self-managed so the bar places it bare, without padding, hover or a press state.
+    registry.register(
+        "spacer",
+        ModuleDef::new(|_ctx| crate::modules::spacer::spacer()).self_managed(),
+    );
+    registry.register(
+        "launcher",
+        ModuleDef::new(|_ctx| {
+            let fg = module_fg();
+            crate::icon_view(|| "search".to_string(), move || fg.get(), icon_px())
+        })
+        .icon()
+        .on_click(crate::modules::launcher::toggle),
+    );
+    registry.register(
+        "session",
+        ModuleDef::new(|_ctx| crate::modules::session::power_chip())
+            .icon()
+            .opens(),
+    );
+    registry.register(
+        "mic",
+        ModuleDef::new(|_ctx| crate::mic())
+            .icon()
+            .on_click(crate::modules::osd::mic_action)
+            .on_scroll(crate::modules::osd::mic_scroll),
+    );
+    // Display-only: Hyprland's Lua API exposes no keyboard-layout dispatcher, so there is nothing honest for a
+    // click to do. See `hyprland::LAYOUT_SWITCHING_UNSUPPORTED`.
+    registry.register("kblayout", ModuleDef::new(|_ctx| crate::kblayout()));
+    registry.register(
+        "media",
+        ModuleDef::new(|_ctx| crate::media())
+            .on_click(crate::modules::media::toggle)
+            .on_scroll(crate::modules::media::scroll),
+    );
+    registry.register("cpu", ModuleDef::new(|_ctx| crate::cpu()));
+    registry.register("memory", ModuleDef::new(|_ctx| crate::memory()));
+    registry.register("temperature", ModuleDef::new(|_ctx| crate::temperature()));
+    registry.register("netspeed", ModuleDef::new(|_ctx| crate::netspeed()));
     registry.register(
         "battery",
         ModuleDef::new(|_ctx| crate::battery()).icon().opens(),

@@ -1,0 +1,9 @@
+[session]
+title = "Session"
+confirm = "Press again"
+lock = "Lock"
+logout = "Log out"
+suspend = "Suspend"
+hibernate = "Hibernate"
+reboot = "Restart"
+shutdown = "Shut down"

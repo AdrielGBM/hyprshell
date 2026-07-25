@@ -16,6 +16,10 @@ fn vol_glyph(muted: bool, level: i32) -> &'static str {
     }
 }
 
+fn mic_glyph(muted: bool, level: i32) -> &'static str {
+    if muted || level == 0 { "mic-off" } else { "mic" }
+}
+
 fn osd_tint(dimmed: bool) -> Color {
     let t = use_theme::<NordTheme>();
     if dimmed { t.muted } else { t.text }
@@ -36,6 +40,14 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
     OsdKind::Brightness => {
         let level = brightness::current().unwrap_or(0).clamp(0, 100);
         ("sun", level as f32 / 100.0, false)
+    }
+    OsdKind::Microphone => {
+        let v = volume::current_mic().unwrap_or(volume::Volume {
+            level: 0,
+            muted: true,
+        });
+        let level = v.level.clamp(0, 100);
+        (mic_glyph(v.muted, level), level as f32 / 100.0, v.muted)
     }
 };
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);

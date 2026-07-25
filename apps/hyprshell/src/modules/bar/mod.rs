@@ -175,6 +175,25 @@ fn zone(
     Ok(Box::new(Container::new(style, items)?))
 }
 
+/// An invisible box that only exists to carry a wheel handler over a self-managed module's own content.
+fn scroll_wrapper(
+    content: Box<dyn LayoutItem>,
+    on_scroll: fn(f32, f32),
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let style = LayoutStyle::new()
+        .flex_row()
+        .align_items(AlignItems::CENTER)
+        .flex_shrink(0.0);
+    Ok(Box::new(
+        StyledContainer::new(
+            style,
+            |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
+            vec![content],
+        )?
+        .on_scroll(on_scroll),
+    ))
+}
+
 fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
     if edge.is_horizontal() {
         style.flex_row()
@@ -208,7 +227,12 @@ fn build_items(
         };
         let def = registry.def(id);
         if def.is_some_and(|d| d.self_managed) {
-            items.push(content);
+            // A self-managed module skips `module_shell` — it paints its own layout — but a wheel handler still
+            // needs somewhere to live, so it gets a bare wrapper with no padding, fill or hover state.
+            match def.and_then(|d| d.scroll) {
+                Some(on_scroll) => items.push(scroll_wrapper(content, on_scroll)?),
+                None => items.push(content),
+            }
             continue;
         }
         let on_press: Option<Box<dyn Fn()>> = match def.and_then(|d| d.click) {

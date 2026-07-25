@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
@@ -6,6 +7,7 @@ use platform_layershell::EventSender;
 use crate::shared::services::broadcast::{Broadcast, Service};
 
 const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+const SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
 
 /// How often the shared producer re-reads the sink. PipeWire has no event source we can subscribe to without
 /// linking libpipewire/libpulse, so this is a poll — but a single one for the whole shell, not one per bar. The
@@ -32,18 +34,31 @@ fn parse(text: &str) -> Option<Volume> {
     })
 }
 
-/// Reads the default sink's volume, or `None` when PipeWire/`wpctl` is unavailable.
-pub fn read() -> Option<Volume> {
+/// Reads a `wpctl` node's volume, or `None` when PipeWire/`wpctl` is unavailable.
+fn read_node(node: &str) -> Option<Volume> {
     let out = Command::new("wpctl")
-        .args(["get-volume", SINK])
+        .args(["get-volume", node])
         .output()
         .ok()?;
     parse(&String::from_utf8_lossy(&out.stdout))
 }
 
-static VOLUME: Service<Volume> = Service::new("hyprshell-volume", run);
+/// Reads the default sink's volume, or `None` when PipeWire/`wpctl` is unavailable.
+pub fn read() -> Option<Volume> {
+    read_node(SINK)
+}
 
-fn run(out: &Broadcast<Volume>) {
+/// Reads the default source (microphone), or `None` when there isn't one.
+pub fn read_mic() -> Option<Volume> {
+    read_node(SOURCE)
+}
+
+static VOLUME: Service<Volume> = Service::new("hyprshell-volume", run);
+static MIC: Service<Volume> = Service::new("hyprshell-mic", run_mic);
+
+/// One poll loop per node, started only when something subscribes: a shell with no microphone chip never runs
+/// the microphone poller.
+fn poll_into(out: &Arc<Broadcast<Volume>>, read: fn() -> Option<Volume>) {
     let mut last = None;
     loop {
         let current = read();
@@ -57,15 +72,32 @@ fn run(out: &Broadcast<Volume>) {
     }
 }
 
+fn run(out: &Arc<Broadcast<Volume>>) {
+    poll_into(out, read);
+}
+
+fn run_mic(out: &Arc<Broadcast<Volume>>) {
+    poll_into(out, read_mic);
+}
+
 /// Registers `tx` for live volume readings, starting the single shared producer on first use. Called from a bar
 /// chip's `watch` producer.
 pub fn subscribe(tx: EventSender<Volume>) {
     VOLUME.subscribe(tx);
 }
 
+/// Registers `tx` for live microphone readings, starting the microphone poller on first use.
+pub fn subscribe_mic(tx: EventSender<Volume>) {
+    MIC.subscribe(tx);
+}
+
 /// The last known reading, with no subprocess — what a UI handler steps from.
 pub fn current() -> Option<Volume> {
     VOLUME.current()
+}
+
+pub fn current_mic() -> Option<Volume> {
+    MIC.current()
 }
 
 /// Steps the volume by `delta` percentage points from the last known level.
@@ -75,21 +107,36 @@ pub fn step(delta: i32) {
     }
 }
 
+pub fn step_mic(delta: i32) {
+    if let Some(v) = current_mic() {
+        set_mic(v.level + delta);
+    }
+}
+
 /// Runs a `wpctl` mutation off the UI thread — a blocking `fork`/`exec` in a click handler would stall the
 /// frame — and publishes the resulting reading so every chip updates immediately instead of at the next poll.
-fn apply(args: Vec<String>) {
+fn apply(args: Vec<String>, node: &'static str) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-volume-set".to_string())
         .spawn(move || {
             let _ = Command::new("wpctl").args(&args).status();
-            if let Some(v) = read() {
-                VOLUME.publish(v);
+            match read_node(node) {
+                Some(v) if node == SINK => VOLUME.publish(v),
+                Some(v) => MIC.publish(v),
+                None => {}
             }
         });
 }
 
 pub fn toggle_mute() {
-    apply(vec!["set-mute".into(), SINK.into(), "toggle".into()]);
+    apply(vec!["set-mute".into(), SINK.into(), "toggle".into()], SINK);
+}
+
+pub fn toggle_mic_mute() {
+    apply(
+        vec!["set-mute".into(), SOURCE.into(), "toggle".into()],
+        SOURCE,
+    );
 }
 
 /// Sets the default sink's volume to `level` percent (clamped to 0–150). Publishes the target optimistically
@@ -99,7 +146,22 @@ pub fn set(level: i32) {
     let level = level.clamp(0, 150);
     let muted = current().is_some_and(|v| v.muted);
     VOLUME.publish(Volume { level, muted });
-    apply(vec!["set-volume".into(), SINK.into(), format!("{level}%")]);
+    apply(
+        vec!["set-volume".into(), SINK.into(), format!("{level}%")],
+        SINK,
+    );
+}
+
+/// A microphone has no reason to be boosted past its own maximum, so this clamps to 0–100 rather than the
+/// sink's 0–150.
+pub fn set_mic(level: i32) {
+    let level = level.clamp(0, 100);
+    let muted = current_mic().is_some_and(|v| v.muted);
+    MIC.publish(Volume { level, muted });
+    apply(
+        vec!["set-volume".into(), SOURCE.into(), format!("{level}%")],
+        SOURCE,
+    );
 }
 
 #[cfg(test)]

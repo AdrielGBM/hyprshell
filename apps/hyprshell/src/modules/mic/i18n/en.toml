@@ -1,0 +1,3 @@
+[mic]
+muted = "Microphone muted"
+level = "Microphone {level}%"
