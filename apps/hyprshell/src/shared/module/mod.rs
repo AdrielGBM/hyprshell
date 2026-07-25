@@ -95,17 +95,35 @@ pub fn module_foreground(variant: Variant, accent: Color, theme: NordTheme) -> C
     }
 }
 
-/// The base container every simple module sits in: a rounded, pressable box with hover/press feedback. `rest` is its resting background (transparent when blending in, the surface token as a free-standing chip); `Filled` overrides with a solid accent.
+/// How a chip paints itself: everything [`module_shell`] needs that isn't behaviour.
+#[derive(Clone, Copy)]
+pub struct ChipStyle {
+    pub variant: Variant,
+    /// The resting background: transparent when blending into the bar, the surface token as a free-standing chip.
+    pub rest: Color,
+    pub accent: Color,
+    pub theme: NordTheme,
+    pub radius: f32,
+    /// A square icon chip that scales with the bar, rather than a content-width text pill.
+    pub square: bool,
+}
+
+/// The base container every simple module sits in: a rounded, pressable box with hover/press feedback.
+/// `Filled` overrides the resting background with a solid accent.
 pub fn module_shell(
     content: Box<dyn LayoutItem>,
-    variant: Variant,
-    rest: Color,
-    accent: Color,
-    theme: NordTheme,
-    radius: f32,
-    square: bool,
+    style: ChipStyle,
     on_press: Option<Box<dyn Fn()>>,
+    on_scroll: Option<fn(f32, f32)>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let ChipStyle {
+        variant,
+        rest,
+        accent,
+        theme,
+        radius,
+        square,
+    } = style;
     let (base, hover, active) = match variant {
         Variant::Default => (rest, theme.overlay, theme.overlay.darken(0.14)),
         Variant::Filled => (accent, accent.darken(0.08), accent.darken(0.16)),
@@ -128,6 +146,9 @@ pub fn module_shell(
     if let Some(cb) = on_press {
         shell = shell.on_press(cb);
     }
+    if let Some(cb) = on_scroll {
+        shell = shell.on_scroll(cb);
+    }
     Ok(Box::new(shell))
 }
 
@@ -148,6 +169,8 @@ pub struct ModuleDef {
     pub icon: bool,
     /// What clicking the module does; `None` is a display-only chip.
     pub click: Option<ModuleClick>,
+    /// What the wheel does over the module, as `(dx, dy)` in pixels; `None` leaves the chip inert to scroll.
+    pub scroll: Option<fn(f32, f32)>,
 }
 
 impl ModuleDef {
@@ -157,6 +180,7 @@ impl ModuleDef {
             self_managed: false,
             icon: false,
             click: None,
+            scroll: None,
         }
     }
 
@@ -172,6 +196,13 @@ impl ModuleDef {
 
     pub fn on_click(mut self, action: fn()) -> Self {
         self.click = Some(ModuleClick::Action(action));
+        self
+    }
+
+    /// Wires the wheel over this chip to `action`, receiving the scroll delta in pixels (positive `dy` is a
+    /// scroll up). Used by the level modules so the chip is a control, not just a readout.
+    pub fn on_scroll(mut self, action: fn(f32, f32)) -> Self {
+        self.scroll = Some(action);
         self
     }
 
@@ -273,13 +304,15 @@ pub fn default_registry() -> ModuleRegistry {
         "volume",
         ModuleDef::new(|_ctx| crate::volume())
             .icon()
-            .on_click(crate::modules::osd::volume_action),
+            .on_click(crate::modules::osd::volume_action)
+            .on_scroll(crate::modules::osd::volume_scroll),
     );
     registry.register(
         "brightness",
         ModuleDef::new(|_ctx| crate::brightness())
             .icon()
-            .on_click(crate::modules::osd::brightness_action),
+            .on_click(crate::modules::osd::brightness_action)
+            .on_scroll(crate::modules::osd::brightness_scroll),
     );
     registry.register(
         "notifications",

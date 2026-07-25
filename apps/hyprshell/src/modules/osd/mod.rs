@@ -103,12 +103,31 @@ pub fn show(kind: OsdKind) {
     });
 }
 
+/// One wheel notch, in the percentage points a level module moves per scroll.
+const STEP: i32 = 5;
+
+/// Percentage points to move for a scroll delta: a step per notch, in the scrolled direction. `dy` is positive
+/// scrolling up (the platform already flips Wayland's axis), which is the direction that raises the level.
+fn scroll_step(dy: f32) -> i32 {
+    if dy > 0.0 { STEP } else { -STEP }
+}
+
 pub fn volume_action() {
     crate::shared::services::volume::toggle_mute();
     show(OsdKind::Volume);
 }
 
+pub fn volume_scroll(_dx: f32, dy: f32) {
+    crate::shared::services::volume::step(scroll_step(dy));
+    show(OsdKind::Volume);
+}
+
 pub fn brightness_action() {
+    show(OsdKind::Brightness);
+}
+
+pub fn brightness_scroll(_dx: f32, dy: f32) {
+    crate::shared::services::brightness::step(scroll_step(dy));
     show(OsdKind::Brightness);
 }
 

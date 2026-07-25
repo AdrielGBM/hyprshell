@@ -5,7 +5,8 @@ use rsx::{
 
 use crate::core::config::{Config, Edge, ResolvedShape, Shape};
 use crate::shared::module::{
-    ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell, set_module_fg,
+    ChipStyle, ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell,
+    set_module_fg,
 };
 use crate::shared::theme::NordTheme;
 
@@ -218,9 +219,19 @@ fn build_items(
             Some(ModuleClick::Action(action)) => Some(Box::new(action)),
             None => None,
         };
-        let square = def.is_some_and(|d| d.icon);
+        let style = ChipStyle {
+            variant,
+            rest,
+            accent,
+            theme: ctx.theme,
+            radius,
+            square: def.is_some_and(|d| d.icon),
+        };
         items.push(module_shell(
-            content, variant, rest, accent, ctx.theme, radius, square, on_press,
+            content,
+            style,
+            on_press,
+            def.and_then(|d| d.scroll),
         )?);
     }
     Ok(items)
