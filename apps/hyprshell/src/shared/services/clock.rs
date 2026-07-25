@@ -4,6 +4,7 @@
 //! timer. The producer also sleeps to the next second boundary, so the displayed second changes when the system
 //! second does instead of drifting by however long the shell took to start.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Local, Timelike};
@@ -21,7 +22,7 @@ pub fn subscribe(tx: EventSender<Now>) {
     CLOCK.subscribe(tx);
 }
 
-fn run(out: &Broadcast<Now>) {
+fn run(out: &Arc<Broadcast<Now>>) {
     loop {
         let now = Local::now();
         out.publish(now);

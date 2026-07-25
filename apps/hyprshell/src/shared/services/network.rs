@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
@@ -110,7 +111,7 @@ pub fn subscribe(tx: EventSender<Network>) {
     NETWORK.subscribe(tx);
 }
 
-fn run(out: &Broadcast<Network>) {
+fn run(out: &Arc<Broadcast<Network>>) {
     out.publish(read());
     // sysfs stays the source of truth — it needs no NetworkManager and is already covered by tests — while
     // NetworkManager is used purely as the trigger telling us when it is worth re-reading.

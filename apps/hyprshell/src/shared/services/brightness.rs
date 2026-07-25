@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
@@ -47,7 +48,7 @@ pub fn subscribe(tx: EventSender<i32>) {
     BRIGHTNESS.subscribe(tx);
 }
 
-fn run(out: &Broadcast<i32>) {
+fn run(out: &Arc<Broadcast<i32>>) {
     let Some(level) = read() else {
         // No backlight (a desktop): nothing to report and nothing to watch, so the producer retires instead of
         // spinning. The chip keeps whatever it seeded with.

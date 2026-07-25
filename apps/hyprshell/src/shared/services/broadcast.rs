@@ -43,14 +43,18 @@ impl<T: Clone> Broadcast<T> {
 
 /// A lazily-started shared service. The producer thread spins up on the first subscription and lives for the
 /// process, so a shell configured without a battery chip never opens a UPower connection.
+///
+/// The producer receives the broadcast as an `Arc`, not a borrow, so it can either park on a loop of its own or
+/// hand a clone to a callback and return — which is what a service reading off an event stream someone else
+/// owns has to do. Either way the broadcast outlives the producer.
 pub struct Service<T: 'static> {
     cell: OnceLock<Arc<Broadcast<T>>>,
-    producer: fn(&Broadcast<T>),
+    producer: fn(&Arc<Broadcast<T>>),
     thread_name: &'static str,
 }
 
 impl<T: Clone + Send + 'static> Service<T> {
-    pub const fn new(thread_name: &'static str, producer: fn(&Broadcast<T>)) -> Self {
+    pub const fn new(thread_name: &'static str, producer: fn(&Arc<Broadcast<T>>)) -> Self {
         Self {
             cell: OnceLock::new(),
             producer,
@@ -92,5 +96,74 @@ impl<T: Clone + Send + 'static> Service<T> {
     /// scroll stepping from it) without doing blocking I/O — or spawning a process — on the render thread.
     pub fn current(&'static self) -> Option<T> {
         self.started().current()
+    }
+}
+
+/// A producerless shared value: the same one-writer/N-reader fan-out as [`Service`], for state the shell itself
+/// owns — persisted toggles, the current wallpaper, launch counts — rather than reads off the system. Nothing
+/// polls and no thread is spawned; the value is seeded by `init` on first touch and changed by [`Store::update`].
+pub struct Store<T: 'static> {
+    cell: OnceLock<Arc<Broadcast<T>>>,
+    init: fn() -> T,
+}
+
+impl<T: Clone + Send + 'static> Store<T> {
+    pub const fn new(init: fn() -> T) -> Self {
+        Self {
+            cell: OnceLock::new(),
+            init,
+        }
+    }
+
+    fn started(&'static self) -> &'static Arc<Broadcast<T>> {
+        self.cell.get_or_init(|| {
+            let broadcast = Arc::new(Broadcast::new());
+            *broadcast.current.lock().unwrap() = Some((self.init)());
+            broadcast
+        })
+    }
+
+    /// The current value, seeding it on first call.
+    pub fn get(&'static self) -> T {
+        self.started()
+            .current()
+            .expect("a store is seeded when it starts")
+    }
+
+    /// Applies `change` to the current value and fans the result out. Returns the new value so a caller can
+    /// persist it without a second read racing another writer.
+    pub fn update(&'static self, change: impl FnOnce(&mut T)) -> T {
+        let broadcast = self.started();
+        let mut next = broadcast
+            .current()
+            .expect("a store is seeded when it starts");
+        change(&mut next);
+        broadcast.publish(next.clone());
+        next
+    }
+
+    /// Registers `tx` for changes, sending the current value immediately so a surface starts in sync.
+    pub fn subscribe(&'static self, tx: EventSender<T>) {
+        let broadcast = self.started();
+        if let Some(value) = broadcast.current()
+            && !tx.send(value)
+        {
+            return;
+        }
+        broadcast.subscribers.lock().unwrap().push(tx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static COUNTER: Store<u32> = Store::new(|| 7);
+
+    #[test]
+    fn store_seeds_from_init_and_updates_in_place() {
+        assert_eq!(COUNTER.get(), 7, "seeded lazily from `init`");
+        assert_eq!(COUNTER.update(|n| *n += 5), 12, "update returns the new value");
+        assert_eq!(COUNTER.get(), 12, "and it is what later readers see");
     }
 }

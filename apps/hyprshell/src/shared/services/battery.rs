@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
@@ -87,7 +88,7 @@ pub fn read() -> Option<Battery> {
 
 static BATTERY: Service<Battery> = Service::new("hyprshell-battery", run_battery);
 
-fn run_battery(service: &Broadcast<Battery>) {
+fn run_battery(service: &Arc<Broadcast<Battery>>) {
     // Push the current value immediately so bars don't wait for the first change.
     if let Some(b) = read() {
         service.publish(b);
