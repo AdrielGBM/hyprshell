@@ -6,7 +6,7 @@ use rsx::{
     surface_frame,
 };
 
-use crate::modules::drawer::module_panel;
+use crate::modules::drawer::{module_panel, panel_wants_keyboard};
 use crate::shared::module::SurfaceEnv;
 use crate::shared::theme::FontRole;
 
@@ -19,7 +19,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let radius = env.config.panel_radius(env.edge);
     let placement = SurfacePlacement::float()
         .size(SurfaceSize::Fixed(float.width, float.height))
-        .keyboard(true)
+        .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     open_surface(
         placement,

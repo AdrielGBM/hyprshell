@@ -32,11 +32,24 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
         "notifications" => crate::modules::notifications::bell_panel(),
         "notes" => crate::notes_panel(),
         "settings" => crate::modules::settings::settings_panel(),
+        "session" | "logo" => crate::modules::session::session_panel(),
         other => {
             tracing::warn!("no panel registered for module '{other}'");
             crate::clock_panel()
         }
     }
+}
+
+/// Whether `module`'s panel hosts editable text and therefore needs the keyboard.
+///
+/// Asking for it costs more than an unused capability. A layer surface granted keyboard focus takes it from the
+/// focused window, and the compositor re-focuses that window when the panel closes; a layout that follows focus
+/// — a scrolling one, say — moves the viewport on the way back. A panel that only displays readings has no use
+/// for the keyboard and should never provoke that.
+///
+/// Kept beside [`module_panel`] so the two lists cannot drift: a panel that gains a text field must appear here.
+pub(crate) fn panel_wants_keyboard(module: &str) -> bool {
+    matches!(module, "notes" | "settings")
 }
 
 /// The per-panel-surface context (which module, its config, and the bar-matching corner radius), provided into
@@ -94,7 +107,7 @@ pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let placement = SurfacePlacement::drawer(anchor_for(env.edge))
         .align(align_for(env.config.zone_of(env.edge, module_id)))
         .margin(env.config.panel_margin(env.edge))
-        .keyboard(true)
+        .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     let module = module_id.to_string();
     let drawer = env.config.panels.drawer;
@@ -107,6 +120,24 @@ pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
             crate::drawer_panel().expect("drawer panel build failed")
         }),
     )
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::panel_wants_keyboard;
+
+    #[test]
+    fn only_panels_with_text_input_ask_for_the_keyboard() {
+        assert!(panel_wants_keyboard("notes"), "notes are edited in place");
+        assert!(panel_wants_keyboard("settings"), "settings has text fields");
+        for display_only in ["clock", "battery", "notifications", "session", "logo"] {
+            assert!(
+                !panel_wants_keyboard(display_only),
+                "'{display_only}' only shows readings; taking keyboard focus from the window would make the \
+                 compositor re-focus it on close, moving the viewport under a focus-following layout"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
