@@ -14,14 +14,14 @@ pub enum Lock {
 }
 
 impl Lock {
-    fn glyph(self) -> &'static str {
+    pub fn glyph(self) -> &'static str {
         match self {
-            Lock::Caps => "mdi:apple-keyboard-caps",
-            Lock::Num => "mdi:numeric",
+            Lock::Caps => crate::shared::glyph::caps_lock(),
+            Lock::Num => crate::shared::glyph::num_lock(),
         }
     }
 
-    fn engaged(self, keys: LockKeys) -> bool {
+    pub fn engaged(self, keys: LockKeys) -> bool {
         match self {
             Lock::Caps => keys.caps,
             Lock::Num => keys.num,

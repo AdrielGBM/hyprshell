@@ -1,24 +1,11 @@
 [logic]
 use crate::modules::osd::{OsdKind, current_osd_kind, current_osd_radius};
+use crate::shared::glyph;
 use crate::shared::theme::NordTheme;
 use crate::shared::services::{brightness, volume};
 
 const TRACK_W: f32 = 172.0;
 const TRACK_H: f32 = 6.0;
-
-fn vol_glyph(muted: bool, level: i32) -> &'static str {
-    if muted || level == 0 {
-        "volume-x"
-    } else if level < 50 {
-        "volume-1"
-    } else {
-        "volume-2"
-    }
-}
-
-fn mic_glyph(muted: bool, level: i32) -> &'static str {
-    if muted || level == 0 { "mic-off" } else { "mic" }
-}
 
 fn osd_tint(dimmed: bool) -> Color {
     let t = use_theme::<NordTheme>();
@@ -34,20 +21,22 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
             level: 0,
             muted: false,
         });
-        let level = v.level.clamp(0, 100);
-        (vol_glyph(v.muted, level), level as f32 / 100.0, v.muted)
+        (glyph::volume(v), v.level.clamp(0, 100) as f32 / 100.0, v.muted)
     }
     OsdKind::Brightness => {
         let level = brightness::current().unwrap_or(0).clamp(0, 100);
-        ("sun", level as f32 / 100.0, false)
+        (glyph::brightness(), level as f32 / 100.0, false)
     }
     OsdKind::Microphone => {
         let v = volume::current_mic().unwrap_or(volume::Volume {
             level: 0,
             muted: true,
         });
-        let level = v.level.clamp(0, 100);
-        (mic_glyph(v.muted, level), level as f32 / 100.0, v.muted)
+        (
+            glyph::microphone(v),
+            v.level.clamp(0, 100) as f32 / 100.0,
+            v.muted,
+        )
     }
 };
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);

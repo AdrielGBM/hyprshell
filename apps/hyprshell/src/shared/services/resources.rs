@@ -109,6 +109,13 @@ pub struct Resources {
     pub cpu_history: History,
     /// Per-core busy time, 0–100, in `/proc/stat` order.
     pub cores: Vec<f32>,
+    /// The CPU's marketing name; empty when `/proc/cpuinfo` names none.
+    pub cpu_model: String,
+    /// Mean current clock across the cores in MHz; `None` on a machine that reports no live frequency.
+    pub cpu_mhz: Option<f32>,
+    /// Bytes per second read from and written to every whole disk.
+    pub disk_read: f64,
+    pub disk_write: f64,
     pub memory: Memory,
     pub memory_history: History,
     /// The hottest sensor the machine exposes, in °C; `None` when there is no hwmon to read.
@@ -134,6 +141,68 @@ impl Resources {
             .map(|s| s.celsius)
             .or(self.temperature)
     }
+}
+
+/// The CPU's marketing name, from the first `model name` line of `/proc/cpuinfo`.
+///
+/// Read once and cached: it cannot change while the machine is running, and re-reading a file of one block per
+/// core every second to learn a string that never moves is exactly the kind of cost this service exists to
+/// avoid. Trimmed of the padding Intel bakes into the field (`Intel(R) Core(TM) i7   @ 2.60GHz`).
+fn parse_cpu_model(text: &str) -> String {
+    text.lines()
+        .find_map(|line| line.strip_prefix("model name"))
+        .and_then(|rest| rest.split_once(':'))
+        .map(|(_, name)| name.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default()
+}
+
+/// Mean current clock across the cores, in MHz.
+///
+/// Averaged rather than reported per core because a bar shows one number, and the per-core spread is what
+/// `cores` already carries. `/proc/cpuinfo`'s `cpu MHz` is the live frequency on every kernel that has one; a
+/// machine that reports none (a VM, some ARM) yields `None` rather than a zero that reads as "stopped".
+fn parse_cpu_mhz(text: &str) -> Option<f32> {
+    let readings: Vec<f32> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("cpu MHz"))
+        .filter_map(|rest| rest.split_once(':'))
+        .filter_map(|(_, value)| value.trim().parse::<f32>().ok())
+        .collect();
+    if readings.is_empty() {
+        return None;
+    }
+    Some(readings.iter().sum::<f32>() / readings.len() as f32)
+}
+
+/// Cumulative sectors read and written across every physical disk, from `/proc/diskstats`.
+///
+/// Partitions are skipped, not summed: `/proc/diskstats` lists `sda` *and* `sda1`, so counting both would
+/// double every byte. A partition is recognised by its parent existing in sysfs — `/sys/block/<name>` holds
+/// whole devices only, which is the kernel's own answer to the question and needs no name-shape guessing.
+fn parse_diskstats(text: &str, is_whole_disk: impl Fn(&str) -> bool) -> (u64, u64) {
+    let (mut read, mut written) = (0u64, 0u64);
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        // major minor name reads merged sectors_read ms writes merged sectors_written …
+        if fields.len() < 10 || !is_whole_disk(fields[2]) {
+            continue;
+        }
+        read += fields[5].parse::<u64>().unwrap_or(0);
+        written += fields[9].parse::<u64>().unwrap_or(0);
+    }
+    // Sectors are 512 B here regardless of the device's own block size — a kernel ABI, not a property of the disk.
+    (read * 512, written * 512)
+}
+
+fn is_whole_disk(name: &str) -> bool {
+    Path::new("/sys/block").join(name).is_dir()
+}
+
+/// Bytes per second between two cumulative samples, over `POLL`. A counter that went backwards means it was
+/// reset (a device disappearing), which reports as idle rather than as a nonsense spike — the same rule the CPU
+/// sampler uses.
+fn rate_between(previous: u64, now: u64) -> f64 {
+    now.saturating_sub(previous) as f64 / POLL.as_secs_f64()
 }
 
 fn percent(part: u64, whole: u64) -> f32 {
@@ -308,6 +377,9 @@ fn interesting_mounts() -> Vec<PathBuf> {
 /// second would be pure wakeup cost for a number that hasn't changed.
 const DISK_EVERY: u32 = 30;
 
+const CPUINFO: &str = "/proc/cpuinfo";
+const DISKSTATS: &str = "/proc/diskstats";
+
 static RESOURCES: Service<Resources> = Service::new("hyprshell-resources", run);
 
 fn run(out: &Arc<Broadcast<Resources>>) {
@@ -316,6 +388,12 @@ fn run(out: &Arc<Broadcast<Resources>>) {
     let mut memory_history = History::default();
     let mounts = interesting_mounts();
     let mut disks: Vec<Disk> = mounts.iter().filter_map(|m| read_disk(m)).collect();
+    // The model never changes while the machine runs, so it is read once rather than every tick.
+    let cpu_model = parse_cpu_model(&fs::read_to_string(CPUINFO).unwrap_or_default());
+    let mut io = parse_diskstats(
+        &fs::read_to_string(DISKSTATS).unwrap_or_default(),
+        is_whole_disk,
+    );
     let mut tick: u32 = 0;
     loop {
         std::thread::sleep(POLL);
@@ -337,11 +415,23 @@ fn run(out: &Arc<Broadcast<Resources>>) {
             disks = mounts.iter().filter_map(|m| read_disk(m)).collect();
         }
 
+        let cpuinfo = fs::read_to_string(CPUINFO).unwrap_or_default();
+        let now_io = parse_diskstats(
+            &fs::read_to_string(DISKSTATS).unwrap_or_default(),
+            is_whole_disk,
+        );
+        let (disk_read, disk_write) = (rate_between(io.0, now_io.0), rate_between(io.1, now_io.1));
+        io = now_io;
+
         let sensors = read_sensors(Path::new(HWMON_DIR));
         out.publish(Resources {
             cpu,
             cpu_history: cpu_history.clone(),
             cores: busy.into_iter().skip(1).collect(),
+            cpu_model: cpu_model.clone(),
+            cpu_mhz: parse_cpu_mhz(&cpuinfo),
+            disk_read,
+            disk_write,
             memory_history: memory_history.clone(),
             memory,
             temperature: hottest(&sensors),
@@ -382,6 +472,50 @@ pub fn format_bytes(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cpu_model_is_read_once_and_stripped_of_its_padding() {
+        let cpuinfo = "processor\t: 0\nmodel name\t: AMD Ryzen 7 5800X   8-Core Processor\ncpu MHz\t\t: 3800.000\n\nprocessor\t: 1\nmodel name\t: AMD Ryzen 7 5800X   8-Core Processor\ncpu MHz\t\t: 2200.000\n";
+        assert_eq!(
+            parse_cpu_model(cpuinfo),
+            "AMD Ryzen 7 5800X 8-Core Processor",
+            "the run of spaces vendors bake into the field is collapsed"
+        );
+        assert_eq!(parse_cpu_model(""), "");
+    }
+
+    #[test]
+    fn the_frequency_is_the_mean_across_cores_and_absent_when_unreported() {
+        let cpuinfo = "cpu MHz\t\t: 3800.000\ncpu MHz\t\t: 2200.000\n";
+        assert_eq!(parse_cpu_mhz(cpuinfo), Some(3000.0), "one number for one bar");
+        // A VM or an ARM board reports no live clock; `None` says so rather than a zero reading as "stopped".
+        assert_eq!(parse_cpu_mhz("model name\t: Cortex-A72\n"), None);
+    }
+
+    #[test]
+    fn disk_totals_count_whole_devices_and_not_their_partitions() {
+        // `/proc/diskstats` lists sda and sda1; summing both would double every byte.
+        let stats = "\
+   8       0 sda 100 0 200 0 50 0 400 0
+   8       1 sda1 90 0 180 0 40 0 360 0
+ 259       0 nvme0n1 10 0 20 0 5 0 40 0
+";
+        let whole = |name: &str| matches!(name, "sda" | "nvme0n1");
+        let (read, written) = parse_diskstats(stats, whole);
+        assert_eq!(read, (200 + 20) * 512, "sectors are 512 B by kernel ABI");
+        assert_eq!(written, (400 + 40) * 512);
+    }
+
+    #[test]
+    fn a_reset_disk_counter_reports_idle_rather_than_a_spike() {
+        assert_eq!(rate_between(1_000, 1_000), 0.0);
+        assert_eq!(
+            rate_between(5_000, 1_000),
+            0.0,
+            "a device that went away must not read as a burst of gigabytes"
+        );
+        assert!(rate_between(0, 4_096) > 0.0);
+    }
 
     #[test]
     fn cpu_busy_is_the_non_idle_share_between_two_samples() {

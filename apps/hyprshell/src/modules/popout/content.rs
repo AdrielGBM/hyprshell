@@ -9,6 +9,7 @@ use rsx::{Color, LayoutError, LayoutItem, ReadSignal, RwSignal, signal};
 
 use super::card::{Card, fixed};
 use crate::core::config::Config;
+use crate::shared::glyph;
 use crate::shared::services::{
     battery, brightness, hyprland, lockkeys, mpris, netspeed, network, resources, volume,
 };
@@ -113,8 +114,8 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
         AudioSide::Input => rsx::t!("popout.microphone"),
     };
     let glyph = derive(state.clone(), move |v| match side {
-        AudioSide::Output => output_glyph(v.muted, v.level).to_string(),
-        AudioSide::Input => if v.muted { "mic-off" } else { "mic" }.to_string(),
+        AudioSide::Output => glyph::volume(v).to_string(),
+        AudioSide::Input => glyph::microphone(v).to_string(),
     });
     let tint = derive(state.clone(), move |v| {
         if v.muted { theme.muted } else { theme.text }
@@ -140,23 +141,13 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
         )
 }
 
-fn output_glyph(muted: bool, level: i32) -> &'static str {
-    if muted || level == 0 {
-        "volume-x"
-    } else if level < 50 {
-        "volume-1"
-    } else {
-        "volume-2"
-    }
-}
-
 fn brightness_card(theme: NordTheme) -> Card {
     let level = signal(brightness::current().unwrap_or(0));
     let sink = level.clone();
     platform_layershell::watch(brightness::subscribe, move |percent| sink.set(percent));
 
     Card::titled(rsx::t!("popout.brightness"))
-        .icon(fixed("sun"))
+        .icon(fixed(glyph::brightness()))
         .subtitle(derive(level.clone(), |v| format!("{v}%")))
         .meter(
             derive(level.clone(), |v| v as f32 / 100.0),
@@ -187,11 +178,9 @@ fn battery_card(theme: NordTheme) -> Card {
     let level_tint = level.clone();
 
     Card::titled(rsx::t!("popout.battery"))
-        .icon(derive_from(charging_glyph, |c| {
-            if c { "battery-charging" } else { "battery" }.to_string()
-        }))
+        .icon(derive_from(charging_glyph, |c| glyph::battery(c).to_string()))
         .icon_tint(derive_pair(level_tint, charging_tint, move |level, charging| {
-            battery_tint(level, charging, theme)
+            glyph::battery_tint(level, charging, theme, theme.text)
         }))
         .subtitle(derive_from(level.clone(), |l| format!("{l}%")))
         .meter(
@@ -212,18 +201,6 @@ fn battery_card(theme: NordTheme) -> Card {
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
-}
-
-fn battery_tint(level: i32, charging: bool, theme: NordTheme) -> Color {
-    if charging {
-        theme.green
-    } else if level <= 15 {
-        theme.red
-    } else if level <= 30 {
-        theme.yellow
-    } else {
-        theme.text
-    }
 }
 
 fn battery_status(d: battery::BatteryDetails) -> String {
@@ -262,7 +239,7 @@ fn network_card() -> Card {
     platform_layershell::watch(network::subscribe, move |net| sink.set(net));
 
     Card::titled(rsx::t!("popout.network"))
-        .icon(derive(state.clone(), |net| network_glyph(&net).to_string()))
+        .icon(derive(state.clone(), |net| glyph::network(net).to_string()))
         .subtitle(derive(state.clone(), |net| kind_label(net.kind)))
         .row(
             fixed(rsx::t!("popout.signal")),
@@ -271,19 +248,6 @@ fn network_card() -> Card {
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
-}
-
-fn network_glyph(net: &network::Network) -> &'static str {
-    match net.kind {
-        network::NetworkKind::Ethernet => "ethernet-port",
-        network::NetworkKind::Disconnected => "wifi-off",
-        network::NetworkKind::Wifi => match net.signal {
-            s if s >= 70 => "wifi",
-            s if s >= 45 => "wifi-high",
-            s if s >= 20 => "wifi-low",
-            _ => "wifi-zero",
-        },
-    }
 }
 
 /// `network.rs` reads sysfs for a link verdict and nothing more — no SSID, no interface name — so the card
@@ -389,7 +353,13 @@ fn cpu_card(theme: NordTheme) -> Card {
     let state = resource_signal();
     Card::titled(rsx::t!("sysinfo.cpu"))
         .icon(fixed("cpu"))
-        .subtitle(derive(state.clone(), |r| percent(r.as_ref().map(|r| r.cpu))))
+        .subtitle(derive(state.clone(), |r| {
+            // The model is what identifies the machine, and the popout is the only surface with room for it.
+            match r.as_ref().map(|r| r.cpu_model.trim().to_string()) {
+                Some(model) if !model.is_empty() => model,
+                _ => percent(r.as_ref().map(|r| r.cpu)),
+            }
+        }))
         .meter(
             derive(state.clone(), |r| {
                 r.as_ref().map(|r| r.cpu / 100.0).unwrap_or(0.0)
@@ -407,6 +377,14 @@ fn cpu_card(theme: NordTheme) -> Card {
             fixed(rsx::t!("popout.peak")),
             derive(state.clone(), |r| {
                 percent(r.as_ref().map(|r| r.cpu_history.peak()))
+            }),
+        )
+        .row(
+            fixed(rsx::t!("popout.frequency")),
+            derive(state.clone(), |r| match r.and_then(|r| r.cpu_mhz) {
+                Some(mhz) if mhz >= 1000.0 => format!("{:.2} GHz", mhz / 1000.0),
+                Some(mhz) => format!("{mhz:.0} MHz"),
+                None => rsx::t!("sysinfo.no_reading"),
             }),
         )
 }
@@ -448,6 +426,7 @@ fn memory_card(theme: NordTheme) -> Card {
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
+        .row(fixed(rsx::t!("popout.disk_io")), disk_row(state))
 }
 
 /// Names the sensor the reading came from, which is the one thing `[temperature] sensor` cannot be configured
@@ -547,6 +526,19 @@ fn netspeed_card() -> Card {
                 None => rsx::t!("sysinfo.no_reading"),
             }),
         )
+}
+
+/// Disk throughput has no chip of its own, so it rides on the memory card — the surface a user checks when the
+/// machine feels slow, which is the same question.
+fn disk_row(state: RwSignal<Option<resources::Resources>>) -> ReadSignal<String> {
+    derive(state, |r| match r {
+        Some(r) => format!(
+            "{} / {}",
+            netspeed::format_rate(r.disk_read),
+            netspeed::format_rate(r.disk_write)
+        ),
+        None => rsx::t!("sysinfo.no_reading"),
+    })
 }
 
 /// One subscription to the resource service, shared by whichever card asked for it. Three sysinfo popouts read
