@@ -60,14 +60,47 @@ pub struct ThemeMeta {
     pub version: &'static str,
 }
 
+/// Every built-in palette's config name, in the order a picker should offer them.
+pub const BUILT_IN_THEMES: &[&str] = &[
+    "nord",
+    "rose-pine",
+    "rose-pine-moon",
+    "rose-pine-dawn",
+    "catppuccin-mocha",
+    "catppuccin-macchiato",
+    "catppuccin-frappe",
+    "catppuccin-latte",
+    "gruvbox",
+    "gruvbox-light",
+    "tokyo-night",
+    "everforest",
+];
+
+/// A theme name reduced to what identifies it, so `rose-pine`, `rose_pine` and `rosepine` are one theme and a
+/// user's separator preference never becomes a "unknown theme" warning.
+fn normalize(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
 impl NordTheme {
-    /// The built-in palette for `name` (`nord`, `rose-pine`); `custom` starts from nord for config to override, and an unknown name falls back to nord with a warning.
+    /// The built-in palette for `name` (see [`BUILT_IN_THEMES`]); `custom` starts from nord for config to override, and an unknown name falls back to nord with a warning.
     pub fn named(name: &str) -> Self {
-        match name {
+        match normalize(name).as_str() {
             "nord" | "custom" => Self::nord(),
-            "rose-pine" | "rose_pine" | "rosepine" => Self::rose_pine(),
-            "rose-pine-moon" | "rose_pine_moon" => Self::rose_pine_moon(),
-            "rose-pine-dawn" | "rose_pine_dawn" => Self::rose_pine_dawn(),
+            "rosepine" => Self::rose_pine(),
+            "rosepinemoon" => Self::rose_pine_moon(),
+            "rosepinedawn" => Self::rose_pine_dawn(),
+            "catppuccin" | "catppuccinmocha" => Self::catppuccin_mocha(),
+            "catppuccinmacchiato" => Self::catppuccin_macchiato(),
+            "catppuccinfrappe" => Self::catppuccin_frappe(),
+            "catppuccinlatte" => Self::catppuccin_latte(),
+            "gruvbox" | "gruvboxdark" => Self::gruvbox(),
+            "gruvboxlight" => Self::gruvbox_light(),
+            "tokyonight" => Self::tokyo_night(),
+            "everforest" | "everforestdark" => Self::everforest(),
             other => {
                 tracing::warn!("unknown theme '{other}', falling back to nord");
                 Self::nord()
@@ -77,23 +110,71 @@ impl NordTheme {
 
     /// Metadata for a built-in theme name (falls back to nord's).
     pub fn meta(name: &str) -> ThemeMeta {
-        match name {
-            "rose-pine" | "rose_pine" | "rosepine" => ThemeMeta {
+        match normalize(name).as_str() {
+            "rosepine" => ThemeMeta {
                 name: "Rosé Pine",
                 author: "Rosé Pine",
                 description: "Soho vibes — a warm, low-contrast dark theme.",
                 version: "1.0.0",
             },
-            "rose-pine-moon" | "rose_pine_moon" => ThemeMeta {
+            "rosepinemoon" => ThemeMeta {
                 name: "Rosé Pine Moon",
                 author: "Rosé Pine",
                 description: "A softer, slightly brighter take on the dark theme.",
                 version: "1.0.0",
             },
-            "rose-pine-dawn" | "rose_pine_dawn" => ThemeMeta {
+            "rosepinedawn" => ThemeMeta {
                 name: "Rosé Pine Dawn",
                 author: "Rosé Pine",
                 description: "The light variant — warm parchment tones.",
+                version: "1.0.0",
+            },
+            "catppuccin" | "catppuccinmocha" => ThemeMeta {
+                name: "Catppuccin Mocha",
+                author: "Catppuccin",
+                description: "The darkest flavour — soothing pastels on deep violet.",
+                version: "1.0.0",
+            },
+            "catppuccinmacchiato" => ThemeMeta {
+                name: "Catppuccin Macchiato",
+                author: "Catppuccin",
+                description: "A medium-dark flavour, warmer than Mocha.",
+                version: "1.0.0",
+            },
+            "catppuccinfrappe" => ThemeMeta {
+                name: "Catppuccin Frappé",
+                author: "Catppuccin",
+                description: "The lightest dark flavour — low contrast, easy on the eyes.",
+                version: "1.0.0",
+            },
+            "catppuccinlatte" => ThemeMeta {
+                name: "Catppuccin Latte",
+                author: "Catppuccin",
+                description: "The light flavour — pastels on cool paper.",
+                version: "1.0.0",
+            },
+            "gruvbox" | "gruvboxdark" => ThemeMeta {
+                name: "Gruvbox Dark",
+                author: "Pavel Pertsev",
+                description: "Retro groove — warm, high-contrast earth tones.",
+                version: "1.0.0",
+            },
+            "gruvboxlight" => ThemeMeta {
+                name: "Gruvbox Light",
+                author: "Pavel Pertsev",
+                description: "The light variant — the same earth tones on cream.",
+                version: "1.0.0",
+            },
+            "tokyonight" => ThemeMeta {
+                name: "Tokyo Night",
+                author: "Enkia",
+                description: "A dark blue palette from a night in downtown Tokyo.",
+                version: "1.0.0",
+            },
+            "everforest" | "everforestdark" => ThemeMeta {
+                name: "Everforest",
+                author: "sainnhe",
+                description: "A green-based forest palette, soft and low contrast.",
                 version: "1.0.0",
             },
             _ => ThemeMeta {
@@ -206,6 +287,256 @@ impl NordTheme {
             highlight_low: Color::from_rgb_u8(244, 237, 232),
             highlight_med: Color::from_rgb_u8(223, 218, 217),
             highlight_high: Color::from_rgb_u8(206, 202, 205),
+        }
+    }
+
+    /// Catppuccin Mocha — the darkest flavour. `cyan` carries the flavour's *sky*, since the shipped default
+    /// `[theme] accent = "cyan"` resolves through it; `accent` itself is *mauve*, the flavour's signature.
+    pub fn catppuccin_mocha() -> Self {
+        Self {
+            radius: 12.0,
+            spacing: 8.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(30, 30, 46),
+            surface: Color::from_rgb_u8(49, 50, 68),
+            overlay: Color::from_rgb_u8(69, 71, 90),
+            muted: Color::from_rgb_u8(108, 112, 134),
+            subtle: Color::from_rgb_u8(166, 173, 200),
+            text: Color::from_rgb_u8(205, 214, 244),
+            accent: Color::from_rgb_u8(203, 166, 247),
+            blue: Color::from_rgb_u8(137, 180, 250),
+            cyan: Color::from_rgb_u8(137, 220, 235),
+            teal: Color::from_rgb_u8(148, 226, 213),
+            red: Color::from_rgb_u8(243, 139, 168),
+            orange: Color::from_rgb_u8(250, 179, 135),
+            yellow: Color::from_rgb_u8(249, 226, 175),
+            green: Color::from_rgb_u8(166, 227, 161),
+            purple: Color::from_rgb_u8(203, 166, 247),
+            success: Color::from_rgb_u8(166, 227, 161),
+            warning: Color::from_rgb_u8(249, 226, 175),
+            error: Color::from_rgb_u8(243, 139, 168),
+            info: Color::from_rgb_u8(137, 180, 250),
+            highlight_low: Color::from_rgb_u8(49, 50, 68),
+            highlight_med: Color::from_rgb_u8(69, 71, 90),
+            highlight_high: Color::from_rgb_u8(88, 91, 112),
+        }
+    }
+
+    /// Catppuccin Macchiato — a step lighter than Mocha, and warmer.
+    pub fn catppuccin_macchiato() -> Self {
+        Self {
+            base: Color::from_rgb_u8(36, 39, 58),
+            surface: Color::from_rgb_u8(54, 58, 79),
+            overlay: Color::from_rgb_u8(73, 77, 100),
+            muted: Color::from_rgb_u8(110, 115, 141),
+            subtle: Color::from_rgb_u8(165, 173, 203),
+            text: Color::from_rgb_u8(202, 211, 245),
+            accent: Color::from_rgb_u8(198, 160, 246),
+            blue: Color::from_rgb_u8(138, 173, 244),
+            cyan: Color::from_rgb_u8(145, 215, 227),
+            teal: Color::from_rgb_u8(139, 213, 202),
+            red: Color::from_rgb_u8(237, 135, 150),
+            orange: Color::from_rgb_u8(245, 169, 127),
+            yellow: Color::from_rgb_u8(238, 212, 159),
+            green: Color::from_rgb_u8(166, 218, 149),
+            purple: Color::from_rgb_u8(198, 160, 246),
+            success: Color::from_rgb_u8(166, 218, 149),
+            warning: Color::from_rgb_u8(238, 212, 159),
+            error: Color::from_rgb_u8(237, 135, 150),
+            info: Color::from_rgb_u8(138, 173, 244),
+            highlight_low: Color::from_rgb_u8(54, 58, 79),
+            highlight_med: Color::from_rgb_u8(73, 77, 100),
+            highlight_high: Color::from_rgb_u8(91, 96, 120),
+            ..Self::catppuccin_mocha()
+        }
+    }
+
+    /// Catppuccin Frappé — the lightest of the dark flavours.
+    pub fn catppuccin_frappe() -> Self {
+        Self {
+            base: Color::from_rgb_u8(48, 52, 70),
+            surface: Color::from_rgb_u8(65, 69, 89),
+            overlay: Color::from_rgb_u8(81, 87, 109),
+            muted: Color::from_rgb_u8(115, 121, 148),
+            subtle: Color::from_rgb_u8(165, 173, 206),
+            text: Color::from_rgb_u8(198, 208, 245),
+            accent: Color::from_rgb_u8(202, 158, 230),
+            blue: Color::from_rgb_u8(140, 170, 238),
+            cyan: Color::from_rgb_u8(153, 209, 219),
+            teal: Color::from_rgb_u8(129, 200, 190),
+            red: Color::from_rgb_u8(231, 130, 132),
+            orange: Color::from_rgb_u8(239, 159, 118),
+            yellow: Color::from_rgb_u8(229, 200, 144),
+            green: Color::from_rgb_u8(166, 209, 137),
+            purple: Color::from_rgb_u8(202, 158, 230),
+            success: Color::from_rgb_u8(166, 209, 137),
+            warning: Color::from_rgb_u8(229, 200, 144),
+            error: Color::from_rgb_u8(231, 130, 132),
+            info: Color::from_rgb_u8(140, 170, 238),
+            highlight_low: Color::from_rgb_u8(65, 69, 89),
+            highlight_med: Color::from_rgb_u8(81, 87, 109),
+            highlight_high: Color::from_rgb_u8(98, 104, 128),
+            ..Self::catppuccin_mocha()
+        }
+    }
+
+    /// Catppuccin Latte — the light flavour. Its surfaces run *darker* than the base, which is how a light
+    /// theme raises a panel off the page.
+    pub fn catppuccin_latte() -> Self {
+        Self {
+            base: Color::from_rgb_u8(239, 241, 245),
+            surface: Color::from_rgb_u8(230, 233, 239),
+            overlay: Color::from_rgb_u8(204, 208, 218),
+            muted: Color::from_rgb_u8(156, 160, 176),
+            subtle: Color::from_rgb_u8(108, 111, 133),
+            text: Color::from_rgb_u8(76, 79, 105),
+            accent: Color::from_rgb_u8(136, 57, 239),
+            blue: Color::from_rgb_u8(30, 102, 245),
+            cyan: Color::from_rgb_u8(4, 165, 229),
+            teal: Color::from_rgb_u8(23, 146, 153),
+            red: Color::from_rgb_u8(210, 15, 57),
+            orange: Color::from_rgb_u8(254, 100, 11),
+            yellow: Color::from_rgb_u8(223, 142, 29),
+            green: Color::from_rgb_u8(64, 160, 43),
+            purple: Color::from_rgb_u8(136, 57, 239),
+            success: Color::from_rgb_u8(64, 160, 43),
+            warning: Color::from_rgb_u8(223, 142, 29),
+            error: Color::from_rgb_u8(210, 15, 57),
+            info: Color::from_rgb_u8(30, 102, 245),
+            highlight_low: Color::from_rgb_u8(230, 233, 239),
+            highlight_med: Color::from_rgb_u8(204, 208, 218),
+            highlight_high: Color::from_rgb_u8(188, 192, 204),
+            ..Self::catppuccin_mocha()
+        }
+    }
+
+    /// Gruvbox Dark (medium contrast) — a boxier metric set to match the palette's retro character.
+    pub fn gruvbox() -> Self {
+        Self {
+            radius: 4.0,
+            spacing: 6.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(40, 40, 40),
+            surface: Color::from_rgb_u8(60, 56, 54),
+            overlay: Color::from_rgb_u8(80, 73, 69),
+            muted: Color::from_rgb_u8(146, 131, 116),
+            subtle: Color::from_rgb_u8(168, 153, 132),
+            text: Color::from_rgb_u8(235, 219, 178),
+            accent: Color::from_rgb_u8(254, 128, 25),
+            blue: Color::from_rgb_u8(131, 165, 152),
+            cyan: Color::from_rgb_u8(142, 192, 124),
+            teal: Color::from_rgb_u8(104, 157, 106),
+            red: Color::from_rgb_u8(251, 73, 52),
+            orange: Color::from_rgb_u8(254, 128, 25),
+            yellow: Color::from_rgb_u8(250, 189, 47),
+            green: Color::from_rgb_u8(184, 187, 38),
+            purple: Color::from_rgb_u8(211, 134, 155),
+            success: Color::from_rgb_u8(184, 187, 38),
+            warning: Color::from_rgb_u8(250, 189, 47),
+            error: Color::from_rgb_u8(251, 73, 52),
+            info: Color::from_rgb_u8(131, 165, 152),
+            highlight_low: Color::from_rgb_u8(60, 56, 54),
+            highlight_med: Color::from_rgb_u8(80, 73, 69),
+            highlight_high: Color::from_rgb_u8(102, 92, 84),
+        }
+    }
+
+    /// Gruvbox Light — the same earth tones inverted onto cream; its accents darken so they read on paper.
+    pub fn gruvbox_light() -> Self {
+        Self {
+            base: Color::from_rgb_u8(251, 241, 199),
+            surface: Color::from_rgb_u8(235, 219, 178),
+            overlay: Color::from_rgb_u8(213, 196, 161),
+            muted: Color::from_rgb_u8(146, 131, 116),
+            subtle: Color::from_rgb_u8(124, 111, 100),
+            text: Color::from_rgb_u8(60, 56, 54),
+            accent: Color::from_rgb_u8(175, 58, 3),
+            blue: Color::from_rgb_u8(7, 102, 120),
+            cyan: Color::from_rgb_u8(66, 123, 88),
+            teal: Color::from_rgb_u8(66, 123, 88),
+            red: Color::from_rgb_u8(157, 0, 6),
+            orange: Color::from_rgb_u8(175, 58, 3),
+            yellow: Color::from_rgb_u8(181, 118, 20),
+            green: Color::from_rgb_u8(121, 116, 14),
+            purple: Color::from_rgb_u8(143, 63, 113),
+            success: Color::from_rgb_u8(121, 116, 14),
+            warning: Color::from_rgb_u8(181, 118, 20),
+            error: Color::from_rgb_u8(157, 0, 6),
+            info: Color::from_rgb_u8(7, 102, 120),
+            highlight_low: Color::from_rgb_u8(235, 219, 178),
+            highlight_med: Color::from_rgb_u8(213, 196, 161),
+            highlight_high: Color::from_rgb_u8(189, 174, 147),
+            ..Self::gruvbox()
+        }
+    }
+
+    /// Tokyo Night — the "night" variant, the darkest of the family.
+    pub fn tokyo_night() -> Self {
+        Self {
+            radius: 8.0,
+            spacing: 6.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(26, 27, 38),
+            surface: Color::from_rgb_u8(36, 40, 59),
+            overlay: Color::from_rgb_u8(41, 46, 66),
+            muted: Color::from_rgb_u8(86, 95, 137),
+            subtle: Color::from_rgb_u8(169, 177, 214),
+            text: Color::from_rgb_u8(192, 202, 245),
+            accent: Color::from_rgb_u8(122, 162, 247),
+            blue: Color::from_rgb_u8(122, 162, 247),
+            cyan: Color::from_rgb_u8(125, 207, 255),
+            teal: Color::from_rgb_u8(26, 188, 156),
+            red: Color::from_rgb_u8(247, 118, 142),
+            orange: Color::from_rgb_u8(255, 158, 100),
+            yellow: Color::from_rgb_u8(224, 175, 104),
+            green: Color::from_rgb_u8(158, 206, 106),
+            purple: Color::from_rgb_u8(187, 154, 247),
+            success: Color::from_rgb_u8(158, 206, 106),
+            warning: Color::from_rgb_u8(224, 175, 104),
+            error: Color::from_rgb_u8(247, 118, 142),
+            info: Color::from_rgb_u8(122, 162, 247),
+            highlight_low: Color::from_rgb_u8(31, 35, 53),
+            highlight_med: Color::from_rgb_u8(41, 46, 66),
+            highlight_high: Color::from_rgb_u8(59, 66, 97),
+        }
+    }
+
+    /// Everforest (dark, medium contrast) — green-based and deliberately low contrast.
+    pub fn everforest() -> Self {
+        Self {
+            radius: 8.0,
+            spacing: 8.0,
+            font_size: 14.0,
+            icon_size: 24.0,
+            icon_stroke: None,
+            base: Color::from_rgb_u8(45, 53, 59),
+            surface: Color::from_rgb_u8(52, 63, 68),
+            overlay: Color::from_rgb_u8(61, 72, 77),
+            muted: Color::from_rgb_u8(133, 146, 137),
+            subtle: Color::from_rgb_u8(157, 169, 160),
+            text: Color::from_rgb_u8(211, 198, 170),
+            accent: Color::from_rgb_u8(167, 192, 128),
+            blue: Color::from_rgb_u8(127, 187, 179),
+            cyan: Color::from_rgb_u8(131, 192, 146),
+            teal: Color::from_rgb_u8(131, 192, 146),
+            red: Color::from_rgb_u8(230, 126, 128),
+            orange: Color::from_rgb_u8(230, 152, 117),
+            yellow: Color::from_rgb_u8(219, 188, 127),
+            green: Color::from_rgb_u8(167, 192, 128),
+            purple: Color::from_rgb_u8(214, 153, 182),
+            success: Color::from_rgb_u8(167, 192, 128),
+            warning: Color::from_rgb_u8(219, 188, 127),
+            error: Color::from_rgb_u8(230, 126, 128),
+            info: Color::from_rgb_u8(127, 187, 179),
+            highlight_low: Color::from_rgb_u8(52, 63, 68),
+            highlight_med: Color::from_rgb_u8(61, 72, 77),
+            highlight_high: Color::from_rgb_u8(71, 82, 88),
         }
     }
 
@@ -336,6 +667,100 @@ mod tests {
         assert_eq!(NordTheme::meta("rose-pine-moon").name, "Rosé Pine Moon");
         assert_eq!(NordTheme::meta("rose-pine-dawn").name, "Rosé Pine Dawn");
         assert_eq!(NordTheme::meta("whatever").name, "Nord");
+    }
+
+    #[test]
+    fn separators_and_case_do_not_change_which_theme_a_name_selects() {
+        for spelling in ["rose-pine", "rose_pine", "rosepine", "Rose Pine", "ROSE-PINE"] {
+            assert_eq!(
+                NordTheme::named(spelling).base,
+                NordTheme::rose_pine().base,
+                "'{spelling}' selects Rosé Pine"
+            );
+        }
+        assert_eq!(
+            NordTheme::named("catppuccin_mocha").base,
+            NordTheme::catppuccin_mocha().base
+        );
+        assert_eq!(
+            NordTheme::named("catppuccin").base,
+            NordTheme::catppuccin_mocha().base,
+            "the bare family name lands on its flagship flavour"
+        );
+        assert_eq!(NordTheme::named("gruvbox-dark").base, NordTheme::gruvbox().base);
+        assert_eq!(NordTheme::meta("TokyoNight").name, "Tokyo Night");
+    }
+
+    #[test]
+    fn every_built_in_theme_resolves_and_is_readable() {
+        let mut palettes = Vec::new();
+        for name in BUILT_IN_THEMES {
+            let theme = NordTheme::named(name);
+            assert_ne!(
+                theme.base, theme.text,
+                "'{name}' must not paint text in its own background"
+            );
+            assert_ne!(theme.base, theme.surface, "'{name}' needs a raised surface");
+            assert_ne!(
+                theme.muted, theme.text,
+                "'{name}' needs a de-emphasised token distinct from body text"
+            );
+            for (label, token) in [
+                ("highlight_low", theme.highlight_low),
+                ("highlight_med", theme.highlight_med),
+                ("highlight_high", theme.highlight_high),
+            ] {
+                assert_ne!(token, theme.base, "'{name}' {label} must lift off the base");
+            }
+            assert!(theme.radius >= 0.0 && theme.spacing > 0.0, "'{name}' has sane metrics");
+            // Nord is the metadata fallback, so only the others prove they registered their own.
+            if *name != "nord" {
+                assert_ne!(
+                    NordTheme::meta(name).name,
+                    "Nord",
+                    "'{name}' must carry its own metadata"
+                );
+            }
+            palettes.push((name, theme.base));
+        }
+        // A copy-paste that left two flavours identical would still pass every check above.
+        for (i, (name, base)) in palettes.iter().enumerate() {
+            for (other, other_base) in &palettes[i + 1..] {
+                assert_ne!(base, other_base, "'{name}' and '{other}' are the same palette");
+            }
+        }
+    }
+
+    #[test]
+    fn the_shipped_default_accent_resolves_through_every_theme() {
+        // `[theme] accent` defaults to "cyan", so a theme whose `cyan` token is its background would ship a
+        // shell with an invisible accent.
+        for name in BUILT_IN_THEMES {
+            let theme = NordTheme::named(name).with_accent("cyan");
+            assert_ne!(theme.accent, theme.base, "'{name}' accent vanishes into the bar");
+        }
+    }
+
+    #[test]
+    fn light_themes_are_light_and_dark_ones_are_dark() {
+        let luminance = |c: Color| {
+            let [r, g, b, _] = c.to_rgba8();
+            0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32
+        };
+        for light in ["rose-pine-dawn", "catppuccin-latte", "gruvbox-light"] {
+            let theme = NordTheme::named(light);
+            assert!(
+                luminance(theme.base) > luminance(theme.text),
+                "'{light}' is the light variant: dark text on a pale base"
+            );
+        }
+        for dark in ["nord", "catppuccin-mocha", "gruvbox", "tokyo-night", "everforest"] {
+            let theme = NordTheme::named(dark);
+            assert!(
+                luminance(theme.base) < luminance(theme.text),
+                "'{dark}' is a dark palette"
+            );
+        }
     }
 
     #[test]

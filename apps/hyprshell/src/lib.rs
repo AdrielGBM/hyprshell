@@ -73,7 +73,7 @@ pub use crate::shared::module::{
     bar_thickness, chip_radius, default_registry, icon_px, module_fg, module_foreground,
     module_shell, set_module_fg, set_surface_env, surface_env,
 };
-pub use crate::shared::theme::{FontRole, NordTheme, ThemeMeta};
+pub use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme, ThemeMeta};
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};

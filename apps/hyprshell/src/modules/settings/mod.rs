@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use rsx::{
     AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
@@ -14,13 +15,24 @@ use crate::core::config::{
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
-use crate::shared::theme::{FontRole, NordTheme};
+use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme};
 
 const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 const ALIGNS: &[&str] = &["start", "center", "end"];
 const SHAPES: &[&str] = &["bar", "sections", "chips"];
 const LANGUAGES: &[&str] = &["en", "es"];
 const MEDIA_SCROLLS: &[&str] = &["volume", "track", "none"];
+
+/// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
+/// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
+fn theme_options() -> &'static [&'static str] {
+    static OPTIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
+    OPTIONS.get_or_init(|| {
+        let mut options = BUILT_IN_THEMES.to_vec();
+        options.push("custom");
+        options
+    })
+}
 
 /// The bar chip: a gear that opens the settings panel.
 pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -171,7 +183,12 @@ fn theme_section(
     let icon_stroke = signal(opt_num(t.icon_stroke));
 
     let rows = vec![
-        text_field(|| rsx::t!("settings.field.name"), name.clone(), "nord", theme)?,
+        enum_field(
+            || rsx::t!("settings.field.name"),
+            name.clone(),
+            theme_options(),
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.accent"),
             accent.clone(),
