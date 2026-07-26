@@ -93,7 +93,13 @@ fn fixed_window(visible: &[&Workspace], config: &WorkspacesConfig, active: i32) 
                 // A slot with no workspace behind it is still clickable: pressing it is how you get there.
                 None => Pill {
                     id,
-                    label: config.render_label(id, &id.to_string(), offset as usize),
+                    label: config.render_label(
+                        id,
+                        &id.to_string(),
+                        offset as usize,
+                        false,
+                        id == active,
+                    ),
                     occupied: false,
                     active: id == active,
                     special: false,
@@ -111,16 +117,17 @@ fn pill_for(w: &Workspace, config: &WorkspacesConfig, index: usize, active: i32)
     } else {
         None
     };
+    let is_active = w.id == active;
     let label = if w.is_special() {
-        w.special_name().to_string()
+        config.capitalize.apply(w.special_name())
     } else {
-        config.render_label(w.id, &w.name, index)
+        config.render_label(w.id, &w.name, index, w.is_occupied(), is_active)
     };
     Pill {
         id: w.id,
         label,
         occupied: w.is_occupied(),
-        active: w.id == active,
+        active: is_active,
         special: w.is_special(),
         clients: if config.window_icons {
             w.clients

@@ -8,10 +8,10 @@ use rsx::{
 use serde::Serialize;
 
 use crate::core::config::{
-    ActiveWindowConfig, Align, BackgroundConfig, BarConfig, BarsConfig, ClockConfig, Config,
-    CornersConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig, MediaConfig,
-    MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig, ThemeConfig,
-    WorkspacesConfig,
+    ActiveWindowConfig, Align, BackgroundConfig, BarConfig, BarsConfig, Capitalize, ClockConfig,
+    Config, CornersConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig,
+    MediaConfig, MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
+    ThemeConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -22,6 +22,7 @@ const ALIGNS: &[&str] = &["start", "center", "end"];
 const SHAPES: &[&str] = &["bar", "sections", "chips"];
 const LANGUAGES: &[&str] = &["en", "es"];
 const MEDIA_SCROLLS: &[&str] = &["volume", "track", "none"];
+const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 
 /// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
 /// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
@@ -615,6 +616,9 @@ fn workspaces_section(
     let occupied = signal(w.occupied_background);
     let scroll = signal(w.scroll);
     let label = signal(w.label.clone());
+    let occupied_label = signal(w.occupied_label.clone());
+    let active_label = signal(w.active_label.clone());
+    let capitalize = signal(capitalize_str(w.capitalize).to_string());
 
     let rows = vec![
         text_field(|| rsx::t!("settings.field.shown"), shown.clone(), "0", theme)?,
@@ -651,6 +655,24 @@ fn workspaces_section(
             "{id}",
             theme,
         )?,
+        text_field(
+            || rsx::t!("settings.field.occupied_label"),
+            occupied_label.clone(),
+            "(label)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.active_label"),
+            active_label.clone(),
+            "(label)",
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.capitalize"),
+            capitalize.clone(),
+            CAPITALIZATIONS,
+            theme,
+        )?,
     ];
 
     let base = w.clone();
@@ -670,6 +692,10 @@ fn workspaces_section(
             } else {
                 typed
             },
+            // Empty is meaningful here: it means "render like every other pill".
+            occupied_label: occupied_label.peek().trim().to_string(),
+            active_label: active_label.peek().trim().to_string(),
+            capitalize: parse_capitalize(&capitalize.peek()),
             // Map-valued, so it stays hand-edited in the TOML; carrying it through means saving here does not
             // silently drop the user's scratchpad icons.
             special_icons: base.special_icons.clone(),
@@ -1202,6 +1228,24 @@ fn parse_shape(s: &str) -> Shape {
         "sections" => Shape::Sections,
         "chips" => Shape::Chips,
         _ => Shape::Bar,
+    }
+}
+
+fn capitalize_str(capitalize: Capitalize) -> &'static str {
+    match capitalize {
+        Capitalize::None => "none",
+        Capitalize::Upper => "upper",
+        Capitalize::Lower => "lower",
+        Capitalize::Title => "title",
+    }
+}
+
+fn parse_capitalize(s: &str) -> Capitalize {
+    match s {
+        "upper" => Capitalize::Upper,
+        "lower" => Capitalize::Lower,
+        "title" => Capitalize::Title,
+        _ => Capitalize::None,
     }
 }
 

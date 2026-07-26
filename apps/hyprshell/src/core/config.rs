@@ -386,12 +386,58 @@ impl Default for ActiveWindowConfig {
     }
 }
 
+/// How a rendered label is cased. Applied after the template, so it works on `{name}` (which Hyprland reports
+/// however the user named the workspace) without every template having to spell the casing out.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Capitalize {
+    #[default]
+    None,
+    Upper,
+    Lower,
+    /// First letter of every word, the rest lowered.
+    Title,
+}
+
+impl Capitalize {
+    pub fn apply(self, text: &str) -> String {
+        match self {
+            Capitalize::None => text.to_string(),
+            Capitalize::Upper => text.to_uppercase(),
+            Capitalize::Lower => text.to_lowercase(),
+            Capitalize::Title => title_case(text),
+        }
+    }
+}
+
+/// Uppercases the first letter of every whitespace-separated word and lowers the rest, preserving the original
+/// separators so `my-notes  2` keeps its dash and its double space.
+fn title_case(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut at_word_start = true;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            at_word_start = true;
+            out.push(c);
+        } else if at_word_start {
+            at_word_start = false;
+            out.extend(c.to_uppercase());
+        } else {
+            out.extend(c.to_lowercase());
+        }
+    }
+    out
+}
+
 /// The `workspaces` module.
 ///
 /// `shown` pins how many pills the bar draws regardless of how many workspaces exist, which is what keeps the
 /// bar's width from shifting every time one is created or destroyed; `0` shows exactly the ones that exist.
 /// `label` is a `{id}`/`{name}`/`{index}` template so a user can have numbers, names or icons without the
 /// shell enumerating presets, and `special_icons` maps a scratchpad's bare name to an Iconify glyph.
+///
+/// `occupied_label` and `active_label` override that template for a pill holding windows and for the focused
+/// one; both empty (the default) means every pill renders the same way, which is what most bars want.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct WorkspacesConfig {
@@ -407,6 +453,11 @@ pub struct WorkspacesConfig {
     /// The wheel over the pills switches workspace.
     pub scroll: bool,
     pub label: String,
+    /// Template for a pill that holds windows; empty falls back to `label`.
+    pub occupied_label: String,
+    /// Template for the focused pill; empty falls back to `occupied_label`, then `label`.
+    pub active_label: String,
+    pub capitalize: Capitalize,
     pub special_icons: HashMap<String, String>,
 }
 
@@ -421,19 +472,47 @@ impl Default for WorkspacesConfig {
             occupied_background: true,
             scroll: true,
             label: "{id}".to_string(),
+            occupied_label: String::new(),
+            active_label: String::new(),
+            capitalize: Capitalize::default(),
             special_icons: HashMap::new(),
         }
     }
 }
 
 impl WorkspacesConfig {
-    /// Renders a pill's label from the template. `{index}` is the pill's position, which is what a fixed-width
-    /// bar wants when the ids themselves are sparse.
-    pub fn render_label(&self, id: i32, name: &str, index: usize) -> String {
-        self.label
+    /// The template a pill in this state renders from: the most specific one the user set, falling back to the
+    /// general `label` so setting only `active_label` leaves every other pill alone.
+    fn template(&self, occupied: bool, active: bool) -> &str {
+        let specific = if active {
+            [&self.active_label, &self.occupied_label]
+        } else if occupied {
+            [&self.occupied_label, &self.label]
+        } else {
+            [&self.label, &self.label]
+        };
+        specific
+            .into_iter()
+            .find(|t| !t.trim().is_empty())
+            .unwrap_or(&self.label)
+    }
+
+    /// Renders a pill's label from the template for its state, then applies `capitalize`. `{index}` is the
+    /// pill's position, which is what a fixed-width bar wants when the ids themselves are sparse.
+    pub fn render_label(
+        &self,
+        id: i32,
+        name: &str,
+        index: usize,
+        occupied: bool,
+        active: bool,
+    ) -> String {
+        let rendered = self
+            .template(occupied, active)
             .replace("{id}", &id.to_string())
             .replace("{name}", name)
-            .replace("{index}", &(index + 1).to_string())
+            .replace("{index}", &(index + 1).to_string());
+        self.capitalize.apply(&rendered)
     }
 }
 
@@ -1219,6 +1298,62 @@ end = ["battery", "volume"]
             cfg.active_window.max_chars, 60,
             "unset fields keep their defaults"
         );
+    }
+
+    #[test]
+    fn workspace_labels_specialise_by_state_and_fall_back_to_the_general_one() {
+        let cfg = WorkspacesConfig {
+            label: "{id}".to_string(),
+            occupied_label: "•{id}".to_string(),
+            active_label: "[{id}]".to_string(),
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(cfg.render_label(3, "3", 2, false, false), "3");
+        assert_eq!(cfg.render_label(3, "3", 2, true, false), "•3");
+        assert_eq!(cfg.render_label(3, "3", 2, true, true), "[3]");
+        assert_eq!(
+            cfg.render_label(3, "3", 2, false, true),
+            "[3]",
+            "the active template wins whether or not the workspace holds windows"
+        );
+
+        // Setting only `active_label` leaves every other pill rendering the general template.
+        let only_active = WorkspacesConfig {
+            active_label: "<{id}>".to_string(),
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(only_active.render_label(2, "2", 1, true, false), "2");
+        assert_eq!(only_active.render_label(2, "2", 1, true, true), "<2>");
+
+        // And an active pill with only `occupied_label` set takes that rather than dropping to `label`.
+        let only_occupied = WorkspacesConfig {
+            occupied_label: "•{id}".to_string(),
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(only_occupied.render_label(2, "2", 1, true, true), "•2");
+    }
+
+    #[test]
+    fn capitalisation_applies_after_the_template() {
+        let cfg = WorkspacesConfig {
+            label: "{name}".to_string(),
+            capitalize: Capitalize::Title,
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(
+            cfg.render_label(1, "my WEB workspace", 0, false, false),
+            "My Web Workspace"
+        );
+
+        assert_eq!(Capitalize::None.apply("mixed Case"), "mixed Case");
+        assert_eq!(Capitalize::Upper.apply("code"), "CODE");
+        assert_eq!(Capitalize::Lower.apply("CODE"), "code");
+        assert_eq!(
+            Capitalize::Title.apply("my-notes  2"),
+            "My-notes  2",
+            "separators and runs of whitespace survive intact"
+        );
+        assert_eq!(Capitalize::Title.apply(""), "");
     }
 
     #[test]
