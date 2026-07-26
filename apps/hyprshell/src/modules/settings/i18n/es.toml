@@ -23,6 +23,7 @@ temperature = "Temperatura"
 battery = "Batería"
 launcher = "Lanzador"
 lock_status = "Teclas de bloqueo"
+status_icons = "Grupo de estado"
 tray = "Bandeja del sistema"
 
 [settings.save]
@@ -47,6 +48,7 @@ temperature = "Guardar temperatura"
 battery = "Guardar batería"
 launcher = "Guardar lanzador"
 lock_status = "Guardar teclas de bloqueo"
+status_icons = "Guardar grupo de estado"
 tray = "Guardar bandeja"
 
 [settings.field]
@@ -98,6 +100,7 @@ accent = "Acento"
 font_family = "Tipografía"
 radius = "Radio"
 spacing = "Espaciado"
+icons = "Iconos"
 font_size = "Tamaño de fuente"
 icon_size = "Tamaño de icono"
 icon_stroke = "Grosor de icono"

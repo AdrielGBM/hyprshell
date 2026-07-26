@@ -23,6 +23,7 @@ temperature = "Temperature"
 battery = "Battery"
 launcher = "Launcher"
 lock_status = "Lock keys"
+status_icons = "Status cluster"
 tray = "System tray"
 
 [settings.save]
@@ -47,6 +48,7 @@ temperature = "Save temperature"
 battery = "Save battery"
 launcher = "Save launcher"
 lock_status = "Save lock keys"
+status_icons = "Save status cluster"
 tray = "Save system tray"
 
 [settings.field]
@@ -98,6 +100,7 @@ accent = "Accent"
 font_family = "Font family"
 radius = "Radius"
 spacing = "Spacing"
+icons = "Icons"
 font_size = "Font size"
 icon_size = "Icon size"
 icon_stroke = "Icon stroke"

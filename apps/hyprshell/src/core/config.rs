@@ -323,6 +323,33 @@ impl Default for FloatConfig {
     }
 }
 
+/// The compact status cluster (`[status_icons]`): several service readings sharing one chip.
+///
+/// `icons` is a list rather than a set of flags because the order is the point — it is what a user reads
+/// left-to-right, and a fixed order would make the cluster the shell's priority instead of theirs. The names
+/// match the module ids the same readings have as standalone chips, so moving one between the two is not a
+/// rename; `caps` and `num` are the exception, since `lockstatus` is one module drawing two indicators and a
+/// cluster should be able to take only one of them.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct StatusIconsConfig {
+    pub icons: Vec<String>,
+    /// Gap between icons, as a fraction of the icon size, so a cluster keeps its proportions on any bar.
+    pub spacing: f32,
+}
+
+impl Default for StatusIconsConfig {
+    fn default() -> Self {
+        Self {
+            icons: ["volume", "mic", "network", "battery"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            spacing: 0.35,
+        }
+    }
+}
+
 /// Hover popouts (`[popouts]`): the readout a chip shows while the pointer rests on it, distinct from the
 /// drawer a click opens.
 ///
@@ -1128,6 +1155,7 @@ pub struct Config {
     pub temperature: TemperatureConfig,
     pub battery: BatteryConfig,
     pub lock_status: LockStatusConfig,
+    pub status_icons: StatusIconsConfig,
     pub tray: TrayConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
@@ -1247,6 +1275,7 @@ impl Config {
             temperature: TemperatureConfig::default(),
             battery: BatteryConfig::default(),
             lock_status: LockStatusConfig::default(),
+            status_icons: StatusIconsConfig::default(),
             tray: TrayConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),

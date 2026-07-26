@@ -417,6 +417,11 @@ pub fn default_registry() -> ModuleRegistry {
     // Self-managed: it draws one pressable box per application, each with its own click, middle-click,
     // right-click and scroll — a single chip shell around the row could carry none of that.
     registry.register("tray", ModuleDef::new(|_ctx| crate::tray()).self_managed());
+    // The chip shell but no click: which of several readings would a press act on? Each keeps its standalone module.
+    registry.register(
+        "statusicons",
+        ModuleDef::new(|_ctx| crate::modules::statusicons::cluster()),
+    );
     registry.register(
         "media",
         ModuleDef::new(|_ctx| crate::media())

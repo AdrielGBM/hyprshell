@@ -12,8 +12,8 @@ use crate::core::config::{
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
     BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig, LockStatusConfig,
     MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig, PanelsConfig,
-    PopoutsConfig, Shape, ShapeConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
-    WorkspacesConfig,
+    PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit,
+    ThemeConfig, TrayConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -77,6 +77,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         temperature_section(&config, &path, theme)?,
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
+        status_icons_section(&config, &path, theme)?,
         tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
@@ -1100,6 +1101,42 @@ fn lock_status_section(
         persist(&path, "lock_status", &value);
     })?;
     section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
+}
+
+fn status_icons_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let s = &config.status_icons;
+    let icons = signal(join_csv(&s.icons));
+    let spacing = signal(s.spacing.to_string());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.icons"),
+            icons.clone(),
+            "volume, mic, network, battery",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.spacing"),
+            spacing.clone(),
+            "0.35",
+            theme,
+        )?,
+    ];
+
+    let base = s.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.status_icons"), theme, move || {
+        let value = StatusIconsConfig {
+            icons: split_csv(&icons.peek()),
+            spacing: parse_f32(&spacing.peek(), base.spacing),
+        };
+        persist(&path, "status_icons", &value);
+    })?;
+    section(|| rsx::t!("settings.section.status_icons"), rows, save, theme)
 }
 
 fn tray_section(
