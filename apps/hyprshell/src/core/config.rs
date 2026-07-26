@@ -568,6 +568,61 @@ impl BrightnessConfig {
     }
 }
 
+/// Which scale a temperature is shown in.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TemperatureUnit {
+    #[default]
+    Celsius,
+    Fahrenheit,
+}
+
+impl TemperatureUnit {
+    pub fn from_celsius(self, celsius: f32) -> f32 {
+        match self {
+            TemperatureUnit::Celsius => celsius,
+            TemperatureUnit::Fahrenheit => celsius * 9.0 / 5.0 + 32.0,
+        }
+    }
+
+    pub fn suffix(self) -> &'static str {
+        match self {
+            TemperatureUnit::Celsius => "°C",
+            TemperatureUnit::Fahrenheit => "°F",
+        }
+    }
+
+    /// A whole degree plus its unit — the reading a bar chip has room for, and unambiguous once a user has
+    /// switched scales.
+    pub fn format(self, celsius: f32) -> String {
+        format!("{:.0}{}", self.from_celsius(celsius), self.suffix())
+    }
+}
+
+/// The `temperature` module. `sensor` names an hwmon chip (`k10temp`, `coretemp`) or a sensor label (`Tctl`,
+/// `Package id 0`) to follow; empty tracks the hottest sensor on the machine, which is what works without a
+/// per-machine config. `warn`/`critical` are the °C the chip tints amber and red at — a desktop CPU that idles
+/// at 65 °C should not show a permanent warning, so they are the user's numbers.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct TemperatureConfig {
+    pub unit: TemperatureUnit,
+    pub sensor: String,
+    pub warn: f32,
+    pub critical: f32,
+}
+
+impl Default for TemperatureConfig {
+    fn default() -> Self {
+        Self {
+            unit: TemperatureUnit::default(),
+            sensor: String::new(),
+            warn: 70.0,
+            critical: 85.0,
+        }
+    }
+}
+
 /// The application launcher: a modal opened by keybind or IPC.
 ///
 /// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
@@ -689,6 +744,7 @@ pub struct Config {
     pub launcher: LauncherConfig,
     pub audio: AudioConfig,
     pub brightness: BrightnessConfig,
+    pub temperature: TemperatureConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -803,6 +859,7 @@ impl Config {
             launcher: LauncherConfig::default(),
             audio: AudioConfig::default(),
             brightness: BrightnessConfig::default(),
+            temperature: TemperatureConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1354,6 +1411,26 @@ end = ["battery", "volume"]
             cfg.active_window.max_chars, 60,
             "unset fields keep their defaults"
         );
+    }
+
+    #[test]
+    fn temperature_unit_converts_and_labels_the_reading() {
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.temperature.unit, TemperatureUnit::Celsius);
+        assert!(d.temperature.sensor.is_empty(), "empty tracks the hottest sensor");
+        assert_eq!(d.temperature.warn, 70.0);
+        assert_eq!(d.temperature.critical, 85.0);
+        assert_eq!(d.temperature.unit.format(61.5), "62°C");
+
+        let cfg: Config = toml::from_str(
+            "[temperature]\nunit = \"fahrenheit\"\nsensor = \"k10temp\"\nwarn = 80\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.temperature.sensor, "k10temp");
+        assert_eq!(cfg.temperature.warn, 80.0);
+        assert_eq!(cfg.temperature.critical, 85.0, "unset fields keep their defaults");
+        assert_eq!(cfg.temperature.unit.from_celsius(100.0), 212.0);
+        assert_eq!(cfg.temperature.unit.format(20.0), "68°F");
     }
 
     #[test]

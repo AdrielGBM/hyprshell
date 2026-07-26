@@ -91,6 +91,16 @@ impl Disk {
     }
 }
 
+/// One hwmon reading, named the way the kernel names it so a user can pick the sensor they care about.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sensor {
+    /// The hwmon device's `name` (`k10temp`, `coretemp`, `nvme`).
+    pub chip: String,
+    /// The sensor's `tempN_label` (`Tctl`, `Package id 0`), falling back to `tempN`.
+    pub label: String,
+    pub celsius: f32,
+}
+
 /// One tick's view of the machine.
 #[derive(Clone, Debug, Default)]
 pub struct Resources {
@@ -103,8 +113,27 @@ pub struct Resources {
     pub memory_history: History,
     /// The hottest sensor the machine exposes, in °C; `None` when there is no hwmon to read.
     pub temperature: Option<f32>,
+    /// Every plausible hwmon reading, so a surface can name the sensor it wants instead of taking the maximum.
+    pub sensors: Vec<Sensor>,
     /// The root filesystem, plus `/home` when it is a separate mount.
     pub disks: Vec<Disk>,
+}
+
+impl Resources {
+    /// The reading `[temperature] sensor` names: the first sensor whose chip or label matches, case-insensitively.
+    /// An empty name — or one that matches nothing, because the user moved the config to another machine —
+    /// falls back to the hottest sensor rather than blanking the chip.
+    pub fn temperature_of(&self, name: &str) -> Option<f32> {
+        let name = name.trim();
+        if name.is_empty() {
+            return self.temperature;
+        }
+        self.sensors
+            .iter()
+            .find(|s| s.chip.eq_ignore_ascii_case(name) || s.label.eq_ignore_ascii_case(name))
+            .map(|s| s.celsius)
+            .or(self.temperature)
+    }
 }
 
 fn percent(part: u64, whole: u64) -> f32 {
@@ -180,34 +209,64 @@ fn parse_meminfo(text: &str) -> Memory {
 
 const HWMON_DIR: &str = "/sys/class/hwmon";
 
-/// The hottest `tempN_input` across every hwmon device, in °C (the files are millidegrees). Taking the maximum
-/// rather than naming a sensor keeps this working across AMD, Intel and laptops without a per-machine config.
-fn read_temperature(hwmon: &Path) -> Option<f32> {
-    let mut hottest: Option<f32> = None;
-    for device in fs::read_dir(hwmon).ok()?.flatten() {
-        let Ok(inputs) = fs::read_dir(device.path()) else {
+/// Every `tempN_input` across every hwmon device, in °C (the files are millidegrees), carrying the chip and
+/// sensor labels the kernel publishes so `[temperature] sensor` has something to name. Sorted so the list a
+/// picker shows is stable between ticks rather than in directory order.
+fn read_sensors(hwmon: &Path) -> Vec<Sensor> {
+    let mut sensors = Vec::new();
+    let Ok(devices) = fs::read_dir(hwmon) else {
+        return sensors;
+    };
+    for device in devices.flatten() {
+        let path = device.path();
+        let chip = fs::read_to_string(path.join("name"))
+            .map(|n| n.trim().to_string())
+            .unwrap_or_default();
+        let Ok(entries) = fs::read_dir(&path) else {
             continue;
         };
-        for input in inputs.flatten() {
-            let name = input.file_name();
-            let Some(name) = name.to_str() else { continue };
-            if !(name.starts_with("temp") && name.ends_with("_input")) {
-                continue;
-            }
-            let Some(millidegrees) = fs::read_to_string(input.path())
+        let mut inputs: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .filter(|n| n.starts_with("temp") && n.ends_with("_input"))
+            .collect();
+        inputs.sort();
+        for input in inputs {
+            let Some(celsius) = fs::read_to_string(path.join(&input))
                 .ok()
                 .and_then(|t| t.trim().parse::<f32>().ok())
+                .map(|millidegrees| millidegrees / 1000.0)
             else {
                 continue;
             };
-            let celsius = millidegrees / 1000.0;
             // Some sensors report obvious nonsense when unplugged or unpowered; a machine is not at 200 °C.
-            if (1.0..=150.0).contains(&celsius) {
-                hottest = Some(hottest.map_or(celsius, |h: f32| h.max(celsius)));
+            if !(1.0..=150.0).contains(&celsius) {
+                continue;
             }
+            let stem = input.trim_end_matches("_input");
+            let label = fs::read_to_string(path.join(format!("{stem}_label")))
+                .ok()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .unwrap_or_else(|| stem.to_string());
+            sensors.push(Sensor {
+                chip: chip.clone(),
+                label,
+                celsius,
+            });
         }
     }
-    hottest
+    sensors.sort_by(|a, b| (&a.chip, &a.label).cmp(&(&b.chip, &b.label)));
+    sensors
+}
+
+/// The hottest plausible reading, which is what a chip shows when no sensor is named — it keeps working across
+/// AMD, Intel and laptops without a per-machine config.
+fn hottest(sensors: &[Sensor]) -> Option<f32> {
+    sensors
+        .iter()
+        .map(|s| s.celsius)
+        .fold(None, |acc: Option<f32>, c| Some(acc.map_or(c, |a| a.max(c))))
 }
 
 /// A mount's capacity, straight from the `statvfs` syscall. "Used" is total minus what an unprivileged user can
@@ -278,13 +337,15 @@ fn run(out: &Arc<Broadcast<Resources>>) {
             disks = mounts.iter().filter_map(|m| read_disk(m)).collect();
         }
 
+        let sensors = read_sensors(Path::new(HWMON_DIR));
         out.publish(Resources {
             cpu,
             cpu_history: cpu_history.clone(),
             cores: busy.into_iter().skip(1).collect(),
             memory_history: memory_history.clone(),
             memory,
-            temperature: read_temperature(Path::new(HWMON_DIR)),
+            temperature: hottest(&sensors),
+            sensors,
             disks: disks.clone(),
         });
     }
@@ -399,24 +460,59 @@ SwapFree:        3000000 kB
         assert_eq!(memory.swap_percent(), 0.0);
     }
 
-    #[test]
-    fn temperature_takes_the_hottest_plausible_sensor() {
-        let dir = std::env::temp_dir().join(format!("hyprshell-hwmon-{}", std::process::id()));
+    /// A scratch hwmon tree: one chip with a labelled sensor, an unlabelled one, and an implausible reading.
+    fn hwmon_fixture(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hyprshell-hwmon-{}-{tag}", std::process::id()));
         let device = dir.join("hwmon0");
         fs::create_dir_all(&device).unwrap();
+        fs::write(device.join("name"), "coretemp").unwrap();
         fs::write(device.join("temp1_input"), "45000").unwrap();
+        fs::write(device.join("temp1_label"), "Package id 0").unwrap();
         fs::write(device.join("temp2_input"), "61500").unwrap();
         // An unplugged sensor reporting an impossible value must not become "the temperature".
         fs::write(device.join("temp3_input"), "200000").unwrap();
-        fs::write(device.join("name"), "coretemp").unwrap();
+        dir
+    }
 
-        assert_eq!(read_temperature(&dir), Some(61.5));
+    #[test]
+    fn temperature_takes_the_hottest_plausible_sensor() {
+        let dir = hwmon_fixture("hottest");
+        assert_eq!(hottest(&read_sensors(&dir)), Some(61.5));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sensors_carry_the_chip_and_label_a_config_can_name() {
+        let dir = hwmon_fixture("named");
+        let sensors = read_sensors(&dir);
+        assert_eq!(sensors.len(), 2, "the implausible reading is dropped");
+        assert_eq!(sensors[0].chip, "coretemp");
+        assert_eq!(sensors[0].label, "Package id 0", "the kernel's label wins");
+        assert_eq!(sensors[1].label, "temp2", "an unlabelled sensor keeps its file name");
+
+        let resources = Resources {
+            temperature: hottest(&sensors),
+            sensors,
+            ..Resources::default()
+        };
+        assert_eq!(resources.temperature_of("Package id 0"), Some(45.0));
+        assert_eq!(resources.temperature_of("coretemp"), Some(45.0), "a chip name matches its first sensor");
+        assert_eq!(resources.temperature_of("PACKAGE ID 0"), Some(45.0), "matching ignores case");
+        assert_eq!(
+            resources.temperature_of("k10temp"),
+            Some(61.5),
+            "a name from another machine falls back to the hottest rather than blanking the chip"
+        );
+        assert_eq!(resources.temperature_of(""), Some(61.5));
         fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn no_hwmon_at_all_reports_no_temperature() {
-        assert_eq!(read_temperature(Path::new("/nonexistent-hwmon")), None);
+        let sensors = read_sensors(Path::new("/nonexistent-hwmon"));
+        assert!(sensors.is_empty());
+        assert_eq!(hottest(&sensors), None);
+        assert_eq!(Resources::default().temperature_of("anything"), None);
     }
 
     #[test]

@@ -11,7 +11,8 @@ use crate::core::config::{
     ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
     FloatConfig, GeneralConfig, IconsConfig, MediaConfig, MediaScroll, NotificationsConfig,
-    OsdConfig, PanelsConfig, Shape, ShapeConfig, ThemeConfig, WorkspacesConfig,
+    OsdConfig, PanelsConfig, Shape, ShapeConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
+    WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -23,6 +24,7 @@ const SHAPES: &[&str] = &["bar", "sections", "chips"];
 const LANGUAGES: &[&str] = &["en", "es"];
 const MEDIA_SCROLLS: &[&str] = &["volume", "track", "none"];
 const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
+const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
 
 /// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
 /// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
@@ -70,6 +72,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         workspaces_section(&config, &path, theme)?,
         audio_section(&config, &path, theme)?,
         brightness_section(&config, &path, theme)?,
+        temperature_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -814,6 +817,53 @@ fn brightness_section(
     section(|| rsx::t!("settings.section.brightness"), rows, save, theme)
 }
 
+fn temperature_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let t = &config.temperature;
+    let unit = signal(temperature_unit_str(t.unit).to_string());
+    let sensor = signal(t.sensor.clone());
+    let warn = signal(t.warn.to_string());
+    let critical = signal(t.critical.to_string());
+
+    let rows = vec![
+        enum_field(
+            || rsx::t!("settings.field.unit"),
+            unit.clone(),
+            TEMPERATURE_UNITS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.sensor"),
+            sensor.clone(),
+            "(hottest)",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.warn"), warn.clone(), "70", theme)?,
+        text_field(
+            || rsx::t!("settings.field.critical"),
+            critical.clone(),
+            "85",
+            theme,
+        )?,
+    ];
+
+    let base = t.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.temperature"), theme, move || {
+        let value = TemperatureConfig {
+            unit: parse_temperature_unit(&unit.peek()),
+            sensor: sensor.peek().trim().to_string(),
+            warn: parse_f32(&warn.peek(), base.warn),
+            critical: parse_f32(&critical.peek(), base.critical),
+        };
+        persist(&path, "temperature", &value);
+    })?;
+    section(|| rsx::t!("settings.section.temperature"), rows, save, theme)
+}
+
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {
     match scroll {
         MediaScroll::Volume => "volume",
@@ -1312,6 +1362,20 @@ fn parse_capitalize(s: &str) -> Capitalize {
         "lower" => Capitalize::Lower,
         "title" => Capitalize::Title,
         _ => Capitalize::None,
+    }
+}
+
+fn temperature_unit_str(unit: TemperatureUnit) -> &'static str {
+    match unit {
+        TemperatureUnit::Celsius => "celsius",
+        TemperatureUnit::Fahrenheit => "fahrenheit",
+    }
+}
+
+fn parse_temperature_unit(s: &str) -> TemperatureUnit {
+    match s {
+        "fahrenheit" => TemperatureUnit::Fahrenheit,
+        _ => TemperatureUnit::Celsius,
     }
 }
 
