@@ -733,8 +733,51 @@ impl Default for LockStatusConfig {
 
 /// The application launcher: a modal opened by keybind or IPC.
 ///
+/// One entry in the launcher's action mode, declared as a `[[launcher.actions]]` table and reached by typing
+/// `>`. `command` runs through `sh -c`, detached, exactly as a desktop entry's `Exec` does.
+///
+/// `dangerous` marks an action that should not run on a single keystroke — a reboot, a `rm`. Such an action
+/// arms on the first Enter and only runs on the second, and it is listed at all only when
+/// `enable_dangerous_actions` is on, so a shared or borrowed config can't hand someone a one-key wipe.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default)]
+pub struct LauncherAction {
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub command: String,
+    pub enabled: bool,
+    pub dangerous: bool,
+}
+
+impl Default for LauncherAction {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            icon: "zap".to_string(),
+            command: String::new(),
+            // Declaring an action is what enables it; the key exists so one can be parked without deleting it.
+            enabled: true,
+            dangerous: false,
+        }
+    }
+}
+
+impl LauncherAction {
+    /// Whether this action should appear at all: it needs something to run, a name to show, and — when it is
+    /// flagged dangerous — the config's blanket permission for dangerous actions.
+    pub fn is_listed(&self, dangerous_allowed: bool) -> bool {
+        self.enabled
+            && !self.name.trim().is_empty()
+            && !self.command.trim().is_empty()
+            && (dangerous_allowed || !self.dangerous)
+    }
+}
+
 /// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
-/// `hidden` lists desktop-entry ids to keep out of the results entirely.
+/// `hidden` lists desktop-entry ids to keep out of the results entirely, and `favourites` lists ids to pin
+/// above the ranking, in the order given. `actions` are the `>`-prefixed commands of the action mode.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct LauncherConfig {
@@ -743,7 +786,14 @@ pub struct LauncherConfig {
     pub radius: f32,
     pub max_results: u32,
     pub fuzzy: bool,
+    /// Show the calculator's answer above the app matches when the query reads as arithmetic.
+    pub calculator: bool,
+    pub favourites: Vec<String>,
     pub hidden: Vec<String>,
+    pub actions: Vec<LauncherAction>,
+    /// Off by default: an action that can destroy something should take a deliberate opt-in, not arrive with
+    /// a config someone pasted from the internet.
+    pub enable_dangerous_actions: bool,
 }
 
 impl Default for LauncherConfig {
@@ -754,7 +804,11 @@ impl Default for LauncherConfig {
             radius: 14.0,
             max_results: 12,
             fuzzy: true,
+            calculator: true,
+            favourites: Vec::new(),
             hidden: Vec::new(),
+            actions: Vec::new(),
+            enable_dangerous_actions: false,
         }
     }
 }
@@ -1526,6 +1580,31 @@ end = ["battery", "volume"]
     }
 
     #[test]
+    fn audio_and_brightness_steps_are_configurable_and_bounded() {
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.audio.step(), 5);
+        assert_eq!(d.audio.ceiling(), 150);
+        assert_eq!(d.brightness.step(), 5);
+
+        let cfg: Config = toml::from_str(
+            "[audio]\nincrement = 2\nmax_volume = 100\n[brightness]\nincrement = 10\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.audio.step(), 2);
+        assert_eq!(cfg.audio.ceiling(), 100);
+        assert_eq!(cfg.brightness.step(), 10);
+
+        // A typo must not leave the wheel inert, run it backwards, or let one notch cross the whole range.
+        let broken: Config = toml::from_str(
+            "[audio]\nincrement = 0\nmax_volume = 10\n[brightness]\nincrement = -5\n",
+        )
+        .unwrap();
+        assert_eq!(broken.audio.step(), 1);
+        assert_eq!(broken.audio.ceiling(), 100, "a sink must reach its own maximum");
+        assert_eq!(broken.brightness.step(), 1);
+    }
+
+    #[test]
     fn temperature_unit_converts_and_labels_the_reading() {
         let d: Config = toml::from_str("").unwrap();
         assert_eq!(d.temperature.unit, TemperatureUnit::Celsius);
@@ -1673,31 +1752,6 @@ end = ["battery", "volume"]
             "separators and runs of whitespace survive intact"
         );
         assert_eq!(Capitalize::Title.apply(""), "");
-    }
-
-    #[test]
-    fn audio_and_brightness_steps_are_configurable_and_bounded() {
-        let d: Config = toml::from_str("").unwrap();
-        assert_eq!(d.audio.step(), 5);
-        assert_eq!(d.audio.ceiling(), 150);
-        assert_eq!(d.brightness.step(), 5);
-
-        let cfg: Config = toml::from_str(
-            "[audio]\nincrement = 2\nmax_volume = 100\n[brightness]\nincrement = 10\n",
-        )
-        .unwrap();
-        assert_eq!(cfg.audio.step(), 2);
-        assert_eq!(cfg.audio.ceiling(), 100);
-        assert_eq!(cfg.brightness.step(), 10);
-
-        // A typo must not leave the wheel inert, run it backwards, or let one notch cross the whole range.
-        let broken: Config = toml::from_str(
-            "[audio]\nincrement = 0\nmax_volume = 10\n[brightness]\nincrement = -5\n",
-        )
-        .unwrap();
-        assert_eq!(broken.audio.step(), 1);
-        assert_eq!(broken.audio.ceiling(), 100, "a sink must reach its own maximum");
-        assert_eq!(broken.brightness.step(), 1);
     }
 
     #[test]

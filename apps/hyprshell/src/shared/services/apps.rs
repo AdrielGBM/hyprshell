@@ -202,7 +202,15 @@ pub fn launch(app: &App) {
         command = format!("{terminal} -e {command}");
     }
     crate::shared::services::state::record_launch(&app.id);
+    run_detached(command);
+}
 
+/// Runs `command` through `sh -c`, detached from the shell so it outlives it and inherits none of its streams.
+///
+/// `setsid --fork` is what makes it detached: without it the child stays in hyprshell's session and dies with
+/// it. Spawned on a thread of its own because `status()` waits for `setsid` to fork, which is short but is
+/// still a `fork`/`exec` — not something to do on the frame.
+pub fn run_detached(command: String) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-launch".to_string())
         .spawn(move || {

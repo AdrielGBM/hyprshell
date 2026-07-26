@@ -10,8 +10,8 @@ use serde::Serialize;
 use crate::core::config::{
     ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
-    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LockStatusConfig, MediaConfig,
-    MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
+    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig, LockStatusConfig,
+    MediaConfig, MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
     TemperatureConfig, TemperatureUnit, ThemeConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
@@ -75,6 +75,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         temperature_section(&config, &path, theme)?,
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
+        launcher_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -864,6 +865,82 @@ fn temperature_section(
         persist(&path, "temperature", &value);
     })?;
     section(|| rsx::t!("settings.section.temperature"), rows, save, theme)
+}
+
+fn launcher_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let l = &config.launcher;
+    let width = signal(l.width.to_string());
+    let height = signal(l.height.to_string());
+    let max_results = signal(l.max_results.to_string());
+    let fuzzy = signal(l.fuzzy);
+    let calculator = signal(l.calculator);
+    let dangerous = signal(l.enable_dangerous_actions);
+    let favourites = signal(join_csv(&l.favourites));
+    let hidden = signal(join_csv(&l.hidden));
+
+    let rows = vec![
+        text_field(|| rsx::t!("settings.field.width"), width.clone(), "640", theme)?,
+        text_field(
+            || rsx::t!("settings.field.height"),
+            height.clone(),
+            "420",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_results"),
+            max_results.clone(),
+            "12",
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.fuzzy"), fuzzy.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.calculator"),
+            calculator.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.enable_dangerous_actions"),
+            dangerous.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.favourites"),
+            favourites.clone(),
+            "desktop ids",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.hidden"),
+            hidden.clone(),
+            "desktop ids",
+            theme,
+        )?,
+    ];
+
+    let base = l.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.launcher"), theme, move || {
+        let value = LauncherConfig {
+            width: parse_u32(&width.peek(), base.width),
+            height: parse_u32(&height.peek(), base.height),
+            radius: base.radius,
+            max_results: parse_u32(&max_results.peek(), base.max_results),
+            fuzzy: fuzzy.peek(),
+            calculator: calculator.peek(),
+            favourites: split_csv(&favourites.peek()),
+            hidden: split_csv(&hidden.peek()),
+            // A list of tables, so it stays hand-edited in the TOML; carrying it through means saving here
+            // does not silently drop the user's actions.
+            actions: base.actions.clone(),
+            enable_dangerous_actions: dangerous.peek(),
+        };
+        persist(&path, "launcher", &value);
+    })?;
+    section(|| rsx::t!("settings.section.launcher"), rows, save, theme)
 }
 
 fn battery_section(
