@@ -710,6 +710,27 @@ impl Default for BatteryConfig {
     }
 }
 
+/// The `lockstatus` module: caps- and num-lock indicators. `hide_inactive` shows an indicator only while its
+/// key is engaged, for a bar that should stay quiet; off (the default) keeps both glyphs in place, muted, so
+/// the module is visible the moment it is added and the bar's width never shifts.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct LockStatusConfig {
+    pub caps: bool,
+    pub num: bool,
+    pub hide_inactive: bool,
+}
+
+impl Default for LockStatusConfig {
+    fn default() -> Self {
+        Self {
+            caps: true,
+            num: true,
+            hide_inactive: false,
+        }
+    }
+}
+
 /// The application launcher: a modal opened by keybind or IPC.
 ///
 /// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
@@ -833,6 +854,7 @@ pub struct Config {
     pub brightness: BrightnessConfig,
     pub temperature: TemperatureConfig,
     pub battery: BatteryConfig,
+    pub lock_status: LockStatusConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -949,6 +971,7 @@ impl Config {
             brightness: BrightnessConfig::default(),
             temperature: TemperatureConfig::default(),
             battery: BatteryConfig::default(),
+            lock_status: LockStatusConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1520,6 +1543,22 @@ end = ["battery", "volume"]
         assert_eq!(cfg.temperature.critical, 85.0, "unset fields keep their defaults");
         assert_eq!(cfg.temperature.unit.from_celsius(100.0), 212.0);
         assert_eq!(cfg.temperature.unit.format(20.0), "68°F");
+    }
+
+    #[test]
+    fn lock_status_shows_both_keys_until_told_otherwise() {
+        let d: Config = toml::from_str("").unwrap();
+        assert!(d.lock_status.caps && d.lock_status.num);
+        assert!(
+            !d.lock_status.hide_inactive,
+            "an indicator nobody can see until they press the key is not discoverable"
+        );
+
+        let cfg: Config =
+            toml::from_str("[lock_status]\nnum = false\nhide_inactive = true\n").unwrap();
+        assert!(cfg.lock_status.caps);
+        assert!(!cfg.lock_status.num);
+        assert!(cfg.lock_status.hide_inactive);
     }
 
     #[test]

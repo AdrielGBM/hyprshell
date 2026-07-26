@@ -10,9 +10,9 @@ use serde::Serialize;
 use crate::core::config::{
     ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
-    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, MediaConfig, MediaScroll,
-    NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig, TemperatureConfig,
-    TemperatureUnit, ThemeConfig, WorkspacesConfig,
+    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LockStatusConfig, MediaConfig,
+    MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
+    TemperatureConfig, TemperatureUnit, ThemeConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -74,6 +74,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         brightness_section(&config, &path, theme)?,
         temperature_section(&config, &path, theme)?,
         battery_section(&config, &path, theme)?,
+        lock_status_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -905,6 +906,38 @@ fn battery_section(
         persist(&path, "battery", &value);
     })?;
     section(|| rsx::t!("settings.section.battery"), rows, save, theme)
+}
+
+fn lock_status_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let l = config.lock_status;
+    let caps = signal(l.caps);
+    let num = signal(l.num);
+    let hide_inactive = signal(l.hide_inactive);
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.caps"), caps.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.num"), num.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.hide_inactive"),
+            hide_inactive.clone(),
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.lock_status"), theme, move || {
+        let value = LockStatusConfig {
+            caps: caps.peek(),
+            num: num.peek(),
+            hide_inactive: hide_inactive.peek(),
+        };
+        persist(&path, "lock_status", &value);
+    })?;
+    section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
 }
 
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {

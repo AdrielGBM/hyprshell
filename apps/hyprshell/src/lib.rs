@@ -55,8 +55,8 @@ mod test_support {
 
 pub use crate::core::app::BarApp;
 pub use crate::core::config::{
-    AudioConfig, BarConfig, BarsConfig, BrightnessConfig, Capitalize, Config, Corner,
-    DrawerConfig, Edge, FloatConfig, ModuleOverride, OpenMode, PanelsConfig, TemperatureConfig,
+    AudioConfig, BarConfig, BarsConfig, BrightnessConfig, Capitalize, Config, Corner, DrawerConfig,
+    Edge, FloatConfig, LockStatusConfig, ModuleOverride, OpenMode, PanelsConfig, TemperatureConfig,
     TemperatureUnit, ThemeConfig, Variant,
 };
 pub use crate::core::ipc::{

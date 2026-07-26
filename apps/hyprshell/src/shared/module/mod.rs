@@ -386,6 +386,12 @@ pub fn default_registry() -> ModuleRegistry {
     // Display-only: Hyprland's Lua API exposes no keyboard-layout dispatcher, so there is nothing honest for a
     // click to do. See `hyprland::LAYOUT_SWITCHING_UNSUPPORTED`.
     registry.register("kblayout", ModuleDef::new(|_ctx| crate::kblayout()));
+    // Self-managed: it draws its own indicator row, and with `hide_inactive` that row can be empty — a chip
+    // shell would leave a padded gap in the bar where nothing is shown.
+    registry.register(
+        "lockstatus",
+        ModuleDef::new(|_ctx| crate::lockstatus()).self_managed(),
+    );
     registry.register(
         "media",
         ModuleDef::new(|_ctx| crate::media())
