@@ -6,6 +6,7 @@ use rsx::Color;
 use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item};
 
+use crate::shared::paths;
 use crate::shared::theme::NordTheme;
 
 /// Fallback gap a panel keeps from a hugging bar (one with no outer gap of its own) and from the screen edges.
@@ -524,7 +525,54 @@ pub struct GeneralConfig {
     pub show_over_fullscreen: bool,
     pub logo: String,
     /// The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
+    ///
+    /// Superseded by `[general.apps] terminal`, and still read when that one is unset — a config written
+    /// before the section existed keeps working rather than silently reverting to `xterm`.
     pub terminal: String,
+    pub apps: AppsConfig,
+}
+
+/// The real applications the shell hands off to (`[general.apps]`).
+///
+/// Every "open the real thing" affordance — a volume card's mixer button, a recording's folder, a media card
+/// opening its player — needs a command, and a shell that guessed one per affordance would be unconfigurable.
+/// One section, one command each, resolved through [`Config::app_command`].
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct AppsConfig {
+    pub terminal: String,
+    pub file_manager: String,
+    pub audio_mixer: String,
+    pub media_player: String,
+    pub browser: String,
+    pub editor: String,
+}
+
+/// A well-known helper application the shell can hand off to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperApp {
+    Terminal,
+    FileManager,
+    AudioMixer,
+    MediaPlayer,
+    Browser,
+    Editor,
+}
+
+impl HelperApp {
+    /// The command to run when nothing is configured. Each is either the freedesktop indirection that works
+    /// everywhere (`xdg-open`) or the near-universal tool for the job; a machine without it gets a failed
+    /// launch and a log line, which is better than an affordance that silently does nothing.
+    fn fallback(self) -> &'static str {
+        match self {
+            Self::Terminal => "xterm",
+            Self::FileManager => "xdg-open",
+            Self::AudioMixer => "pavucontrol",
+            Self::MediaPlayer => "xdg-open",
+            Self::Browser => "xdg-open",
+            Self::Editor => "xdg-open",
+        }
+    }
 }
 
 /// The `active_window` module. `compact` shows the app's class instead of the document title — stable while you
@@ -893,6 +941,22 @@ impl Default for LockStatusConfig {
     }
 }
 
+/// Where the shell reads and writes user content (`[paths]`).
+///
+/// Every entry is empty by default, meaning "work it out": the wallpaper, screenshot and recording directories
+/// resolve through the user's own XDG directories, so they land in `Imágenes/Capturas` on a Spanish desktop
+/// rather than in a `Pictures` nobody has. `~` is expanded on read.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct PathsConfig {
+    pub wallpapers: String,
+    pub lyrics: String,
+    pub recordings: String,
+    pub screenshots: String,
+    /// Searched before the shell's built-in assets, so one can be substituted without rebuilding.
+    pub assets: String,
+}
+
 /// Whether `text` matches `pattern`, in which `*` stands for any run of characters. Matching ignores case.
 ///
 /// A deliberate subset of a regex: tray applications put a PID or a version in their id (`steam_app_12345`,
@@ -1156,6 +1220,7 @@ pub struct Config {
     pub battery: BatteryConfig,
     pub lock_status: LockStatusConfig,
     pub status_icons: StatusIconsConfig,
+    pub paths: PathsConfig,
     pub tray: TrayConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
@@ -1276,10 +1341,73 @@ impl Config {
             battery: BatteryConfig::default(),
             lock_status: LockStatusConfig::default(),
             status_icons: StatusIconsConfig::default(),
+            paths: PathsConfig::default(),
             tray: TrayConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
+    }
+
+    /// The command for a well-known helper application: `[general.apps]`, else the legacy `[general] terminal`
+    /// for the terminal, else the built-in fallback. Resolved here rather than at each call site so every
+    /// affordance that opens a real application agrees on which one that is.
+    pub fn app_command(&self, which: HelperApp) -> String {
+        let apps = &self.general.apps;
+        let configured = match which {
+            HelperApp::Terminal => &apps.terminal,
+            HelperApp::FileManager => &apps.file_manager,
+            HelperApp::AudioMixer => &apps.audio_mixer,
+            HelperApp::MediaPlayer => &apps.media_player,
+            HelperApp::Browser => &apps.browser,
+            HelperApp::Editor => &apps.editor,
+        };
+        let configured = configured.trim();
+        if !configured.is_empty() {
+            return configured.to_string();
+        }
+        if which == HelperApp::Terminal && !self.general.terminal.trim().is_empty() {
+            return self.general.terminal.trim().to_string();
+        }
+        which.fallback().to_string()
+    }
+
+    /// The wallpaper library. Falls back to a `Wallpapers` folder inside the user's own pictures directory.
+    pub fn wallpaper_dir(&self) -> PathBuf {
+        self.resolved_path(&self.paths.wallpapers, || {
+            paths::user_dir("XDG_PICTURES_DIR", "Pictures").join("Wallpapers")
+        })
+    }
+
+    /// Where local `.lrc` files are looked up. Not a user-content directory by convention, so it defaults
+    /// inside the shell's own data directory rather than inventing a folder in `$HOME`.
+    pub fn lyrics_dir(&self) -> PathBuf {
+        self.resolved_path(&self.paths.lyrics, || paths::data_dir().join("lyrics"))
+    }
+
+    pub fn recordings_dir(&self) -> PathBuf {
+        self.resolved_path(&self.paths.recordings, || {
+            paths::user_dir("XDG_VIDEOS_DIR", "Videos").join("Recordings")
+        })
+    }
+
+    pub fn screenshot_dir(&self) -> PathBuf {
+        self.resolved_path(&self.paths.screenshots, || {
+            paths::user_dir("XDG_PICTURES_DIR", "Pictures").join("Screenshots")
+        })
+    }
+
+    /// A directory searched before the shell's built-in assets, when one is configured.
+    pub fn assets_dir(&self) -> Option<PathBuf> {
+        let configured = self.paths.assets.trim();
+        (!configured.is_empty()).then(|| paths::expand_tilde(Path::new(configured)))
+    }
+
+    fn resolved_path(&self, configured: &str, fallback: impl FnOnce() -> PathBuf) -> PathBuf {
+        let configured = configured.trim();
+        if configured.is_empty() {
+            return fallback();
+        }
+        paths::expand_tilde(Path::new(configured))
     }
 
     /// The effective UI language (BCP-47 tag): the `[general] language` override, else the OS locale, else
@@ -1779,6 +1907,7 @@ end = ["battery", "volume"]
         assert_eq!(parsed.panels.drawer.width, starter.panels.drawer.width);
         assert_eq!(parsed.panels.float.width, starter.panels.float.width);
         assert_eq!(parsed.panels.gap, None);
+        assert!(parsed.paths.wallpapers.is_empty());
     }
 
     #[test]

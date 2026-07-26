@@ -2,11 +2,17 @@
 //!
 //! Scanned once and cached for the process: the XDG application directories hold a few hundred entries, parsing
 //! them costs a few milliseconds, and a launcher that re-read them on every keystroke would be doing that work
-//! hundreds of times for a list that changes when you install software. [`reload`] exists for when it does.
+//! hundreds of times for a list that changes when you install software. A watcher notices when it does, so an
+//! install shows up in the launcher on its own; [`reload`] is the same thing on demand.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime};
+
+use platform_layershell::EventSender;
+
+use crate::shared::services::broadcast::Store;
 
 /// One launchable application.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -164,23 +170,93 @@ fn scan(dirs: &[PathBuf]) -> Vec<App> {
     apps
 }
 
-static CACHE: OnceLock<Mutex<Vec<App>>> = OnceLock::new();
+/// How often the application directories are fingerprinted. Installing software is a human-paced event, so the
+/// interval is set by how long a user will tolerate the launcher not knowing about what they just installed,
+/// not by how fast the directories can change.
+const WATCH_INTERVAL: Duration = Duration::from_secs(5);
 
-fn cache() -> &'static Mutex<Vec<App>> {
-    CACHE.get_or_init(|| Mutex::new(scan(&application_dirs())))
+/// A [`Store`] rather than a [`Service`](super::broadcast::Service): the list is seeded synchronously on first
+/// read, so a launcher opened a millisecond after start gets the applications instead of an empty list it would
+/// have to wait for. The watcher below is what makes it live.
+static APPS: Store<Vec<App>> = Store::new(|| scan(&application_dirs()));
+
+/// Every installed application, sorted by name. Scanned on first call, and kept current from there.
+pub fn all() -> Vec<App> {
+    ensure_watching();
+    APPS.get()
 }
 
-/// Every installed application, sorted by name. Scanned on first call.
-pub fn all() -> Vec<App> {
-    cache().lock().unwrap().clone()
+/// Registers `tx` for the list, sending the current one immediately — for a surface that stays up across an
+/// install (an app browser) rather than reading the list once when it opens.
+pub fn subscribe(tx: EventSender<Vec<App>>) {
+    ensure_watching();
+    APPS.subscribe(tx);
 }
 
 /// Re-scans the application directories — for after installing software, and for the IPC `apps reload`.
 pub fn reload() -> usize {
-    let apps = scan(&application_dirs());
-    let count = apps.len();
-    *cache().lock().unwrap() = apps;
-    count
+    APPS.update(|apps| *apps = scan(&application_dirs())).len()
+}
+
+static WATCHER: OnceLock<()> = OnceLock::new();
+
+/// Starts the directory watcher, once per process. Lazy for the same reason every service is: a shell with no
+/// launcher and no app browser never asks for the list, and should not pay for a thread watching it.
+fn ensure_watching() {
+    WATCHER.get_or_init(|| {
+        let _ = std::thread::Builder::new()
+            .name("hyprshell-apps-watch".to_string())
+            .spawn(watch);
+    });
+}
+
+fn watch() {
+    let dirs = application_dirs();
+    let mut last = fingerprint(&dirs);
+    loop {
+        std::thread::sleep(WATCH_INTERVAL);
+        let current = fingerprint(&dirs);
+        if current != last {
+            last = current;
+            reload();
+        }
+    }
+}
+
+/// A cheap stand-in for "have the entries changed": every `.desktop` file's name, size and modification time,
+/// combined so the order `read_dir` happens to yield them in doesn't matter.
+///
+/// Directory mtimes alone would be the obvious choice and are the wrong one here. On a store-based distribution
+/// a profile's `applications` directory is a symlink into an immutable store where every path carries the same
+/// zeroed timestamp, so switching generations — installing software — changes no mtime the shell can see.
+/// Listing the entries does catch it, and a few hundred `stat` calls every few seconds costs well under a
+/// millisecond.
+fn fingerprint(dirs: &[PathBuf]) -> u64 {
+    let mut total: u64 = 0;
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "desktop") {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            let modified = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let mut hash: u64 = meta.len() ^ modified.rotate_left(32);
+            for byte in entry.file_name().as_encoded_bytes() {
+                hash = hash.wrapping_mul(31).wrapping_add(*byte as u64);
+            }
+            total = total.wrapping_add(hash);
+        }
+    }
+    total
 }
 
 /// Launches `app`, detached from the shell.
@@ -192,13 +268,8 @@ pub fn launch(app: &App) {
     let mut command = app.exec.clone();
     if app.terminal {
         let terminal = crate::core::shell::config()
-            .map(|c| c.general.terminal.clone())
-            .unwrap_or_default();
-        let terminal = if terminal.trim().is_empty() {
-            "xterm".to_string()
-        } else {
-            terminal
-        };
+            .map(|c| c.app_command(crate::core::config::HelperApp::Terminal))
+            .unwrap_or_else(|| "xterm".to_string());
         command = format!("{terminal} -e {command}");
     }
     crate::shared::services::state::record_launch(&app.id);
@@ -331,5 +402,35 @@ Exec=firefox --new-window
     #[test]
     fn scanning_a_missing_directory_is_not_fatal() {
         assert!(scan(&[PathBuf::from("/nonexistent-applications")]).is_empty());
+        assert_eq!(fingerprint(&[PathBuf::from("/nonexistent-applications")]), 0);
+    }
+
+    #[test]
+    fn the_fingerprint_moves_when_an_entry_is_installed_or_edited() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-watch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dirs = [dir.clone()];
+        let empty = fingerprint(&dirs);
+
+        let entry = dir.join("editor.desktop");
+        std::fs::write(&entry, "[Desktop Entry]\nType=Application\nName=A\nExec=a\n").unwrap();
+        let installed = fingerprint(&dirs);
+        assert_ne!(installed, empty, "a new entry is a change");
+
+        // Same name, same second, different length — the size is what catches an edit inside one tick.
+        std::fs::write(&entry, "[Desktop Entry]\nType=Application\nName=A Longer Name\nExec=a\n")
+            .unwrap();
+        assert_ne!(fingerprint(&dirs), installed, "an edited entry is a change");
+
+        // A file the scan would not read cannot move the fingerprint either, or every icon cache write in the
+        // directory would re-scan the world.
+        let before = fingerprint(&dirs);
+        std::fs::write(dir.join("notes.txt"), "x").unwrap();
+        assert_eq!(fingerprint(&dirs), before);
+
+        std::fs::remove_file(&entry).unwrap();
+        assert_eq!(fingerprint(&dirs), empty, "removing it puts the list back");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

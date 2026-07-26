@@ -8,12 +8,12 @@ use rsx::{
 use serde::Serialize;
 
 use crate::core::config::{
-    ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
-    BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
-    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig, LockStatusConfig,
-    MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig, PanelsConfig,
-    PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit,
-    ThemeConfig, TrayConfig, WorkspacesConfig,
+    ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
+    BatteryConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
+    DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig,
+    LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig,
+    PanelsConfig, PathsConfig, PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig,
+    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -78,6 +78,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
         status_icons_section(&config, &path, theme)?,
+        paths_section(&config, &path, theme)?,
         tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
@@ -105,7 +106,19 @@ fn general_section(
     let lang = signal(rsx::current_locale().unwrap_or_else(|| config.language()));
     let over_fullscreen = signal(config.general.show_over_fullscreen);
     let logo = signal(config.general.logo.clone());
-    let terminal = signal(config.general.terminal.clone());
+    let apps = config.general.apps.clone();
+    // `[general.apps] terminal` is the field's home now; a config still carrying the older top-level key is
+    // seeded from it, so editing here moves the value rather than appearing to lose it.
+    let terminal = signal(if apps.terminal.trim().is_empty() {
+        config.general.terminal.clone()
+    } else {
+        apps.terminal.clone()
+    });
+    let file_manager = signal(apps.file_manager.clone());
+    let audio_mixer = signal(apps.audio_mixer.clone());
+    let media_player = signal(apps.media_player.clone());
+    let browser = signal(apps.browser.clone());
+    let editor = signal(apps.editor.clone());
 
     let rows = vec![
         language_field(|| rsx::t!("settings.field.language"), lang.clone(), theme)?,
@@ -126,15 +139,54 @@ fn general_section(
             "xterm",
             theme,
         )?,
+        text_field(
+            || rsx::t!("settings.field.file_manager"),
+            file_manager.clone(),
+            "xdg-open",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.audio_mixer"),
+            audio_mixer.clone(),
+            "pavucontrol",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.media_player"),
+            media_player.clone(),
+            "xdg-open",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.browser"),
+            browser.clone(),
+            "xdg-open",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.editor"),
+            editor.clone(),
+            "xdg-open",
+            theme,
+        )?,
     ];
 
     let path = path.to_path_buf();
+    let legacy_terminal = config.general.terminal.clone();
     let save = save_button(|| rsx::t!("settings.save.general"), theme, move || {
         persist(&path, "general", &GeneralConfig {
             language: lang.peek(),
             show_over_fullscreen: over_fullscreen.peek(),
             logo: logo.peek(),
-            terminal: terminal.peek(),
+            terminal: legacy_terminal.clone(),
+            apps: AppsConfig {
+                terminal: terminal.peek(),
+                file_manager: file_manager.peek(),
+                audio_mixer: audio_mixer.peek(),
+                media_player: media_player.peek(),
+                browser: browser.peek(),
+                editor: editor.peek(),
+            },
         });
     })?;
     section(|| rsx::t!("settings.section.general"), rows, save, theme)
@@ -1101,6 +1153,68 @@ fn lock_status_section(
         persist(&path, "lock_status", &value);
     })?;
     section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
+}
+
+fn paths_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let p = &config.paths;
+    let wallpapers = signal(p.wallpapers.clone());
+    let lyrics = signal(p.lyrics.clone());
+    let recordings = signal(p.recordings.clone());
+    let screenshots = signal(p.screenshots.clone());
+    let assets = signal(p.assets.clone());
+
+    // Each placeholder is the directory the shell would use if the field is left empty, resolved against this
+    // machine — so the form shows where things actually land rather than a generic example.
+    let show = |dir: PathBuf| dir.to_string_lossy().into_owned();
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.wallpapers"),
+            wallpapers.clone(),
+            &show(config.wallpaper_dir()),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.lyrics"),
+            lyrics.clone(),
+            &show(config.lyrics_dir()),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.recordings"),
+            recordings.clone(),
+            &show(config.recordings_dir()),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.screenshots"),
+            screenshots.clone(),
+            &show(config.screenshot_dir()),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.assets"),
+            assets.clone(),
+            "",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.paths"), theme, move || {
+        let value = PathsConfig {
+            wallpapers: wallpapers.peek(),
+            lyrics: lyrics.peek(),
+            recordings: recordings.peek(),
+            screenshots: screenshots.peek(),
+            assets: assets.peek(),
+        };
+        persist(&path, "paths", &value);
+    })?;
+    section(|| rsx::t!("settings.section.paths"), rows, save, theme)
 }
 
 fn status_icons_section(

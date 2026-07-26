@@ -79,16 +79,88 @@ struct WorkspaceJson {
     monitor: String,
 }
 
+/// One window the compositor is managing, as `j/clients` reports it. Every field keeps Hyprland's own meaning
+/// so a rule written against `hyprctl clients` reads the same here.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Client {
+    /// `0x…`, unique and stable for the window's life — the handle every dispatcher takes.
+    pub address: String,
+    pub class: String,
+    pub title: String,
+    pub pid: i32,
+    pub workspace: i32,
+    pub workspace_name: String,
+    /// Hyprland's monitor *index*, not its name: `j/clients` reports the id and only `j/monitors` maps it back.
+    pub monitor: i32,
+    pub at: (i32, i32),
+    pub size: (i32, i32),
+    pub floating: bool,
+    /// Maximized or fullscreen; Hyprland distinguishes the two, a shell asking "is something covering the
+    /// screen" does not.
+    pub fullscreen: bool,
+    pub pinned: bool,
+    /// An unmapped window is one the compositor is not drawing — a tray-minimized application, mostly. Kept
+    /// rather than filtered so a window list can show it as hidden instead of losing it.
+    pub mapped: bool,
+    pub xwayland: bool,
+}
+
 #[derive(Deserialize)]
 struct ClientJson {
     #[serde(default)]
+    address: String,
+    #[serde(default)]
     class: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    pid: i32,
     workspace: ClientWorkspaceJson,
+    #[serde(default)]
+    monitor: i32,
+    #[serde(default)]
+    at: (i32, i32),
+    #[serde(default)]
+    size: (i32, i32),
+    #[serde(default)]
+    floating: bool,
+    #[serde(default)]
+    fullscreen: Fullscreen,
+    #[serde(default)]
+    pinned: bool,
+    #[serde(default)]
+    mapped: bool,
+    #[serde(default)]
+    xwayland: bool,
+}
+
+/// Hyprland reported `fullscreen` as a bool until 0.42 and as a mode integer (0 none, 1 maximized, 2 fullscreen)
+/// after it. Accepting both keeps the client list working across the versions a user might be on, instead of
+/// failing the whole parse on the field's type.
+#[derive(Deserialize, Default, Clone, Copy)]
+#[serde(untagged)]
+enum Fullscreen {
+    Flag(bool),
+    Mode(i64),
+    #[default]
+    Absent,
+}
+
+impl Fullscreen {
+    fn is_set(self) -> bool {
+        match self {
+            Self::Flag(on) => on,
+            Self::Mode(mode) => mode != 0,
+            Self::Absent => false,
+        }
+    }
 }
 
 #[derive(Deserialize)]
 struct ClientWorkspaceJson {
     id: i32,
+    #[serde(default)]
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -96,10 +168,71 @@ struct ActiveJson {
     id: i32,
 }
 
+/// One output, as `j/monitors` describes it. The connector `name` (`DP-1`) is what per-monitor config, the
+/// layer-shell surfaces and the settings app all key on; `make`/`model` are what a human recognises it by.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Screen {
+    pub name: String,
+    pub description: String,
+    pub make: String,
+    pub model: String,
+    pub serial: String,
+    pub width: u32,
+    pub height: u32,
+    pub refresh: f32,
+    /// Position in the compositor's layout space, which is what orders the list left-to-right.
+    pub at: (i32, i32),
+    pub scale: f32,
+    pub transform: i32,
+    pub focused: bool,
+    pub disabled: bool,
+    pub vrr: bool,
+    pub dpms: bool,
+    pub active_workspace: i32,
+}
+
 #[derive(Deserialize)]
 struct MonitorJson {
     name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    make: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    serial: String,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
+    #[serde(default, rename = "refreshRate")]
+    refresh_rate: f32,
+    #[serde(default)]
+    x: i32,
+    #[serde(default)]
+    y: i32,
+    #[serde(default = "one")]
+    scale: f32,
+    #[serde(default)]
+    transform: i32,
     focused: bool,
+    #[serde(default)]
+    disabled: bool,
+    #[serde(default)]
+    vrr: bool,
+    #[serde(default = "yes", rename = "dpmsStatus")]
+    dpms_status: bool,
+    #[serde(default, rename = "activeWorkspace")]
+    active_workspace: Option<ActiveJson>,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -155,6 +288,45 @@ pub fn focused_monitor(dir: &Path) -> Option<String> {
         .map(|m| m.name)
 }
 
+fn query_monitors(dir: &Path, command: &str) -> Option<Vec<MonitorJson>> {
+    serde_json::from_str(&request(dir, command).ok()?).ok()
+}
+
+/// Every output the compositor knows about, ordered left-to-right then top-to-bottom by their position in the
+/// layout — the order a user reads their desk in, and the one a per-monitor settings list wants.
+pub fn screens(dir: &Path) -> Vec<Screen> {
+    // `all` includes outputs that are connected but switched off, which is the difference between a settings
+    // list that can re-enable a monitor and one that cannot see it. Not every Hyprland accepts the argument, so
+    // a refusal falls back to the plain query rather than reporting no screens at all.
+    let Some(parsed) = query_monitors(dir, "j/monitors all").or_else(|| query_monitors(dir, "j/monitors"))
+    else {
+        return Vec::new();
+    };
+    let mut screens: Vec<Screen> = parsed
+        .into_iter()
+        .map(|m| Screen {
+            name: m.name,
+            description: m.description,
+            make: m.make,
+            model: m.model,
+            serial: m.serial,
+            width: m.width,
+            height: m.height,
+            refresh: m.refresh_rate,
+            at: (m.x, m.y),
+            scale: m.scale,
+            transform: m.transform,
+            focused: m.focused,
+            disabled: m.disabled,
+            vrr: m.vrr,
+            dpms: m.dpms_status,
+            active_workspace: m.active_workspace.map(|w| w.id).unwrap_or_default(),
+        })
+        .collect();
+    screens.sort_by_key(|s| (s.at.1, s.at.0));
+    screens
+}
+
 /// The monitor name carried by a `focusedmon>>NAME,WORKSPACE` event line, if that's what it is.
 pub fn monitor_from_focus_event(line: &str) -> Option<String> {
     line.strip_prefix("focusedmon>>")
@@ -181,24 +353,49 @@ pub fn focus_workspace(dir: &Path, id: i32) {
     dispatch(dir, &format!("hl.dsp.focus({{ workspace = {id} }})"));
 }
 
-/// The window classes on each workspace, keyed by workspace id. Costs one extra socket round-trip per change,
-/// which is human-paced; the alternative — a second service with its own connection — would cost more.
-fn query_clients(dir: &Path) -> HashMap<i32, Vec<String>> {
+/// Every window the compositor is managing, in Hyprland's own order. One parse feeds both readers of it — the
+/// workspace pills, which want the classes grouped by workspace, and the client list itself — so the two can't
+/// disagree about what is open.
+pub fn clients(dir: &Path) -> Vec<Client> {
     let Ok(raw) = request(dir, "j/clients") else {
-        return HashMap::new();
+        return Vec::new();
     };
-    let Ok(clients) = serde_json::from_str::<Vec<ClientJson>>(&raw) else {
-        return HashMap::new();
+    let Ok(parsed) = serde_json::from_str::<Vec<ClientJson>>(&raw) else {
+        return Vec::new();
     };
+    parsed
+        .into_iter()
+        .map(|c| Client {
+            address: c.address,
+            class: c.class,
+            title: c.title,
+            pid: c.pid,
+            workspace: c.workspace.id,
+            workspace_name: c.workspace.name,
+            monitor: c.monitor,
+            at: c.at,
+            size: c.size,
+            floating: c.floating,
+            fullscreen: c.fullscreen.is_set(),
+            pinned: c.pinned,
+            mapped: c.mapped,
+            xwayland: c.xwayland,
+        })
+        .collect()
+}
+
+/// The window classes on each workspace, keyed by workspace id. A window with no class draws no icon, so it is
+/// dropped here rather than leaving a gap in the pill.
+fn classes_by_workspace(clients: &[Client]) -> HashMap<i32, Vec<String>> {
     let mut by_workspace: HashMap<i32, Vec<String>> = HashMap::new();
     for client in clients {
         if client.class.is_empty() {
             continue;
         }
         by_workspace
-            .entry(client.workspace.id)
+            .entry(client.workspace)
             .or_default()
-            .push(client.class);
+            .push(client.class.clone());
     }
     by_workspace
 }
@@ -208,7 +405,7 @@ fn query_clients(dir: &Path) -> HashMap<i32, Vec<String>> {
 fn query_snapshot(dir: &Path) -> Option<Snapshot> {
     let workspaces_raw = request(dir, "j/workspaces").ok()?;
     let active_raw = request(dir, "j/activeworkspace").ok()?;
-    let mut clients = query_clients(dir);
+    let mut clients = classes_by_workspace(&clients(dir));
 
     let mut workspaces: Vec<Workspace> = serde_json::from_str::<Vec<WorkspaceJson>>(&workspaces_raw)
         .ok()?
@@ -375,6 +572,101 @@ pub fn focus_window(dir: &Path, address: &str) {
     dispatch(dir, &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"));
 }
 
+/// Whether a line reports something that could have changed the set of open windows, where they are, or how
+/// they are laid out. Deliberately wider than [`affects_workspaces`]: a window moving between monitors or
+/// toggling float changes nothing about the workspace pills and everything about a window list.
+fn affects_clients(line: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "openwindow>>",
+        "closewindow>>",
+        "movewindow>>",
+        "movewindowv2>>",
+        "windowtitle>>",
+        "windowtitlev2>>",
+        "fullscreen>>",
+        "changefloatingmode>>",
+        "pin>>",
+        "minimize>>",
+        "monitorremoved>>",
+    ];
+    PREFIXES.iter().any(|prefix| line.starts_with(prefix))
+}
+
+static CLIENTS: Service<Vec<Client>> = Service::new("hyprshell-clients", run_clients);
+
+/// The window list, republished whenever the compositor reports something that could have changed it. Costs one
+/// `j/clients` round-trip per such event — the same one the workspace pills already pay — and nothing at rest.
+fn run_clients(service: &Arc<Broadcast<Vec<Client>>>) {
+    let Some(dir) = socket_dir() else { return };
+    let mut last = clients(&dir);
+    service.publish(last.clone());
+    let published = Arc::clone(service);
+    on_events(Box::new(move |line| {
+        if !affects_clients(line) {
+            return;
+        }
+        // A title changes on nearly every keystroke in a terminal, and most of those land on a window nobody is
+        // listing; republishing an identical list would wake every subscriber for nothing.
+        let current = clients(&dir);
+        if current != last {
+            last = current.clone();
+            published.publish(current);
+        }
+    }));
+}
+
+pub fn subscribe_clients(tx: EventSender<Vec<Client>>) {
+    CLIENTS.subscribe(tx);
+}
+
+/// The last published window list, with no socket round-trip — what a click handler acts on.
+pub fn current_clients() -> Option<Vec<Client>> {
+    CLIENTS.current()
+}
+
+fn affects_screens(line: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "monitoradded>>",
+        "monitoraddedv2>>",
+        "monitorremoved>>",
+        "monitorremovedv2>>",
+        "focusedmon>>",
+        "configreloaded",
+    ];
+    PREFIXES.iter().any(|prefix| line.starts_with(prefix))
+}
+
+static SCREENS: Service<Vec<Screen>> = Service::new("hyprshell-screens", run_screens);
+
+/// The output list. Separate from the compositor-agnostic `platform_layershell::outputs()` the surface layer
+/// reconciles against, which knows a Wayland output's name and nothing else: mode, scale, make and model only
+/// exist on this side, and a settings page listing monitors needs them.
+fn run_screens(service: &Arc<Broadcast<Vec<Screen>>>) {
+    let Some(dir) = socket_dir() else { return };
+    let mut last = screens(&dir);
+    service.publish(last.clone());
+    let published = Arc::clone(service);
+    on_events(Box::new(move |line| {
+        if !affects_screens(line) {
+            return;
+        }
+        let current = screens(&dir);
+        if current != last {
+            last = current.clone();
+            published.publish(current);
+        }
+    }));
+}
+
+pub fn subscribe_screens(tx: EventSender<Vec<Screen>>) {
+    SCREENS.subscribe(tx);
+}
+
+/// The last published output list, without a socket round-trip.
+pub fn current_screens() -> Option<Vec<Screen>> {
+    SCREENS.current()
+}
+
 /// The main keyboard's active layout, or `None` when Hyprland reports no keyboard.
 pub fn keyboard_layout(dir: &Path) -> Option<KeyboardLayout> {
     let raw = request(dir, "j/devices").ok()?;
@@ -475,6 +767,113 @@ mod tests {
         let main = devices.keyboards.iter().find(|k| k.main).unwrap();
         assert_eq!(main.active_keymap, "English (US)");
         assert_eq!(main.name, "builtin", "the device name is what switches it");
+    }
+
+    #[test]
+    fn the_client_list_and_the_workspace_pills_come_from_one_parse() {
+        let raw = r#"[
+            {"address":"0x1","class":"kitty","title":"nvim","pid":10,"workspace":{"id":3,"name":"3"},
+             "monitor":0,"at":[10,20],"size":[800,600],"floating":false,"fullscreen":0,"mapped":true,
+             "pinned":false,"xwayland":false},
+            {"address":"0x2","class":"firefox","title":"Docs","pid":11,"workspace":{"id":3,"name":"3"},
+             "monitor":0,"at":[0,0],"size":[1920,1080],"floating":true,"fullscreen":2,"mapped":true,
+             "pinned":true,"xwayland":true},
+            {"address":"0x3","class":"","title":"","pid":12,"workspace":{"id":-99,"name":"special:magic"},
+             "monitor":1,"at":[0,0],"size":[1,1],"floating":false,"fullscreen":0,"mapped":false,
+             "pinned":false,"xwayland":false}
+        ]"#;
+        let parsed: Vec<ClientJson> = serde_json::from_str(raw).expect("the client list parses");
+        let list: Vec<Client> = parsed
+            .into_iter()
+            .map(|c| Client {
+                address: c.address,
+                class: c.class,
+                title: c.title,
+                pid: c.pid,
+                workspace: c.workspace.id,
+                workspace_name: c.workspace.name,
+                monitor: c.monitor,
+                at: c.at,
+                size: c.size,
+                floating: c.floating,
+                fullscreen: c.fullscreen.is_set(),
+                pinned: c.pinned,
+                mapped: c.mapped,
+                xwayland: c.xwayland,
+            })
+            .collect();
+
+        assert_eq!(list[0].at, (10, 20));
+        assert_eq!(list[0].size, (800, 600));
+        assert!(!list[0].fullscreen);
+        assert!(list[1].fullscreen, "mode 2 is fullscreen");
+        assert!(list[1].pinned && list[1].xwayland);
+        assert_eq!(list[2].workspace_name, "special:magic");
+        assert!(!list[2].mapped, "an unmapped window stays in the list");
+
+        // The pills read the same parse, and a window with no class draws no icon rather than an empty slot.
+        let grouped = classes_by_workspace(&list);
+        assert_eq!(grouped[&3], vec!["kitty".to_string(), "firefox".to_string()]);
+        assert!(
+            !grouped.contains_key(&-99),
+            "the only window there has no class"
+        );
+    }
+
+    #[test]
+    fn the_fullscreen_field_is_read_as_both_a_flag_and_a_mode() {
+        // Hyprland changed the type in 0.42; a shell that only understood one would fail the whole parse on the
+        // other, losing the window list rather than one field.
+        let flag: ClientJson =
+            serde_json::from_str(r#"{"workspace":{"id":1},"fullscreen":true}"#).unwrap();
+        assert!(flag.fullscreen.is_set());
+        let mode: ClientJson =
+            serde_json::from_str(r#"{"workspace":{"id":1},"fullscreen":1}"#).unwrap();
+        assert!(mode.fullscreen.is_set(), "1 is maximized, which still covers");
+        let none: ClientJson = serde_json::from_str(r#"{"workspace":{"id":1}}"#).unwrap();
+        assert!(!none.fullscreen.is_set(), "an absent field is not fullscreen");
+    }
+
+    #[test]
+    fn screens_keep_the_fields_a_monitor_list_shows() {
+        let raw = r#"[
+            {"name":"DP-1","description":"Dell U2720Q","make":"Dell","model":"U2720Q","serial":"ABC",
+             "width":3840,"height":2160,"refreshRate":59.997,"x":1920,"y":0,"scale":2.0,"transform":0,
+             "focused":true,"disabled":false,"vrr":false,"dpmsStatus":true,
+             "activeWorkspace":{"id":3,"name":"3"}},
+            {"name":"eDP-1","focused":false}
+        ]"#;
+        let parsed: Vec<MonitorJson> = serde_json::from_str(raw).expect("the monitor list parses");
+        assert_eq!(parsed[0].refresh_rate, 59.997);
+        assert_eq!(parsed[0].active_workspace.as_ref().unwrap().id, 3);
+        // A minimal entry still parses: the fields a per-monitor list needs are optional, the connector is not.
+        assert_eq!(parsed[1].name, "eDP-1");
+        assert_eq!(parsed[1].scale, 1.0, "an absent scale is 1, not 0");
+        assert!(parsed[1].dpms_status, "an absent dpms state means the output is on");
+    }
+
+    #[test]
+    fn the_client_and_screen_filters_take_the_events_their_lists_depend_on() {
+        assert!(affects_clients("changefloatingmode>>0x1,1"));
+        assert!(
+            affects_clients("movewindowv2>>0x1,3,3"),
+            "a window changing workspace changes the list"
+        );
+        assert!(
+            !affects_clients("activelayout>>kbd,English (US)"),
+            "a keyboard layout does not move a window"
+        );
+        assert!(
+            !affects_clients("createworkspace>>4"),
+            "an empty workspace has no windows to list"
+        );
+
+        assert!(affects_screens("monitoraddedv2>>1,DP-2,Dell"));
+        assert!(affects_screens("focusedmon>>DP-1,3"));
+        assert!(
+            !affects_screens("openwindow>>0x1,3,kitty,term"),
+            "opening a window does not change the output list"
+        );
     }
 
     #[test]

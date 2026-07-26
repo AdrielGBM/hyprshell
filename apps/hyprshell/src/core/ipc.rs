@@ -97,6 +97,43 @@ static TARGETS: &[Target] = &[
                 },
             },
             Command {
+                name: "screens",
+                args: "",
+                help: "the compositor's monitors with mode, scale and make",
+                run: |_| {
+                    use crate::shared::services::hyprland;
+                    let dir = hyprland::socket_dir().ok_or("not running under Hyprland")?;
+                    let rows: Vec<String> = hyprland::current_screens()
+                        .unwrap_or_else(|| hyprland::screens(&dir))
+                        .iter()
+                        .map(|s| {
+                            format!(
+                                "{}\t{}x{}@{:.2}\t{:.2}x\t{} {}",
+                                s.name, s.width, s.height, s.refresh, s.scale, s.make, s.model
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
+                name: "clients",
+                args: "",
+                help: "every open window: address, workspace, class and title",
+                run: |_| {
+                    use crate::shared::services::hyprland;
+                    let dir = hyprland::socket_dir().ok_or("not running under Hyprland")?;
+                    let rows: Vec<String> = hyprland::current_clients()
+                        .unwrap_or_else(|| hyprland::clients(&dir))
+                        .iter()
+                        .map(|c| {
+                            format!("{}\t{}\t{}\t{}", c.address, c.workspace, c.class, c.title)
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
                 name: "quit",
                 args: "",
                 help: "shut the shell down",
