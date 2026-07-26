@@ -116,13 +116,21 @@ pub fn show(kind: OsdKind) {
     });
 }
 
-/// One wheel notch, in the percentage points a level module moves per scroll.
-const STEP: i32 = 5;
+/// Percentage points to move for a scroll delta: one configured `increment` per notch, in the scrolled
+/// direction. `dy` is positive scrolling up (the platform already flips Wayland's axis), which is the direction
+/// that raises the level.
+fn scroll_step(increment: i32, dy: f32) -> i32 {
+    if dy > 0.0 { increment } else { -increment }
+}
 
-/// Percentage points to move for a scroll delta: a step per notch, in the scrolled direction. `dy` is positive
-/// scrolling up (the platform already flips Wayland's axis), which is the direction that raises the level.
-fn scroll_step(dy: f32) -> i32 {
-    if dy > 0.0 { STEP } else { -STEP }
+/// The wheel step for the audio chips, from `[audio] increment`.
+fn audio_step(dy: f32) -> i32 {
+    scroll_step(crate::shared::services::volume::settings().step(), dy)
+}
+
+/// The wheel step for the backlight chip, from `[brightness] increment`.
+fn brightness_step(dy: f32) -> i32 {
+    scroll_step(crate::shared::services::brightness::settings().step(), dy)
 }
 
 /// Flashes the volume OSD without changing anything — for callers that already moved the level (a keybind
@@ -145,7 +153,7 @@ pub fn mic_action() {
 }
 
 pub fn mic_scroll(_dx: f32, dy: f32) {
-    crate::shared::services::volume::step_mic(scroll_step(dy));
+    crate::shared::services::volume::step_mic(audio_step(dy));
     show(OsdKind::Microphone);
 }
 
@@ -155,7 +163,7 @@ pub fn volume_action() {
 }
 
 pub fn volume_scroll(_dx: f32, dy: f32) {
-    crate::shared::services::volume::step(scroll_step(dy));
+    crate::shared::services::volume::step(audio_step(dy));
     show(OsdKind::Volume);
 }
 
@@ -164,7 +172,7 @@ pub fn brightness_action() {
 }
 
 pub fn brightness_scroll(_dx: f32, dy: f32) {
-    crate::shared::services::brightness::step(scroll_step(dy));
+    crate::shared::services::brightness::step(brightness_step(dy));
     show(OsdKind::Brightness);
 }
 

@@ -516,6 +516,58 @@ impl WorkspacesConfig {
     }
 }
 
+/// Audio control (`[audio]`). `increment` is what one wheel notch over the volume or microphone chip moves and
+/// what `hyprshell volume up` steps by. `max_volume` is the ceiling the sink can be raised to: PipeWire lets a
+/// sink boost past 100 %, which rescues a quiet laptop and wrecks a good speaker, so it belongs to the user
+/// rather than to a constant in the code.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct AudioConfig {
+    pub increment: i32,
+    pub max_volume: i32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            increment: 5,
+            max_volume: 150,
+        }
+    }
+}
+
+impl AudioConfig {
+    /// The step, bounded so `0` or a negative typo can't leave the chip inert or make the wheel run backwards.
+    pub fn step(&self) -> i32 {
+        self.increment.clamp(1, 50)
+    }
+
+    /// The sink ceiling, never under 100 % — a sink must at least reach its own nominal maximum.
+    pub fn ceiling(&self) -> i32 {
+        self.max_volume.clamp(100, 300)
+    }
+}
+
+/// Backlight control (`[brightness]`): the step a wheel notch or `hyprshell brightness up` moves. Its own
+/// section rather than a key under `[audio]` so the per-output and DDC/CI settings that follow have a home.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct BrightnessConfig {
+    pub increment: i32,
+}
+
+impl Default for BrightnessConfig {
+    fn default() -> Self {
+        Self { increment: 5 }
+    }
+}
+
+impl BrightnessConfig {
+    pub fn step(&self) -> i32 {
+        self.increment.clamp(1, 50)
+    }
+}
+
 /// The application launcher: a modal opened by keybind or IPC.
 ///
 /// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
@@ -635,6 +687,8 @@ pub struct Config {
     pub media: MediaConfig,
     pub workspaces: WorkspacesConfig,
     pub launcher: LauncherConfig,
+    pub audio: AudioConfig,
+    pub brightness: BrightnessConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -747,6 +801,8 @@ impl Config {
             media: MediaConfig::default(),
             workspaces: WorkspacesConfig::default(),
             launcher: LauncherConfig::default(),
+            audio: AudioConfig::default(),
+            brightness: BrightnessConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1354,6 +1410,31 @@ end = ["battery", "volume"]
             "separators and runs of whitespace survive intact"
         );
         assert_eq!(Capitalize::Title.apply(""), "");
+    }
+
+    #[test]
+    fn audio_and_brightness_steps_are_configurable_and_bounded() {
+        let d: Config = toml::from_str("").unwrap();
+        assert_eq!(d.audio.step(), 5);
+        assert_eq!(d.audio.ceiling(), 150);
+        assert_eq!(d.brightness.step(), 5);
+
+        let cfg: Config = toml::from_str(
+            "[audio]\nincrement = 2\nmax_volume = 100\n[brightness]\nincrement = 10\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.audio.step(), 2);
+        assert_eq!(cfg.audio.ceiling(), 100);
+        assert_eq!(cfg.brightness.step(), 10);
+
+        // A typo must not leave the wheel inert, run it backwards, or let one notch cross the whole range.
+        let broken: Config = toml::from_str(
+            "[audio]\nincrement = 0\nmax_volume = 10\n[brightness]\nincrement = -5\n",
+        )
+        .unwrap();
+        assert_eq!(broken.audio.step(), 1);
+        assert_eq!(broken.audio.ceiling(), 100, "a sink must reach its own maximum");
+        assert_eq!(broken.brightness.step(), 1);
     }
 
     #[test]

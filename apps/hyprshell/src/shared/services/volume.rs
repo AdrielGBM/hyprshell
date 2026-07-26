@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use platform_layershell::EventSender;
 
+use crate::core::config::AudioConfig;
 use crate::shared::services::broadcast::{Broadcast, Service};
 
 const SINK: &str = "@DEFAULT_AUDIO_SINK@";
@@ -100,6 +101,14 @@ pub fn current_mic() -> Option<Volume> {
     MIC.current()
 }
 
+/// The running `[audio]` settings, or the defaults outside a started shell (a unit test, a service thread —
+/// [`crate::core::shell::config`] lives on the driver thread, which is where every caller of this runs).
+pub fn settings() -> AudioConfig {
+    crate::core::shell::config()
+        .map(|c| c.audio)
+        .unwrap_or_default()
+}
+
 /// Steps the volume by `delta` percentage points from the last known level.
 pub fn step(delta: i32) {
     if let Some(v) = current() {
@@ -139,11 +148,11 @@ pub fn toggle_mic_mute() {
     );
 }
 
-/// Sets the default sink's volume to `level` percent (clamped to 0–150). Publishes the target optimistically
-/// before `wpctl` has run, so a scroll notch moves the chip and the OSD on the same frame instead of a
-/// round-trip later; the reading that follows the command reconciles whatever the sink actually accepted.
+/// Sets the default sink's volume to `level` percent, clamped to `[audio] max_volume`. Publishes the target
+/// optimistically before `wpctl` has run, so a scroll notch moves the chip and the OSD on the same frame instead
+/// of a round-trip later; the reading that follows the command reconciles whatever the sink actually accepted.
 pub fn set(level: i32) {
-    let level = level.clamp(0, 150);
+    let level = level.clamp(0, settings().ceiling());
     let muted = current().is_some_and(|v| v.muted);
     VOLUME.publish(Volume { level, muted });
     apply(

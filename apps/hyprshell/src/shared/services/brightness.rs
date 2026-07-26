@@ -8,6 +8,7 @@ use std::time::Duration;
 use platform_layershell::EventSender;
 use zbus::blocking::Connection;
 
+use crate::core::config::BrightnessConfig;
 use crate::shared::services::broadcast::{Broadcast, Service};
 
 const BACKLIGHT_DIR: &str = "/sys/class/backlight";
@@ -146,6 +147,14 @@ fn write_logind(device: &str, absolute: u32) -> Option<()> {
 /// The last known reading, falling back to sysfs before the producer has published anything.
 pub fn current() -> Option<i32> {
     BRIGHTNESS.current().or_else(read)
+}
+
+/// The running `[brightness]` settings, or the defaults outside a started shell (a unit test, a service thread
+/// — [`crate::core::shell::config`] lives on the driver thread, where every caller of this runs).
+pub fn settings() -> BrightnessConfig {
+    crate::core::shell::config()
+        .map(|c| c.brightness)
+        .unwrap_or_default()
 }
 
 /// Steps the brightness by `delta` percentage points from the current level; the shape a scroll or key-repeat

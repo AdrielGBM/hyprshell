@@ -8,10 +8,10 @@ use rsx::{
 use serde::Serialize;
 
 use crate::core::config::{
-    ActiveWindowConfig, Align, BackgroundConfig, BarConfig, BarsConfig, Capitalize, ClockConfig,
-    Config, CornersConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig,
-    MediaConfig, MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
-    ThemeConfig, WorkspacesConfig,
+    ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
+    BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
+    FloatConfig, GeneralConfig, IconsConfig, MediaConfig, MediaScroll, NotificationsConfig,
+    OsdConfig, PanelsConfig, Shape, ShapeConfig, ThemeConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -68,6 +68,8 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         active_window_section(&config, &path, theme)?,
         media_section(&config, &path, theme)?,
         workspaces_section(&config, &path, theme)?,
+        audio_section(&config, &path, theme)?,
+        brightness_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -752,6 +754,66 @@ fn media_section(
     section(|| rsx::t!("settings.section.media"), rows, save, theme)
 }
 
+fn audio_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let a = config.audio;
+    let increment = signal(a.increment.to_string());
+    let max_volume = signal(a.max_volume.to_string());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.increment"),
+            increment.clone(),
+            "5",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_volume"),
+            max_volume.clone(),
+            "150",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.audio"), theme, move || {
+        let value = AudioConfig {
+            increment: parse_i32(&increment.peek(), a.increment),
+            max_volume: parse_i32(&max_volume.peek(), a.max_volume),
+        };
+        persist(&path, "audio", &value);
+    })?;
+    section(|| rsx::t!("settings.section.audio"), rows, save, theme)
+}
+
+fn brightness_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let b = config.brightness;
+    let increment = signal(b.increment.to_string());
+
+    let rows = vec![text_field(
+        || rsx::t!("settings.field.increment"),
+        increment.clone(),
+        "5",
+        theme,
+    )?];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.brightness"), theme, move || {
+        let value = BrightnessConfig {
+            increment: parse_i32(&increment.peek(), b.increment),
+        };
+        persist(&path, "brightness", &value);
+    })?;
+    section(|| rsx::t!("settings.section.brightness"), rows, save, theme)
+}
+
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {
     match scroll {
         MediaScroll::Volume => "volume",
@@ -1163,6 +1225,10 @@ fn opt_f32(s: &str) -> Option<f32> {
 }
 
 fn parse_u32(s: &str, fallback: u32) -> u32 {
+    s.trim().parse().unwrap_or(fallback)
+}
+
+fn parse_i32(s: &str, fallback: i32) -> i32 {
     s.trim().parse().unwrap_or(fallback)
 }
 

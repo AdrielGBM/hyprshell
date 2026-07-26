@@ -278,6 +278,28 @@ static TARGETS: &[Target] = &[
                 },
             },
             Command {
+                name: "up",
+                args: "",
+                help: "raise the level by [audio] increment",
+                run: |_| {
+                    let step = crate::shared::services::volume::settings().step();
+                    crate::shared::services::volume::step(step);
+                    crate::modules::osd::show_volume();
+                    Ok(step.to_string())
+                },
+            },
+            Command {
+                name: "down",
+                args: "",
+                help: "lower the level by [audio] increment",
+                run: |_| {
+                    let step = crate::shared::services::volume::settings().step();
+                    crate::shared::services::volume::step(-step);
+                    crate::modules::osd::show_volume();
+                    Ok((-step).to_string())
+                },
+            },
+            Command {
                 name: "mute",
                 args: "",
                 help: "toggle mute on the default sink",
@@ -322,6 +344,28 @@ static TARGETS: &[Target] = &[
                     crate::shared::services::volume::step_mic(delta);
                     crate::modules::osd::show_microphone();
                     Ok(delta.to_string())
+                },
+            },
+            Command {
+                name: "up",
+                args: "",
+                help: "raise the source level by [audio] increment",
+                run: |_| {
+                    let step = crate::shared::services::volume::settings().step();
+                    crate::shared::services::volume::step_mic(step);
+                    crate::modules::osd::show_microphone();
+                    Ok(step.to_string())
+                },
+            },
+            Command {
+                name: "down",
+                args: "",
+                help: "lower the source level by [audio] increment",
+                run: |_| {
+                    let step = crate::shared::services::volume::settings().step();
+                    crate::shared::services::volume::step_mic(-step);
+                    crate::modules::osd::show_microphone();
+                    Ok((-step).to_string())
                 },
             },
             Command {
@@ -489,6 +533,28 @@ static TARGETS: &[Target] = &[
                     crate::shared::services::brightness::step(delta);
                     crate::modules::osd::show_brightness();
                     Ok(delta.to_string())
+                },
+            },
+            Command {
+                name: "up",
+                args: "",
+                help: "raise the backlight by [brightness] increment",
+                run: |_| {
+                    let step = crate::shared::services::brightness::settings().step();
+                    crate::shared::services::brightness::step(step);
+                    crate::modules::osd::show_brightness();
+                    Ok(step.to_string())
+                },
+            },
+            Command {
+                name: "down",
+                args: "",
+                help: "lower the backlight by [brightness] increment",
+                run: |_| {
+                    let step = crate::shared::services::brightness::settings().step();
+                    crate::shared::services::brightness::step(-step);
+                    crate::modules::osd::show_brightness();
+                    Ok((-step).to_string())
                 },
             },
         ],
