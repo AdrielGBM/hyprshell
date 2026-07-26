@@ -10,9 +10,9 @@ use serde::Serialize;
 use crate::core::config::{
     ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
-    FloatConfig, GeneralConfig, IconsConfig, MediaConfig, MediaScroll, NotificationsConfig,
-    OsdConfig, PanelsConfig, Shape, ShapeConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
-    WorkspacesConfig,
+    BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, MediaConfig, MediaScroll,
+    NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig, TemperatureConfig,
+    TemperatureUnit, ThemeConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -73,6 +73,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         audio_section(&config, &path, theme)?,
         brightness_section(&config, &path, theme)?,
         temperature_section(&config, &path, theme)?,
+        battery_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -862,6 +863,48 @@ fn temperature_section(
         persist(&path, "temperature", &value);
     })?;
     section(|| rsx::t!("settings.section.temperature"), rows, save, theme)
+}
+
+fn battery_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let b = &config.battery;
+    let enabled = signal(b.enabled);
+    let critical_level = signal(b.critical_level.to_string());
+    let critical_action = signal(b.critical_action.clone());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.critical_level"),
+            critical_level.clone(),
+            "0",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.critical_action"),
+            critical_action.clone(),
+            "suspend",
+            theme,
+        )?,
+    ];
+
+    // `warn_levels` is a list of tables, so it stays hand-edited in the TOML like `theme.colors`; carrying it
+    // through means saving here does not silently drop the user's thresholds.
+    let base = b.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.battery"), theme, move || {
+        let value = BatteryConfig {
+            enabled: enabled.peek(),
+            warn_levels: base.warn_levels.clone(),
+            critical_level: parse_i32(&critical_level.peek(), base.critical_level),
+            critical_action: critical_action.peek().trim().to_string(),
+        };
+        persist(&path, "battery", &value);
+    })?;
+    section(|| rsx::t!("settings.section.battery"), rows, save, theme)
 }
 
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {

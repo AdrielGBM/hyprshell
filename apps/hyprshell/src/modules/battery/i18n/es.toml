@@ -8,3 +8,7 @@ unknown = "Desconocido"
 none = "Sin batería"
 remaining = "{time} restante"
 until_full = "Cargando · {time} para completar"
+
+[battery.warning]
+title = "Batería baja"
+body = "Queda {level}% — conecta el cargador."

@@ -322,6 +322,15 @@ fn setup_shell(config_path: PathBuf) {
     // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
     platform_layershell::watch(crate::core::ipc::serve, crate::core::ipc::handle);
 
+    // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
+    // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live
+    // config, which only the driver thread can read. Costs nothing on a desktop — the producer retires when
+    // there is no battery to read.
+    platform_layershell::watch(
+        crate::shared::services::battery::subscribe,
+        crate::shared::services::battery::on_reading,
+    );
+
     let on_config_change = Rc::clone(&reconcile);
     platform_layershell::watch(
         move |tx| watch_config_changes(config_path, tx),

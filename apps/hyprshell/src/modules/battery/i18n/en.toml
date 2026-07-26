@@ -8,3 +8,7 @@ unknown = "Unknown"
 none = "No battery"
 remaining = "{time} remaining"
 until_full = "Charging · {time} until full"
+
+[battery.warning]
+title = "Battery low"
+body = "{level}% left — plug in the charger."

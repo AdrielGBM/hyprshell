@@ -623,6 +623,93 @@ impl Default for TemperatureConfig {
     }
 }
 
+/// One charge level worth interrupting the user about, declared as a `[[battery.warn_levels]]` table. It fires
+/// once as the charge crosses down through `level` while discharging, and re-arms once the battery is charging
+/// again — so a laptop left at 19 % does not warn every minute.
+///
+/// `title` and `message` left empty take the shell's own translated text, so the defaults follow the UI
+/// language instead of pinning English into everyone's config; `{level}` in either is replaced with the charge
+/// at the moment it fired.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct BatteryWarning {
+    pub level: i32,
+    pub title: String,
+    pub message: String,
+    pub icon: String,
+    /// Raise it at `Critical` urgency, so with the default `critical_sticky` it waits to be read rather than
+    /// timing out behind whatever the user is doing.
+    pub critical: bool,
+}
+
+impl Default for BatteryWarning {
+    fn default() -> Self {
+        Self {
+            level: 20,
+            title: String::new(),
+            message: String::new(),
+            icon: "battery-low".to_string(),
+            critical: false,
+        }
+    }
+}
+
+impl BatteryWarning {
+    /// The notification title: the user's own text, else the shell's translated default.
+    pub fn title(&self, level: i32) -> String {
+        let configured = self.title.trim();
+        if configured.is_empty() {
+            rsx::t!("battery.warning.title")
+        } else {
+            configured.replace("{level}", &level.to_string())
+        }
+    }
+
+    pub fn message(&self, level: i32) -> String {
+        let configured = self.message.trim();
+        if configured.is_empty() {
+            rsx::t!("battery.warning.body", level = level.to_string())
+        } else {
+            configured.replace("{level}", &level.to_string())
+        }
+    }
+}
+
+/// Low-battery behaviour (`[battery]`): the levels that raise a notification, and the action to take once the
+/// charge is low enough that the machine should put itself away. On a desktop none of it ever fires, since
+/// there is no battery to read.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct BatteryConfig {
+    pub enabled: bool,
+    pub warn_levels: Vec<BatteryWarning>,
+    /// Charge at or below which `critical_action` runs; `0` (the default) never acts on the user's behalf.
+    pub critical_level: i32,
+    /// A `session` action id — `suspend`, `hibernate`, `shutdown`; empty runs nothing.
+    pub critical_action: String,
+}
+
+impl Default for BatteryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            // Two warnings out of the box: a laptop shell that silently runs a battery flat is a bug, and a
+            // desktop never reaches this code because it has no battery to report.
+            warn_levels: vec![
+                BatteryWarning::default(),
+                BatteryWarning {
+                    level: 10,
+                    icon: "battery-warning".to_string(),
+                    critical: true,
+                    ..BatteryWarning::default()
+                },
+            ],
+            critical_level: 0,
+            critical_action: String::new(),
+        }
+    }
+}
+
 /// The application launcher: a modal opened by keybind or IPC.
 ///
 /// `fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
@@ -745,6 +832,7 @@ pub struct Config {
     pub audio: AudioConfig,
     pub brightness: BrightnessConfig,
     pub temperature: TemperatureConfig,
+    pub battery: BatteryConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -860,6 +948,7 @@ impl Config {
             audio: AudioConfig::default(),
             brightness: BrightnessConfig::default(),
             temperature: TemperatureConfig::default(),
+            battery: BatteryConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1431,6 +1520,64 @@ end = ["battery", "volume"]
         assert_eq!(cfg.temperature.critical, 85.0, "unset fields keep their defaults");
         assert_eq!(cfg.temperature.unit.from_celsius(100.0), 212.0);
         assert_eq!(cfg.temperature.unit.format(20.0), "68°F");
+    }
+
+    #[test]
+    fn battery_ships_with_warnings_and_never_acts_unasked() {
+        let d: Config = toml::from_str("").unwrap();
+        assert!(d.battery.enabled);
+        assert_eq!(
+            d.battery.warn_levels.iter().map(|w| w.level).collect::<Vec<_>>(),
+            vec![20, 10],
+            "a laptop shell that silently runs a battery flat is a bug"
+        );
+        assert_eq!(
+            d.battery.critical_level, 0,
+            "suspending the machine is opt-in, not a default"
+        );
+        assert!(d.battery.critical_action.is_empty());
+
+        let cfg: Config = toml::from_str(
+            "[battery]\ncritical_level = 3\ncritical_action = \"suspend\"\n\
+             [[battery.warn_levels]]\nlevel = 15\ntitle = \"Low\"\ncritical = true\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.battery.critical_level, 3);
+        assert_eq!(cfg.battery.critical_action, "suspend");
+        assert_eq!(
+            cfg.battery.warn_levels.len(),
+            1,
+            "declaring thresholds replaces the defaults rather than adding to them"
+        );
+        assert_eq!(cfg.battery.warn_levels[0].title(15), "Low");
+    }
+
+    #[test]
+    fn a_section_holding_an_array_of_tables_survives_a_save() {
+        // `[[battery.warn_levels]]` is the first list-of-tables in the config, and TOML only accepts a table's
+        // scalar keys *before* its arrays of tables — a naive serializer would emit `critical_level` inside the
+        // last warning. Both the whole-file write and the format-preserving per-section save must get it right.
+        let dir = std::env::temp_dir().join(format!("hyprshell-aot-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "# kept\n[theme]\naccent = \"orange\"\n").unwrap();
+
+        let battery = BatteryConfig {
+            critical_level: 4,
+            critical_action: "suspend".to_string(),
+            ..BatteryConfig::default()
+        };
+        Config::save_section(&path, "battery", &battery).unwrap();
+
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("# kept"), "the untouched file survives");
+        let reloaded: Config = toml::from_str(&out).expect("what was written parses back");
+        assert_eq!(reloaded.battery.critical_level, 4);
+        assert_eq!(reloaded.battery.critical_action, "suspend");
+        assert_eq!(reloaded.battery.warn_levels.len(), 2);
+        assert_eq!(reloaded.battery.warn_levels[1].level, 10);
+        assert_eq!(reloaded.theme.accent, "orange", "the other section is untouched");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

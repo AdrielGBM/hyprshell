@@ -237,6 +237,12 @@ pub fn subscribe(tx: EventSender<SharedSnapshot>) {
 /// app's notifications land on. `Critical` urgency, so with the default `critical_sticky` it waits to be read
 /// rather than timing out. Falls back to stderr before the daemon is up.
 pub fn notify_local(app_name: &str, summary: &str, body: &str) {
+    notify_shell(app_name, summary, body, "", Urgency::Critical);
+}
+
+/// [`notify_local`] with an icon and an urgency of its own — for the shell's own *advisories* (a battery
+/// running low) rather than its errors, which should not all shout at `Critical`.
+pub fn notify_shell(app_name: &str, summary: &str, body: &str, app_icon: &str, urgency: Urgency) {
     let Some(service) = SERVICE.get() else {
         eprintln!("{app_name}: {summary} — {body}");
         return;
@@ -245,11 +251,11 @@ pub fn notify_local(app_name: &str, summary: &str, body: &str) {
         Notification {
             id: 0,
             app_name: app_name.to_string(),
-            app_icon: String::new(),
+            app_icon: app_icon.to_string(),
             summary: summary.to_string(),
             body: body.to_string(),
             actions: Vec::new(),
-            urgency: Urgency::Critical,
+            urgency,
             popup: true,
             image: None,
         },
