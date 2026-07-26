@@ -14,7 +14,7 @@ use rsx::{
 use crate::core::config::StatusIconsConfig;
 use crate::shared::glyph;
 use crate::shared::icon::icon_view;
-use crate::shared::services::{battery, lockkeys, network, volume};
+use crate::shared::services::{battery, bluetooth, lockkeys, network, volume};
 use crate::shared::theme::NordTheme;
 
 /// One reading the cluster can show. The names are the ones `[status_icons] icons` accepts, and they match the
@@ -24,6 +24,7 @@ pub enum StatusIcon {
     Volume,
     Mic,
     Network,
+    Bluetooth,
     Battery,
     Caps,
     Num,
@@ -35,6 +36,7 @@ impl StatusIcon {
             "volume" => Self::Volume,
             "mic" => Self::Mic,
             "network" => Self::Network,
+            "bluetooth" => Self::Bluetooth,
             "battery" => Self::Battery,
             "caps" => Self::Caps,
             "num" => Self::Num,
@@ -47,6 +49,7 @@ impl StatusIcon {
             Self::Volume => "volume",
             Self::Mic => "mic",
             Self::Network => "network",
+            Self::Bluetooth => "bluetooth",
             Self::Battery => "battery",
             Self::Caps => "caps",
             Self::Num => "num",
@@ -114,6 +117,21 @@ fn icon(
             icon_view(
                 move || glyph::network(read.get()).to_string(),
                 move || fg.get(),
+                size,
+            )
+        }
+        StatusIcon::Bluetooth => {
+            let state = signal(
+                bluetooth::current()
+                    .map(|bt| bt.status())
+                    .unwrap_or_default(),
+            );
+            let glyph_state = state.read_only();
+            let tint_state = state.read_only();
+            platform_layershell::watch(bluetooth::subscribe, move |bt| state.set(bt.status()));
+            icon_view(
+                move || glyph::bluetooth(glyph_state.get()).to_string(),
+                move || glyph::bluetooth_tint(tint_state.get(), theme, theme.accent, fg.get()),
                 size,
             )
         }
@@ -218,7 +236,7 @@ mod tests {
     #[test]
     fn every_name_round_trips_and_matches_its_module_id() {
         // A user moving a reading between the cluster and its own chip should not have to rename it.
-        for name in ["volume", "mic", "network", "battery"] {
+        for name in ["volume", "mic", "network", "bluetooth", "battery"] {
             let icon = StatusIcon::from_id(name).expect("a known icon");
             assert_eq!(icon.as_str(), name);
             assert!(
@@ -230,6 +248,31 @@ mod tests {
         assert_eq!(StatusIcon::from_id("caps"), Some(StatusIcon::Caps));
         assert_eq!(StatusIcon::from_id("num"), Some(StatusIcon::Num));
         assert_eq!(StatusIcon::from_id("lockstatus"), None);
+    }
+
+    /// Every icon in one cluster, built for real. Each arm of [`icon`] wires its own subscription and reads
+    /// the shared foreground signal in its tint closure; doing that from inside another signal's `with` is a
+    /// re-entrant borrow of the reactive runtime, which panics at build time and nowhere else.
+    #[test]
+    fn every_icon_the_cluster_offers_builds() {
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let fg = signal(NordTheme::new().text).read_only();
+        for which in [
+            StatusIcon::Volume,
+            StatusIcon::Mic,
+            StatusIcon::Network,
+            StatusIcon::Bluetooth,
+            StatusIcon::Battery,
+            StatusIcon::Caps,
+            StatusIcon::Num,
+        ] {
+            assert!(
+                icon(which, fg.clone(), NordTheme::new(), 16.0).is_ok(),
+                "'{}' builds",
+                which.as_str()
+            );
+        }
     }
 
     #[test]

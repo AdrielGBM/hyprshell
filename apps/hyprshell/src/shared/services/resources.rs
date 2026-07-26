@@ -27,7 +27,7 @@ pub const HISTORY: usize = 60;
 
 /// A fixed-length window of recent readings, oldest first. Kept by the service rather than by each card, so
 /// several cards charting the same series show the same history instead of each starting blank on open.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct History(VecDeque<f32>);
 
 impl History {

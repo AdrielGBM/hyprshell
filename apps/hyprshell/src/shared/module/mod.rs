@@ -282,19 +282,29 @@ mod tests {
         const HAS_PANEL: &[&str] = &[
             "clock",
             "battery",
+            "bluetooth",
             "notifications",
             "notes",
             "settings",
             "session",
         ];
         let registry = default_registry();
-        for id in ["clock", "battery", "notifications", "notes", "settings", "session"] {
+        for id in HAS_PANEL {
             let def = registry.def(id).unwrap_or_else(|| panic!("'{id}' is registered"));
             assert!(
                 matches!(def.click, Some(ModuleClick::Panel)),
                 "'{id}' should open a panel"
             );
-            assert!(HAS_PANEL.contains(&id), "'{id}' must be routed in module_panel");
+        }
+        // The direction that actually catches drift: a module wired with `.opens()` and left out of
+        // `module_panel` shows the clock instead, which is a shipping bug rather than a compile error.
+        for (id, def) in &registry.modules {
+            if matches!(def.click, Some(ModuleClick::Panel)) {
+                assert!(
+                    HAS_PANEL.contains(&id.as_str()),
+                    "'{id}' opens a panel, so it must be routed in `module_panel`"
+                );
+            }
         }
     }
 
@@ -429,6 +439,7 @@ pub fn default_registry() -> ModuleRegistry {
             .on_scroll(crate::modules::media::scroll),
     );
     registry.register("cpu", ModuleDef::new(|_ctx| crate::cpu()));
+    registry.register("gpu", ModuleDef::new(|_ctx| crate::gpu()));
     registry.register("memory", ModuleDef::new(|_ctx| crate::memory()));
     registry.register("temperature", ModuleDef::new(|_ctx| crate::temperature()));
     registry.register("netspeed", ModuleDef::new(|_ctx| crate::netspeed()));
@@ -437,6 +448,12 @@ pub fn default_registry() -> ModuleRegistry {
         ModuleDef::new(|_ctx| crate::battery()).icon().opens(),
     );
     registry.register("network", ModuleDef::new(|_ctx| crate::network()).icon());
+    registry.register(
+        "bluetooth",
+        ModuleDef::new(|_ctx| crate::modules::bluetooth::chip())
+            .icon()
+            .opens(),
+    );
     registry.register(
         "volume",
         ModuleDef::new(|_ctx| crate::volume())

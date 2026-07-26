@@ -7,7 +7,9 @@
 
 use rsx::Color;
 
+use crate::shared::services::bluetooth::Status;
 use crate::shared::services::network::{Network, NetworkKind};
+use crate::shared::services::weather::Condition;
 use crate::shared::services::volume::Volume;
 use crate::shared::theme::NordTheme;
 
@@ -49,6 +51,54 @@ pub fn network(net: Network) -> &'static str {
     }
 }
 
+/// The radio's state in one glyph, most specific first: something connected outranks a scan, and a scan
+/// outranks an idle radio, because that is the order a user cares about them in.
+///
+/// Takes the `Copy` summary rather than the whole state so a chip can hold it in a signal and read it with a
+/// plain `get`; see [`bluetooth::Status`](crate::shared::services::bluetooth::Status).
+pub fn bluetooth(bt: Status) -> &'static str {
+    if !bt.available || !bt.powered {
+        "bluetooth-off"
+    } else if bt.connected > 0 {
+        "bluetooth-connected"
+    } else if bt.discovering {
+        "bluetooth-searching"
+    } else {
+        "bluetooth"
+    }
+}
+
+/// A connected radio reads in the accent, so "something is paired" is visible without reading the glyph's
+/// shape; an unavailable one recedes. `fg` is what the caller would otherwise paint with.
+pub fn bluetooth_tint(bt: Status, theme: NordTheme, accent: Color, fg: Color) -> Color {
+    if !bt.available || !bt.powered {
+        theme.muted
+    } else if bt.connected > 0 {
+        accent
+    } else {
+        fg
+    }
+}
+
+/// What kind of thing a Bluetooth device is, from BlueZ's `Icon` property. BlueZ names a freedesktop icon the
+/// user's theme may or may not carry; mapping it to the shell's own icon set is what makes a headset draw as a
+/// headset on every machine rather than only where that theme is installed.
+pub fn bluetooth_device(icon: &str) -> &'static str {
+    match icon {
+        "audio-headset" | "audio-headphones" => "headphones",
+        "audio-card" | "audio-speakers" => "speaker",
+        "input-keyboard" => "keyboard",
+        "input-mouse" | "input-tablet" => "mouse",
+        "input-gaming" => "gamepad-2",
+        "phone" => "smartphone",
+        "computer" => "laptop",
+        "printer" => "printer",
+        "camera-photo" | "camera-video" => "camera",
+        "network-wireless" => "wifi",
+        _ => "bluetooth",
+    }
+}
+
 pub fn battery(charging: bool) -> &'static str {
     if charging {
         "battery-charging"
@@ -70,6 +120,33 @@ pub fn battery_tint(level: i32, charging: bool, theme: NordTheme, fg: Color) -> 
     } else {
         fg
     }
+}
+
+/// The sky. `day` picks between the sun and moon variants where the two differ, which is the difference
+/// between a clear night and a card that claims the sun is out at 2am.
+pub fn weather(condition: Condition, day: bool) -> &'static str {
+    match condition {
+        Condition::Clear if day => "sun",
+        Condition::Clear => "moon",
+        Condition::MostlyClear if day => "cloud-sun",
+        Condition::MostlyClear => "cloud-moon",
+        Condition::Cloudy => "cloud",
+        Condition::Overcast => "cloudy",
+        Condition::Fog => "cloud-fog",
+        Condition::Drizzle => "cloud-drizzle",
+        Condition::Rain => "cloud-rain",
+        Condition::FreezingRain => "cloud-hail",
+        Condition::Snow | Condition::SnowShowers => "cloud-snow",
+        Condition::Showers => "cloud-rain-wind",
+        Condition::Thunderstorm => "cloud-lightning",
+        Condition::Unknown => "cloud",
+    }
+}
+
+/// The graphics card. Lucide has a `cpu` and nothing for a GPU, and drawing both readings with the same chip
+/// glyph would make two numbers on one bar indistinguishable — so this one comes from MDI.
+pub fn gpu() -> &'static str {
+    "mdi:expansion-card"
 }
 
 pub fn caps_lock() -> &'static str {
@@ -121,6 +198,52 @@ mod tests {
             "ethernet-port",
             "a wired link ignores the signal field it does not have"
         );
+    }
+
+    #[test]
+    fn the_bluetooth_glyph_reports_the_most_specific_state() {
+        let radio = |powered, connected, discovering| Status {
+            available: true,
+            powered,
+            discovering,
+            connected,
+        };
+        assert_eq!(bluetooth(Status::default()), "bluetooth-off", "no radio");
+        assert_eq!(bluetooth(radio(false, 0, false)), "bluetooth-off");
+        assert_eq!(bluetooth(radio(true, 0, false)), "bluetooth");
+        assert_eq!(bluetooth(radio(true, 0, true)), "bluetooth-searching");
+        assert_eq!(
+            bluetooth(radio(true, 1, true)),
+            "bluetooth-connected",
+            "a connected device outranks a scan still running behind it"
+        );
+
+        let theme = NordTheme::new();
+        assert_eq!(
+            bluetooth_tint(radio(true, 1, false), theme, theme.orange, theme.text),
+            theme.orange
+        );
+        assert_eq!(
+            bluetooth_tint(radio(true, 0, false), theme, theme.orange, theme.text),
+            theme.text
+        );
+        assert_eq!(
+            bluetooth_tint(Status::default(), theme, theme.orange, theme.text),
+            theme.muted
+        );
+    }
+
+    #[test]
+    fn the_sky_reads_differently_by_night() {
+        assert_eq!(weather(Condition::Clear, true), "sun");
+        assert_eq!(weather(Condition::Clear, false), "moon");
+        assert_eq!(weather(Condition::MostlyClear, false), "cloud-moon");
+        // Everything with weather in it looks the same at either hour, so it draws the same glyph.
+        assert_eq!(
+            weather(Condition::Rain, true),
+            weather(Condition::Rain, false)
+        );
+        assert_eq!(weather(Condition::Thunderstorm, true), "cloud-lightning");
     }
 
     #[test]

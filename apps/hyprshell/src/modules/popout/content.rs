@@ -11,7 +11,8 @@ use super::card::{Card, fixed};
 use crate::core::config::Config;
 use crate::shared::glyph;
 use crate::shared::services::{
-    battery, brightness, hyprland, lockkeys, mpris, netspeed, network, resources, volume,
+    battery, bluetooth, brightness, gpu, hyprland, lockkeys, mpris, netspeed, network, resources,
+    volume,
 };
 use crate::shared::theme::NordTheme;
 
@@ -24,11 +25,13 @@ pub const WITH_POPOUT: &[&str] = &[
     "brightness",
     "battery",
     "network",
+    "bluetooth",
     "kblayout",
     "lockstatus",
     "activewindow",
     "media",
     "cpu",
+    "gpu",
     "memory",
     "temperature",
     "netspeed",
@@ -51,11 +54,13 @@ pub fn build(
         "brightness" => brightness_card(theme),
         "battery" => battery_card(theme),
         "network" => network_card(),
+        "bluetooth" => bluetooth_card(theme),
         "kblayout" => keyboard_card(),
         "lockstatus" => lock_card(),
         "activewindow" => window_card(),
         "media" => media_card(),
         "cpu" => cpu_card(theme),
+        "gpu" => gpu_card(theme),
         "memory" => memory_card(theme),
         "temperature" => temperature_card(config, theme),
         "netspeed" => netspeed_card(),
@@ -260,6 +265,61 @@ fn kind_label(kind: network::NetworkKind) -> String {
     }
 }
 
+/// The chip is one glyph for four states; the popout is where "connected to what, and how much charge is left
+/// in it" fits. Which is the question a Bluetooth indicator is actually read for.
+fn bluetooth_card(theme: NordTheme) -> Card {
+    let state = signal(bluetooth::current().unwrap_or_default());
+    let sink = state.clone();
+    platform_layershell::watch(bluetooth::subscribe, move |bt| sink.set(bt));
+
+    Card::titled(rsx::t!("bluetooth.title"))
+        .icon(derive(state.clone(), |bt| {
+            glyph::bluetooth(bt.status()).to_string()
+        }))
+        .icon_tint(derive(state.clone(), move |bt| {
+            glyph::bluetooth_tint(bt.status(), theme, theme.accent, theme.text)
+        }))
+        .subtitle(derive(state.clone(), |bt| {
+            if !bt.available {
+                rsx::t!("bluetooth.no_adapter")
+            } else if !bt.powered {
+                rsx::t!("bluetooth.off")
+            } else if bt.discovering {
+                rsx::t!("bluetooth.scanning")
+            } else {
+                rsx::t!("bluetooth.connected_count", count = bt.connected_count().to_string())
+            }
+        }))
+        .row(
+            fixed(rsx::t!("popout.status")),
+            derive(state.clone(), |bt| {
+                if !bt.available {
+                    rsx::t!("bluetooth.no_adapter")
+                } else if bt.powered {
+                    rsx::t!("bluetooth.on")
+                } else {
+                    rsx::t!("bluetooth.off")
+                }
+            }),
+        )
+        .row(
+            fixed(rsx::t!("bluetooth.connected")),
+            derive(state.clone(), |bt| match bt.primary() {
+                Some(device) => device.label(),
+                None => rsx::t!("sysinfo.no_reading"),
+            }),
+        )
+        .row(
+            fixed(rsx::t!("popout.battery")),
+            derive(state.clone(), |bt| {
+                match bt.primary().and_then(|d| d.battery) {
+                    Some(level) => format!("{level}%"),
+                    None => rsx::t!("sysinfo.no_reading"),
+                }
+            }),
+        )
+}
+
 /// The chip shows a two-letter code; the popout is where the layout's full name fits.
 fn keyboard_card() -> Card {
     let initial = hyprland::socket_dir()
@@ -385,6 +445,51 @@ fn cpu_card(theme: NordTheme) -> Card {
                 Some(mhz) if mhz >= 1000.0 => format!("{:.2} GHz", mhz / 1000.0),
                 Some(mhz) => format!("{mhz:.0} MHz"),
                 None => rsx::t!("sysinfo.no_reading"),
+            }),
+        )
+}
+
+/// The GPU's card is the CPU's shape with a different set of unknowns: which of usage, temperature and VRAM a
+/// card answers is a property of its driver, so each row says "—" rather than a zero it did not measure.
+fn gpu_card(theme: NordTheme) -> Card {
+    let state = signal(gpu::current().unwrap_or_default());
+    let sink = state.clone();
+    platform_layershell::watch(gpu::subscribe, move |g| sink.set(g));
+
+    Card::titled(rsx::t!("sysinfo.gpu"))
+        .icon(fixed(glyph::gpu()))
+        .subtitle(derive(state.clone(), |g| {
+            let name = g.name.trim().to_string();
+            if name.is_empty() {
+                rsx::t!("sysinfo.no_reading")
+            } else {
+                name
+            }
+        }))
+        .meter(
+            derive(state.clone(), |g| g.usage.unwrap_or(0.0) / 100.0),
+            fixed_color(theme.accent),
+        )
+        .row(
+            fixed(rsx::t!("popout.usage")),
+            derive(state.clone(), |g| percent(g.usage)),
+        )
+        .row(
+            fixed(rsx::t!("popout.sensor")),
+            derive(state.clone(), |g| match g.temperature {
+                Some(c) => format!("{c:.0} °C"),
+                None => rsx::t!("sysinfo.no_reading"),
+            }),
+        )
+        .row(
+            fixed(rsx::t!("popout.vram")),
+            derive(state.clone(), |g| match (g.vram_used, g.vram_total) {
+                (Some(used), Some(total)) if total > 0 => format!(
+                    "{} / {}",
+                    resources::format_bytes(used),
+                    resources::format_bytes(total)
+                ),
+                _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
 }
@@ -628,11 +733,13 @@ mod tests {
                         | "brightness"
                         | "battery"
                         | "network"
+                        | "bluetooth"
                         | "kblayout"
                         | "lockstatus"
                         | "activewindow"
                         | "media"
                         | "cpu"
+                        | "gpu"
                         | "memory"
                         | "temperature"
                         | "netspeed"

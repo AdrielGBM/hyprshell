@@ -417,6 +417,187 @@ static TARGETS: &[Target] = &[
         ],
     },
     Target {
+        name: "weather",
+        commands: &[
+            Command {
+                name: "now",
+                args: "",
+                help: "the current conditions: place, temperature and sky",
+                run: |_| {
+                    use crate::shared::services::weather;
+                    let w = weather::current().ok_or("no weather reading yet")?;
+                    Ok(format!(
+                        "{}\t{:.1}\t{}",
+                        w.place,
+                        w.temperature,
+                        w.condition().id()
+                    ))
+                },
+            },
+            Command {
+                name: "forecast",
+                args: "",
+                help: "one line per day: date, high, low and chance of rain",
+                run: |_| {
+                    use crate::shared::services::weather;
+                    let w = weather::current().ok_or("no weather reading yet")?;
+                    let rows: Vec<String> = w
+                        .days
+                        .iter()
+                        .map(|d| {
+                            format!(
+                                "{}\t{:.0}\t{:.0}\t{}%",
+                                d.date, d.high, d.low, d.precipitation
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+        ],
+    },
+    Target {
+        name: "gamemode",
+        commands: &[
+            Command {
+                name: "status",
+                args: "",
+                help: "whether GameMode is active, how many clients hold it, and whether the shell is one",
+                run: |_| {
+                    use crate::shared::services::gamemode;
+                    let state = gamemode::current().filter(|s| s.available);
+                    let state = state.ok_or("gamemoded is not running")?;
+                    Ok(format!(
+                        "{}\t{}\t{}",
+                        on_off(state.active),
+                        state.clients,
+                        on_off(state.held)
+                    ))
+                },
+            },
+            Command {
+                name: "set",
+                args: "<on|off|toggle>",
+                help: "hold GameMode from the shell, or drop the shell's hold",
+                run: |args| {
+                    use crate::shared::services::gamemode;
+                    match arg(args, 0, "state")? {
+                        "on" => gamemode::set_held(true),
+                        "off" => gamemode::set_held(false),
+                        "toggle" => gamemode::toggle(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok("ok".to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "bluetooth",
+        commands: &[
+            Command {
+                name: "status",
+                args: "",
+                help: "the adapter's power, scan state and how many devices are connected",
+                run: |_| {
+                    use crate::shared::services::bluetooth;
+                    let bt = bluetooth::current().filter(|bt| bt.available);
+                    let bt = bt.ok_or("no bluetooth adapter")?;
+                    Ok(format!(
+                        "{}\t{}\t{}",
+                        on_off(bt.powered),
+                        on_off(bt.discovering),
+                        bt.connected_count()
+                    ))
+                },
+            },
+            Command {
+                name: "devices",
+                args: "",
+                help: "every known device: path, state and name",
+                run: |_| {
+                    use crate::shared::services::bluetooth;
+                    let bt = bluetooth::current().ok_or("no bluetooth adapter")?;
+                    let rows: Vec<String> = bt
+                        .devices
+                        .iter()
+                        .map(|d| {
+                            let state = if d.connected {
+                                "connected"
+                            } else if d.paired {
+                                "paired"
+                            } else {
+                                "available"
+                            };
+                            format!("{}\t{}\t{}", d.path, state, d.label())
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
+                name: "power",
+                args: "<on|off|toggle>",
+                help: "switch the adapter on or off",
+                run: |args| {
+                    use crate::shared::services::bluetooth;
+                    match arg(args, 0, "state")? {
+                        "on" => bluetooth::set_powered(true),
+                        "off" => bluetooth::set_powered(false),
+                        "toggle" => bluetooth::toggle_powered(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok("ok".to_string())
+                },
+            },
+            Command {
+                name: "scan",
+                args: "<on|off|toggle>",
+                help: "start or stop looking for devices (a scan stops itself)",
+                run: |args| {
+                    use crate::shared::services::bluetooth;
+                    match arg(args, 0, "state")? {
+                        "on" => bluetooth::set_discovering(true),
+                        "off" => bluetooth::set_discovering(false),
+                        "toggle" => bluetooth::toggle_discovering(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok("ok".to_string())
+                },
+            },
+            Command {
+                name: "connect",
+                args: "<device-path>",
+                help: "connect a device, pairing it first if it is new",
+                run: |args| {
+                    let path = arg(args, 0, "device-path")?;
+                    crate::shared::services::bluetooth::connect(path);
+                    Ok(path.to_string())
+                },
+            },
+            Command {
+                name: "disconnect",
+                args: "<device-path>",
+                help: "disconnect a device",
+                run: |args| {
+                    let path = arg(args, 0, "device-path")?;
+                    crate::shared::services::bluetooth::disconnect(path);
+                    Ok(path.to_string())
+                },
+            },
+            Command {
+                name: "forget",
+                args: "<device-path>",
+                help: "remove a pairing entirely",
+                run: |args| {
+                    let path = arg(args, 0, "device-path")?;
+                    crate::shared::services::bluetooth::forget(path);
+                    Ok(path.to_string())
+                },
+            },
+        ],
+    },
+    Target {
         name: "media",
         commands: &[
             Command {

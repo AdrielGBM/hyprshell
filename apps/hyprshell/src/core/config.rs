@@ -941,6 +941,55 @@ impl Default for LockStatusConfig {
     }
 }
 
+/// The weather (`[weather]`).
+///
+/// `location` is a place name (`"Madrid"`), geocoded once; `latitude`/`longitude` skip that step. With none of
+/// them set the service asks an IP-geolocation endpoint where this connection is — which is the only part of
+/// the feature that tells a third party anything, and setting either of the others avoids it.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct WeatherConfig {
+    pub location: String,
+    pub latitude: Option<f32>,
+    pub longitude: Option<f32>,
+    /// Minutes between refreshes. Clamped on read: the forecast changes hourly, and hammering a free service
+    /// every few seconds is how a shell gets its users rate-limited.
+    pub refresh_minutes: u32,
+    pub forecast_days: u32,
+}
+
+impl Default for WeatherConfig {
+    fn default() -> Self {
+        Self {
+            location: String::new(),
+            latitude: None,
+            longitude: None,
+            refresh_minutes: 15,
+            forecast_days: 7,
+        }
+    }
+}
+
+impl WeatherConfig {
+    /// The configured point, when both halves of it are given. One without the other is not a location, so it
+    /// falls through to the place name rather than being read as a point on the equator.
+    pub fn coordinates(&self) -> Option<crate::shared::services::weather::Coordinates> {
+        Some(crate::shared::services::weather::Coordinates {
+            latitude: self.latitude?,
+            longitude: self.longitude?,
+        })
+    }
+
+    pub fn refresh(&self) -> Duration {
+        Duration::from_secs(self.refresh_minutes.clamp(5, 24 * 60) as u64 * 60)
+    }
+
+    /// Open-Meteo serves up to 16 days; asking for none would make the daily block empty.
+    pub fn forecast_days(&self) -> u32 {
+        self.forecast_days.clamp(1, 16)
+    }
+}
+
 /// Where the shell reads and writes user content (`[paths]`).
 ///
 /// Every entry is empty by default, meaning "work it out": the wallpaper, screenshot and recording directories
@@ -955,6 +1004,60 @@ pub struct PathsConfig {
     pub screenshots: String,
     /// Searched before the shell's built-in assets, so one can be substituted without rebuilding.
     pub assets: String,
+}
+
+/// The graphics processor (`[gpu]`).
+///
+/// `backend` is `auto` (the default), one of `amd` / `intel` / `nvidia`, or `none` to switch the service off
+/// entirely. Forcing one matters on a laptop with switchable graphics: the kernel lists the integrated GPU
+/// first, and "the first card with a driver we can read" is then the wrong one. `card` names the `drm` entry
+/// (`card1`) directly, which is the only way to tell two cards from the same vendor apart.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct GpuConfig {
+    pub backend: String,
+    pub card: String,
+}
+
+impl Default for GpuConfig {
+    fn default() -> Self {
+        Self {
+            backend: "auto".to_string(),
+            card: String::new(),
+        }
+    }
+}
+
+/// Bluetooth (`[bluetooth]`): the chip and the device list its panel shows.
+///
+/// `scan_on_open` is what makes "pair something new" one gesture instead of two — a panel opened to find a
+/// device starts looking, and stops when it closes, so no scan outlives the surface that asked for it.
+/// `show_unnamed` is off because a scan in a public place turns up dozens of devices BlueZ knows only an
+/// address for, and a list of addresses is not a list anyone can choose from.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct BluetoothConfig {
+    pub scan_on_open: bool,
+    /// Upper bound on the rows the panel lists, so a busy room can't grow the panel past the screen.
+    pub max_devices: u32,
+    pub show_unnamed: bool,
+}
+
+impl Default for BluetoothConfig {
+    fn default() -> Self {
+        Self {
+            scan_on_open: true,
+            max_devices: 12,
+            show_unnamed: false,
+        }
+    }
+}
+
+impl BluetoothConfig {
+    /// At least one row, so a misconfigured cap cannot produce an empty panel with devices behind it.
+    pub fn device_limit(&self) -> usize {
+        self.max_devices.max(1) as usize
+    }
 }
 
 /// Whether `text` matches `pattern`, in which `*` stands for any run of characters. Matching ignores case.
@@ -1220,6 +1323,9 @@ pub struct Config {
     pub battery: BatteryConfig,
     pub lock_status: LockStatusConfig,
     pub status_icons: StatusIconsConfig,
+    pub bluetooth: BluetoothConfig,
+    pub gpu: GpuConfig,
+    pub weather: WeatherConfig,
     pub paths: PathsConfig,
     pub tray: TrayConfig,
     pub modules: HashMap<String, ModuleOverride>,
@@ -1341,6 +1447,9 @@ impl Config {
             battery: BatteryConfig::default(),
             lock_status: LockStatusConfig::default(),
             status_icons: StatusIconsConfig::default(),
+            bluetooth: BluetoothConfig::default(),
+            gpu: GpuConfig::default(),
+            weather: WeatherConfig::default(),
             paths: PathsConfig::default(),
             tray: TrayConfig::default(),
             modules: HashMap::new(),
@@ -1907,7 +2016,13 @@ end = ["battery", "volume"]
         assert_eq!(parsed.panels.drawer.width, starter.panels.drawer.width);
         assert_eq!(parsed.panels.float.width, starter.panels.float.width);
         assert_eq!(parsed.panels.gap, None);
+        // An unset coordinate is the one field type TOML has no value for, so it is the one that would break
+        // the write of a fresh config rather than merely round-trip oddly.
+        assert_eq!(parsed.weather.latitude, None);
+        assert_eq!(parsed.weather.refresh_minutes, starter.weather.refresh_minutes);
+        assert_eq!(parsed.gpu.backend, "auto");
         assert!(parsed.paths.wallpapers.is_empty());
+        assert_eq!(parsed.bluetooth.max_devices, starter.bluetooth.max_devices);
     }
 
     #[test]

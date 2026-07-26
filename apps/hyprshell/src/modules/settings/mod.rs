@@ -9,11 +9,11 @@ use serde::Serialize;
 
 use crate::core::config::{
     ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
-    BatteryConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
-    DrawerConfig, Edge, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig,
+    BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
+    DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig, IconsConfig, LauncherConfig,
     LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig,
     PanelsConfig, PathsConfig, PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig,
-    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WorkspacesConfig,
+    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -78,6 +78,9 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
         status_icons_section(&config, &path, theme)?,
+        bluetooth_section(&config, &path, theme)?,
+        gpu_section(&config, &path, theme)?,
+        weather_section(&config, &path, theme)?,
         paths_section(&config, &path, theme)?,
         tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
@@ -1155,6 +1158,99 @@ fn lock_status_section(
     section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
 }
 
+fn gpu_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let g = &config.gpu;
+    let backend = signal(g.backend.clone());
+    let card = signal(g.card.clone());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.backend"),
+            backend.clone(),
+            "auto",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.card"), card.clone(), "card1", theme)?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.gpu"), theme, move || {
+        let value = GpuConfig {
+            backend: backend.peek(),
+            card: card.peek(),
+        };
+        persist(&path, "gpu", &value);
+    })?;
+    section(|| rsx::t!("settings.section.gpu"), rows, save, theme)
+}
+
+fn weather_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let w = &config.weather;
+    let location = signal(w.location.clone());
+    let latitude = signal(w.latitude.map(|v| v.to_string()).unwrap_or_default());
+    let longitude = signal(w.longitude.map(|v| v.to_string()).unwrap_or_default());
+    let refresh = signal(w.refresh_minutes.to_string());
+    let days = signal(w.forecast_days.to_string());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.location"),
+            location.clone(),
+            "Madrid",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.latitude"),
+            latitude.clone(),
+            "40.4168",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.longitude"),
+            longitude.clone(),
+            "-3.7038",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.refresh_minutes"),
+            refresh.clone(),
+            "15",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.forecast_days"),
+            days.clone(),
+            "7",
+            theme,
+        )?,
+    ];
+
+    let base = w.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.weather"), theme, move || {
+        // A blank coordinate is "not set", not zero: a stray empty field must fall back to the place name
+        // rather than pinning the forecast to the Gulf of Guinea.
+        let optional = |raw: String| raw.trim().parse::<f32>().ok();
+        let value = WeatherConfig {
+            location: location.peek(),
+            latitude: optional(latitude.peek()),
+            longitude: optional(longitude.peek()),
+            refresh_minutes: parse_u32(&refresh.peek(), base.refresh_minutes),
+            forecast_days: parse_u32(&days.peek(), base.forecast_days),
+        };
+        persist(&path, "weather", &value);
+    })?;
+    section(|| rsx::t!("settings.section.weather"), rows, save, theme)
+}
+
 fn paths_section(
     config: &Config,
     path: &Path,
@@ -1215,6 +1311,47 @@ fn paths_section(
         persist(&path, "paths", &value);
     })?;
     section(|| rsx::t!("settings.section.paths"), rows, save, theme)
+}
+
+fn bluetooth_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let b = config.bluetooth;
+    let scan_on_open = signal(b.scan_on_open);
+    let max_devices = signal(b.max_devices.to_string());
+    let show_unnamed = signal(b.show_unnamed);
+
+    let rows = vec![
+        toggle_field(
+            || rsx::t!("settings.field.scan_on_open"),
+            scan_on_open.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_devices"),
+            max_devices.clone(),
+            "12",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_unnamed"),
+            show_unnamed.clone(),
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.bluetooth"), theme, move || {
+        let value = BluetoothConfig {
+            scan_on_open: scan_on_open.peek(),
+            max_devices: parse_u32(&max_devices.peek(), b.max_devices),
+            show_unnamed: show_unnamed.peek(),
+        };
+        persist(&path, "bluetooth", &value);
+    })?;
+    section(|| rsx::t!("settings.section.bluetooth"), rows, save, theme)
 }
 
 fn status_icons_section(

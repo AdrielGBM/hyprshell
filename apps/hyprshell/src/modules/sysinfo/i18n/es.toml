@@ -1,5 +1,6 @@
 [sysinfo]
 cpu = "CPU"
+gpu = "GPU"
 memory = "Memoria"
 temperature = "Temperatura"
 no_reading = "—"
