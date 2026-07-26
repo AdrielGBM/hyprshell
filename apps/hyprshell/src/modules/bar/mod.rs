@@ -1,9 +1,9 @@
 use rsx::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, StyledContainer,
+    SizeDimension, StyledContainer, track_layout,
 };
 
-use crate::core::config::{Config, Edge, ResolvedShape, Shape};
+use crate::core::config::{Config, Edge, ModuleEntry, ResolvedShape, Shape};
 use crate::shared::module::{
     ChipStyle, ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell,
     set_module_fg,
@@ -28,12 +28,12 @@ pub fn build_bar(
     };
     // `[corners]` sugar: corner modules are routed to the owning bar's start/end zones, not separate surfaces.
     let (lead, trail) = config.corner_modules_for(edge);
-    let mut start: Vec<String> = Vec::new();
-    start.extend(lead.map(str::to_string));
+    let mut start: Vec<ModuleEntry> = Vec::new();
+    start.extend(lead.map(ModuleEntry::bare));
     start.extend(bar.start.iter().cloned());
-    let mut end: Vec<String> = bar.end.clone();
-    end.extend(trail.map(str::to_string));
-    let zones = [
+    let mut end: Vec<ModuleEntry> = bar.end.clone();
+    end.extend(trail.map(ModuleEntry::bare));
+    let zones: Zones = [
         (start.as_slice(), JustifyContent::START),
         (bar.center.as_slice(), JustifyContent::CENTER),
         (end.as_slice(), JustifyContent::END),
@@ -47,6 +47,9 @@ pub fn build_bar(
         Shape::Chips => build_units(config, &chrome, &zones, registry, &ctx, Granularity::Chip),
     }
 }
+
+/// A bar's three zones, each the entries placed in it and how they pack along the bar.
+type Zones<'a> = [(&'a [ModuleEntry], JustifyContent); 3];
 
 #[derive(Clone, Copy)]
 struct Chrome {
@@ -64,16 +67,16 @@ enum Granularity {
 fn build_whole_bar(
     config: &Config,
     chrome: &Chrome,
-    zones: &[(&[String], JustifyContent); 3],
+    zones: &Zones,
     registry: &ModuleRegistry,
     ctx: &ModuleCtx,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let Chrome { edge, shape, theme } = *chrome;
     let spacing = shape.spacing;
     let mut slots = Vec::with_capacity(3);
-    for (ids, justify) in zones {
+    for (entries, justify) in zones {
         // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up. The hover/press (and Filled) highlight rounds at the theme's chip radius, matching chip mode.
-        let items = build_items(config, ids, registry, ctx, Color::TRANSPARENT, shape.chip_radius())?;
+        let items = build_items(config, entries, registry, ctx, Color::TRANSPARENT, shape.chip_radius())?;
         slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
     }
     let radius = shape.radius;
@@ -95,7 +98,7 @@ fn build_whole_bar(
 fn build_units(
     config: &Config,
     chrome: &Chrome,
-    zones: &[(&[String], JustifyContent); 3],
+    zones: &Zones,
     registry: &ModuleRegistry,
     ctx: &ModuleCtx,
     granularity: Granularity,
@@ -108,8 +111,8 @@ fn build_units(
         Granularity::Chip => (theme.surface, shape.chip_radius()),
     };
     let mut slots = Vec::with_capacity(3);
-    for (ids, justify) in zones {
-        let items = build_items(config, ids, registry, ctx, rest, shell_radius)?;
+    for (entries, justify) in zones {
+        let items = build_items(config, entries, registry, ctx, rest, shell_radius)?;
         let content: Vec<Box<dyn LayoutItem>> = if items.is_empty() {
             Vec::new()
         } else {
@@ -175,23 +178,44 @@ fn zone(
     Ok(Box::new(Container::new(style, items)?))
 }
 
-/// An invisible box that only exists to carry a wheel handler over a self-managed module's own content.
-fn scroll_wrapper(
+/// An invisible box wrapped around a module's own content to carry what its chip cannot: a wheel handler for a
+/// self-managed module (which has no [`module_shell`] to put one on), and the pointer tracking behind a hover
+/// popout. Both live here rather than on the chip so a self-managed module gets them on the same terms as any
+/// other; the wrapper shrink-wraps its child, so the rect it tracks is the chip's own.
+///
+/// `cross` is what the wrapper would otherwise silently change. A chip is a direct zone child under
+/// `AlignItems::STRETCH`, so it fills the bar's thickness; a wrapper that centred it instead would shrink every
+/// popout-bearing chip to its content. A self-managed module lays itself out and is centred, as it was before
+/// any wrapper existed.
+fn chip_wrapper(
     content: Box<dyn LayoutItem>,
-    on_scroll: fn(f32, f32),
+    module_id: &str,
+    on_scroll: Option<fn(f32, f32)>,
+    popout: bool,
+    cross: AlignItems,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let style = LayoutStyle::new()
         .flex_row()
-        .align_items(AlignItems::CENTER)
+        .align_items(cross)
         .flex_shrink(0.0);
-    Ok(Box::new(
-        StyledContainer::new(
-            style,
-            |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
-            vec![content],
-        )?
-        .on_scroll(on_scroll),
-    ))
+    let mut wrapper = StyledContainer::new(
+        style,
+        |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
+        vec![content],
+    )?;
+    if let Some(on_scroll) = on_scroll {
+        wrapper = wrapper.on_scroll(on_scroll);
+    }
+    if popout {
+        // Tracked before the handler that reads it is attached, so the popout has a rect the first time the pointer arrives.
+        let rect = track_layout(wrapper.layout_node())
+            .expect("a container registers its rect")
+            .read_only();
+        let module = module_id.to_string();
+        wrapper =
+            wrapper.on_hover(move |entered| crate::modules::popout::hover(&module, rect.get(), entered));
+    }
+    Ok(Box::new(wrapper))
 }
 
 fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
@@ -202,19 +226,22 @@ fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
     }
 }
 
-/// Builds each module's content, wraps it in its base container with the per-module variant/accent from config; a self-managed module (workspaces) is placed bare.
+/// Builds each entry's content and wraps it in its base container. The variant and accent come from the entry
+/// when it names them and from `[modules.<id>]` otherwise, which is what lets the same module sit on a bar
+/// twice looking different.
 fn build_items(
     config: &Config,
-    ids: &[String],
+    entries: &[ModuleEntry],
     registry: &ModuleRegistry,
     ctx: &ModuleCtx,
     rest: Color,
     radius: f32,
 ) -> Result<Vec<Box<dyn LayoutItem>>, LayoutError> {
-    let mut items: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(ids.len());
-    for id in ids {
-        let variant = config.variant_for(id);
-        let accent = ctx.theme.accent_by_name(config.accent_name_for(id));
+    let mut items: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let id = &entry.id;
+        let variant = config.entry_variant(entry);
+        let accent = ctx.theme.accent_by_name(config.entry_accent_name(entry));
         // Set the foreground BEFORE building the content so `module_fg()` snapshots this module's color.
         set_module_fg(module_foreground(variant, accent, ctx.theme));
         let content = match registry.build(id, ctx) {
@@ -226,12 +253,14 @@ fn build_items(
             }
         };
         let def = registry.def(id);
+        let popout = def.is_some_and(|d| d.popout) && config.popouts.enabled;
         if def.is_some_and(|d| d.self_managed) {
-            // A self-managed module skips `module_shell` — it paints its own layout — but a wheel handler still
-            // needs somewhere to live, so it gets a bare wrapper with no padding, fill or hover state.
-            match def.and_then(|d| d.scroll) {
-                Some(on_scroll) => items.push(scroll_wrapper(content, on_scroll)?),
-                None => items.push(content),
+            // A self-managed module skips `module_shell` — it paints its own layout — so its wheel handler and popout tracking go on a bare wrapper with no padding, fill or hover state.
+            let scroll = def.and_then(|d| d.scroll);
+            if scroll.is_none() && !popout {
+                items.push(content);
+            } else {
+                items.push(chip_wrapper(content, id, scroll, popout, AlignItems::CENTER)?);
             }
             continue;
         }
@@ -251,12 +280,13 @@ fn build_items(
             radius,
             square: def.is_some_and(|d| d.icon),
         };
-        items.push(module_shell(
-            content,
-            style,
-            on_press,
-            def.and_then(|d| d.scroll),
-        )?);
+        let chip = module_shell(content, style, on_press, def.and_then(|d| d.scroll))?;
+        // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
+        items.push(if popout {
+            chip_wrapper(chip, id, None, true, AlignItems::STRETCH)?
+        } else {
+            chip
+        });
     }
     Ok(items)
 }
@@ -279,6 +309,66 @@ mod tests {
         let mut r = ModuleRegistry::new();
         r.register("dummy", ModuleDef::new(dummy));
         r
+    }
+
+    /// A chip that carries a hover popout is wrapped in an extra box to track the pointer. That box sits
+    /// between the zone and the chip, so a press has to pass through it — and a wrapper that swallowed one
+    /// would leave every popout-bearing chip (volume, brightness, media, mic, battery) looking dead to a
+    /// click while still opening its card on hover.
+    #[test]
+    fn a_popout_wrapper_lets_a_click_through_to_the_chip() {
+        use rsx::{AvailableSpace, Event, PointerButton, PointerSource, compute_layout};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let clicked = Rc::new(Cell::new(false));
+        let sink = Rc::clone(&clicked);
+        reset_layout_runtime();
+        let chip = module_shell(
+            dummy(&ModuleCtx {
+                theme: NordTheme::new(),
+                accent: NordTheme::new().accent,
+                bar_size: 32,
+                edge: Edge::Top,
+            })
+            .unwrap(),
+            ChipStyle {
+                variant: crate::core::config::Variant::Default,
+                rest: Color::TRANSPARENT,
+                accent: NordTheme::new().accent,
+                theme: NordTheme::new(),
+                radius: 8.0,
+                square: true,
+            },
+            Some(Box::new(move || sink.set(true))),
+            None,
+        )
+        .unwrap();
+        let mut wrapped =
+            chip_wrapper(chip, "volume", None, true, AlignItems::STRETCH).unwrap();
+
+        let node = wrapped.layout_node();
+        compute_layout(
+            node,
+            AvailableSpace::Definite(200.0),
+            AvailableSpace::Definite(32.0),
+        )
+        .unwrap();
+
+        let (x, y) = (10.0, 10.0);
+        wrapped.on_event(&Event::PointerPressed {
+            x,
+            y,
+            button: PointerButton::Primary,
+            source: PointerSource::Mouse,
+        });
+        wrapped.on_event(&Event::PointerReleased {
+            x,
+            y,
+            button: PointerButton::Primary,
+            source: PointerSource::Mouse,
+        });
+        assert!(clicked.get(), "the chip's own press handler never fired");
     }
 
     #[test]

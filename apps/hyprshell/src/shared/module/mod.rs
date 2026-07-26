@@ -171,6 +171,10 @@ pub struct ModuleDef {
     pub click: Option<ModuleClick>,
     /// What the wheel does over the module, as `(dx, dy)` in pixels; `None` leaves the chip inert to scroll.
     pub scroll: Option<fn(f32, f32)>,
+    /// Whether resting the pointer on the chip opens its hover popout. Set from
+    /// [`popout::has_popout`](crate::modules::popout::has_popout) rather than declared twice, so a module can't
+    /// be wired for a card it has no content for.
+    pub popout: bool,
 }
 
 impl ModuleDef {
@@ -181,6 +185,7 @@ impl ModuleDef {
             icon: false,
             click: None,
             scroll: None,
+            popout: false,
         }
     }
 
@@ -228,6 +233,14 @@ impl ModuleRegistry {
 
     pub fn def(&self, id: &str) -> Option<&ModuleDef> {
         self.modules.get(id)
+    }
+
+    /// Marks every registered module the popout layer has card content for. Driven off that list rather than
+    /// declared per module, so the two cannot drift into a chip that opens an empty card.
+    pub fn wire_popouts(&mut self) {
+        for (id, def) in self.modules.iter_mut() {
+            def.popout = crate::modules::popout::has_popout(id);
+        }
     }
 
     pub fn build(
@@ -447,5 +460,7 @@ pub fn default_registry() -> ModuleRegistry {
             .icon()
             .opens(),
     );
+    // Wired from the one list that knows which modules have card content, so no chip is given a hover target it would open empty.
+    registry.wire_popouts();
     registry
 }

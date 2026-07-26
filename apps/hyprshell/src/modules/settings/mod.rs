@@ -11,8 +11,9 @@ use crate::core::config::{
     ActiveWindowConfig, Align, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
     BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig, LockStatusConfig,
-    MediaConfig, MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
-    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WorkspacesConfig,
+    MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig, PanelsConfig,
+    PopoutsConfig, Shape, ShapeConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
+    WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -66,6 +67,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         shape_section(&config, &path, theme)?,
         bars_section(&config, &path, theme)?,
         panels_section(&config, &path, theme)?,
+        popouts_section(&config, &path, theme)?,
         clock_section(&config, &path, theme)?,
         active_window_section(&config, &path, theme)?,
         media_section(&config, &path, theme)?,
@@ -326,9 +328,9 @@ struct BarSignals {
 fn bar_signals(bar: &BarConfig) -> BarSignals {
     BarSignals {
         size: signal(bar.size.to_string()),
-        start: signal(join_csv(&bar.start)),
-        center: signal(join_csv(&bar.center)),
-        end: signal(join_csv(&bar.end)),
+        start: signal(join_ids(&bar.start)),
+        center: signal(join_ids(&bar.center)),
+        end: signal(join_ids(&bar.end)),
     }
 }
 
@@ -364,11 +366,44 @@ fn bar_rows(
 fn bar_from(s: &BarSignals, base: &BarConfig) -> BarConfig {
     BarConfig {
         size: parse_u32(&s.size.peek(), base.size),
-        start: split_csv(&s.start.peek()),
-        center: split_csv(&s.center.peek()),
-        end: split_csv(&s.end.peek()),
+        start: entries_from_csv(&s.start.peek(), &base.start),
+        center: entries_from_csv(&s.center.peek(), &base.center),
+        end: entries_from_csv(&s.end.peek(), &base.end),
         shape: base.shape,
     }
+}
+
+fn join_ids(entries: &[ModuleEntry]) -> String {
+    entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Reads a zone back from its comma-separated ids, carrying each entry's table settings across.
+///
+/// The field edits ids only, so an entry written as `{ id = "clock", accent = "red" }` would otherwise lose its
+/// accent the first time anything else on the bar was saved. Each id claims the first not-yet-claimed entry
+/// with that id, which keeps both sets of settings when a module appears twice and survives a reorder.
+fn entries_from_csv(text: &str, base: &[ModuleEntry]) -> Vec<ModuleEntry> {
+    let mut claimed = vec![false; base.len()];
+    split_csv(text)
+        .into_iter()
+        .map(|id| {
+            let found = base
+                .iter()
+                .enumerate()
+                .find(|(index, entry)| !claimed[*index] && entry.id == id);
+            match found {
+                Some((index, entry)) => {
+                    claimed[index] = true;
+                    entry.clone()
+                }
+                None => ModuleEntry::bare(id),
+            }
+        })
+        .collect()
 }
 
 fn bars_section(
@@ -467,6 +502,55 @@ fn panels_section(
         persist(&path, "panels", &value);
     })?;
     section(|| rsx::t!("settings.section.panels"), rows, save, theme)
+}
+
+fn popouts_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let p = config.popouts;
+    let enabled = signal(p.enabled);
+    let open_delay = signal(p.open_delay.to_string());
+    let close_delay = signal(p.close_delay.to_string());
+    let width = signal(p.width.to_string());
+    let max_height = signal(p.max_height.to_string());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.open_delay"),
+            open_delay.clone(),
+            "280",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.close_delay"),
+            close_delay.clone(),
+            "200",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.width"), width.clone(), "264", theme)?,
+        text_field(
+            || rsx::t!("settings.field.max_height"),
+            max_height.clone(),
+            "300",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.popouts"), theme, move || {
+        let value = PopoutsConfig {
+            enabled: enabled.peek(),
+            open_delay: parse_u64(&open_delay.peek(), p.open_delay),
+            close_delay: parse_u64(&close_delay.peek(), p.close_delay),
+            width: parse_f32(&width.peek(), p.width),
+            max_height: parse_f32(&max_height.peek(), p.max_height),
+        };
+        persist(&path, "popouts", &value);
+    })?;
+    section(|| rsx::t!("settings.section.popouts"), rows, save, theme)
 }
 
 fn osd_section(
@@ -1627,6 +1711,31 @@ mod tests {
         ]);
         assert_eq!(split_csv("  ,, "), Vec::<String>::new());
         assert_eq!(join_csv(&["a".to_string(), "b".to_string()]), "a, b");
+    }
+
+    #[test]
+    fn saving_a_bar_keeps_each_entrys_own_settings() {
+        let base = vec![
+            ModuleEntry::bare("workspaces"),
+            ModuleEntry {
+                id: "clock".to_string(),
+                accent: Some("red".to_string()),
+                variant: None,
+            },
+            ModuleEntry {
+                id: "clock".to_string(),
+                variant: Some(crate::Variant::Filled),
+                accent: None,
+            },
+        ];
+        let same = entries_from_csv("workspaces, clock, clock", &base);
+        assert_eq!(same, base, "an untouched field writes back what it read");
+
+        let moved = entries_from_csv("clock, clock, workspaces", &base);
+        assert_eq!(moved, vec![base[1].clone(), base[2].clone(), base[0].clone()]);
+
+        let added = entries_from_csv("clock, clock, clock", &base);
+        assert_eq!(added[2], ModuleEntry::bare("clock"));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use rsx::Color;
 use serde::{Deserialize, Serialize};
@@ -209,6 +210,85 @@ pub enum Zone {
     End,
 }
 
+/// One module placed on a bar.
+///
+/// Written as a bare id in the common case (`start = ["clock", "workspaces"]`) and as a table when an instance
+/// needs settings of its own (`{ id = "clock", accent = "red" }`). The table form is what lets the same module
+/// appear on a bar twice looking different — a `[modules.<id>]` override is keyed by id and so applies to every
+/// copy at once.
+///
+/// Deliberately presentation-only. `open` stays under `[modules.<id>]` because a panel is toggled by module id
+/// from three places — a chip, `hyprshell panel toggle`, a keybind — and only one of them has an entry in hand;
+/// an entry-scoped answer would make the same panel open differently depending on how you asked for it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ModuleEntry {
+    pub id: String,
+    pub variant: Option<Variant>,
+    pub accent: Option<String>,
+}
+
+impl ModuleEntry {
+    pub fn bare(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            variant: None,
+            accent: None,
+        }
+    }
+
+    /// Whether the entry carries nothing beyond its id, and so writes back as a plain string.
+    fn is_bare(&self) -> bool {
+        self.variant.is_none() && self.accent.is_none()
+    }
+}
+
+/// The table form, and the shape a non-bare entry serialises to.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+struct ModuleEntryTable {
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    variant: Option<Variant>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accent: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawModuleEntry {
+    Bare(String),
+    Table(ModuleEntryTable),
+}
+
+impl<'de> Deserialize<'de> for ModuleEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(match RawModuleEntry::deserialize(deserializer)? {
+            RawModuleEntry::Bare(id) => Self::bare(id),
+            RawModuleEntry::Table(t) => Self {
+                id: t.id,
+                variant: t.variant,
+                accent: t.accent,
+            },
+        })
+    }
+}
+
+impl Serialize for ModuleEntry {
+    /// A bare entry writes back as the string it was read from, so a config that never used the table form
+    /// round-trips through the settings panel unchanged.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.is_bare() {
+            return serializer.serialize_str(&self.id);
+        }
+        ModuleEntryTable {
+            id: self.id.clone(),
+            variant: self.variant,
+            accent: self.accent.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
 /// The drawer panel's size (§4): a fixed width and a max height its content scrolls within.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 #[serde(default)]
@@ -240,6 +320,61 @@ impl Default for FloatConfig {
             width: 360,
             height: 240,
         }
+    }
+}
+
+/// Hover popouts (`[popouts]`): the readout a chip shows while the pointer rests on it, distinct from the
+/// drawer a click opens.
+///
+/// The delays are what separate a popout from a flicker. Without `open_delay`, dragging the pointer across the
+/// bar would fire every chip's popout in turn; without `close_delay`, the popout would vanish in the gap
+/// between the chip and itself. Both are clamped on read, so a typo can make a popout slow but never instant
+/// or permanent.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct PopoutsConfig {
+    /// Off costs nothing: no chip tracks the pointer and no surface is ever opened.
+    pub enabled: bool,
+    /// How long the pointer must rest on a chip before its popout opens, in ms.
+    pub open_delay: u64,
+    /// How long the popout survives after the pointer leaves, in ms.
+    pub close_delay: u64,
+    pub width: f32,
+    /// The tallest a popout may grow. Its surface is this tall whatever the card needs; the surplus is carved
+    /// out of the input region, so it stays click-through rather than swallowing presses.
+    pub max_height: f32,
+}
+
+impl Default for PopoutsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            open_delay: 280,
+            close_delay: 200,
+            width: 264.0,
+            max_height: 300.0,
+        }
+    }
+}
+
+impl PopoutsConfig {
+    /// The rest before opening. Never zero: an instant popout on a bar the pointer is only crossing is noise.
+    pub fn open_after(&self) -> Duration {
+        Duration::from_millis(self.open_delay.clamp(60, 5_000))
+    }
+
+    /// The grace after leaving. Never zero either — the pointer has to cross the gap between the chip and the
+    /// popout to reach it, and a zero grace would close it mid-crossing.
+    pub fn close_after(&self) -> Duration {
+        Duration::from_millis(self.close_delay.clamp(60, 5_000))
+    }
+
+    pub fn card_width(&self) -> f32 {
+        self.width.clamp(140.0, 900.0)
+    }
+
+    pub fn card_height(&self) -> f32 {
+        self.max_height.clamp(80.0, 1200.0)
     }
 }
 
@@ -978,6 +1113,7 @@ pub struct Config {
     pub shape: ShapeConfig,
     pub corners: CornersConfig,
     pub panels: PanelsConfig,
+    pub popouts: PopoutsConfig,
     pub osd: OsdConfig,
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
@@ -1021,9 +1157,9 @@ impl BarsConfig {
 #[serde(default)]
 pub struct BarConfig {
     pub size: u32,
-    pub start: Vec<String>,
-    pub center: Vec<String>,
-    pub end: Vec<String>,
+    pub start: Vec<ModuleEntry>,
+    pub center: Vec<ModuleEntry>,
+    pub end: Vec<ModuleEntry>,
     pub shape: BarShape,
 }
 
@@ -1085,9 +1221,9 @@ impl Config {
             bars: BarsConfig {
                 top: BarConfig {
                     size: 34,
-                    start: vec!["workspaces".to_string()],
-                    center: vec!["clock".to_string()],
-                    end: vec!["notes".to_string()],
+                    start: vec![ModuleEntry::bare("workspaces")],
+                    center: vec![ModuleEntry::bare("clock")],
+                    end: vec![ModuleEntry::bare("notes")],
                     shape: BarShape::default(),
                 },
                 ..BarsConfig::default()
@@ -1096,6 +1232,7 @@ impl Config {
             shape: ShapeConfig::default(),
             corners: CornersConfig::default(),
             panels: PanelsConfig::default(),
+            popouts: PopoutsConfig::default(),
             osd: OsdConfig::default(),
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
@@ -1144,17 +1281,33 @@ impl Config {
         self.modules.get(id).map(|m| m.open).unwrap_or_default()
     }
 
-    /// Which zone (start/center/end) a module occupies on `edge`, for deriving its drawer's alignment.
+    /// Which zone (start/center/end) a module occupies on `edge`, for deriving its drawer's alignment. A module
+    /// placed twice answers with the first zone it appears in — the panel is keyed by module id, so there is
+    /// only one of it to align.
     pub fn zone_of(&self, edge: Edge, module_id: &str) -> Option<Zone> {
         let bar = self.bars.get(edge);
-        if bar.start.iter().any(|m| m == module_id) {
+        let holds = |entries: &[ModuleEntry]| entries.iter().any(|m| m.id == module_id);
+        if holds(&bar.start) {
             Some(Zone::Start)
-        } else if bar.center.iter().any(|m| m == module_id) {
+        } else if holds(&bar.center) {
             Some(Zone::Center)
-        } else if bar.end.iter().any(|m| m == module_id) {
+        } else if holds(&bar.end) {
             Some(Zone::End)
         } else {
             None
+        }
+    }
+
+    /// The container variant for a bar entry: its own `variant`, else the module's `[modules.<id>]` override.
+    pub fn entry_variant(&self, entry: &ModuleEntry) -> Variant {
+        entry.variant.unwrap_or_else(|| self.variant_for(&entry.id))
+    }
+
+    /// The accent-token name for a bar entry: its own `accent`, else the module's, else the global one.
+    pub fn entry_accent_name<'a>(&'a self, entry: &'a ModuleEntry) -> &'a str {
+        match entry.accent.as_deref() {
+            Some(accent) => accent,
+            None => self.accent_name_for(&entry.id),
         }
     }
 
@@ -1417,6 +1570,60 @@ impl std::error::Error for SaveError {}
 mod tests {
     use super::*;
 
+    fn ids(entries: &[ModuleEntry]) -> Vec<&str> {
+        entries.iter().map(|e| e.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_zone_reads_bare_ids_and_tables_side_by_side() {
+        let cfg: Config = toml::from_str(
+            r#"
+[bars.top]
+start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant = "filled" }]
+"#,
+        )
+        .expect("both entry forms parse in one array");
+        assert_eq!(ids(&cfg.bars.top.start), ["workspaces", "clock", "clock"]);
+        assert_eq!(cfg.bars.top.start[1].accent.as_deref(), Some("red"));
+        assert_eq!(cfg.bars.top.start[2].variant, Some(Variant::Filled));
+
+        // The point of the table form: a `[modules.<id>]` override is keyed by id, so it could only paint both copies the same.
+        assert_eq!(cfg.entry_accent_name(&cfg.bars.top.start[1]), "red");
+        assert_eq!(
+            cfg.entry_variant(&cfg.bars.top.start[2]),
+            Variant::Filled,
+            "an entry's own variant wins"
+        );
+        assert_eq!(
+            cfg.entry_variant(&cfg.bars.top.start[1]),
+            Variant::Default,
+            "and an entry that names none falls back rather than inheriting its neighbour's"
+        );
+    }
+
+    #[test]
+    fn a_bare_entry_writes_back_as_the_string_it_was_read_from() {
+        let cfg: Config =
+            toml::from_str("[bars.top]\nstart = [\"clock\"]\n").expect("config parses");
+        let written = toml::to_string_pretty(&cfg.bars.top).expect("serialises");
+        assert!(
+            written.contains("start = [\"clock\"]"),
+            "a bare entry gained a table it never asked for: {written}"
+        );
+        let back: BarConfig = toml::from_str(&written).expect("round-trips");
+        assert_eq!(ids(&back.start), ["clock"]);
+    }
+
+    #[test]
+    fn an_entry_with_settings_round_trips_through_toml() {
+        let cfg: Config =
+            toml::from_str("[bars.top]\nstart = [{ id = \"clock\", accent = \"red\" }]\n")
+                .expect("config parses");
+        let written = toml::to_string_pretty(&cfg.bars.top).expect("serialises");
+        let back: BarConfig = toml::from_str(&written).expect("round-trips");
+        assert_eq!(back.start, cfg.bars.top.start);
+    }
+
     #[test]
     fn save_section_replaces_one_table_and_preserves_the_rest() {
         let dir = std::env::temp_dir().join(format!("hyprshell-save-{}", std::process::id()));
@@ -1452,8 +1659,8 @@ mod tests {
     #[test]
     fn starter_shows_only_a_top_bar() {
         let cfg = Config::starter();
-        assert_eq!(cfg.bars.top.start, vec!["workspaces".to_string()]);
-        assert_eq!(cfg.bars.top.center, vec!["clock".to_string()]);
+        assert_eq!(ids(&cfg.bars.top.start), ["workspaces"]);
+        assert_eq!(ids(&cfg.bars.top.center), ["clock"]);
         assert!(cfg.bars.bottom.is_empty());
         assert!(cfg.bars.left.is_empty());
         assert!(cfg.bars.right.is_empty());
@@ -1474,7 +1681,7 @@ start = ["workspaces"]
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
         assert_eq!(cfg.bars.left.size, 44);
-        assert_eq!(cfg.bars.left.start, vec!["workspaces".to_string()]);
+        assert_eq!(ids(&cfg.bars.left.start), ["workspaces"]);
         assert!(cfg.bars.top.is_empty());
     }
 
@@ -1932,7 +2139,7 @@ end = ["battery", "volume"]
         let path = dir.join("config.toml");
 
         let seeded = Config::load(&path).expect("a fresh install is not an error");
-        assert_eq!(seeded.bars.top.start, vec!["workspaces".to_string()]);
+        assert_eq!(ids(&seeded.bars.top.start), ["workspaces"]);
         assert!(path.exists(), "the starter is written for the user to edit");
         assert!(
             Config::load(&path).is_ok(),

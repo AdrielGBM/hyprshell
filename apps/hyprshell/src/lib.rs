@@ -56,8 +56,8 @@ mod test_support {
 pub use crate::core::app::BarApp;
 pub use crate::core::config::{
     AudioConfig, BarConfig, BarsConfig, BrightnessConfig, Capitalize, Config, Corner, DrawerConfig,
-    Edge, FloatConfig, LockStatusConfig, ModuleOverride, OpenMode, PanelsConfig, TemperatureConfig,
-    TemperatureUnit, ThemeConfig, TrayConfig, Variant,
+    Edge, FloatConfig, LockStatusConfig, ModuleOverride, OpenMode, PanelsConfig, PopoutsConfig,
+    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, Variant,
 };
 pub use crate::core::ipc::{
     call as ipc_call, describe as ipc_describe, dispatch as ipc_dispatch, socket_path,
@@ -302,7 +302,8 @@ fn setup_shell(config_path: PathBuf) {
             };
             apply_config(&config);
             // Panels were built against the outgoing config; leaving one up would leave a stale theme and a
-            // dangling anchor on screen.
+            // dangling anchor on screen. The popout tracks what is showing, so it is reset rather than only dropped.
+            crate::modules::popout::close();
             crate::core::shell::close_all();
             for handle in handles.borrow_mut().drain(..) {
                 handle.close();
