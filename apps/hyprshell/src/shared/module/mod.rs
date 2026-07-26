@@ -325,6 +325,15 @@ mod tests {
             r.def("workspaces").unwrap().self_managed,
             "workspaces manages its own layout"
         );
+        let tray = r.def("tray").unwrap();
+        assert!(
+            tray.self_managed,
+            "each tray icon carries its own click, middle-click, right-click and scroll"
+        );
+        assert!(
+            tray.click.is_none() && tray.scroll.is_none(),
+            "a single chip-level handler would act on the row, not on the application clicked"
+        );
         assert!(
             matches!(r.def("battery").unwrap().click, Some(ModuleClick::Panel)),
             "battery opens its detail panel"
@@ -392,6 +401,9 @@ pub fn default_registry() -> ModuleRegistry {
         "lockstatus",
         ModuleDef::new(|_ctx| crate::lockstatus()).self_managed(),
     );
+    // Self-managed: it draws one pressable box per application, each with its own click, middle-click,
+    // right-click and scroll — a single chip shell around the row could carry none of that.
+    registry.register("tray", ModuleDef::new(|_ctx| crate::tray()).self_managed());
     registry.register(
         "media",
         ModuleDef::new(|_ctx| crate::media())

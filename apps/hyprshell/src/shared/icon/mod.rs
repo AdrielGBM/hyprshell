@@ -31,6 +31,19 @@ pub fn app_icon_view(
     reference: &str,
     size: f32,
 ) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+    app_icon_view_tinted(reference, size, None)
+}
+
+/// [`app_icon_view`] with an optional flat tint, for a surface that wants the application's artwork to take
+/// the bar's own colour instead of its own — the tray's `recolour`.
+///
+/// Only vector artwork can be tinted; a raster icon is drawn as it is, since repainting decoded pixels would
+/// mean either discarding them or guessing which of them are "the shape".
+pub fn app_icon_view_tinted(
+    reference: &str,
+    size: f32,
+    tint: Option<Color>,
+) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
     let Some(icon) = resolve_app_icon(reference) else {
         return Ok(None);
     };
@@ -39,7 +52,7 @@ pub fn app_icon_view(
         AppIcon::Vector(svg) => Box::new(Svg::new(
             style,
             move || svg.clone(),
-            || None::<Color>,
+            move || tint,
             || ObjectFit::Contain,
         )?),
         AppIcon::Raster(data) => Box::new(rsx::Image::new(

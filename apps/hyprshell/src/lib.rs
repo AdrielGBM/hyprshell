@@ -57,7 +57,7 @@ pub use crate::core::app::BarApp;
 pub use crate::core::config::{
     AudioConfig, BarConfig, BarsConfig, BrightnessConfig, Capitalize, Config, Corner, DrawerConfig,
     Edge, FloatConfig, LockStatusConfig, ModuleOverride, OpenMode, PanelsConfig, TemperatureConfig,
-    TemperatureUnit, ThemeConfig, Variant,
+    TemperatureUnit, ThemeConfig, TrayConfig, Variant,
 };
 pub use crate::core::ipc::{
     call as ipc_call, describe as ipc_describe, dispatch as ipc_dispatch, socket_path,

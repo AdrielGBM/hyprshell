@@ -12,7 +12,7 @@ use crate::core::config::{
     BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DrawerConfig, Edge,
     BatteryConfig, FloatConfig, GeneralConfig, IconsConfig, LauncherConfig, LockStatusConfig,
     MediaConfig, MediaScroll, NotificationsConfig, OsdConfig, PanelsConfig, Shape, ShapeConfig,
-    TemperatureConfig, TemperatureUnit, ThemeConfig, WorkspacesConfig,
+    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -75,6 +75,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         temperature_section(&config, &path, theme)?,
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
+        tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
@@ -1015,6 +1016,58 @@ fn lock_status_section(
         persist(&path, "lock_status", &value);
     })?;
     section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
+}
+
+fn tray_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let t = &config.tray;
+    let enabled = signal(t.enabled);
+    let compact = signal(t.compact);
+    let recolour = signal(t.recolour);
+    let background = signal(t.background);
+    let hidden = signal(t.hidden.join(", "));
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.recolour"), recolour.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.background"),
+            background.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.hidden"),
+            hidden.clone(),
+            "steam_app_*",
+            theme,
+        )?,
+    ];
+
+    let base = t.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.tray"), theme, move || {
+        let value = TrayConfig {
+            enabled: enabled.peek(),
+            compact: compact.peek(),
+            recolour: recolour.peek(),
+            background: background.peek(),
+            hidden: hidden
+                .peek()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            // Map-valued, so it stays hand-edited in the TOML like `theme.colors`; carrying it through means
+            // saving here does not silently drop the user's icon substitutions.
+            icon_subs: base.icon_subs.clone(),
+        };
+        persist(&path, "tray", &value);
+    })?;
+    section(|| rsx::t!("settings.section.tray"), rows, save, theme)
 }
 
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {

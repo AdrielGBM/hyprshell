@@ -731,6 +731,89 @@ impl Default for LockStatusConfig {
     }
 }
 
+/// Whether `text` matches `pattern`, in which `*` stands for any run of characters. Matching ignores case.
+///
+/// A deliberate subset of a regex: tray applications put a PID or a version in their id (`steam_app_12345`,
+/// `chrome_status_icon_1`), which a wildcard covers, and a full regex engine is a dependency this shell does
+/// not otherwise carry.
+fn glob_matches(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.trim().to_lowercase();
+    let text = text.trim().to_lowercase();
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        return pattern == text;
+    }
+    let (first, last) = (parts[0], parts[parts.len() - 1]);
+    // The two anchors must not overlap: `a*b` matches `ab`, but nothing shorter.
+    if !text.starts_with(first)
+        || !text.ends_with(last)
+        || first.len() + last.len() > text.len()
+    {
+        return false;
+    }
+    let mut rest = &text[first.len()..text.len() - last.len()];
+    for part in &parts[1..parts.len() - 1] {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// The system tray (`[tray]`).
+///
+/// `hidden` drops an application's icon by its `Id`, and `icon_subs` swaps one for an Iconify glyph so an
+/// application shipping a mismatched icon can be made to sit with the rest of the bar. Both match the id as a
+/// `*` pattern rather than a literal, because a good number of applications bury a PID in theirs.
+///
+/// `recolour` tints every icon to the bar's foreground. Coherent, but it flattens an application that uses
+/// colour to report state — a sync client going red — so it stays off unless asked for.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct TrayConfig {
+    /// Off costs nothing: the module draws nothing and the service — three threads and a D-Bus name — is
+    /// never started.
+    pub enabled: bool,
+    /// Drop the spacing between icons, for a bar with many of them.
+    pub compact: bool,
+    pub recolour: bool,
+    /// Give every icon its own chip background instead of one shared strip.
+    pub background: bool,
+    pub hidden: Vec<String>,
+    pub icon_subs: HashMap<String, String>,
+}
+
+impl Default for TrayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            compact: false,
+            recolour: false,
+            background: false,
+            hidden: Vec::new(),
+            icon_subs: HashMap::new(),
+        }
+    }
+}
+
+impl TrayConfig {
+    pub fn is_hidden(&self, id: &str) -> bool {
+        self.hidden.iter().any(|p| glob_matches(p, id))
+    }
+
+    /// The Iconify glyph standing in for this application's own icon, if one is configured. The most specific
+    /// pattern wins, so a blanket `*` can set a default without shadowing the entry that names one application
+    /// — and the answer never depends on the map's iteration order.
+    pub fn icon_sub_for(&self, id: &str) -> Option<&str> {
+        self.icon_subs
+            .iter()
+            .filter(|(pattern, _)| glob_matches(pattern, id))
+            .max_by_key(|(pattern, _)| pattern.trim_matches('*').len())
+            .map(|(_, glyph)| glyph.as_str())
+    }
+}
+
 /// The application launcher: a modal opened by keybind or IPC.
 ///
 /// One entry in the launcher's action mode, declared as a `[[launcher.actions]]` table and reached by typing
@@ -909,6 +992,7 @@ pub struct Config {
     pub temperature: TemperatureConfig,
     pub battery: BatteryConfig,
     pub lock_status: LockStatusConfig,
+    pub tray: TrayConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
@@ -1026,6 +1110,7 @@ impl Config {
             temperature: TemperatureConfig::default(),
             battery: BatteryConfig::default(),
             lock_status: LockStatusConfig::default(),
+            tray: TrayConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1752,6 +1837,57 @@ end = ["battery", "volume"]
             "separators and runs of whitespace survive intact"
         );
         assert_eq!(Capitalize::Title.apply(""), "");
+    }
+
+    #[test]
+    fn a_glob_anchors_both_ends_and_only_a_star_spans() {
+        assert!(glob_matches("nm-applet", "nm-applet"));
+        assert!(
+            !glob_matches("nm-applet", "nm-applet-2"),
+            "a pattern without a star is a whole-string match"
+        );
+        assert!(glob_matches("steam_app_*", "steam_app_12345"));
+        assert!(glob_matches("*applet", "nm-applet"));
+        assert!(glob_matches("chrome*icon*", "chrome_status_icon_1"));
+        assert!(!glob_matches("chrome*icon", "chrome_status_icon_1"), "a trailing literal anchors the end");
+        assert!(glob_matches("*", "anything at all"));
+        assert!(glob_matches("NM-Applet", "nm-applet"), "matching ignores case");
+
+        // The two anchors must not overlap: `a*t` needs at least `at`, not just `a`.
+        assert!(glob_matches("a*t", "at"));
+        assert!(!glob_matches("nm*applet", "nm-apple"));
+    }
+
+    #[test]
+    fn tray_hiding_and_icon_substitution_match_ids_as_patterns() {
+        let cfg: Config = toml::from_str(
+            "[tray]\nhidden = [\"steam_app_*\", \"blueman\"]\n\
+             [tray.icon_subs]\n\"nm-applet\" = \"mdi:wifi\"\n\"*\" = \"mdi:apps\"\n",
+        )
+        .unwrap();
+        assert!(cfg.tray.is_hidden("steam_app_440"));
+        assert!(cfg.tray.is_hidden("blueman"));
+        assert!(!cfg.tray.is_hidden("nm-applet"));
+
+        assert_eq!(
+            cfg.tray.icon_sub_for("nm-applet"),
+            Some("mdi:wifi"),
+            "the specific pattern beats the catch-all whatever the map's order"
+        );
+        assert_eq!(cfg.tray.icon_sub_for("anything-else"), Some("mdi:apps"));
+        assert_eq!(TrayConfig::default().icon_sub_for("nm-applet"), None);
+    }
+
+    #[test]
+    fn the_tray_is_on_by_default_and_hides_nothing() {
+        let d: Config = toml::from_str("").unwrap();
+        assert!(d.tray.enabled);
+        assert!(d.tray.hidden.is_empty() && d.tray.icon_subs.is_empty());
+        assert!(
+            !d.tray.recolour,
+            "tinting every icon would flatten an application that reports state in colour"
+        );
+        assert!(!d.tray.compact && !d.tray.background);
     }
 
     #[test]
