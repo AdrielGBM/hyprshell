@@ -12,6 +12,7 @@ use rsx::{
 
 use super::{CollectionState, icon_collection, icon_view};
 use crate::shared::module::surface_env;
+use crate::shared::search;
 use crate::shared::theme::{FontRole, NordTheme};
 
 const CELL: f32 = 40.0;
@@ -140,15 +141,29 @@ fn debounced_filter(
     })
 }
 
-/// Icons whose name (the part after `set:`) contains `query`, case-insensitively; an empty query keeps them
-/// all. Capped at [`MAX_RESULTS`].
+/// Icons ranked against `query` by the shared matcher, best first; an empty query keeps them all in collection
+/// order. Capped at [`MAX_RESULTS`].
+///
+/// Matching is against the name part (`lucide:home` → `home`), so a set prefix every candidate shares can't
+/// skew the ranking. The empty query is short-circuited rather than ranked: the collection runs to tens of
+/// thousands of ids, and scoring them all to preserve the order they already have is the one case where the
+/// ranking has nothing to add.
 fn filter_ids(all: &[String], query: &str) -> Vec<String> {
-    let needle = query.trim().to_lowercase();
-    all.iter()
-        .filter(|id| needle.is_empty() || name_part(id).to_lowercase().contains(&needle))
-        .take(MAX_RESULTS)
-        .cloned()
-        .collect()
+    let query = query.trim();
+    if query.is_empty() {
+        return all.iter().take(MAX_RESULTS).cloned().collect();
+    }
+    search::rank(
+        all.iter().collect(),
+        query,
+        search::Mode::Fuzzy,
+        |id| name_part(id).to_string(),
+        |_| 0,
+    )
+    .into_iter()
+    .take(MAX_RESULTS)
+    .cloned()
+    .collect()
 }
 
 fn name_part(id: &str) -> &str {
@@ -391,10 +406,27 @@ mod tests {
         // Matches the name after `set:`, case-insensitively; `house` matches on the name, not the set.
         assert_eq!(
             filter_ids(&all, "HOM"),
-            vec!["lucide:home".to_string(), "lucide:home-plus".to_string()]
+            vec!["lucide:home".to_string(), "lucide:home-plus".to_string()],
+            "the exact, shorter name outranks the one it prefixes"
         );
         assert_eq!(filter_ids(&all, "bell"), vec!["lucide:bell".to_string()]);
         assert!(filter_ids(&all, "nope").is_empty());
+    }
+
+    #[test]
+    fn the_picker_ranks_like_every_other_list_in_the_shell() {
+        let all: Vec<String> = ["lucide:home-plus", "lucide:phone", "mdi:house"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // A subsequence match, which the old `contains` filter could not find at all.
+        assert_eq!(
+            filter_ids(&all, "hp"),
+            vec!["lucide:home-plus".to_string()],
+            "the initials of a hyphenated name are searchable"
+        );
+        // The set prefix is not part of the haystack, so it can't be typed to filter by it.
+        assert!(filter_ids(&all, "mdi").is_empty());
     }
 
     struct GridPreviewApp {
