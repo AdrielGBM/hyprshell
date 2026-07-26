@@ -751,6 +751,11 @@ mod tests {
 
     #[test]
     fn describe_covers_every_target_and_is_what_dispatch_accepts() {
+        // `shell quit` closes every surface, removes the IPC socket and exits the process — which, dispatched
+        // from a test, ends the test binary at whatever point it happens to reach and takes a running shell's
+        // socket with it. It is listed and it dispatches; it is simply not something to *call* here.
+        const ENDS_THE_PROCESS: &[(&str, &str)] = &[("shell", "quit")];
+
         let listing = describe();
         for target in TARGETS {
             assert!(
@@ -759,6 +764,9 @@ mod tests {
                 target.name
             );
             for command in target.commands {
+                if ENDS_THE_PROCESS.contains(&(target.name, command.name)) {
+                    continue;
+                }
                 // Every advertised command must resolve; an "unknown command" reply here means the table and
                 // the dispatcher have drifted apart.
                 let reply = dispatch(&format!("{} {}", target.name, command.name));
