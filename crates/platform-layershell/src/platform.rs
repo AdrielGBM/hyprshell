@@ -625,7 +625,18 @@ where
                 handler.about_to_wait()
             });
             if entry.interactive_input_region {
-                update_input_region(&compositor, &entry.layer, &mut entry.input_region);
+                let rects = entry
+                    .handler
+                    .as_ref()
+                    .map(|handler| handler.interactive_rects())
+                    .unwrap_or_default();
+                update_input_region(
+                    &compositor,
+                    &entry.layer,
+                    &entry.namespace,
+                    rects,
+                    &mut entry.input_region,
+                );
             }
             min_timeout = merge_timeout(min_timeout, entry.timeout);
         }
@@ -701,16 +712,23 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
     }
 }
 
-/// Rebuilds the surface's input region from [`rsx::interactive_rects`] — the laid-out pressable widgets, in
-/// logical surface coordinates — committing only when the set changed (`last` is the previously applied set,
+/// Rebuilds the surface's input region from its handler's pointer targets — the laid-out interactive widgets,
+/// in logical surface coordinates — committing only when the set changed (`last` is the previously applied set,
 /// sorted so a reordered read isn't mistaken for a change). An empty set yields an empty region, i.e. fully
 /// click-through, so an overlay with no interactive content never blocks the windows beneath.
+///
+/// The rects come from the handler rather than from the global `rsx::interactive_rects`, and that is the whole
+/// correctness of this function: the registry is one of the handler's *per-surface* worlds, live only inside
+/// its own calls. Read from out here — after the handler has returned — the ambient world answers, and it is
+/// always empty, so every surface using this was click-through everywhere.
 fn update_input_region(
     compositor: &CompositorState,
     layer: &LayerSurface,
+    namespace: &str,
+    rects: Vec<rsx::Rect>,
     last: &mut Vec<(i32, i32, i32, i32)>,
 ) {
-    let mut rects: Vec<(i32, i32, i32, i32)> = rsx::interactive_rects()
+    let mut rects: Vec<(i32, i32, i32, i32)> = rects
         .into_iter()
         .map(|r| {
             let x = r.x.floor() as i32;
@@ -724,6 +742,11 @@ fn update_input_region(
     if rects == *last {
         return;
     }
+    // What distinguishes "the compositor is not delivering to us" from "we told it not to": zero rects means no pointer input at all.
+    tracing::debug!(
+        "input region for {namespace}: {} rect(s) {rects:?}",
+        rects.len()
+    );
     let Ok(region) = Region::new(compositor) else {
         return;
     };
@@ -1275,13 +1298,15 @@ impl PointerHandler for Driver {
             let id = event.surface.id();
             let (x, y) = event.position;
             let rsx_event = match event.kind {
-                PointerEventKind::Enter { .. } => Event::CursorEntered,
+                // An enter carries the pointer's position and a widget resolves its hover from a move, so delivering it as bare "the cursor is over this surface" leaves a pointer that arrives and stops hovering nothing. `CursorEntered` is still emitted first, for whatever tracks the surface rather than the widget.
+                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                    Event::PointerMoved {
+                        x,
+                        y,
+                        source: PointerSource::Mouse,
+                    }
+                }
                 PointerEventKind::Leave { .. } => Event::CursorLeft,
-                PointerEventKind::Motion { .. } => Event::PointerMoved {
-                    x,
-                    y,
-                    source: PointerSource::Mouse,
-                },
                 PointerEventKind::Press { button, .. } => {
                     let Some(button) = map_button(button) else {
                         continue;
@@ -1324,6 +1349,9 @@ impl PointerHandler for Driver {
                 },
             };
             if let Some(entry) = self.entry_mut(&id) {
+                if matches!(event.kind, PointerEventKind::Enter { .. }) {
+                    entry.events.push(Event::CursorEntered);
+                }
                 entry.events.push(rsx_event);
             }
         }
