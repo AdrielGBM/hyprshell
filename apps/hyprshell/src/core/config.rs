@@ -1580,7 +1580,55 @@ impl Default for BarConfig {
     }
 }
 
-/// Theme selection and overrides. `name` picks a built-in palette (or `custom`); the rest override individual tokens on top of it — numbers directly, and `[theme.colors]` per-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built-in's value.
+/// Proportional multipliers over the theme's numeric tokens (`[theme.scale]`).
+///
+/// An absolute override answers "what should the radius be"; a scale answers "make everything a bit rounder",
+/// which is the question a user actually has and the one that keeps a palette's proportions intact. Applied
+/// last in [`Config::resolve_theme`], so scaling a token the user also pinned scales *their* number, not the
+/// palette's — otherwise the two settings would silently fight.
+///
+/// `font` scales the base size every other role steps off, so one number moves all the text at once.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct ScaleConfig {
+    pub rounding: f32,
+    pub spacing: f32,
+    pub font: f32,
+    pub icon: f32,
+}
+
+impl Default for ScaleConfig {
+    fn default() -> Self {
+        Self {
+            rounding: 1.0,
+            spacing: 1.0,
+            font: 1.0,
+            icon: 1.0,
+        }
+    }
+}
+
+impl ScaleConfig {
+    /// Whether every multiplier is the identity, so `resolve_theme` can skip the whole step — and so a config
+    /// that never mentions scaling reads exactly as it did before the section existed.
+    fn is_identity(self) -> bool {
+        [self.rounding, self.spacing, self.font, self.icon]
+            .iter()
+            .all(|f| *f == 1.0)
+    }
+
+    /// A multiplier bounded away from the two ways it breaks a surface: `0` (or negative, or NaN) collapses
+    /// what it scales to nothing, and an unbounded one grows a chip past the screen it sits on.
+    fn factor(value: f32) -> f32 {
+        if value.is_finite() {
+            value.clamp(0.25, 4.0)
+        } else {
+            1.0
+        }
+    }
+}
+
+/// Theme selection and overrides. `name` picks a built-in palette (or `custom`); the rest override individual tokens on top of it — numbers directly, `[theme.scale]` proportionally, and `[theme.colors]` per-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built-in's value.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct ThemeConfig {
@@ -1594,6 +1642,7 @@ pub struct ThemeConfig {
     pub font_family: Option<String>,
     /// Stroke width forced on stroke-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
     pub icon_stroke: Option<f32>,
+    pub scale: ScaleConfig,
     pub colors: HashMap<String, String>,
 }
 
@@ -1608,6 +1657,7 @@ impl Default for ThemeConfig {
             icon_size: None,
             font_family: None,
             icon_stroke: None,
+            scale: ScaleConfig::default(),
             colors: HashMap::new(),
         }
     }
@@ -1815,6 +1865,13 @@ impl Config {
                 Some(c) => theme = theme.with_color(name, c),
                 None => tracing::warn!("theme color '{name}': invalid hex '{hex}'"),
             }
+        }
+        // Last, and over the absolute overrides above: a scale means "relative to the size I chose", so applying it first would leave a pinned token unscaled and the two settings disagreeing.
+        if !t.scale.is_identity() {
+            theme.radius *= ScaleConfig::factor(t.scale.rounding);
+            theme.spacing = (theme.spacing * ScaleConfig::factor(t.scale.spacing)).round();
+            theme.font_size *= ScaleConfig::factor(t.scale.font);
+            theme.icon_size *= ScaleConfig::factor(t.scale.icon);
         }
         theme
     }
@@ -2674,6 +2731,36 @@ end = ["battery", "volume"]
         assert_eq!(cfg.notifications.timeout_ms, 0, "0 ms = sticky popups");
         assert_eq!(cfg.notifications.edge, Edge::Bottom);
         assert!(cfg.notifications.critical_sticky, "unset fields keep defaults");
+    }
+
+    #[test]
+    fn the_appearance_scales_multiply_the_tokens_the_user_already_chose() {
+        let plain: Config = toml::from_str("").unwrap();
+        let base = plain.resolve_theme();
+        assert_eq!(
+            plain.theme.scale.rounding, 1.0,
+            "a config that never mentions scaling is the config it always was"
+        );
+
+        let scaled: Config = toml::from_str(
+            "[theme]\nradius = 10\nfont_size = 14.0\n\n[theme.scale]\nrounding = 2.0\nfont = 0.5\n",
+        )
+        .unwrap();
+        let theme = scaled.resolve_theme();
+        assert_eq!(theme.radius, 20.0, "the scale multiplies the pinned radius, not the palette's");
+        assert_eq!(theme.font_size, 7.0);
+        assert_eq!(
+            theme.icon_size, base.icon_size,
+            "a scale left at 1 moves nothing"
+        );
+
+        let broken: Config = toml::from_str(
+            "[theme]\nfont_size = 12.0\nicon_size = 20.0\n\n[theme.scale]\nfont = 0.0\nicon = nan\n",
+        )
+        .unwrap();
+        let theme = broken.resolve_theme();
+        assert_eq!(theme.font_size, 3.0, "clamped to the 0.25 floor");
+        assert_eq!(theme.icon_size, 20.0, "an unusable factor is no factor");
     }
 
     #[test]

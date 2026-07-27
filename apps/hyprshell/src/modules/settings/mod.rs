@@ -12,7 +12,8 @@ use crate::core::config::{
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
     CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig,
     IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
-    NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig, Shape,
+    NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig,
+    ScaleConfig, Shape,
     ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
     WeatherConfig, WorkspacesConfig,
 };
@@ -253,6 +254,10 @@ fn theme_section(
     let font_size = signal(opt_num(t.font_size));
     let icon_size = signal(opt_num(t.icon_size));
     let icon_stroke = signal(opt_num(t.icon_stroke));
+    let scale_rounding = signal(t.scale.rounding.to_string());
+    let scale_spacing = signal(t.scale.spacing.to_string());
+    let scale_font = signal(t.scale.font.to_string());
+    let scale_icon = signal(t.scale.icon.to_string());
 
     let rows = vec![
         enum_field(
@@ -303,6 +308,30 @@ fn theme_section(
             "(glyph)",
             theme,
         )?,
+        text_field(
+            || rsx::t!("settings.field.scale_rounding"),
+            scale_rounding.clone(),
+            "1",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.scale_spacing"),
+            scale_spacing.clone(),
+            "1",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.scale_font"),
+            scale_font.clone(),
+            "1",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.scale_icon"),
+            scale_icon.clone(),
+            "1",
+            theme,
+        )?,
     ];
 
     let base = t.clone();
@@ -317,6 +346,12 @@ fn theme_section(
             font_size: opt_f32(&font_size.peek()),
             icon_size: opt_f32(&icon_size.peek()),
             icon_stroke: opt_f32(&icon_stroke.peek()),
+            scale: ScaleConfig {
+                rounding: parse_f32(&scale_rounding.peek(), base.scale.rounding),
+                spacing: parse_f32(&scale_spacing.peek(), base.scale.spacing),
+                font: parse_f32(&scale_font.peek(), base.scale.font),
+                icon: parse_f32(&scale_icon.peek(), base.scale.icon),
+            },
             colors: base.colors.clone(),
         };
         persist(&path, "theme", &value);
