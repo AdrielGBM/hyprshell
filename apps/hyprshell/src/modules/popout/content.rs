@@ -12,8 +12,8 @@ use crate::core::config::Config;
 use crate::shared::glyph;
 use crate::shared::reactive::{Live, derive, derive_pair, fixed, fixed_text};
 use crate::shared::services::{
-    battery, bluetooth, brightness, gpu, hyprland, lockkeys, mpris, netspeed, network, resources,
-    volume,
+    battery, bluetooth, brightness, gpu, hyprland, lockkeys, mpris, netspeed, network, pipewire,
+    resources, volume,
 };
 use crate::shared::theme::NordTheme;
 
@@ -99,6 +99,12 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
         AudioSide::Input => platform_layershell::watch(volume::subscribe_mic, move |v| sink.set(v)),
     }
 
+    // Which device the level belongs to. The chip is one glyph for whatever happens to be default, and after a
+    // headset is plugged in "is this the speakers or the headphones" is the question the hover is asked.
+    let graph = signal(pipewire::current().unwrap_or_default());
+    let graph_sink = graph.clone();
+    platform_layershell::watch(pipewire::subscribe, move |g| graph_sink.set(g));
+
     let ceiling = config.audio.ceiling() as f32;
     let title = match side {
         AudioSide::Output => rsx::t!("popout.volume"),
@@ -123,13 +129,48 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
             }),
         )
         .row(
+            fixed_text(rsx::t!("popout.device")),
+            derive(graph.clone(), move |g| {
+                let device = match side {
+                    AudioSide::Output => g.default_sink(),
+                    AudioSide::Input => g.default_source(),
+                };
+                device
+                    .map(|node| node.label())
+                    .unwrap_or_else(|| rsx::t!("sysinfo.no_reading"))
+            }),
+        )
+        .row(
             fixed_text(rsx::t!("popout.muted")),
             derive(state.clone(), |v| on_off(v.muted)),
         )
         .row(
-            fixed_text(rsx::t!("popout.step")),
-            fixed_text(format!("{}%", config.audio.step())),
+            // Only the output side: an application recording is not something the shell can list without
+            // claiming more than PipeWire tells it, and the row would read as "nothing" on every machine.
+            fixed_text(match side {
+                AudioSide::Output => rsx::t!("popout.playing"),
+                AudioSide::Input => rsx::t!("popout.step"),
+            }),
+            match side {
+                AudioSide::Output => derive(graph, |g| playing_label(&g)),
+                AudioSide::Input => fixed_text(format!("{}%", config.audio.step())),
+            },
         )
+}
+
+/// What is making noise: the application when there is one, its name and one more when there are two, and a
+/// count past that — a popout has room for a line, not for a mixer.
+fn playing_label(graph: &pipewire::Graph) -> String {
+    let names: Vec<String> = graph
+        .playback_streams()
+        .filter(|node| !node.muted)
+        .map(|node| node.label())
+        .collect();
+    match names.len() {
+        0 => rsx::t!("popout.nothing_playing"),
+        1 | 2 => names.join(", "),
+        n => rsx::t!("popout.app_count", count = n.to_string()),
+    }
 }
 
 fn brightness_card(theme: NordTheme) -> Card {

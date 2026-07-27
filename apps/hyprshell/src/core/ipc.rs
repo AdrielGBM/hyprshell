@@ -18,6 +18,7 @@ use platform_layershell::EventSender;
 
 use crate::core::shell;
 use crate::shared::paths;
+use crate::shared::services::pipewire::NodeKind;
 
 /// How long the socket thread waits for the driver thread to answer before giving up. Long enough for a command
 /// that opens a surface, short enough that a wedged UI thread doesn't hang a script forever.
@@ -204,6 +205,60 @@ static TARGETS: &[Target] = &[
                 run: |_| {
                     crate::core::shell::close(crate::modules::launcher::ID);
                     Ok("closed".to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "audio",
+        commands: &[
+            Command {
+                name: "sinks",
+                args: "",
+                help: "output devices: id, level, mute, and which is the default",
+                run: |_| Ok(list_nodes(NodeKind::Sink)),
+            },
+            Command {
+                name: "sources",
+                args: "",
+                help: "input devices: id, level, mute, and which is the default",
+                run: |_| Ok(list_nodes(NodeKind::Source)),
+            },
+            Command {
+                name: "streams",
+                args: "",
+                help: "applications playing audio, with their own level",
+                run: |_| Ok(list_nodes(NodeKind::OutputStream)),
+            },
+            Command {
+                name: "default",
+                args: "<id>",
+                help: "make a device the default sink or source",
+                run: |args| {
+                    let id = node_id(args)?;
+                    crate::shared::services::volume::set_default(id);
+                    Ok(id.to_string())
+                },
+            },
+            Command {
+                name: "set",
+                args: "<id> <percent>",
+                help: "set one device's or application's level",
+                run: |args| {
+                    let id = node_id(args)?;
+                    let level = number(args, 1, "percent")?;
+                    crate::shared::services::volume::set_node(id, level);
+                    Ok(level.to_string())
+                },
+            },
+            Command {
+                name: "mute",
+                args: "<id>",
+                help: "toggle one device's or application's mute",
+                run: |args| {
+                    let id = node_id(args)?;
+                    crate::shared::services::volume::toggle_node_mute(id);
+                    Ok(id.to_string())
                 },
             },
         ],
@@ -1065,6 +1120,39 @@ fn number(args: &[&str], index: usize, name: &str) -> Result<i32, String> {
     let raw = arg(args, index, name)?;
     raw.parse()
         .map_err(|_| format!("<{name}> must be a whole number, got '{raw}'"))
+}
+
+/// One row per node, tab-separated so a script can cut columns: id, level, mute, whether it is the default,
+/// and the label last because it is the only field that can contain spaces.
+fn list_nodes(kind: NodeKind) -> String {
+    use crate::shared::services::pipewire;
+    let Some(graph) = pipewire::current() else {
+        return String::new();
+    };
+    let default = match kind {
+        NodeKind::Source => graph.default_source().map(|node| node.id),
+        _ => graph.default_sink().map(|node| node.id),
+    };
+    graph
+        .of_kind(kind)
+        .map(|node| {
+            format!(
+                "{}\t{}\t{}\t{}\t{}",
+                node.id,
+                node.level,
+                on_off(node.muted),
+                if Some(node.id) == default { "default" } else { "-" },
+                node.label()
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+fn node_id(args: &[&str]) -> Result<u32, String> {
+    let raw = arg(args, 0, "id")?;
+    raw.parse()
+        .map_err(|_| format!("<id> must be a PipeWire node id, got '{raw}'"))
 }
 
 /// Switches the dashboard's page by its config id, refusing an unknown one by name — a keybind bound to a page
