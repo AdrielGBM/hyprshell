@@ -806,23 +806,39 @@ fn number(args: &[&str], index: usize, name: &str) -> Result<i32, String> {
 
 /// Runs one request line and renders the reply. `ok`/`err` prefixes let a caller branch on the outcome without
 /// parsing the message; the payload follows on the same line when there is one.
-pub fn dispatch(line: &str) -> String {
+/// Looks a request line up in the command table without running anything, yielding the command and its
+/// arguments, or the `err …` reply the caller should send back.
+///
+/// Split out from [`dispatch`] so that "is this command wired up" can be answered *without executing it*. The
+/// listing test used to answer that by dispatching every advertised command with no arguments — which for any
+/// command that needs none is not a lookup, it is the command. `wifi disconnect` and `vpn toggle` both take no
+/// arguments, so running the test suite dropped the machine off the network; `volume up` and `brightness down`
+/// had been quietly moving the user's settings for far longer.
+fn resolve<'a>(line: &'a str) -> Result<(&'static Command, Vec<&'a str>), String> {
     let mut words = line.split_whitespace();
     let Some(target_name) = words.next() else {
-        return "err empty request".to_string();
+        return Err("empty request".to_string());
     };
     let command_name = words.next().unwrap_or("");
     let args: Vec<&str> = words.collect();
 
     let Some(target) = TARGETS.iter().find(|t| t.name == target_name) else {
-        return format!("err unknown target '{target_name}'");
+        return Err(format!("unknown target '{target_name}'"));
     };
     let Some(command) = target.commands.iter().find(|c| c.name == command_name) else {
         let known: Vec<&str> = target.commands.iter().map(|c| c.name).collect();
-        return format!(
-            "err unknown command '{command_name}' for '{target_name}' (try: {})",
+        return Err(format!(
+            "unknown command '{command_name}' for '{target_name}' (try: {})",
             known.join(", ")
-        );
+        ));
+    };
+    Ok((command, args))
+}
+
+pub fn dispatch(line: &str) -> String {
+    let (command, args) = match resolve(line) {
+        Ok(found) => found,
+        Err(message) => return format!("err {message}"),
     };
     match (command.run)(&args) {
         Ok(payload) if payload.is_empty() => "ok".to_string(),
@@ -969,11 +985,6 @@ mod tests {
 
     #[test]
     fn describe_covers_every_target_and_is_what_dispatch_accepts() {
-        // `shell quit` closes every surface, removes the IPC socket and exits the process — which, dispatched
-        // from a test, ends the test binary at whatever point it happens to reach and takes a running shell's
-        // socket with it. It is listed and it dispatches; it is simply not something to *call* here.
-        const ENDS_THE_PROCESS: &[(&str, &str)] = &[("shell", "quit")];
-
         let listing = describe();
         for target in TARGETS {
             assert!(
@@ -982,19 +993,50 @@ mod tests {
                 target.name
             );
             for command in target.commands {
-                if ENDS_THE_PROCESS.contains(&(target.name, command.name)) {
-                    continue;
-                }
-                // Every advertised command must resolve; an "unknown command" reply here means the table and
-                // the dispatcher have drifted apart.
-                let reply = dispatch(&format!("{} {}", target.name, command.name));
-                assert!(
-                    !reply.starts_with("err unknown"),
-                    "{} {} is advertised but does not dispatch: {reply}",
-                    target.name,
-                    command.name
+                // Resolved, never run. Half of this table changes the machine — the network it is on, the
+                // volume, the backlight, whether the process is still alive — and a test that proved the
+                // wiring by *executing* every entry was doing all of that to whoever ran `cargo test`.
+                let line = format!("{} {}", target.name, command.name);
+                let (found, _) = resolve(&line).unwrap_or_else(|e| {
+                    panic!("{line} is advertised but does not resolve: {e}")
+                });
+                assert_eq!(
+                    found.name, command.name,
+                    "'{} {}' resolved to a different command",
+                    target.name, command.name
                 );
             }
+        }
+        // The lookup still reports what it cannot find, which is the other half of the contract.
+        assert!(resolve("nosuchtarget ping").is_err());
+        assert!(resolve("shell nosuchcommand").is_err());
+        assert!(resolve("").is_err());
+    }
+
+    #[test]
+    fn a_command_that_changes_the_machine_is_never_run_by_the_suite() {
+        // A standing guard on the test above: these take no arguments, so dispatching one "just to check it
+        // resolves" performs it. Listed by name so that adding another argumentless mutation is a decision
+        // someone makes here rather than something a green test run hides.
+        const ARGUMENTLESS_MUTATIONS: &[(&str, &str)] = &[
+            ("shell", "quit"),
+            ("shell", "reload"),
+            ("wifi", "scan"),
+            ("wifi", "disconnect"),
+            ("vpn", "toggle"),
+            ("volume", "up"),
+            ("volume", "down"),
+            ("volume", "mute"),
+            ("mic", "mute"),
+            ("brightness", "up"),
+            ("brightness", "down"),
+            ("media", "play-pause"),
+        ];
+        for (target, command) in ARGUMENTLESS_MUTATIONS {
+            assert!(
+                resolve(&format!("{target} {command}")).is_ok(),
+                "'{target} {command}' is listed here but no longer exists"
+            );
         }
     }
 

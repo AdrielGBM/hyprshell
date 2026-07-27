@@ -218,7 +218,7 @@ fn read_active(conn: &Connection) -> Player {
         .iter()
         .filter_map(|bus| read_player(conn, bus))
         .collect();
-    let preferred = crate::core::shell::config()
+    let preferred = crate::core::shell::shared_config()
         .map(|c| c.media.preferred_player.clone())
         .unwrap_or_default();
     let mut chosen = choose(&players, &preferred).cloned().unwrap_or_default();
@@ -233,7 +233,7 @@ fn alias_for(player: &Player) -> String {
     if player.is_empty() {
         return String::new();
     }
-    crate::core::shell::config()
+    crate::core::shell::shared_config()
         .and_then(|c| c.media.aliases.get(config_key(&player.bus)).cloned())
         .unwrap_or_else(|| player.identity.clone())
 }

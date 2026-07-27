@@ -34,15 +34,32 @@ struct OpenSurfaces {
     windows: HashMap<String, SurfaceToken>,
 }
 
+/// The same config as [`CONTEXT`], reachable from any thread.
+///
+/// Not a duplicate for its own sake: [`config`] is a thread-local, so a *service* thread — which is every
+/// producer in `shared::services` — reads `None` from it and silently falls back to defaults. A poll interval
+/// or a backend the user configured would then never take effect, with nothing to show for it. Written on the
+/// driver thread on every reload and only read elsewhere, so the lock is uncontended.
+static SHARED: std::sync::Mutex<Option<Arc<Config>>> = std::sync::Mutex::new(None);
+
 /// Publishes the config the shell is now running. Called on startup and on every reload, so anything reached
 /// outside a surface resolves against the same config the bars were just rebuilt from.
 pub fn set_config(config: Arc<Config>) {
+    if let Ok(mut shared) = SHARED.lock() {
+        *shared = Some(Arc::clone(&config));
+    }
     CONTEXT.with(|c| *c.borrow_mut() = Some(config));
 }
 
 /// The running config, or `None` before the shell has started (a unit test, a CLI invocation).
 pub fn config() -> Option<Arc<Config>> {
     CONTEXT.with(|c| c.borrow().clone())
+}
+
+/// The running config, readable from a service thread. Prefer [`config`] on the driver thread — it needs no
+/// lock — and use this wherever the caller is a producer.
+pub fn shared_config() -> Option<Arc<Config>> {
+    SHARED.lock().ok().and_then(|c| c.clone())
 }
 
 /// The monitor a surface opened from outside a bar should land on: whichever Hyprland reports as focused, else
