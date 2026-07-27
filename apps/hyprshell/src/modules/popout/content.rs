@@ -5,11 +5,12 @@
 //! level it opened with would be worse than no card. Nothing polls: each `watch` is bound to the popout
 //! surface and dies with it.
 
-use rsx::{Color, LayoutError, LayoutItem, ReadSignal, RwSignal, signal};
+use rsx::{LayoutError, LayoutItem, RwSignal, signal};
 
-use super::card::{Card, fixed};
+use super::card::Card;
 use crate::core::config::Config;
 use crate::shared::glyph;
+use crate::shared::reactive::{Live, derive, derive_pair, fixed, fixed_text};
 use crate::shared::services::{
     battery, bluetooth, brightness, gpu, hyprland, lockkeys, mpris, netspeed, network, resources,
     volume,
@@ -72,21 +73,6 @@ pub fn build(
     Some(card.build(theme))
 }
 
-/// A signal derived from `source` through `map`, recomputed whenever the source changes. The rows of a card
-/// are all shaped this way: one subscription per service, several rows off it.
-///
-/// The value is cloned out before `map` runs, which is not an oversight: reading a signal in place holds the
-/// reactive runtime's borrow for as long as the closure does, and these closures translate their own strings —
-/// which reads the locale signal and panics on the re-entrant borrow. Reading the locale is also what makes a
-/// row re-render on a live language switch, so it has to stay inside `map`.
-fn derive<T, U>(source: RwSignal<T>, map: impl Fn(T) -> U + 'static) -> ReadSignal<U>
-where
-    T: Clone + 'static,
-    U: Clone + 'static,
-{
-    derive_from(source.read_only(), map)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AudioSide {
     Output,
@@ -137,12 +123,12 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
             }),
         )
         .row(
-            fixed(rsx::t!("popout.muted")),
+            fixed_text(rsx::t!("popout.muted")),
             derive(state.clone(), |v| on_off(v.muted)),
         )
         .row(
-            fixed(rsx::t!("popout.step")),
-            fixed(format!("{}%", config.audio.step())),
+            fixed_text(rsx::t!("popout.step")),
+            fixed_text(format!("{}%", config.audio.step())),
         )
 }
 
@@ -152,15 +138,15 @@ fn brightness_card(theme: NordTheme) -> Card {
     platform_layershell::watch(brightness::subscribe, move |percent| sink.set(percent));
 
     Card::titled(rsx::t!("popout.brightness"))
-        .icon(fixed(glyph::brightness()))
+        .icon(fixed_text(glyph::brightness()))
         .subtitle(derive(level.clone(), |v| format!("{v}%")))
         .meter(
             derive(level.clone(), |v| v as f32 / 100.0),
-            fixed_color(theme.accent),
+            fixed(theme.accent),
         )
         .row(
-            fixed(rsx::t!("popout.step")),
-            fixed(format!(
+            fixed_text(rsx::t!("popout.step")),
+            fixed_text(format!(
                 "{}%",
                 crate::shared::services::brightness::settings().step()
             )),
@@ -183,24 +169,24 @@ fn battery_card(theme: NordTheme) -> Card {
     let level_tint = level.clone();
 
     Card::titled(rsx::t!("popout.battery"))
-        .icon(derive_from(charging_glyph, |c| glyph::battery(c).to_string()))
+        .icon(derive(charging_glyph, |c| glyph::battery(c).to_string()))
         .icon_tint(derive_pair(level_tint, charging_tint, move |level, charging| {
             glyph::battery_tint(level, charging, theme, theme.text)
         }))
-        .subtitle(derive_from(level.clone(), |l| format!("{l}%")))
+        .subtitle(derive(level.clone(), |l| format!("{l}%")))
         .meter(
-            derive_from(level.clone(), |l| l as f32 / 100.0),
-            fixed_color(theme.accent),
+            derive(level.clone(), |l| l as f32 / 100.0),
+            fixed(theme.accent),
         )
         .row(
-            fixed(rsx::t!("popout.status")),
+            fixed_text(rsx::t!("popout.status")),
             derive(details.clone(), |d| match d {
                 Some(d) => battery_status(d),
                 None => rsx::t!("battery.none"),
             }),
         )
         .row(
-            fixed(rsx::t!("popout.rate")),
+            fixed_text(rsx::t!("popout.rate")),
             derive(details.clone(), |d| match d {
                 Some(d) if d.energy_rate > 0.0 => format!("{:.1} W", d.energy_rate),
                 _ => rsx::t!("sysinfo.no_reading"),
@@ -257,14 +243,14 @@ fn network_card() -> Card {
             None => kind_label(network::read().kind),
         }))
         .row(
-            fixed(rsx::t!("popout.signal")),
+            fixed_text(rsx::t!("popout.signal")),
             derive(state.clone(), |net| match net.kind {
                 network::NetworkKind::Wifi => format!("{}%", net.signal),
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed(rsx::t!("popout.security")),
+            fixed_text(rsx::t!("popout.security")),
             derive(wifi.clone(), |w| match w.active() {
                 Some(point) if point.security == network::Security::Open => {
                     rsx::t!("network.open")
@@ -274,7 +260,7 @@ fn network_card() -> Card {
             }),
         )
         .row(
-            fixed(rsx::t!("popout.band")),
+            fixed_text(rsx::t!("popout.band")),
             derive(wifi.clone(), |w| match w.active() {
                 Some(point) if !point.band().is_empty() => point.band().to_string(),
                 _ => rsx::t!("sysinfo.no_reading"),
@@ -316,7 +302,7 @@ fn bluetooth_card(theme: NordTheme) -> Card {
             }
         }))
         .row(
-            fixed(rsx::t!("popout.status")),
+            fixed_text(rsx::t!("popout.status")),
             derive(state.clone(), |bt| {
                 if !bt.available {
                     rsx::t!("bluetooth.no_adapter")
@@ -328,14 +314,14 @@ fn bluetooth_card(theme: NordTheme) -> Card {
             }),
         )
         .row(
-            fixed(rsx::t!("bluetooth.connected")),
+            fixed_text(rsx::t!("bluetooth.connected")),
             derive(state.clone(), |bt| match bt.primary() {
                 Some(device) => device.label(),
                 None => rsx::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed(rsx::t!("popout.battery")),
+            fixed_text(rsx::t!("popout.battery")),
             derive(state.clone(), |bt| {
                 match bt.primary().and_then(|d| d.battery) {
                     Some(level) => format!("{level}%"),
@@ -355,7 +341,7 @@ fn keyboard_card() -> Card {
     platform_layershell::watch(hyprland::subscribe_keyboard, move |l| sink.set(l));
 
     Card::titled(rsx::t!("popout.keyboard"))
-        .icon(fixed("keyboard"))
+        .icon(fixed_text("keyboard"))
         .subtitle(derive(layout.clone(), |l| {
             let name = l.name.trim();
             if name.is_empty() {
@@ -376,11 +362,11 @@ fn lock_card() -> Card {
             if k.caps { "lock" } else { "lock-open" }.to_string()
         }))
         .row(
-            fixed(rsx::t!("popout.caps_lock")),
+            fixed_text(rsx::t!("popout.caps_lock")),
             derive(keys.clone(), |k| on_off(k.caps)),
         )
         .row(
-            fixed(rsx::t!("popout.num_lock")),
+            fixed_text(rsx::t!("popout.num_lock")),
             derive(keys.clone(), |k| on_off(k.num)),
         )
 }
@@ -403,7 +389,7 @@ fn window_card() -> Card {
             title.to_string()
         }
     }))
-    .icon(fixed("app-window"))
+    .icon(fixed_text("app-window"))
     .subtitle(derive(window.clone(), |w| non_empty(&w.class)))
 }
 
@@ -425,11 +411,11 @@ fn media_card() -> Card {
     }))
     .subtitle(derive(player.clone(), |p| p.artist.clone()))
     .row(
-        fixed(rsx::t!("popout.album")),
+        fixed_text(rsx::t!("popout.album")),
         derive(player.clone(), |p| non_empty(&p.album)),
     )
     .row(
-        fixed(rsx::t!("popout.player")),
+        fixed_text(rsx::t!("popout.player")),
         derive(player.clone(), |p| non_empty(&p.identity)),
     )
 }
@@ -437,7 +423,7 @@ fn media_card() -> Card {
 fn cpu_card(theme: NordTheme) -> Card {
     let state = resource_signal();
     Card::titled(rsx::t!("sysinfo.cpu"))
-        .icon(fixed("cpu"))
+        .icon(fixed_text("cpu"))
         .subtitle(derive(state.clone(), |r| {
             // The model is what identifies the machine, and the popout is the only surface with room for it.
             match r.as_ref().map(|r| r.cpu_model.trim().to_string()) {
@@ -449,23 +435,23 @@ fn cpu_card(theme: NordTheme) -> Card {
             derive(state.clone(), |r| {
                 r.as_ref().map(|r| r.cpu / 100.0).unwrap_or(0.0)
             }),
-            fixed_color(theme.accent),
+            fixed(theme.accent),
         )
         .row(
-            fixed(rsx::t!("popout.cores")),
+            fixed_text(rsx::t!("popout.cores")),
             derive(state.clone(), |r| match r {
                 Some(r) => r.cores.len().to_string(),
                 None => rsx::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed(rsx::t!("popout.peak")),
+            fixed_text(rsx::t!("popout.peak")),
             derive(state.clone(), |r| {
                 percent(r.as_ref().map(|r| r.cpu_history.peak()))
             }),
         )
         .row(
-            fixed(rsx::t!("popout.frequency")),
+            fixed_text(rsx::t!("popout.frequency")),
             derive(state.clone(), |r| match r.and_then(|r| r.cpu_mhz) {
                 Some(mhz) if mhz >= 1000.0 => format!("{:.2} GHz", mhz / 1000.0),
                 Some(mhz) => format!("{mhz:.0} MHz"),
@@ -482,7 +468,7 @@ fn gpu_card(theme: NordTheme) -> Card {
     platform_layershell::watch(gpu::subscribe, move |g| sink.set(g));
 
     Card::titled(rsx::t!("sysinfo.gpu"))
-        .icon(fixed(glyph::gpu()))
+        .icon(fixed_text(glyph::gpu()))
         .subtitle(derive(state.clone(), |g| {
             let name = g.name.trim().to_string();
             if name.is_empty() {
@@ -493,21 +479,21 @@ fn gpu_card(theme: NordTheme) -> Card {
         }))
         .meter(
             derive(state.clone(), |g| g.usage.unwrap_or(0.0) / 100.0),
-            fixed_color(theme.accent),
+            fixed(theme.accent),
         )
         .row(
-            fixed(rsx::t!("popout.usage")),
+            fixed_text(rsx::t!("popout.usage")),
             derive(state.clone(), |g| percent(g.usage)),
         )
         .row(
-            fixed(rsx::t!("popout.sensor")),
+            fixed_text(rsx::t!("popout.sensor")),
             derive(state.clone(), |g| match g.temperature {
                 Some(c) => format!("{c:.0} °C"),
                 None => rsx::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed(rsx::t!("popout.vram")),
+            fixed_text(rsx::t!("popout.vram")),
             derive(state.clone(), |g| match (g.vram_used, g.vram_total) {
                 (Some(used), Some(total)) if total > 0 => format!(
                     "{} / {}",
@@ -522,7 +508,7 @@ fn gpu_card(theme: NordTheme) -> Card {
 fn memory_card(theme: NordTheme) -> Card {
     let state = resource_signal();
     Card::titled(rsx::t!("sysinfo.memory"))
-        .icon(fixed("memory-stick"))
+        .icon(fixed_text("memory-stick"))
         .subtitle(derive(state.clone(), |r| {
             percent(r.as_ref().map(|r| r.memory.used_percent()))
         }))
@@ -532,10 +518,10 @@ fn memory_card(theme: NordTheme) -> Card {
                     .map(|r| r.memory.used_percent() / 100.0)
                     .unwrap_or(0.0)
             }),
-            fixed_color(theme.accent),
+            fixed(theme.accent),
         )
         .row(
-            fixed(rsx::t!("popout.used")),
+            fixed_text(rsx::t!("popout.used")),
             derive(state.clone(), |r| match r {
                 Some(r) => format!(
                     "{} / {}",
@@ -546,7 +532,7 @@ fn memory_card(theme: NordTheme) -> Card {
             }),
         )
         .row(
-            fixed(rsx::t!("popout.swap")),
+            fixed_text(rsx::t!("popout.swap")),
             derive(state.clone(), |r| match r {
                 Some(r) if r.memory.swap_total > 0 => format!(
                     "{} / {}",
@@ -556,7 +542,7 @@ fn memory_card(theme: NordTheme) -> Card {
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
-        .row(fixed(rsx::t!("popout.disk_io")), disk_row(state))
+        .row(fixed_text(rsx::t!("popout.disk_io")), disk_row(state))
 }
 
 /// Names the sensor the reading came from, which is the one thing `[temperature] sensor` cannot be configured
@@ -577,30 +563,30 @@ fn temperature_card(config: &Config, theme: NordTheme) -> Card {
     let value = celsius.clone();
 
     Card::titled(rsx::t!("sysinfo.temperature"))
-        .icon(fixed("thermometer"))
-        .subtitle(derive_from(value, move |c| match c {
+        .icon(fixed_text("thermometer"))
+        .subtitle(derive(value, move |c| match c {
             Some(c) => unit.format(c),
             None => rsx::t!("sysinfo.no_reading"),
         }))
         .meter(
-            derive_from(meter, move |c| {
+            derive(meter, move |c| {
                 (c.unwrap_or(0.0) / critical.max(1.0)).clamp(0.0, 1.0)
             }),
-            derive_from(tint, move |c| match c {
+            derive(tint, move |c| match c {
                 Some(c) if c >= critical => theme.red,
                 Some(c) if c >= warn => theme.yellow,
                 _ => theme.accent,
             }),
         )
         .row(
-            fixed(rsx::t!("popout.sensor")),
+            fixed_text(rsx::t!("popout.sensor")),
             derive(state.clone(), move |r| {
                 sensor_label(r.as_ref(), &for_label)
             }),
         )
         .row(
-            fixed(rsx::t!("popout.critical")),
-            fixed(unit.format(critical)),
+            fixed_text(rsx::t!("popout.critical")),
+            fixed_text(unit.format(critical)),
         )
 }
 
@@ -636,17 +622,17 @@ fn netspeed_card() -> Card {
     platform_layershell::watch(netspeed::subscribe, move |s| sink.set(Some(s)));
 
     Card::titled(rsx::t!("popout.throughput"))
-        .icon(fixed("arrow-down-up"))
+        .icon(fixed_text("arrow-down-up"))
         .row(
-            fixed(rsx::t!("popout.down")),
+            fixed_text(rsx::t!("popout.down")),
             derive(state.clone(), |s| rate(s.as_ref().map(|s| s.down))),
         )
         .row(
-            fixed(rsx::t!("popout.up")),
+            fixed_text(rsx::t!("popout.up")),
             derive(state.clone(), |s| rate(s.as_ref().map(|s| s.up))),
         )
         .row(
-            fixed(rsx::t!("popout.total")),
+            fixed_text(rsx::t!("popout.total")),
             derive(state.clone(), |s| match s {
                 Some(s) => format!(
                     "{} / {}",
@@ -660,7 +646,7 @@ fn netspeed_card() -> Card {
 
 /// Disk throughput has no chip of its own, so it rides on the memory card — the surface a user checks when the
 /// machine feels slow, which is the same question.
-fn disk_row(state: RwSignal<Option<resources::Resources>>) -> ReadSignal<String> {
+fn disk_row(state: RwSignal<Option<resources::Resources>>) -> Live<String> {
     derive(state, |r| match r {
         Some(r) => format!(
             "{} / {}",
@@ -678,37 +664,6 @@ fn resource_signal() -> RwSignal<Option<resources::Resources>> {
     let sink = state.clone();
     platform_layershell::watch(resources::subscribe, move |r| sink.set(Some(r)));
     state
-}
-
-fn derive_from<T, U>(source: ReadSignal<T>, map: impl Fn(T) -> U + 'static) -> ReadSignal<U>
-where
-    T: Clone + 'static,
-    U: Clone + 'static,
-{
-    let out = signal(map(source.get()));
-    let bound = out.clone();
-    rsx::effect(move || bound.set(map(source.get())));
-    out.read_only()
-}
-
-fn derive_pair<A, B, U>(
-    first: ReadSignal<A>,
-    second: ReadSignal<B>,
-    map: impl Fn(A, B) -> U + 'static,
-) -> ReadSignal<U>
-where
-    A: Clone + 'static,
-    B: Clone + 'static,
-    U: Clone + 'static,
-{
-    let out = signal(map(first.get(), second.get()));
-    let bound = out.clone();
-    rsx::effect(move || bound.set(map(first.get(), second.get())));
-    out.read_only()
-}
-
-fn fixed_color(color: Color) -> ReadSignal<Color> {
-    signal(color).read_only()
 }
 
 fn on_off(value: bool) -> String {

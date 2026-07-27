@@ -5,36 +5,30 @@
 //! looking like one shell instead of twelve small designs.
 
 use rsx::{
-    AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ProgressProps, ReadSignal, RectStyle, SizeDimension, StyledContainer, Text, TextStyle, box_item,
-    progress, signal,
+    AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
+    StyledContainer, Text, TextStyle, box_item,
 };
 
 use crate::shared::icon::icon_view;
+use crate::shared::reactive::{Live, fixed_text};
 use crate::shared::theme::{FontRole, NordTheme};
+use crate::shared::widget;
 
 const METER_HEIGHT: f32 = 6.0;
 const HEADER_ICON: f32 = 26.0;
 
-/// A value that may or may not change while the popout is up. Most rows are live — the point of hovering the
-/// volume chip is watching the number move as you scroll it — but a few (a device name, a mount point) are
-/// settled by the time the card is built.
-pub fn fixed(text: impl Into<String>) -> ReadSignal<String> {
-    signal(text.into()).read_only()
-}
-
 /// One popout's content, described rather than built.
 pub struct Card {
-    icon: Option<ReadSignal<String>>,
-    icon_tint: Option<ReadSignal<Color>>,
-    title: ReadSignal<String>,
-    subtitle: Option<ReadSignal<String>>,
-    meter: Option<(ReadSignal<f32>, ReadSignal<Color>)>,
-    rows: Vec<(ReadSignal<String>, ReadSignal<String>)>,
+    icon: Option<Live<String>>,
+    icon_tint: Option<Live<Color>>,
+    title: Live<String>,
+    subtitle: Option<Live<String>>,
+    meter: Option<(Live<f32>, Live<Color>)>,
+    rows: Vec<(Live<String>, Live<String>)>,
 }
 
 impl Card {
-    pub fn new(title: ReadSignal<String>) -> Self {
+    pub fn new(title: Live<String>) -> Self {
         Self {
             icon: None,
             icon_tint: None,
@@ -46,43 +40,50 @@ impl Card {
     }
 
     pub fn titled(title: impl Into<String>) -> Self {
-        Self::new(fixed(title))
+        Self::new(fixed_text(title))
     }
 
-    pub fn icon(mut self, glyph: ReadSignal<String>) -> Self {
+    pub fn icon(mut self, glyph: Live<String>) -> Self {
         self.icon = Some(glyph);
         self
     }
 
-    pub fn icon_tint(mut self, tint: ReadSignal<Color>) -> Self {
+    pub fn icon_tint(mut self, tint: Live<Color>) -> Self {
         self.icon_tint = Some(tint);
         self
     }
 
-    pub fn subtitle(mut self, text: ReadSignal<String>) -> Self {
+    pub fn subtitle(mut self, text: Live<String>) -> Self {
         self.subtitle = Some(text);
         self
     }
 
     /// A 0..1 bar under the heading. Only one per card: a popout with two meters is a dashboard card (F8), and
     /// this is not the surface for one.
-    pub fn meter(mut self, fraction: ReadSignal<f32>, tint: ReadSignal<Color>) -> Self {
+    pub fn meter(mut self, fraction: Live<f32>, tint: Live<Color>) -> Self {
         self.meter = Some((fraction, tint));
         self
     }
 
-    pub fn row(mut self, label: ReadSignal<String>, value: ReadSignal<String>) -> Self {
+    pub fn row(mut self, label: Live<String>, value: Live<String>) -> Self {
         self.rows.push((label, value));
         self
     }
 
     pub fn build(self, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        let caption = theme.font(FontRole::Caption);
         let mut children: Vec<Box<dyn LayoutItem>> = vec![header(&self, theme)?];
         if let Some((fraction, tint)) = self.meter {
-            children.push(meter(fraction, tint, theme)?);
+            children.push(widget::meter(fraction, tint, theme.overlay, METER_HEIGHT)?);
         }
         for (label, value) in self.rows {
-            children.push(row(label, value, theme)?);
+            children.push(widget::label_value(
+                label,
+                value,
+                caption,
+                theme.muted,
+                theme.text,
+            )?);
         }
         Ok(Box::new(Container::new(
             LayoutStyle::new()
@@ -131,59 +132,6 @@ fn header(card: &Card, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
             .width(SizeDimension::Percent(1.0))
             .gap(10.0),
         content,
-    )?))
-}
-
-/// The bar under the heading. `progress` scales its fill with a transform rather than re-laying out a narrower
-/// box, which is what makes it cheap enough to follow a value that moves on every wheel notch.
-fn meter(
-    fraction: ReadSignal<f32>,
-    tint: ReadSignal<Color>,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let value = signal(fraction.get().clamp(0.0, 1.0));
-    let bound = value.clone();
-    rsx::effect(move || bound.set(fraction.get().clamp(0.0, 1.0)));
-    let bar = progress(ProgressProps {
-        value: Some(value),
-        color: Box::new(move || tint.get()),
-        track_color: Box::new(move || theme.overlay),
-        width: 0.0,
-        height: METER_HEIGHT,
-    })?;
-    // The component sizes its track in px; a full-width holder is what makes the bar follow the card instead.
-    Ok(Box::new(Container::new(
-        LayoutStyle::new()
-            .flex_row()
-            .width(SizeDimension::Percent(1.0)),
-        vec![bar],
-    )?))
-}
-
-fn row(
-    label: ReadSignal<String>,
-    value: ReadSignal<String>,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let caption = theme.font(FontRole::Caption);
-    let label = Text::auto(
-        move || label.get(),
-        LayoutStyle::new().flex_shrink(0.0),
-        move || TextStyle::new(caption, theme.muted),
-    )?;
-    let value = Text::auto(
-        move || value.get(),
-        LayoutStyle::new(),
-        move || TextStyle::new(caption, theme.text),
-    )?;
-    Ok(Box::new(Container::new(
-        LayoutStyle::new()
-            .flex_row()
-            .align_items(AlignItems::CENTER)
-            .justify_content(JustifyContent::SPACE_BETWEEN)
-            .width(SizeDimension::Percent(1.0))
-            .gap(10.0),
-        vec![box_item(label), box_item(value)],
     )?))
 }
 

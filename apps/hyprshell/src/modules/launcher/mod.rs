@@ -11,6 +11,7 @@ use rsx::{
 use crate::core::config::{LauncherAction, LauncherConfig};
 use crate::core::shell;
 use crate::shared::calc;
+use crate::shared::reactive;
 use crate::shared::search::{self, Mode};
 use crate::shared::services::apps::{self, App};
 use crate::shared::services::state;
@@ -246,7 +247,7 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let reset_on_query = selected.clone();
     let disarm_on_query = armed.clone();
     let query_watch = query.read_only();
-    rsx::effect(move || {
+    let follow_query = rsx::effect(move || {
         query_watch.get();
         reset_on_query.set(0);
         disarm_on_query.set(String::new());
@@ -281,31 +282,36 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
         vec![field, list],
     )?
     // `on_key` fires before the event reaches the children, which is what lets the arrows drive the list while
-    // the search field holds focus and keeps every other keystroke going to the field as typing.
-    .on_key(move |key| match key {
-        Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::ArrowUp) => {
-            let down = matches!(key, Key::Named(NamedKey::ArrowDown));
-            let count = keys_shown.with(|list| list.len());
-            keys_selected.set(move_selection(keys_selected.peek(), count, down));
-        }
-        Key::Named(NamedKey::Enter) => {
-            let chosen = keys_shown.with(|list| list.get(keys_selected.peek()).cloned());
-            let Some(entry) = chosen else { return };
-            let key = entry.key();
-            // A dangerous action arms on the first Enter and runs on the second. Arming leaves the launcher up
-            // — closing it would be indistinguishable from having run the thing.
-            if entry.is_dangerous() && keys_armed.peek() != key {
-                keys_armed.set(key);
-                return;
+    // the search field holds focus and keeps every other keystroke going to the field as typing. It also owns
+    // the query-reset subscription above: an `Effect` deregisters when its handle drops, and this closure lives
+    // for exactly as long as the panel it is attached to.
+    .on_key(move |key| {
+        let _ = &follow_query;
+        match key {
+            Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::ArrowUp) => {
+                let down = matches!(key, Key::Named(NamedKey::ArrowDown));
+                let count = keys_shown.with(|list| list.len());
+                keys_selected.set(move_selection(keys_selected.peek(), count, down));
             }
-            choose(&entry);
-            shell::close(ID);
+            Key::Named(NamedKey::Enter) => {
+                let chosen = keys_shown.with(|list| list.get(keys_selected.peek()).cloned());
+                let Some(entry) = chosen else { return };
+                let key = entry.key();
+                // A dangerous action arms on the first Enter and runs on the second. Arming leaves the launcher
+                // up — closing it would be indistinguishable from having run the thing.
+                if entry.is_dangerous() && keys_armed.peek() != key {
+                    keys_armed.set(key);
+                    return;
+                }
+                choose(&entry);
+                shell::close(ID);
+            }
+            Key::Named(NamedKey::Escape) if !keys_armed.peek().is_empty() => {
+                // Escape disarms first, so backing out of a confirmation doesn't also dismiss the launcher.
+                keys_armed.set(String::new());
+            }
+            _ => {}
         }
-        Key::Named(NamedKey::Escape) if !keys_armed.peek().is_empty() => {
-            // Escape disarms first, so backing out of a confirmation doesn't also dismiss the launcher.
-            keys_armed.set(String::new());
-        }
-        _ => {}
     });
     Ok(Box::new(panel))
 }
@@ -372,15 +378,16 @@ fn result_list(
 
                 // Follow the selection: when this row becomes the selected one, ask the viewport to bring it
                 // into view. Already-visible rows are left alone, so arrowing within the visible window doesn't
-                // yank the list.
+                // yank the list. The subscription is tied to the row, since the list rebuilds its rows and an
+                // effect that outlived one would keep revealing a node that is gone.
                 let node = row.layout_node();
                 let viewport = viewport.clone();
-                rsx::effect(move || {
+                let follow_selection = rsx::effect(move || {
                     if is_selected() {
                         viewport.reveal(node, 4.0);
                     }
                 });
-                Ok(row)
+                reactive::keeping(row, follow_selection)
             };
             Ok(Box::new(rsx::ReactiveList::new(source, key, build)?) as Box<dyn LayoutItem>)
         },
