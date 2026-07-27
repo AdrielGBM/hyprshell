@@ -65,6 +65,58 @@ pub struct Player {
     pub playback: Playback,
     pub can_go_next: bool,
     pub can_go_previous: bool,
+    /// Whether the player accepts `Seek` at all. A live stream and most browser tabs do not, and offering a
+    /// scrub that silently does nothing is worse than not offering one.
+    pub can_seek: bool,
+    pub shuffle: bool,
+    pub loop_status: LoopStatus,
+}
+
+/// MPRIS's `LoopStatus`. The variant is `Off` rather than `None` so it never reads as an absent value at a
+/// call site — this is a state the player is in, not a missing one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LoopStatus {
+    #[default]
+    Off,
+    Track,
+    Playlist,
+}
+
+impl LoopStatus {
+    fn parse(status: &str) -> Self {
+        match status {
+            "Track" => Self::Track,
+            "Playlist" => Self::Playlist,
+            _ => Self::Off,
+        }
+    }
+
+    /// The string MPRIS expects back.
+    pub fn as_mpris(self) -> &'static str {
+        match self {
+            Self::Off => "None",
+            Self::Track => "Track",
+            Self::Playlist => "Playlist",
+        }
+    }
+
+    /// What pressing a single loop button does: off → the whole playlist → this track → off. That order is
+    /// what every player's own button does, so the shell's matches muscle memory.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Playlist,
+            Self::Playlist => Self::Track,
+            Self::Track => Self::Off,
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Track => "track",
+            Self::Playlist => "playlist",
+        }
+    }
 }
 
 impl Player {
@@ -209,6 +261,18 @@ fn read_player(conn: &Connection, bus: &str) -> Option<Player> {
         can_go_previous: get("CanGoPrevious")
             .and_then(|v| bool::try_from(v).ok())
             .unwrap_or(false),
+        can_seek: get("CanSeek")
+            .and_then(|v| bool::try_from(v).ok())
+            .unwrap_or(false),
+        // Both are optional in the spec, and a player that implements neither reports the defaults rather than
+        // failing the whole read.
+        shuffle: get("Shuffle")
+            .and_then(|v| bool::try_from(v).ok())
+            .unwrap_or(false),
+        loop_status: get("LoopStatus")
+            .and_then(|v| String::try_from(v).ok())
+            .map(|s| LoopStatus::parse(&s))
+            .unwrap_or_default(),
     })
 }
 
@@ -355,6 +419,83 @@ pub fn previous() {
 
 pub fn stop() {
     control("Stop");
+}
+
+/// Runs a `Player` method that takes arguments, off the UI thread like [`control`].
+fn call_with<A>(method: &'static str, args: A)
+where
+    A: serde::Serialize + zbus::zvariant::DynamicType + Send + 'static,
+{
+    let Some(player) = current() else { return };
+    let _ = std::thread::Builder::new()
+        .name("hyprshell-mpris-call".to_string())
+        .spawn(move || {
+            let Ok(conn) = Connection::session() else { return };
+            let Ok(name) = BusName::try_from(player.bus.clone()) else {
+                return;
+            };
+            if let Err(e) =
+                conn.call_method(Some(name), MPRIS_PATH, Some(PLAYER_IFACE), method, &args)
+            {
+                tracing::warn!("mpris {method} on {}: {e}", player.bus);
+            }
+        });
+}
+
+/// Sets a `Player` property, off the UI thread. Shuffle and loop are properties, not methods — MPRIS models
+/// them as state you assign rather than as verbs.
+fn set_property(name: &'static str, value: Value<'static>) {
+    let Some(player) = current() else { return };
+    let _ = std::thread::Builder::new()
+        .name("hyprshell-mpris-set".to_string())
+        .spawn(move || {
+            let Ok(conn) = Connection::session() else { return };
+            let Ok(bus) = BusName::try_from(player.bus.clone()) else {
+                return;
+            };
+            if let Err(e) = conn.call_method(
+                Some(bus),
+                MPRIS_PATH,
+                Some("org.freedesktop.DBus.Properties"),
+                "Set",
+                &(PLAYER_IFACE, name, value),
+            ) {
+                tracing::warn!("mpris set {name} on {}: {e}", player.bus);
+            }
+        });
+}
+
+/// Moves the playhead by `offset` microseconds, forward or back.
+///
+/// Relative `Seek` rather than absolute `SetPosition`, because the absolute form takes the track id from the
+/// metadata and refuses the call when it does not match — which is exactly the race a scrub hits when the
+/// track changes underneath it. Relative seeking clamps at both ends in every player.
+pub fn seek(offset_micros: i64) {
+    if current().is_some_and(|p| !p.can_seek) {
+        return;
+    }
+    call_with("Seek", (offset_micros,));
+}
+
+pub fn set_shuffle(on: bool) {
+    set_property("Shuffle", Value::Bool(on));
+}
+
+pub fn toggle_shuffle() {
+    if let Some(player) = current() {
+        set_shuffle(!player.shuffle);
+    }
+}
+
+pub fn set_loop(status: LoopStatus) {
+    set_property("LoopStatus", Value::from(status.as_mpris()));
+}
+
+/// Advances the loop mode one step, which is what a single button does.
+pub fn cycle_loop() {
+    if let Some(player) = current() {
+        set_loop(player.loop_status.next());
+    }
 }
 
 /// The active player's position in microseconds. Read on demand rather than broadcast: it advances

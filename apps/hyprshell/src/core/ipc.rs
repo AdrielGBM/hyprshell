@@ -832,6 +832,56 @@ static TARGETS: &[Target] = &[
                     Ok("stopped".to_string())
                 },
             },
+            Command {
+                name: "seek",
+                args: "<±seconds>",
+                help: "move the playhead, if the player can seek",
+                run: |args| {
+                    use crate::shared::services::mpris;
+                    let seconds = number(args, 0, "seconds")?;
+                    let player = mpris::current().ok_or("no media player is running")?;
+                    if !player.can_seek {
+                        return Err(format!("{} cannot seek", player.identity));
+                    }
+                    mpris::seek(seconds as i64 * 1_000_000);
+                    Ok(seconds.to_string())
+                },
+            },
+            Command {
+                name: "shuffle",
+                args: "<on|off|toggle>",
+                help: "set the shuffle state",
+                run: |args| {
+                    use crate::shared::services::mpris;
+                    match arg(args, 0, "state")? {
+                        "on" => mpris::set_shuffle(true),
+                        "off" => mpris::set_shuffle(false),
+                        "toggle" => mpris::toggle_shuffle(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok("ok".to_string())
+                },
+            },
+            Command {
+                name: "loop",
+                args: "<off|track|playlist|cycle>",
+                help: "set the repeat mode",
+                run: |args| {
+                    use crate::shared::services::mpris::{self, LoopStatus};
+                    match arg(args, 0, "mode")? {
+                        "off" | "none" => mpris::set_loop(LoopStatus::Off),
+                        "track" => mpris::set_loop(LoopStatus::Track),
+                        "playlist" => mpris::set_loop(LoopStatus::Playlist),
+                        "cycle" => mpris::cycle_loop(),
+                        other => {
+                            return Err(format!(
+                                "expected off|track|playlist|cycle, got '{other}'"
+                            ));
+                        }
+                    }
+                    Ok("ok".to_string())
+                },
+            },
         ],
     },
     Target {

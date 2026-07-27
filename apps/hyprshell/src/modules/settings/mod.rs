@@ -23,7 +23,7 @@ const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 const ALIGNS: &[&str] = &["start", "center", "end"];
 const SHAPES: &[&str] = &["bar", "sections", "chips"];
 const LANGUAGES: &[&str] = &["en", "es"];
-const MEDIA_SCROLLS: &[&str] = &["volume", "track", "none"];
+const MEDIA_SCROLLS: &[&str] = &["volume", "track", "seek", "none"];
 const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
 
@@ -864,6 +864,9 @@ fn media_section(
     let preferred = signal(m.preferred_player.clone());
     let max_chars = signal(m.max_chars.to_string());
     let scroll = signal(media_scroll_str(m.scroll).to_string());
+    let marquee = signal(m.marquee);
+    let marquee_speed = signal(m.marquee_speed_ms.to_string());
+    let seek_seconds = signal(m.seek_seconds.to_string());
 
     let rows = vec![
         text_field(
@@ -884,6 +887,19 @@ fn media_section(
             MEDIA_SCROLLS,
             theme,
         )?,
+        text_field(
+            || rsx::t!("settings.field.seek_seconds"),
+            seek_seconds.clone(),
+            "5",
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.marquee"), marquee.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.marquee_speed_ms"),
+            marquee_speed.clone(),
+            "220",
+            theme,
+        )?,
     ];
 
     // Aliases are map-valued, so they stay hand-edited in the TOML for now, like `theme.colors`; carrying the
@@ -895,6 +911,9 @@ fn media_section(
             preferred_player: preferred.peek(),
             max_chars: parse_u32(&max_chars.peek(), base.max_chars),
             scroll: parse_media_scroll(&scroll.peek()),
+            marquee: marquee.peek(),
+            marquee_speed_ms: parse_u32(&marquee_speed.peek(), base.marquee_speed_ms),
+            seek_seconds: parse_u32(&seek_seconds.peek(), base.seek_seconds),
             aliases: base.aliases.clone(),
         };
         persist(&path, "media", &value);
@@ -1501,6 +1520,7 @@ fn media_scroll_str(scroll: MediaScroll) -> &'static str {
     match scroll {
         MediaScroll::Volume => "volume",
         MediaScroll::Track => "track",
+        MediaScroll::Seek => "seek",
         MediaScroll::None => "none",
     }
 }
@@ -1508,6 +1528,7 @@ fn media_scroll_str(scroll: MediaScroll) -> &'static str {
 fn parse_media_scroll(raw: &str) -> MediaScroll {
     match raw {
         "track" => MediaScroll::Track,
+        "seek" => MediaScroll::Seek,
         "none" => MediaScroll::None,
         _ => MediaScroll::Volume,
     }

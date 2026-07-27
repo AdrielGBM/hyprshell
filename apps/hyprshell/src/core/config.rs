@@ -1285,8 +1285,15 @@ pub struct MediaConfig {
     pub preferred_player: String,
     /// Max characters of `artist — title` on the bar, bounding a value with no natural size.
     pub max_chars: u32,
-    /// What the wheel over the chip does: `volume`, `track`, or `none`.
+    /// What the wheel over the chip does: `volume`, `track`, `seek`, or `none`.
     pub scroll: MediaScroll,
+    /// Scroll a title longer than `max_chars` instead of cutting it. Off by default: a bar that never moves is
+    /// easier to read past, and a marquee costs a repaint per step for as long as the track is playing.
+    pub marquee: bool,
+    /// Milliseconds per character of marquee travel.
+    pub marquee_speed_ms: u32,
+    /// Seconds the wheel moves the playhead per notch, when `scroll = "seek"`.
+    pub seek_seconds: u32,
     pub aliases: HashMap<String, String>,
 }
 
@@ -1296,11 +1303,25 @@ impl Default for MediaConfig {
             preferred_player: String::new(),
             max_chars: 40,
             scroll: MediaScroll::default(),
+            marquee: false,
+            marquee_speed_ms: 220,
+            seek_seconds: 5,
             aliases: HashMap::new(),
         }
     }
 }
 
+impl MediaConfig {
+    /// Clamped on read: below about 60 ms the text is a blur, and above a few seconds it reads as stuck.
+    pub fn marquee_step(&self) -> Duration {
+        Duration::from_millis(self.marquee_speed_ms.clamp(60, 2000) as u64)
+    }
+
+    /// The wheel's seek step in microseconds, which is MPRIS's unit.
+    pub fn seek_micros(&self) -> i64 {
+        self.seek_seconds.clamp(1, 600) as i64 * 1_000_000
+    }
+}
 
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -1308,6 +1329,9 @@ pub enum MediaScroll {
     #[default]
     Volume,
     Track,
+    /// Move the playhead. Needs a player that reports `CanSeek`; on one that does not, the wheel does nothing
+    /// rather than pretending.
+    Seek,
     None,
 }
 
@@ -2077,6 +2101,7 @@ end = ["battery", "volume"]
         assert!(parsed.paths.wallpapers.is_empty());
         assert_eq!(parsed.bluetooth.max_devices, starter.bluetooth.max_devices);
         assert_eq!(parsed.network.rescan_seconds, starter.network.rescan_seconds);
+        assert_eq!(parsed.media.seek_seconds, starter.media.seek_seconds);
     }
 
     /// A6: every section that can start a background producer carries `enabled`, defaults it to on, and reads

@@ -13,6 +13,10 @@ pub fn glyph(player: &Player) -> &'static str {
     }
 }
 
+/// The gap drawn between the end of a scrolling title and its own start, so the wrap reads as a loop rather
+/// than as the words running into each other.
+const MARQUEE_GAP: &str = "   ·   ";
+
 /// The chip's text: `artist — title`, trimmed to `max_chars`. Empty when nothing is running, which lets the
 /// module collapse to just its icon instead of showing a placeholder.
 pub fn label(player: &Player, config: &MediaConfig) -> String {
@@ -20,6 +24,36 @@ pub fn label(player: &Player, config: &MediaConfig) -> String {
         return String::new();
     }
     truncate(&player.summary(), config.max_chars as usize)
+}
+
+/// One frame of a scrolling title: the full text rotated left by `step` characters, cut to `max`.
+///
+/// A rotation rather than a bounce, so the chip's width never changes — a bar whose modules shift sideways as
+/// a title scrolls is worse than a truncated title. Text that already fits is returned untouched and never
+/// animates, which is what keeps the common case free.
+pub fn marquee(player: &Player, config: &MediaConfig, step: usize) -> String {
+    if player.is_empty() {
+        return String::new();
+    }
+    let max = config.max_chars as usize;
+    let text = player.summary();
+    if max == 0 || text.chars().count() <= max {
+        return truncate(&text, max);
+    }
+    let looped: Vec<char> = text.chars().chain(MARQUEE_GAP.chars()).collect();
+    let offset = step % looped.len();
+    looped
+        .iter()
+        .cycle()
+        .skip(offset)
+        .take(max)
+        .collect::<String>()
+}
+
+/// Whether a title is long enough to be worth scrolling. The ticker is only started when it is, so a bar
+/// showing a short title costs nothing.
+pub fn overflows(player: &Player, config: &MediaConfig) -> bool {
+    !player.is_empty() && player.summary().chars().count() > config.max_chars.max(1) as usize
 }
 
 /// Cuts `text` to `max` characters, ending in `…` when it had to. Counts characters, not bytes, so a track
@@ -35,6 +69,25 @@ fn truncate(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
+/// The marquee's clock: one tick per `[media] marquee_speed_ms`, forever.
+///
+/// A `watch` producer rather than a re-armed `timeout`, and that is the whole point: `watch` binds the
+/// subscription to the surface and drops it when the surface goes away, so the ticker ends with the bar it
+/// belongs to. A self-rescheduling timeout would keep firing into a torn-down surface.
+pub fn marquee_ticks(tx: platform_layershell::EventSender<u64>) {
+    let step = crate::core::shell::shared_config()
+        .map(|c| c.media.marquee_step())
+        .unwrap_or_else(|| std::time::Duration::from_millis(220));
+    let mut frame: u64 = 0;
+    loop {
+        std::thread::sleep(step);
+        frame = frame.wrapping_add(1);
+        if !tx.send(frame) {
+            return;
+        }
+    }
+}
+
 /// Click toggles playback. Nothing running is a no-op rather than an error: the chip is a readout until a
 /// player appears.
 pub fn toggle() {
@@ -44,11 +97,15 @@ pub fn toggle() {
 /// The wheel over the chip, per `[media] scroll`: adjust the volume (the common case — the chip is where your
 /// pointer already is when a track is too loud), skip tracks, or nothing.
 pub fn scroll(_dx: f32, dy: f32) {
-    let mode = crate::core::shell::config()
-        .map(|c| c.media.scroll)
+    let config = crate::core::shell::config()
+        .map(|c| c.media.clone())
         .unwrap_or_default();
     let up = dy > 0.0;
-    match mode {
+    match config.scroll {
+        MediaScroll::Seek => {
+            let step = config.seek_micros();
+            mpris::seek(if up { step } else { -step });
+        }
         MediaScroll::Volume => {
             crate::shared::services::volume::step(if up { 5 } else { -5 });
             crate::modules::osd::show_volume();
@@ -98,6 +155,55 @@ mod tests {
     #[test]
     fn nothing_running_yields_no_label_so_the_chip_collapses() {
         assert_eq!(label(&Player::default(), &MediaConfig::default()), "");
+        assert_eq!(marquee(&Player::default(), &MediaConfig::default(), 3), "");
+    }
+
+    #[test]
+    fn a_title_that_fits_never_scrolls() {
+        let config = MediaConfig {
+            max_chars: 40,
+            ..MediaConfig::default()
+        };
+        let short = playing("Blue", "Miles");
+        assert!(!overflows(&short, &config));
+        // Every step yields the same frame, so a ticker running over it would repaint nothing.
+        assert_eq!(marquee(&short, &config, 0), marquee(&short, &config, 7));
+    }
+
+    #[test]
+    fn a_long_title_scrolls_at_a_fixed_width_and_wraps_round() {
+        let config = MediaConfig {
+            max_chars: 10,
+            ..MediaConfig::default()
+        };
+        let long = playing("A Love Supreme, Pt. I", "John Coltrane");
+        assert!(overflows(&long, &config));
+
+        let first = marquee(&long, &config, 0);
+        assert_eq!(first.chars().count(), 10, "the chip's width never moves");
+        assert!(first.starts_with("John Colt"), "it starts at the beginning: {first:?}");
+        assert_ne!(marquee(&long, &config, 1), first, "and it advances");
+
+        // A full cycle returns to the start: the text plus the gap between its end and its own beginning.
+        let cycle = long.summary().chars().count() + MARQUEE_GAP.chars().count();
+        assert_eq!(marquee(&long, &config, cycle), first);
+        assert_eq!(marquee(&long, &config, cycle * 3), first, "and stays in step");
+    }
+
+    #[test]
+    fn the_marquee_counts_characters_not_bytes() {
+        let config = MediaConfig {
+            max_chars: 6,
+            ..MediaConfig::default()
+        };
+        let accented = playing("mañana señor mío", "Café");
+        for step in 0..12 {
+            assert_eq!(
+                marquee(&accented, &config, step).chars().count(),
+                6,
+                "step {step} must not cut a codepoint short"
+            );
+        }
     }
 
     #[test]

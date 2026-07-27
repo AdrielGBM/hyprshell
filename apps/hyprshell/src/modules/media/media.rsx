@@ -1,5 +1,5 @@
 [logic]
-use crate::modules::media::{glyph, label};
+use crate::modules::media::{glyph, label, marquee, marquee_ticks, overflows};
 use crate::shared::services::mpris::{self, Player};
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -7,21 +7,40 @@ let config = crate::surface_env()
     .map(|e| e.config.media.clone())
     .unwrap_or_default();
 let for_update = config.clone();
+let for_frame = config.clone();
 
 let initial = mpris::current().unwrap_or_default();
-let text = signal(label(&initial, &config));
+let player = signal(initial.clone());
 let icon_name = signal(glyph(&initial).to_string());
-let text_view = text.read_only();
-let text_empty = text.read_only();
 let icon_view = icon_name.read_only();
 // A vertical bar has no room for a track title, so it shows only the transport glyph; the same module works on
 // every edge instead of needing a second one.
 let vertical = crate::bar_is_vertical();
 
-platform_layershell::watch(mpris::subscribe, move |player: Player| {
-    text.set(label(&player, &for_update));
-    icon_name.set(glyph(&player).to_string());
+// A read handle taken before the watch closure moves the signal in: a signal is not `Copy`.
+let text_player = player.read_only();
+platform_layershell::watch(mpris::subscribe, move |p: Player| {
+    icon_name.set(glyph(&p).to_string());
+    player.set(p);
 });
+
+// The marquee's step. Only subscribed when the user asked for one, so a bar without it runs no ticker at all;
+// the step still only *moves* the text while a title actually overflows.
+let frame = signal(0u64);
+if config.marquee && !vertical {
+    platform_layershell::watch(marquee_ticks, move |tick: u64| frame.set(tick));
+}
+
+let frame_read = frame.read_only();
+let text_view = memo(move || {
+    let p = text_player.get();
+    if for_frame.marquee && overflows(&p, &for_frame) {
+        marquee(&p, &for_frame, frame_read.get() as usize)
+    } else {
+        label(&p, &for_update)
+    }
+});
+let text_empty = text_view.clone();
 
 let fg = crate::module_fg();
 let fg_icon = fg.clone();
