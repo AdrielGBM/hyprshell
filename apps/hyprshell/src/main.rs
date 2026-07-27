@@ -24,7 +24,8 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None | Some("run") => {
-            init_tracing();
+            // Held for the whole run: dropping the guard stops the writer thread and flushes what it has.
+            let _logging = init_tracing();
             hyprshell::run();
             ExitCode::SUCCESS
         }
@@ -79,10 +80,26 @@ fn send(args: &[String]) -> ExitCode {
     }
 }
 
-fn init_tracing() {
+/// Logging that a stalled reader cannot stop, which is the only kind a shell may have.
+///
+/// The subscriber writes from whichever thread logged, and that includes the driver thread — the one that
+/// mounts every surface and paints every frame. Writing straight to stdout ties that thread's progress to
+/// whoever is draining the pipe: a dev harness that stopped reading, a terminal paused with Ctrl-S, a logger
+/// that died. Once the pipe's 64 KB fill, `write` blocks and never returns, and the shell is parked mid-log
+/// holding the stdout lock — bars half-mounted, IPC unanswered, nothing on screen and no message saying why.
+/// Hands the bytes to a writer thread instead, dropping them when its queue is full: a reader that stops
+/// costs log lines, never frames. `shell quit` exits the process rather than unwinding, so the last lines can
+/// go with it; that is the trade this makes deliberately.
+fn init_tracing() -> tracing_appender::non_blocking::WorkerGuard {
+    let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .lossy(true)
+        .buffered_lines_limit(4096)
+        .finish(std::io::stdout());
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
+        .with_writer(writer)
         .init();
+    guard
 }

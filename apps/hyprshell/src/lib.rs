@@ -279,7 +279,9 @@ fn setup_shell(config_path: PathBuf) {
     crate::modules::notifications::popup_host(Arc::clone(&config));
 
     let initial = open_surfaces(&config);
-    println!("hyprshell: {} surface(s) up", initial.len());
+    // Through tracing rather than `println!`: this runs on the driver thread, where a direct write to a pipe
+    // nobody is draining blocks forever. See `init_tracing`.
+    tracing::info!("{} surface(s) up", initial.len());
     let handles = Rc::new(RefCell::new(initial));
     // The config the shell is currently running. A reload that fails to parse keeps this one rather than
     // falling back to the starter bar, so a typo costs the user an error message, not their whole layout.
