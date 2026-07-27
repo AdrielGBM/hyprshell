@@ -187,17 +187,21 @@ fn zone(
 /// `AlignItems::STRETCH`, so it fills the bar's thickness; a wrapper that centred it instead would shrink every
 /// popout-bearing chip to its content. A self-managed module lays itself out and is centred, as it was before
 /// any wrapper existed.
+///
+/// It runs along the bar for the same reason [`zone`] does. A wrapper fixed to a row applies `cross` across the
+/// *screen's* vertical, so on a left or right bar it stretched each chip's height — which is already its
+/// content — and left its width free: every wrapped chip then sat at its own content width, ragged against the
+/// bar's inner edge, with the wide ones running off the screen. Thirteen chips carry a popout, so on a vertical
+/// bar that was most of them.
 fn chip_wrapper(
     content: Box<dyn LayoutItem>,
     module_id: &str,
     on_scroll: Option<fn(f32, f32)>,
     popout: bool,
     cross: AlignItems,
+    edge: Edge,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let style = LayoutStyle::new()
-        .flex_row()
-        .align_items(cross)
-        .flex_shrink(0.0);
+    let style = axis(LayoutStyle::new().align_items(cross).flex_shrink(0.0), edge);
     let mut wrapper = StyledContainer::new(
         style,
         |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
@@ -260,7 +264,14 @@ fn build_items(
             if scroll.is_none() && !popout {
                 items.push(content);
             } else {
-                items.push(chip_wrapper(content, id, scroll, popout, AlignItems::CENTER)?);
+                items.push(chip_wrapper(
+                    content,
+                    id,
+                    scroll,
+                    popout,
+                    AlignItems::CENTER,
+                    ctx.edge,
+                )?);
             }
             continue;
         }
@@ -283,7 +294,7 @@ fn build_items(
         let chip = module_shell(content, style, on_press, def.and_then(|d| d.scroll))?;
         // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
         items.push(if popout {
-            chip_wrapper(chip, id, None, true, AlignItems::STRETCH)?
+            chip_wrapper(chip, id, None, true, AlignItems::STRETCH, ctx.edge)?
         } else {
             chip
         });
@@ -295,7 +306,7 @@ fn build_items(
 mod tests {
     use super::*;
     use crate::shared::module::ModuleDef;
-    use rsx::reset_layout_runtime;
+    use rsx::{AvailableSpace, compute_layout, reset_layout_runtime, set_theme};
 
     fn dummy(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
         Ok(Box::new(StyledContainer::new(
@@ -345,7 +356,7 @@ mod tests {
         )
         .unwrap();
         let mut wrapped =
-            chip_wrapper(chip, "volume", None, true, AlignItems::STRETCH).unwrap();
+            chip_wrapper(chip, "volume", None, true, AlignItems::STRETCH, Edge::Top).unwrap();
 
         let node = wrapped.layout_node();
         compute_layout(
@@ -422,6 +433,72 @@ mod tests {
                 build_bar(&cfg, Edge::Left, NordTheme::new().accent, &registry(), NordTheme::new())
                     .is_ok(),
                 "vertical {mode} builds"
+            );
+        }
+    }
+
+    /// Every chip fills the bar's thickness, whichever edge it is on.
+    ///
+    /// The regression: the wrapper a popout-bearing chip sits in was fixed to a row, so on a left or right bar
+    /// it stretched the chip's height (already its content) and left the width free. Each wrapped chip then
+    /// took its own content width, ragged against the bar's inner edge, and the wide ones ran off the screen.
+    /// Building proves none of that — the wrapper builds happily either way — so this lays a real bar out and
+    /// measures the chips.
+    #[test]
+    fn a_wrapped_chip_fills_the_bar_thickness_on_a_vertical_bar() {
+        let side = 44.0;
+        // A chip wider than the bar is the case that shows the bug: a clock, a window title, a netspeed
+        // readout. Its own width is content-driven, so only `align-items: stretch` on the right axis reins
+        // it in.
+        let content_width = 120.0;
+
+        for edge in [Edge::Left, Edge::Top] {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+
+            let inner = Container::new(
+                LayoutStyle::new().width(content_width).height(20.0),
+                vec![],
+            )
+            .unwrap();
+            let chip = Container::new(LayoutStyle::new().flex_row(), vec![Box::new(inner)]).unwrap();
+            let chip_node = chip.layout_node();
+            let chip_rect = track_layout(chip_node).expect("the chip registers its rect");
+
+            let wrapped = chip_wrapper(
+                Box::new(chip),
+                "clock",
+                None,
+                true,
+                AlignItems::STRETCH,
+                edge,
+            )
+            .unwrap();
+            // The zone the bar puts a chip in: along the bar, stretching its children across it.
+            let zone = zone(edge, JustifyContent::START, 0.0, AlignItems::STRETCH, vec![wrapped])
+                .unwrap();
+            let (w, h) = if edge.is_vertical() {
+                (side, 600.0)
+            } else {
+                (600.0, side)
+            };
+            compute_layout(
+                zone.layout_node(),
+                AvailableSpace::Definite(w),
+                AvailableSpace::Definite(h),
+            )
+            .unwrap();
+
+            let rect = chip_rect.get();
+            let across = if edge.is_vertical() {
+                rect.width
+            } else {
+                rect.height
+            };
+            assert_eq!(
+                across, side,
+                "{edge:?}: a {content_width}px chip measures {across} across a {side}px bar — it should be \
+                 reined in to the bar's thickness, not left at its content width to spill off the screen"
             );
         }
     }
