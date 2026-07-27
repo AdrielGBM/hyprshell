@@ -241,10 +241,10 @@ pub fn read(config: &GpuConfig) -> Option<Gpu> {
 
 static GPU: Service<Gpu> = Service::new("hyprshell-gpu", run);
 
-/// The `[gpu]` settings, or the defaults outside a started shell (a unit test, a service thread — the running
-/// config lives on the driver thread, which is not this one).
+/// The `[gpu]` settings, or the defaults outside a started shell. Read through the cross-thread snapshot: the
+/// only caller is the producer, and the driver thread's own copy is invisible from there.
 fn settings() -> GpuConfig {
-    crate::core::shell::config()
+    crate::core::shell::shared_config()
         .map(|c| c.gpu.clone())
         .unwrap_or_default()
 }
@@ -277,11 +277,20 @@ fn run(out: &Arc<Broadcast<Gpu>>) {
     }
 }
 
+/// Registers `tx` for live readings — unless `[gpu] enabled` is off, in which case nothing is registered and
+/// the producer is never started. Guarding here rather than inside the producer is what makes a disabled
+/// section cost *zero* threads rather than one that exits: `Service` spawns on first touch.
 pub fn subscribe(tx: EventSender<Gpu>) {
+    if !settings().enabled {
+        return;
+    }
     GPU.subscribe(tx);
 }
 
 pub fn current() -> Option<Gpu> {
+    if !settings().enabled {
+        return None;
+    }
     GPU.current()
 }
 
@@ -330,6 +339,7 @@ mod tests {
         let named = GpuConfig {
             backend: "nvidia".into(),
             card: "card1".into(),
+            ..auto.clone()
         };
         assert_eq!(select(&cards, &named).unwrap().id, "card1");
         let missing = GpuConfig {

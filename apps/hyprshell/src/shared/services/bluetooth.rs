@@ -305,13 +305,28 @@ fn watch_signals(ping: SyncSender<()>) -> Option<()> {
     Some(())
 }
 
-/// Registers `tx` for live Bluetooth state, starting the single shared producer on first use.
+/// The `[bluetooth]` settings, read through the cross-thread snapshot so a producer sees them too.
+fn settings() -> crate::core::config::BluetoothConfig {
+    crate::core::shell::shared_config()
+        .map(|c| c.bluetooth)
+        .unwrap_or_default()
+}
+
+/// Registers `tx` for live Bluetooth state, starting the single shared producer on first use — unless
+/// `[bluetooth] enabled` is off, in which case no BlueZ connection and no thread are created. Guarded here
+/// rather than inside the producer because `Service` spawns on first touch.
 pub fn subscribe(tx: EventSender<Bluetooth>) {
+    if !settings().enabled {
+        return;
+    }
     BLUETOOTH.subscribe(tx);
 }
 
 /// The last published state, with no round-trip — what a click handler acts on.
 pub fn current() -> Option<Bluetooth> {
+    if !settings().enabled {
+        return None;
+    }
     BLUETOOTH.current()
 }
 

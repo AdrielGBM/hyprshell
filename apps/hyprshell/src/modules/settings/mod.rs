@@ -12,7 +12,7 @@ use crate::core::config::{
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
     DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig, IconsConfig, LauncherConfig,
     LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig,
-    PanelsConfig, PathsConfig, PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig,
+    NetworkConfig, PanelsConfig, PathsConfig, PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig,
     TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
@@ -78,6 +78,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         battery_section(&config, &path, theme)?,
         lock_status_section(&config, &path, theme)?,
         status_icons_section(&config, &path, theme)?,
+        network_section(&config, &path, theme)?,
         bluetooth_section(&config, &path, theme)?,
         gpu_section(&config, &path, theme)?,
         weather_section(&config, &path, theme)?,
@@ -1164,10 +1165,12 @@ fn gpu_section(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let g = &config.gpu;
+    let enabled = signal(g.enabled);
     let backend = signal(g.backend.clone());
     let card = signal(g.card.clone());
 
     let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.backend"),
             backend.clone(),
@@ -1180,6 +1183,7 @@ fn gpu_section(
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.gpu"), theme, move || {
         let value = GpuConfig {
+            enabled: enabled.peek(),
             backend: backend.peek(),
             card: card.peek(),
         };
@@ -1194,6 +1198,7 @@ fn weather_section(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let w = &config.weather;
+    let enabled = signal(w.enabled);
     let location = signal(w.location.clone());
     let latitude = signal(w.latitude.map(|v| v.to_string()).unwrap_or_default());
     let longitude = signal(w.longitude.map(|v| v.to_string()).unwrap_or_default());
@@ -1201,6 +1206,7 @@ fn weather_section(
     let days = signal(w.forecast_days.to_string());
 
     let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.location"),
             location.clone(),
@@ -1240,6 +1246,7 @@ fn weather_section(
         // rather than pinning the forecast to the Gulf of Guinea.
         let optional = |raw: String| raw.trim().parse::<f32>().ok();
         let value = WeatherConfig {
+            enabled: enabled.peek(),
             location: location.peek(),
             latitude: optional(latitude.peek()),
             longitude: optional(longitude.peek()),
@@ -1313,17 +1320,64 @@ fn paths_section(
     section(|| rsx::t!("settings.section.paths"), rows, save, theme)
 }
 
+fn network_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let n = config.network;
+    let enabled = signal(n.enabled);
+    let rescan = signal(n.rescan_seconds.to_string());
+    let max_networks = signal(n.max_networks.to_string());
+    let show_hidden = signal(n.show_hidden);
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.rescan_seconds"),
+            rescan.clone(),
+            "300",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_networks"),
+            max_networks.clone(),
+            "20",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_hidden"),
+            show_hidden.clone(),
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.network"), theme, move || {
+        let value = NetworkConfig {
+            enabled: enabled.peek(),
+            rescan_seconds: parse_u32(&rescan.peek(), n.rescan_seconds),
+            max_networks: parse_u32(&max_networks.peek(), n.max_networks),
+            show_hidden: show_hidden.peek(),
+        };
+        persist(&path, "network", &value);
+    })?;
+    section(|| rsx::t!("settings.section.network"), rows, save, theme)
+}
+
 fn bluetooth_section(
     config: &Config,
     path: &Path,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let b = config.bluetooth;
+    let enabled = signal(b.enabled);
     let scan_on_open = signal(b.scan_on_open);
     let max_devices = signal(b.max_devices.to_string());
     let show_unnamed = signal(b.show_unnamed);
 
     let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(
             || rsx::t!("settings.field.scan_on_open"),
             scan_on_open.clone(),
@@ -1345,6 +1399,7 @@ fn bluetooth_section(
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.bluetooth"), theme, move || {
         let value = BluetoothConfig {
+            enabled: enabled.peek(),
             scan_on_open: scan_on_open.peek(),
             max_devices: parse_u32(&max_devices.peek(), b.max_devices),
             show_unnamed: show_unnamed.peek(),
@@ -1478,7 +1533,7 @@ fn active_window_section(
         text_field(
             || rsx::t!("settings.field.max_chars"),
             max_chars.clone(),
-            "60",
+            "300",
             theme,
         )?,
     ];

@@ -941,6 +941,50 @@ impl Default for LockStatusConfig {
     }
 }
 
+/// The network (`[network]`): the wireless list its panel shows.
+///
+/// `rescan_seconds` is a trade, not a preference: an access point that goes out of range emits nothing, so only
+/// a fresh scan notices it left. But a scan takes the radio off its channel, which on a busy link is a visible
+/// stutter and on some drivers worse — so the background interval is deliberately slow, and the moment that
+/// actually needs a fresh list (opening the panel) triggers a scan of its own. Turn it down only if a stale
+/// list bothers you more than the scans do.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct NetworkConfig {
+    /// Switches the NetworkManager layer off entirely: no D-Bus connection, no rescan timer, no threads. The
+    /// bar chip keeps working — it reads sysfs and never needed NetworkManager.
+    pub enabled: bool,
+    pub rescan_seconds: u32,
+    /// Upper bound on the networks the panel lists.
+    pub max_networks: u32,
+    /// List networks that broadcast no SSID. Off by default: a hidden network cannot be joined by picking it
+    /// out of a list anyway, so it is a row that can only disappoint.
+    pub show_hidden: bool,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            rescan_seconds: 300,
+            max_networks: 20,
+            show_hidden: false,
+        }
+    }
+}
+
+impl NetworkConfig {
+    /// Clamped on read, with a floor well above what a config typo could reach: a rescan every few seconds
+    /// keeps the radio off its channel often enough to hurt the connection it is scanning from.
+    pub fn rescan(&self) -> Duration {
+        Duration::from_secs(self.rescan_seconds.clamp(60, 3600) as u64)
+    }
+
+    pub fn network_limit(&self) -> usize {
+        self.max_networks.max(1) as usize
+    }
+}
+
 /// The weather (`[weather]`).
 ///
 /// `location` is a place name (`"Madrid"`), geocoded once; `latitude`/`longitude` skip that step. With none of
@@ -949,6 +993,7 @@ impl Default for LockStatusConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct WeatherConfig {
+    pub enabled: bool,
     pub location: String,
     pub latitude: Option<f32>,
     pub longitude: Option<f32>,
@@ -961,6 +1006,7 @@ pub struct WeatherConfig {
 impl Default for WeatherConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             location: String::new(),
             latitude: None,
             longitude: None,
@@ -1015,6 +1061,7 @@ pub struct PathsConfig {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct GpuConfig {
+    pub enabled: bool,
     pub backend: String,
     pub card: String,
 }
@@ -1022,6 +1069,7 @@ pub struct GpuConfig {
 impl Default for GpuConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             backend: "auto".to_string(),
             card: String::new(),
         }
@@ -1037,6 +1085,7 @@ impl Default for GpuConfig {
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 #[serde(default)]
 pub struct BluetoothConfig {
+    pub enabled: bool,
     pub scan_on_open: bool,
     /// Upper bound on the rows the panel lists, so a busy room can't grow the panel past the screen.
     pub max_devices: u32,
@@ -1046,6 +1095,7 @@ pub struct BluetoothConfig {
 impl Default for BluetoothConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             scan_on_open: true,
             max_devices: 12,
             show_unnamed: false,
@@ -1251,6 +1301,7 @@ impl Default for MediaConfig {
     }
 }
 
+
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaScroll {
@@ -1323,6 +1374,7 @@ pub struct Config {
     pub battery: BatteryConfig,
     pub lock_status: LockStatusConfig,
     pub status_icons: StatusIconsConfig,
+    pub network: NetworkConfig,
     pub bluetooth: BluetoothConfig,
     pub gpu: GpuConfig,
     pub weather: WeatherConfig,
@@ -1447,6 +1499,7 @@ impl Config {
             battery: BatteryConfig::default(),
             lock_status: LockStatusConfig::default(),
             status_icons: StatusIconsConfig::default(),
+            network: NetworkConfig::default(),
             bluetooth: BluetoothConfig::default(),
             gpu: GpuConfig::default(),
             weather: WeatherConfig::default(),
@@ -2023,6 +2076,39 @@ end = ["battery", "volume"]
         assert_eq!(parsed.gpu.backend, "auto");
         assert!(parsed.paths.wallpapers.is_empty());
         assert_eq!(parsed.bluetooth.max_devices, starter.bluetooth.max_devices);
+        assert_eq!(parsed.network.rescan_seconds, starter.network.rescan_seconds);
+    }
+
+    /// A6: every section that can start a background producer carries `enabled`, defaults it to on, and reads
+    /// it back off a written config. A section that gained a service but not the flag would have no way to be
+    /// switched off short of removing the module from the bar.
+    #[test]
+    fn every_service_section_can_be_switched_off() {
+        // Each section's own `Default`, not `Config::default()` — the latter is all-empty by design, since it
+        // is what backs serde's missing-field fill.
+        for on in [
+            NetworkConfig::default().enabled,
+            BluetoothConfig::default().enabled,
+            GpuConfig::default().enabled,
+            WeatherConfig::default().enabled,
+        ] {
+            assert!(on, "a service section is on unless the user says otherwise");
+        }
+
+        let off: Config = toml::from_str(
+            "[network]\nenabled=false\n[bluetooth]\nenabled=false\n\
+             [gpu]\nenabled=false\n[weather]\nenabled=false\n",
+        )
+        .expect("parses");
+        assert!(!off.network.enabled);
+        assert!(!off.bluetooth.enabled);
+        assert!(!off.gpu.enabled);
+        assert!(!off.weather.enabled);
+        // And the flag survives a save, so switching one off in the settings panel sticks.
+        let round_tripped: Config =
+            toml::from_str(&toml::to_string_pretty(&off).expect("serializes")).expect("re-parses");
+        assert!(!round_tripped.weather.enabled);
+        assert!(!round_tripped.network.enabled);
     }
 
     #[test]

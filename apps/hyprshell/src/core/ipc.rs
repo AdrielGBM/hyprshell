@@ -493,6 +493,173 @@ static TARGETS: &[Target] = &[
         ],
     },
     Target {
+        name: "wifi",
+        commands: &[
+            Command {
+                name: "status",
+                args: "",
+                help: "the radio state, the network joined and its signal",
+                run: |_| {
+                    use crate::shared::services::network;
+                    // `enabled = false` and "no NetworkManager" both yield nothing here, and telling a user the
+                    // daemon is missing when they switched the section off themselves sends them hunting.
+                    let wifi = network::current_wifi()
+                        .ok_or("[network] enabled is false, or NetworkManager is not running")?;
+                    let wifi = if wifi.available {
+                        wifi
+                    } else {
+                        return Err("NetworkManager is not running".to_string());
+                    };
+                    let (ssid, strength) = match wifi.active() {
+                        Some(point) => (point.ssid.clone(), point.strength),
+                        None => (String::new(), 0),
+                    };
+                    Ok(format!("{}\t{ssid}\t{strength}", on_off(wifi.enabled)))
+                },
+            },
+            Command {
+                name: "list",
+                args: "",
+                help: "networks in range: ssid, signal, security, saved",
+                run: |_| {
+                    use crate::shared::services::network;
+                    let wifi = network::current_wifi().ok_or("NetworkManager is not running")?;
+                    let rows: Vec<String> = wifi
+                        .networks()
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "{}\t{}\t{}\t{}",
+                                p.ssid,
+                                p.strength,
+                                p.security.id(),
+                                if p.saved { "saved" } else { "new" }
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
+                name: "radio",
+                args: "<on|off|toggle>",
+                help: "switch the wireless radio",
+                run: |args| {
+                    use crate::shared::services::network;
+                    match arg(args, 0, "state")? {
+                        "on" => network::set_wifi_enabled(true),
+                        "off" => network::set_wifi_enabled(false),
+                        "toggle" => network::toggle_wifi(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok("ok".to_string())
+                },
+            },
+            Command {
+                name: "scan",
+                args: "",
+                help: "look for networks now",
+                run: |_| {
+                    crate::shared::services::network::request_scan();
+                    Ok("scanning".to_string())
+                },
+            },
+            Command {
+                name: "connect",
+                args: "<ssid> [password]",
+                help: "join a network; the password is only needed the first time",
+                run: |args| {
+                    use crate::shared::services::network;
+                    let ssid = arg(args, 0, "ssid")?;
+                    let wifi = network::current_wifi().ok_or("NetworkManager is not running")?;
+                    let point = wifi
+                        .networks()
+                        .into_iter()
+                        .find(|p| p.ssid == ssid)
+                        .ok_or_else(|| format!("'{ssid}' is not in range"))?;
+                    network::connect(&point.path, args.get(1).map(|p| p.to_string()));
+                    Ok(ssid.to_string())
+                },
+            },
+            Command {
+                name: "disconnect",
+                args: "",
+                help: "leave the current network, keeping it saved",
+                run: |_| {
+                    crate::shared::services::network::disconnect();
+                    Ok("ok".to_string())
+                },
+            },
+            Command {
+                name: "forget",
+                args: "<ssid>",
+                help: "delete a saved network",
+                run: |args| {
+                    let ssid = arg(args, 0, "ssid")?;
+                    crate::shared::services::network::forget(ssid);
+                    Ok(ssid.to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "vpn",
+        commands: &[
+            Command {
+                name: "list",
+                args: "",
+                help: "every tunnel: id, state, kind and name",
+                run: |_| {
+                    use crate::shared::services::vpn;
+                    let state = vpn::current().ok_or("no VPN service")?;
+                    let rows: Vec<String> = state
+                        .tunnels
+                        .iter()
+                        .map(|t| {
+                            format!(
+                                "{}\t{}\t{}\t{}",
+                                t.id,
+                                if t.active { "up" } else { "down" },
+                                t.kind,
+                                t.name
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
+                name: "up",
+                args: "<id>",
+                help: "bring a tunnel up",
+                run: |args| {
+                    let id = arg(args, 0, "id")?;
+                    crate::shared::services::vpn::set_active(id, true);
+                    Ok(id.to_string())
+                },
+            },
+            Command {
+                name: "down",
+                args: "<id>",
+                help: "bring a tunnel down",
+                run: |args| {
+                    let id = arg(args, 0, "id")?;
+                    crate::shared::services::vpn::set_active(id, false);
+                    Ok(id.to_string())
+                },
+            },
+            Command {
+                name: "toggle",
+                args: "",
+                help: "drop the active tunnel, or raise the first configured one",
+                run: |_| {
+                    crate::shared::services::vpn::toggle();
+                    Ok("ok".to_string())
+                },
+            },
+        ],
+    },
+    Target {
         name: "bluetooth",
         commands: &[
             Command {

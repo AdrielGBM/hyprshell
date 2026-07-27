@@ -350,7 +350,7 @@ fn save_cache(weather: &Weather) {
 static WEATHER: Service<Weather> = Service::new("hyprshell-weather", run);
 
 fn settings() -> WeatherConfig {
-    crate::core::shell::config()
+    crate::core::shell::shared_config()
         .map(|c| c.weather.clone())
         .unwrap_or_default()
 }
@@ -375,11 +375,20 @@ fn run(out: &Arc<Broadcast<Weather>>) {
     }
 }
 
+/// Registers `tx` for readings — unless `[weather] enabled` is off, in which case no request is ever made.
+/// Worth guarding here rather than inside the producer: the first thing the producer does is ask a third party
+/// where this connection is, which is not something a disabled section should do at all.
 pub fn subscribe(tx: EventSender<Weather>) {
+    if !settings().enabled {
+        return;
+    }
     WEATHER.subscribe(tx);
 }
 
 pub fn current() -> Option<Weather> {
+    if !settings().enabled {
+        return None;
+    }
     WEATHER.current()
 }
 

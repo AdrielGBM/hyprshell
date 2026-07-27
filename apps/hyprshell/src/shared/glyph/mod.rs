@@ -8,7 +8,7 @@
 use rsx::Color;
 
 use crate::shared::services::bluetooth::Status;
-use crate::shared::services::network::{Network, NetworkKind};
+use crate::shared::services::network::{Network, NetworkKind, WifiStatus};
 use crate::shared::services::weather::Condition;
 use crate::shared::services::volume::Volume;
 use crate::shared::theme::NordTheme;
@@ -42,12 +42,42 @@ pub fn network(net: Network) -> &'static str {
     match net.kind {
         NetworkKind::Ethernet => "ethernet-port",
         NetworkKind::Disconnected => "wifi-off",
-        NetworkKind::Wifi => match net.signal {
-            s if s >= 70 => "wifi",
-            s if s >= 45 => "wifi-high",
-            s if s >= 20 => "wifi-low",
-            _ => "wifi-zero",
-        },
+        NetworkKind::Wifi => wifi_signal(net.signal.clamp(0, 100) as u8),
+    }
+}
+
+/// The arc for a signal strength, 0–100. Shared by the chip, the cluster and every row of the network list, so
+/// "three bars" means the same number everywhere.
+pub fn wifi_signal(strength: u8) -> &'static str {
+    match strength {
+        s if s >= 70 => "wifi",
+        s if s >= 45 => "wifi-high",
+        s if s >= 20 => "wifi-low",
+        _ => "wifi-zero",
+    }
+}
+
+/// The radio itself, for a cluster entry that reports Wi-Fi specifically rather than "am I online" — which is
+/// what [`network`] already covers, wired included.
+pub fn wifi(status: WifiStatus) -> &'static str {
+    if !status.available || !status.enabled {
+        "wifi-off"
+    } else if status.connected {
+        wifi_signal(status.strength)
+    } else {
+        "wifi-zero"
+    }
+}
+
+/// A radio that is on but joined to nothing recedes to muted: it is idle, not broken, and should not read as
+/// loudly as a live connection beside it.
+pub fn wifi_tint(status: WifiStatus, theme: NordTheme, fg: Color) -> Color {
+    if !status.available || !status.enabled {
+        theme.muted
+    } else if status.connected {
+        fg
+    } else {
+        theme.subtle
     }
 }
 

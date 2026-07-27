@@ -283,6 +283,7 @@ mod tests {
             "clock",
             "battery",
             "bluetooth",
+            "network",
             "notifications",
             "notes",
             "settings",
@@ -362,8 +363,9 @@ mod tests {
             "battery opens its detail panel"
         );
         assert!(
-            r.def("network").unwrap().icon && r.def("network").unwrap().click.is_none(),
-            "network is a display-only icon chip"
+            r.def("network").unwrap().icon
+                && matches!(r.def("network").unwrap().click, Some(ModuleClick::Panel)),
+            "network is an icon chip that opens its network list"
         );
     }
 }
@@ -447,7 +449,10 @@ pub fn default_registry() -> ModuleRegistry {
         "battery",
         ModuleDef::new(|_ctx| crate::battery()).icon().opens(),
     );
-    registry.register("network", ModuleDef::new(|_ctx| crate::network()).icon());
+    registry.register(
+        "network",
+        ModuleDef::new(|_ctx| crate::network()).icon().opens(),
+    );
     registry.register(
         "bluetooth",
         ModuleDef::new(|_ctx| crate::modules::bluetooth::chip())

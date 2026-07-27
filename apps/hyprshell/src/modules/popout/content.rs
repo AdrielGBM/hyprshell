@@ -238,14 +238,24 @@ fn duration_text(secs: i64) -> Option<String> {
     })
 }
 
+/// The link verdict comes from sysfs and the detail from NetworkManager, which is why the card subscribes to
+/// both: the glyph and the "am I online" line keep working on a machine with no NetworkManager, and the SSID
+/// and band rows fill in where there is one.
 fn network_card() -> Card {
     let state = signal(network::read());
     let sink = state.clone();
     platform_layershell::watch(network::subscribe, move |net| sink.set(net));
 
+    let wifi = signal(network::current_wifi().unwrap_or_default());
+    let wifi_sink = wifi.clone();
+    platform_layershell::watch(network::subscribe_wifi, move |w| wifi_sink.set(w));
+
     Card::titled(rsx::t!("popout.network"))
         .icon(derive(state.clone(), |net| glyph::network(net).to_string()))
-        .subtitle(derive(state.clone(), |net| kind_label(net.kind)))
+        .subtitle(derive(wifi.clone(), |w| match w.active() {
+            Some(point) => point.ssid.clone(),
+            None => kind_label(network::read().kind),
+        }))
         .row(
             fixed(rsx::t!("popout.signal")),
             derive(state.clone(), |net| match net.kind {
@@ -253,10 +263,25 @@ fn network_card() -> Card {
                 _ => rsx::t!("sysinfo.no_reading"),
             }),
         )
+        .row(
+            fixed(rsx::t!("popout.security")),
+            derive(wifi.clone(), |w| match w.active() {
+                Some(point) if point.security == network::Security::Open => {
+                    rsx::t!("network.open")
+                }
+                Some(point) => point.security.id().to_uppercase(),
+                None => rsx::t!("sysinfo.no_reading"),
+            }),
+        )
+        .row(
+            fixed(rsx::t!("popout.band")),
+            derive(wifi.clone(), |w| match w.active() {
+                Some(point) if !point.band().is_empty() => point.band().to_string(),
+                _ => rsx::t!("sysinfo.no_reading"),
+            }),
+        )
 }
 
-/// `network.rs` reads sysfs for a link verdict and nothing more — no SSID, no interface name — so the card
-/// says what the service actually knows. B10 (NetworkManager) is what gives this card something to list.
 fn kind_label(kind: network::NetworkKind) -> String {
     match kind {
         network::NetworkKind::Ethernet => rsx::t!("popout.ethernet"),

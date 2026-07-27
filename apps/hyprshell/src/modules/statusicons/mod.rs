@@ -24,6 +24,9 @@ pub enum StatusIcon {
     Volume,
     Mic,
     Network,
+    /// The wireless radio specifically, as opposed to [`Network`](Self::Network), which answers "am I online"
+    /// over any link. A desktop with a cable wants the first; a laptop that roams wants both.
+    Wifi,
     Bluetooth,
     Battery,
     Caps,
@@ -36,6 +39,7 @@ impl StatusIcon {
             "volume" => Self::Volume,
             "mic" => Self::Mic,
             "network" => Self::Network,
+            "wifi" => Self::Wifi,
             "bluetooth" => Self::Bluetooth,
             "battery" => Self::Battery,
             "caps" => Self::Caps,
@@ -49,6 +53,7 @@ impl StatusIcon {
             Self::Volume => "volume",
             Self::Mic => "mic",
             Self::Network => "network",
+            Self::Wifi => "wifi",
             Self::Bluetooth => "bluetooth",
             Self::Battery => "battery",
             Self::Caps => "caps",
@@ -117,6 +122,21 @@ fn icon(
             icon_view(
                 move || glyph::network(read.get()).to_string(),
                 move || fg.get(),
+                size,
+            )
+        }
+        StatusIcon::Wifi => {
+            let state = signal(
+                network::current_wifi()
+                    .map(|w| w.status())
+                    .unwrap_or_default(),
+            );
+            let glyph_state = state.read_only();
+            let tint_state = state.read_only();
+            platform_layershell::watch(network::subscribe_wifi, move |w| state.set(w.status()));
+            icon_view(
+                move || glyph::wifi(glyph_state.get()).to_string(),
+                move || glyph::wifi_tint(tint_state.get(), theme, fg.get()),
                 size,
             )
         }
@@ -244,6 +264,11 @@ mod tests {
                 "'{name}' is also a module id"
             );
         }
+        // `wifi` has no module of its own: the `network` chip already covers "am I online" over any link, and
+        // splitting it in two on the bar would be a second chip saying most of the same thing. In a cluster,
+        // where an icon costs almost nothing, the finer reading earns its place.
+        assert_eq!(StatusIcon::from_id("wifi"), Some(StatusIcon::Wifi));
+        assert!(crate::default_registry().def("wifi").is_none());
         // The exception, deliberately: `lockstatus` is one module drawing two indicators, so a cluster can take just one.
         assert_eq!(StatusIcon::from_id("caps"), Some(StatusIcon::Caps));
         assert_eq!(StatusIcon::from_id("num"), Some(StatusIcon::Num));
@@ -262,6 +287,7 @@ mod tests {
             StatusIcon::Volume,
             StatusIcon::Mic,
             StatusIcon::Network,
+            StatusIcon::Wifi,
             StatusIcon::Bluetooth,
             StatusIcon::Battery,
             StatusIcon::Caps,
