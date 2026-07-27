@@ -658,8 +658,12 @@ pub struct WorkspacesConfig {
     /// Draw an app icon per window inside each pill, capped at `max_window_icons`.
     pub window_icons: bool,
     pub max_window_icons: u32,
-    /// Tint a pill that holds windows differently from an empty one.
+    /// Tint a pill that holds windows differently from an empty one. Ignored while `indicator` is on, which
+    /// needs every pill transparent to slide under them; the label colour carries occupancy there.
     pub occupied_background: bool,
+    /// Mark the active workspace with one box that slides between pills instead of recolouring each pill in
+    /// place. Off restores the older look exactly — the pill paints its own accent and nothing moves.
+    pub indicator: bool,
     /// The wheel over the pills switches workspace.
     pub scroll: bool,
     pub label: String,
@@ -680,6 +684,7 @@ impl Default for WorkspacesConfig {
             window_icons: false,
             max_window_icons: 4,
             occupied_background: true,
+            indicator: true,
             scroll: true,
             label: "{id}".to_string(),
             occupied_label: String::new(),

@@ -1,14 +1,30 @@
 //! Which workspaces the bar shows, and what each pill says.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use rsx::motion::{Animated, Spring};
 use rsx::{
-    AlignItems, Color, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    StyledContainer, Text, TextStyle, box_item,
+    AlignItems, Canvas, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
+    ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text,
+    TextStyle, box_item, signal, track_layout,
 };
 
 use crate::core::config::WorkspacesConfig;
 use crate::shared::icon::{app_icon_view, icon_view};
 use crate::shared::services::hyprland::{Snapshot, Workspace};
 use crate::shared::theme::{FontRole, NordTheme};
+
+/// The gap between pills, and what the indicator must not spill into.
+const PILL_GAP: f32 = 8.0;
+
+/// "Nowhere yet": what the active-pill slot holds before any pill has been laid out.
+const ZERO_RECT: Rect = Rect {
+    x: 0.0,
+    y: 0.0,
+    width: 0.0,
+    height: 0.0,
+};
 
 /// A pill the bar draws: either a workspace that exists, or a placeholder holding its slot.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,12 +70,24 @@ pub struct PillStyle {
     pub side: f32,
     pub vertical: bool,
     pub occupied_background: bool,
+    /// Whether a sliding indicator paints the active pill. When it does, the pill must not paint its own accent
+    /// fill: two accents in the same place is the indicator arriving on top of a pill that already recoloured,
+    /// which reads as no animation at all.
+    pub indicator: bool,
 }
 
 /// The three states, three fills: the active pill takes the accent, an occupied one the surface token so it
 /// reads as "something lives here", and an empty one the bar's own background so it recedes.
+///
+/// With the sliding indicator on, none of them paints anything. The indicator is one box *under* the row — it
+/// has to be, or it would cover the label it marks — so every opaque fill in the row is something it travels
+/// behind: the active pill hid it where it landed, and its neighbours hid it the whole way there, leaving a box
+/// that only exists at its destination. Occupancy still reads, from the label colour, which is where the
+/// difference between an occupied and an empty workspace was already carried.
 fn fill_for(pill: &Pill, style: PillStyle) -> Color {
-    if pill.active {
+    if style.indicator {
+        Color::TRANSPARENT
+    } else if pill.active {
         style.theme.accent
     } else if pill.occupied && style.occupied_background {
         style.theme.surface
@@ -85,6 +113,19 @@ pub fn pill_view(
     pill: Pill,
     style: PillStyle,
     on_press: impl Fn(i32) + 'static,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    tracked_pill_view(pill, style, on_press, None)
+}
+
+/// [`pill_view`], with the active pill reporting where it landed so the indicator can follow it.
+///
+/// The rect has to come from the pill rather than be worked out from an index: a pill carrying window icons is
+/// wider than a bare one, so "the third slot" is not a position the row can compute.
+fn tracked_pill_view(
+    pill: Pill,
+    style: PillStyle,
+    on_press: impl Fn(i32) + 'static,
+    active_rect: Option<RwSignal<Rect>>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let fg = text_for(&pill, style);
     let fill = fill_for(&pill, style);
@@ -130,16 +171,180 @@ pub fn pill_view(
         .flex_shrink(0.0);
 
     let id = pill.id;
-    Ok(Box::new(
-        StyledContainer::new(
-            inner,
-            move |_r| RectStyle::filled(fill, style.radius),
-            content,
-        )?
-        .on_press(move || on_press(id)),
-    ))
+    // The tracking subscription lives in the pill's own style closure, which the container holds for exactly
+    // its own lifetime — the span wanted, since the list rebuilds its rows and an effect outliving one would
+    // keep reporting a rect for a workspace that is no longer active. Not `reactive::keeping`: that wraps the
+    // item in a full-width in-flow box, which around a bar chip is a pill as wide as the whole row.
+    let held: Rc<RefCell<Vec<rsx::Effect>>> = Rc::new(RefCell::new(Vec::new()));
+    let kept = Rc::clone(&held);
+    let container = StyledContainer::new(
+        inner,
+        move |_r| {
+            let _ = &kept;
+            RectStyle::filled(fill, style.radius)
+        },
+        content,
+    )?;
+
+    // Only the active pill is tracked. Every pill reporting its rect would be a signal write per pill per
+    // layout pass, to answer a question about exactly one of them.
+    if let Some(slot) = active_rect.filter(|_| pill.active)
+        && let Some(rect) = track_layout(container.layout_node())
+    {
+        held.borrow_mut().push(rsx::effect(move || {
+            let rect = rect.get();
+            // A rebuilt pill's node is laid out at zero before its first pass; reporting that would send the
+            // indicator to the corner and back on every workspace change.
+            if rect.width > 0.0 && rect.height > 0.0 {
+                slot.set(rect);
+            }
+        }));
+    }
+
+    Ok(Box::new(container.on_press(move || on_press(id))))
 }
 
+/// The pills, with the active-workspace indicator sliding behind them.
+///
+/// The indicator is one box that moves, not a fill each pill paints: it is a canvas laid over the whole row,
+/// painting its rect wherever the active pill landed. That distinction is the whole feature — the canvas sits
+/// outside the flow, so the row does not reflow sixty times a second while the indicator travels, and the
+/// pills underneath never move.
+pub fn grid(
+    items: ReadSignal<Vec<Pill>>,
+    style: PillStyle,
+    on_press: fn(i32),
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let slot = signal(ZERO_RECT);
+    let for_rows = slot.clone();
+    // `with_style` rather than `with_gap`: the gap constructors hardcode a column, so a bottom bar would stack
+    // its pills downwards inside a strip one pill high and show nothing at all.
+    let axis = if style.vertical {
+        LayoutStyle::new().flex_column()
+    } else {
+        LayoutStyle::new().flex_row()
+    }
+    .align_items(AlignItems::CENTER);
+    let rows = ReactiveList::with_style(
+        axis.clone().gap(PILL_GAP),
+        move || items.get(),
+        |pill: &Pill| pill.key(),
+        move |pill: Pill| {
+            let slot = style.indicator.then(|| for_rows.clone());
+            tracked_pill_view(pill, style, on_press, slot)
+        },
+    )?;
+
+    let mut children: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(2);
+    if style.indicator {
+        // First, so it paints under the pills: the label has to stay readable over the accent.
+        children.push(indicator(slot, style)?);
+    }
+    children.push(Box::new(rows));
+    Ok(Box::new(Container::new(axis, children)?))
+}
+
+/// The box that marks the active workspace, carried to it rather than repainted in place.
+fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    // Built on the first target rather than at construction: an `Animated` seeded with a zero rect would
+    // travel out of the corner the first time the bar ever draws, which reads as a glitch rather than as the
+    // motion this exists for. A spring rather than a tween because it keeps velocity through a retarget —
+    // holding a workspace key down should bend the indicator's path, not restart it from a standstill.
+    let motion: Rc<RefCell<Option<Animated<Rect>>>> = Rc::new(RefCell::new(None));
+
+    let follow = {
+        let motion = Rc::clone(&motion);
+        let source = slot.read_only();
+        rsx::effect(move || {
+            let wanted = source.get();
+            if wanted.width <= 0.0 || wanted.height <= 0.0 {
+                return;
+            }
+            // Cloned out before `retarget`, which writes a signal and flushes: reaching back through the
+            // `RefCell` while this one is still borrowed is the re-entrant panic, not a compile error.
+            let existing = motion.borrow().clone();
+            match existing {
+                Some(animated) => animated.retarget(wanted),
+                None => {
+                    // Seeded collapsed on the goal's own centre and retargeted at once, so the indicator grows
+                    // into place on the workspace it marks rather than arriving from nowhere.
+                    //
+                    // The appearance is the smaller half of it. An `Animated` created already at its goal is
+                    // born *settled*, and a settled animation never registers with the ticker — so nothing
+                    // scheduled the frame that would have painted the indicator for the first time, and it
+                    // stayed invisible until some unrelated event forced a redraw. Starting it in motion is
+                    // what makes the loop keep drawing frames until it arrives.
+                    let seed = Rect {
+                        x: wanted.x + wanted.width / 2.0,
+                        y: wanted.y + wanted.height / 2.0,
+                        width: 0.0,
+                        height: 0.0,
+                    };
+                    let animated = Animated::new(seed, Spring::gentle());
+                    animated.retarget(wanted);
+                    *motion.borrow_mut() = Some(animated);
+                }
+            }
+        })
+    };
+
+    // Where the row itself sits. The pill rects are absolute and a canvas paints in its own local space, so
+    // the row's origin is what converts between them. Filled in after construction, below.
+    let origin = signal(ZERO_RECT);
+    let painted = origin.read_only();
+
+    // Effects the canvas has to outlive, parked where it can reach them: a handle that drops deregisters its
+    // effect, and neither of these belongs to a widget `reactive::keeping` could wrap — that helper adds an
+    // in-flow box, and this one has to stay `absolute_fill` over the row.
+    let held: Rc<RefCell<Vec<rsx::Effect>>> = Rc::new(RefCell::new(vec![follow]));
+    let kept = Rc::clone(&held);
+
+    let accent = style.theme.accent;
+    let radius = style.radius;
+    let wanted = slot.read_only();
+    let canvas = Canvas::new(LayoutStyle::new().absolute_fill(), move |_local| {
+        let _ = &kept;
+        // Both read unconditionally, before anything can return early. `motion` lives in a `RefCell`, not a
+        // signal, so reading only *it* subscribes this canvas to nothing: while it was still `None` the
+        // indicator had no reason to repaint when a pill finally reported its rect, and stayed invisible until
+        // some unrelated event — moving the pointer over the bar — forced a redraw.
+        let goal = wanted.get();
+        let row = painted.get();
+        // Nothing to point at: the active workspace is on another monitor, or scrolled out of a fixed window.
+        if goal.width <= 0.0 || goal.height <= 0.0 {
+            return RenderNode::Empty;
+        }
+        // Painted rather than transformed. Scaling one box down to a pill would squash its corner radius with
+        // it — the row is far wider than a pill, so the rounding came out flattened on one axis — and drawing
+        // the rect where it belongs costs one command either way.
+        //
+        // The raw goal until the animation exists, so the first paint lands in the right place rather than
+        // waiting a frame for the spring to be built.
+        let target = motion
+            .borrow()
+            .clone()
+            .map(|animated| animated.get())
+            .unwrap_or(goal);
+        if target.width <= 0.0 || target.height <= 0.0 {
+            return RenderNode::Empty;
+        }
+        RenderNode::rect(
+            Rect {
+                x: target.x - row.x,
+                y: target.y - row.y,
+                width: target.width,
+                height: target.height,
+            },
+            RectStyle::filled(accent, radius),
+        )
+    })?;
+
+    if let Some(rect) = track_layout(canvas.layout_node()) {
+        held.borrow_mut()
+            .push(rsx::effect(move || origin.set(rect.get())));
+    }
+    Ok(Box::new(canvas))
+}
 
 /// The pills to draw for a snapshot.
 ///
@@ -501,6 +706,7 @@ mod tests {
             side: 32.0,
             vertical,
             occupied_background: true,
+            indicator: false,
         };
         let bare = Pill {
             id: 1,
@@ -529,6 +735,275 @@ mod tests {
                 assert!(pill_view(pill, style(vertical), |_| {}).is_ok());
             }
         }
+    }
+
+    /// The row runs along the bar, not across it.
+    ///
+    /// The regression this exists for: the keyed-list constructors that take a gap hardcode a column, so the
+    /// pills stacked downwards inside a bottom bar one pill high and the module drew nothing at all. Building
+    /// successfully proves none of that — only laying it out does.
+    #[test]
+    fn the_pills_run_along_the_bar_on_every_edge() {
+        use rsx::{AvailableSpace, compute_layout, new_container, track_layout};
+
+        let side = 32.0;
+        let rows = vec![
+            Pill {
+                id: 1,
+                label: "1".to_string(),
+                occupied: false,
+                active: true,
+                special: false,
+                clients: Vec::new(),
+                icon: None,
+            },
+            Pill {
+                id: 2,
+                label: "2".to_string(),
+                occupied: true,
+                active: false,
+                special: false,
+                clients: Vec::new(),
+                icon: None,
+            },
+        ];
+        let along = side * 2.0 + PILL_GAP;
+
+        for vertical in [false, true] {
+            rsx::reset_layout_runtime();
+            rsx::set_theme(NordTheme::new());
+            let items = rsx::signal(rows.clone()).read_only();
+            let style = PillStyle {
+                theme: NordTheme::new(),
+                radius: 8.0,
+                side,
+                vertical,
+                occupied_background: true,
+                indicator: true,
+            };
+            let grid = grid(items, style, |_| {}).expect("the grid builds");
+            let rect = track_layout(grid.layout_node()).expect("the grid registers its rect");
+            // Centred rather than the default stretch, so the grid reports the size of its own content
+            // instead of the harness's.
+            let root = new_container(
+                LayoutStyle::new()
+                    .flex_row()
+                    .align_items(AlignItems::CENTER)
+                    .width(400.0)
+                    .height(400.0),
+                &[grid.layout_node()],
+            )
+            .expect("root container");
+            compute_layout(
+                root,
+                AvailableSpace::Definite(400.0),
+                AvailableSpace::Definite(400.0),
+            )
+            .expect("layout");
+
+            let rect = rect.get();
+            let (expected_w, expected_h) = if vertical {
+                (side, along)
+            } else {
+                (along, side)
+            };
+            assert_eq!(
+                (rect.width, rect.height),
+                (expected_w, expected_h),
+                "vertical={vertical}: two pills should measure {expected_w}x{expected_h}, got \
+                 {}x{} — a row laid out across the bar instead of along it",
+                rect.width,
+                rect.height
+            );
+        }
+    }
+
+    /// The indicator's paint closure, the pill's style closure and the tracking effect only run when something
+    /// builds them, and each reads a signal — which is the shape that panics on a re-entrant borrow.
+    #[test]
+    fn the_grid_builds_on_every_edge_with_and_without_the_indicator() {
+        let bare = Pill {
+            id: 1,
+            label: "1".to_string(),
+            occupied: false,
+            active: true,
+            special: false,
+            clients: Vec::new(),
+            icon: None,
+        };
+        let rows = vec![
+            bare.clone(),
+            Pill {
+                id: 2,
+                active: false,
+                occupied: true,
+                ..bare.clone()
+            },
+        ];
+        for vertical in [false, true] {
+            for indicator in [false, true] {
+                rsx::reset_layout_runtime();
+                rsx::set_theme(NordTheme::new());
+                let items = rsx::signal(rows.clone()).read_only();
+                let style = PillStyle {
+                    theme: NordTheme::new(),
+                    radius: 8.0,
+                    side: 32.0,
+                    vertical,
+                    occupied_background: true,
+                    indicator,
+                };
+                assert!(
+                    grid(items, style, |_| {}).is_ok(),
+                    "vertical={vertical} indicator={indicator}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn only_the_indicator_moves_the_accent_off_the_pill() {
+        let active = Pill {
+            id: 1,
+            label: "1".to_string(),
+            occupied: true,
+            active: true,
+            special: false,
+            clients: Vec::new(),
+            icon: None,
+        };
+        let style = |indicator| PillStyle {
+            theme: NordTheme::new(),
+            radius: 8.0,
+            side: 32.0,
+            vertical: false,
+            occupied_background: true,
+            indicator,
+        };
+        let theme = NordTheme::new();
+        assert_eq!(
+            fill_for(&active, style(false)),
+            theme.accent,
+            "without a sliding indicator the pill paints its own accent, as it always did"
+        );
+        assert_eq!(
+            fill_for(&active, style(true)),
+            Color::TRANSPARENT,
+            "with one, ANY opaque fill sits on top of the indicator and hides it — the bug this caught was an \
+             active pill still painting its occupied background, leaving only the corners showing"
+        );
+        // The text still has to read against the accent the indicator puts behind it.
+        assert_eq!(text_for(&active, style(true)), theme.base);
+
+        // And the neighbours, which is the same bug one pill over: the indicator travels *under* the row, so
+        // an occupied pill painting its tint is a box the indicator disappears behind on the way past.
+        let occupied = Pill {
+            active: false,
+            ..active.clone()
+        };
+        let empty = Pill {
+            occupied: false,
+            ..occupied.clone()
+        };
+        assert_eq!(fill_for(&occupied, style(true)), Color::TRANSPARENT);
+        assert_eq!(fill_for(&empty, style(true)), Color::TRANSPARENT);
+        assert_eq!(
+            fill_for(&occupied, style(false)),
+            theme.surface,
+            "without the indicator the occupied tint is unchanged"
+        );
+        // Occupancy has to stay legible once the tint is gone, and the label colour is what carries it.
+        assert_ne!(text_for(&occupied, style(true)), text_for(&empty, style(true)));
+    }
+
+    /// The indicator paints on its own, with no event to force a redraw.
+    #[test]
+    fn the_indicator_paints_without_a_pointer_event() {
+        use rsx::{AvailableSpace, ComponentList, DrawCommand, compute_layout, new_container};
+
+        rsx::reset_layout_runtime();
+        let theme = NordTheme::new();
+        rsx::set_theme(theme);
+        let side = 32.0;
+        let rows = vec![
+            Pill {
+                id: 1,
+                label: "1".to_string(),
+                occupied: false,
+                active: true,
+                special: false,
+                clients: Vec::new(),
+                icon: None,
+            },
+            Pill {
+                id: 2,
+                label: "2".to_string(),
+                occupied: true,
+                active: false,
+                special: false,
+                clients: Vec::new(),
+                icon: None,
+            },
+        ];
+        let items = rsx::signal(rows).read_only();
+        let style = PillStyle {
+            theme,
+            radius: 8.0,
+            side,
+            vertical: false,
+            occupied_background: true,
+            indicator: true,
+        };
+        let built = grid(items, style, |_| {}).expect("the grid builds");
+        let root_node = new_container(
+            LayoutStyle::new()
+                .flex_row()
+                .align_items(AlignItems::CENTER)
+                .width(400.0)
+                .height(400.0),
+            &[built.layout_node()],
+        )
+        .expect("root container");
+        let root = Container::new(
+            LayoutStyle::new()
+                .flex_row()
+                .align_items(AlignItems::CENTER)
+                .width(400.0)
+                .height(400.0),
+            vec![built],
+        )
+        .expect("root");
+        let tree = ComponentList::new(root);
+
+        let accent = theme.accent;
+        let painted = |tree: &ComponentList| {
+            tree.commands().iter().any(|cmd| match cmd {
+                DrawCommand::Rect { rect, style } => {
+                    style.fill == Some(rsx::Paint::Solid(accent))
+                        && rect.width > 0.0
+                        && rect.height > 0.0
+                }
+                _ => false,
+            })
+        };
+
+        // The driver's loop: lay out, compose, tick the motion engine, compose again — never an event.
+        compute_layout(
+            root_node,
+            AvailableSpace::Definite(400.0),
+            AvailableSpace::Definite(400.0),
+        )
+        .expect("layout");
+        let _ = tree.commands();
+        rsx::relayout_if_dirty();
+        let start = std::time::Instant::now();
+        for frame in 1..=30 {
+            rsx::motion::tick(start + std::time::Duration::from_millis(16 * frame));
+            if painted(&tree) {
+                return;
+            }
+        }
+        panic!("the indicator never painted: half a second of frames with no accent rect anywhere");
     }
 
     #[test]

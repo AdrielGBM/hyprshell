@@ -767,6 +767,7 @@ fn workspaces_section(
     let window_icons = signal(w.window_icons);
     let max_icons = signal(w.max_window_icons.to_string());
     let occupied = signal(w.occupied_background);
+    let indicator = signal(w.indicator);
     let scroll = signal(w.scroll);
     let label = signal(w.label.clone());
     let occupied_label = signal(w.occupied_label.clone());
@@ -799,6 +800,11 @@ fn workspaces_section(
         toggle_field(
             || rsx::t!("settings.field.occupied_background"),
             occupied.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.indicator"),
+            indicator.clone(),
             theme,
         )?,
         toggle_field(|| rsx::t!("settings.field.scroll"), scroll.clone(), theme)?,
@@ -839,6 +845,7 @@ fn workspaces_section(
             window_icons: window_icons.peek(),
             max_window_icons: parse_u32(&max_icons.peek(), base.max_window_icons),
             occupied_background: occupied.peek(),
+            indicator: indicator.peek(),
             scroll: scroll.peek(),
             label: if typed.trim().is_empty() {
                 base.label.clone()

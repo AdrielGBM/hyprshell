@@ -1,5 +1,5 @@
 [logic]
-use crate::modules::workspaces::{Pill, PillStyle, pill_view, pills};
+use crate::modules::workspaces::{Pill, PillStyle, grid, pills};
 use crate::shared::services::hyprland::{self, Snapshot};
 use crate::shared::theme::NordTheme;
 
@@ -18,6 +18,7 @@ let config = env
 let output = env.as_ref().and_then(|e| e.output.clone());
 
 let occupied_background = config.occupied_background;
+let indicator = config.indicator;
 
 let list = signal(Vec::<Pill>::new());
 let items = list.read_only();
@@ -34,15 +35,11 @@ let style = PillStyle {
     side: crate::bar_thickness(),
     vertical: crate::bar_is_vertical(),
     occupied_background,
+    indicator,
 };
-let vertical = style.vertical;
+// Built in Rust: the indicator has to read the active pill's laid-out rect and paint itself from it, and the
+// view DSL reaches neither layout nodes nor a canvas.
+let row = grid(items, style, focus)?;
 
 [view]
-if vertical
-    col align:center
-        for pill in $items key pill.key() gap:8
-            build "pill_view(pill, style, focus)?"
-else
-    row align:center
-        for pill in $items key pill.key() gap:8
-            build "pill_view(pill, style, focus)?"
+widget "row"
