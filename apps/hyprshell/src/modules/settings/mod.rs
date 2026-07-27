@@ -3,7 +3,7 @@ use std::sync::OnceLock;
 
 use rsx::{
     AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item, signal, use_theme,
+    RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
 use serde::Serialize;
 
@@ -13,7 +13,7 @@ use crate::core::config::{
     CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups,
     GeneralConfig, GpuConfig,
     IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
-    NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig,
+    KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig,
     ScaleConfig, Shape,
     ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
     WeatherConfig, WorkspacesConfig,
@@ -62,7 +62,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
         || rsx::t!("settings.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
 
     let sections = vec![
@@ -91,6 +91,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         paths_section(&config, &path, theme)?,
         tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
+        keynav_section(&config, &path, theme)?,
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
@@ -213,7 +214,7 @@ fn language_field(
     let text = Text::auto(
         move || language_name(&value_text.get()),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?;
     let control = StyledContainer::new(
         LayoutStyle::new()
@@ -354,6 +355,8 @@ fn theme_section(
                 font: parse_f32(&scale_font.peek(), base.scale.font),
                 icon: parse_f32(&scale_icon.peek(), base.scale.icon),
             },
+            // Carried through unchanged, like `colors`: per-role overrides are a nested table the flat panel has no rows for, and rewriting the section must not drop them.
+            fonts: base.fonts,
             colors: base.colors.clone(),
         };
         persist(&path, "theme", &value);
@@ -532,6 +535,8 @@ fn bars_section(
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.bars"), theme, move || {
         let value = BarsConfig {
+            // Carried through unchanged: the panel edits the four zones, and rewriting the section must not drop a screen exclusion it has no field for.
+            excluded_screens: base.excluded_screens.clone(),
             top: bar_from(&top, &base.top),
             bottom: bar_from(&bottom, &base.bottom),
             left: bar_from(&left, &base.left),
@@ -549,6 +554,8 @@ fn panels_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let p = &config.panels;
     let gap = signal(opt_num(p.gap));
+    let drag_threshold = signal(p.drag_threshold.to_string());
+    let opacity = signal(p.opacity.to_string());
     let drawer_w = signal(p.drawer.width.to_string());
     let drawer_h = signal(p.drawer.max_height.to_string());
     let float_w = signal(p.float.width.to_string());
@@ -580,6 +587,8 @@ fn panels_section(
             "240",
             theme,
         )?,
+        text_field(|| rsx::t!("settings.field.drag_threshold"), drag_threshold.clone(), "48", theme)?,
+        text_field(|| rsx::t!("settings.field.opacity"), opacity.clone(), "1", theme)?,
     ];
 
     let base = *p;
@@ -587,6 +596,8 @@ fn panels_section(
     let save = save_button(|| rsx::t!("settings.save.panels"), theme, move || {
         let value = PanelsConfig {
             gap: opt_u32(&gap.peek()),
+            drag_threshold: parse_f32(&drag_threshold.peek(), base.drag_threshold),
+            opacity: parse_f32(&opacity.peek(), base.opacity),
             drawer: DrawerConfig {
                 width: parse_f32(&drawer_w.peek(), base.drawer.width),
                 max_height: parse_f32(&drawer_h.peek(), base.drawer.max_height),
@@ -805,6 +816,7 @@ fn workspaces_section(
     let max_icons = signal(w.max_window_icons.to_string());
     let occupied = signal(w.occupied_background);
     let indicator = signal(w.indicator);
+    let indicator_trail = signal(w.indicator_trail.to_string());
     let scroll = signal(w.scroll);
     let label = signal(w.label.clone());
     let occupied_label = signal(w.occupied_label.clone());
@@ -844,6 +856,7 @@ fn workspaces_section(
             indicator.clone(),
             theme,
         )?,
+        text_field(|| rsx::t!("settings.field.indicator_trail"), indicator_trail.clone(), "0.35", theme)?,
         toggle_field(|| rsx::t!("settings.field.scroll"), scroll.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.label"),
@@ -883,6 +896,7 @@ fn workspaces_section(
             max_window_icons: parse_u32(&max_icons.peek(), base.max_window_icons),
             occupied_background: occupied.peek(),
             indicator: indicator.peek(),
+            indicator_trail: parse_f32(&indicator_trail.peek(), base.indicator_trail),
             scroll: scroll.peek(),
             label: if typed.trim().is_empty() {
                 base.label.clone()
@@ -1649,6 +1663,7 @@ fn active_window_section(
     let w = config.active_window;
     let compact = signal(w.compact);
     let show_icon = signal(w.show_icon);
+    let inverted = signal(w.inverted);
     let max_chars = signal(w.max_chars.to_string());
 
     let rows = vec![
@@ -1658,6 +1673,7 @@ fn active_window_section(
             show_icon.clone(),
             theme,
         )?,
+        toggle_field(|| rsx::t!("settings.field.inverted"), inverted.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.max_chars"),
             max_chars.clone(),
@@ -1671,6 +1687,7 @@ fn active_window_section(
         let value = ActiveWindowConfig {
             compact: compact.peek(),
             show_icon: show_icon.peek(),
+            inverted: inverted.peek(),
             max_chars: parse_u32(&max_chars.peek(), w.max_chars),
         };
         persist(&path, "active_window", &value);
@@ -1698,6 +1715,7 @@ fn notifications_section(
     let body_lines = signal(n.body_lines.to_string());
     let open_expanded = signal(n.open_expanded);
     let sound = signal(n.sound.clone());
+    let clear_threshold = signal(n.clear_threshold.to_string());
 
     let rows = vec![
         enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
@@ -1765,6 +1783,7 @@ fn notifications_section(
             "canberra-gtk-play -i message",
             theme,
         )?,
+        text_field(|| rsx::t!("settings.field.clear_threshold"), clear_threshold.clone(), "0.35", theme)?,
     ];
 
     let base = n.clone();
@@ -1785,10 +1804,25 @@ fn notifications_section(
             body_lines: parse_u32(&body_lines.peek(), base.body_lines),
             open_expanded: open_expanded.peek(),
             sound: sound.peek(),
+            clear_threshold: parse_f32(&clear_threshold.peek(), base.clear_threshold),
         };
         persist(&path, "notifications", &value);
     })?;
     section(|| rsx::t!("settings.section.notifications"), rows, save, theme)
+}
+
+fn keynav_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let vim = signal(config.keynav.vim);
+    let rows = vec![toggle_field(|| rsx::t!("settings.field.vim"), vim.clone(), theme)?];
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.keynav"), theme, move || {
+        persist(&path, "keynav", &KeyNavConfig { vim: vim.peek() });
+    })?;
+    section(|| rsx::t!("settings.section.keynav"), rows, save, theme)
 }
 
 fn background_section(
@@ -1911,7 +1945,7 @@ fn section_label(
     let text = Text::auto(
         label,
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Body, theme.text).with_weight(700),
     )?;
     Ok(Box::new(text))
 }
@@ -1923,7 +1957,7 @@ fn subheader(
     let text = Text::auto(
         label,
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted).with_weight(700),
+        move || theme.text_style(FontRole::Caption, theme.muted).with_weight(700),
     )?;
     Ok(Box::new(text))
 }
@@ -1936,7 +1970,7 @@ fn labelled(
     let label_text = Text::auto(
         label,
         LayoutStyle::new().width(120.0),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
+        move || theme.text_style(FontRole::Body, theme.subtle),
     )?;
     let row = Container::new(
         LayoutStyle::new()
@@ -1960,7 +1994,7 @@ fn text_field(
         LayoutStyle::new()
             .flex_grow(1.0)
             .height(theme.font(FontRole::Body) * 1.6),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?
     .placeholder(placeholder.to_string());
     let boxed = StyledContainer::new(
@@ -1994,7 +2028,7 @@ fn toggle_field(
         LayoutStyle::new(),
         move || {
             let fg = if value_color.get() { on_fg } else { theme.text };
-            TextStyle::new(theme.font(FontRole::Caption), fg).with_weight(700)
+            theme.text_style(FontRole::Caption, fg).with_weight(700)
         },
     )?;
     let control = StyledContainer::new(
@@ -2027,7 +2061,7 @@ fn enum_field(
     let text = Text::auto(
         move || value_text.get(),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?;
     let control = StyledContainer::new(
         LayoutStyle::new()
@@ -2055,7 +2089,7 @@ fn save_button(
     let text = Text::auto(
         label,
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), fg).with_weight(700),
+        move || theme.text_style(FontRole::Body, fg).with_weight(700),
     )?;
     let button = StyledContainer::new(
         LayoutStyle::new()

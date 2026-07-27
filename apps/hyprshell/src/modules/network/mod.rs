@@ -6,7 +6,7 @@
 
 use rsx::{
     AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
-    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item, signal,
+    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
 };
 
@@ -85,14 +85,14 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let title = Text::auto(
         || rsx::t!("network.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
     // Read out, then translate: `status_line` calls `t!`, and a `with` here would still hold the reactive
     // runtime's borrow when it read the locale signal.
     let subtitle = Text::auto(
         move || status_line(&subtitle_state.get()),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.subtle),
+        move || theme.text_style(FontRole::Caption, theme.subtle),
     )?;
     let labels = Container::new(
         LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
@@ -203,7 +203,7 @@ fn list(
     let empty = Text::auto(
         move || empty_line(&empty_state.get(), config),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
 
     Ok(Box::new(Container::new(
@@ -281,7 +281,7 @@ fn network_row(
             move || ssid.clone()
         },
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?;
     let status = Text::auto(
         {
@@ -304,7 +304,7 @@ fn network_row(
                 } else {
                     theme.subtle
                 };
-                TextStyle::new(theme.font(FontRole::Caption), tint)
+                theme.text_style(FontRole::Caption, tint)
             }
         },
     )?;
@@ -316,7 +316,7 @@ fn network_row(
     let trailing = Text::auto(
         move || format!("{}%", strength_text()),
         LayoutStyle::new().flex_shrink(0.0),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
 
     let saved = point.saved;
@@ -437,7 +437,7 @@ fn prompt(
         LayoutStyle::new()
             .flex_grow(1.0)
             .height(theme.font(FontRole::Body) * 1.6),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?
     .secret()
     .placeholder(rsx::t!("network.password"))
@@ -522,7 +522,7 @@ fn pill(
             } else {
                 theme.text
             };
-            TextStyle::new(theme.font(FontRole::Caption), tint)
+            theme.text_style(FontRole::Caption, tint)
         },
     )?;
     Ok(Box::new(

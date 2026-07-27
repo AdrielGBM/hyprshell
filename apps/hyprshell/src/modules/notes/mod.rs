@@ -6,7 +6,7 @@ use platform_layershell::timeout;
 use rsx::{
     AlignItems, Container, Effect, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     NodeId, ReactiveList, ReadSignal, Rect, RectStyle, RwSignal, SizeDimension, StyledContainer,
-    Text, TextArea, TextStyle, box_item, effect, signal, track_layout, use_theme,
+    Text, TextArea, box_item, effect, signal, track_layout, use_theme,
 };
 
 use crate::modules::drawer::content_radius;
@@ -66,7 +66,7 @@ fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, L
     let title = Text::auto(
         || rsx::t!("notes.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
     let add_state = state.clone();
     let add = pill_button(|| rsx::t!("notes.new"), move || add_note(&add_state), theme)?;
@@ -143,7 +143,7 @@ fn note_card(
         LayoutStyle::new()
             .flex_grow(1.0)
             .height(theme.font(FontRole::Body) * 1.4),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Body, theme.text).with_weight(700),
     )?
     .placeholder(rsx::t!("notes.title_placeholder"));
 
@@ -168,7 +168,7 @@ fn note_card(
     let body_area = TextArea::new(
         body,
         LayoutStyle::new().width(SizeDimension::Percent(1.0)),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
+        move || theme.text_style(FontRole::Body, theme.subtle),
     )?
     .placeholder(rsx::t!("notes.body_placeholder"));
 
@@ -292,7 +292,7 @@ fn pill_button(
     let text = Text::auto(
         label,
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
+        move || theme.text_style(FontRole::Caption, theme.text),
     )?;
     let pill = StyledContainer::new(
         LayoutStyle::new()

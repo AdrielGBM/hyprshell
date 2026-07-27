@@ -1,6 +1,8 @@
 use std::any::Any;
 
-use rsx::{Color, Theme, ThemeTokens};
+use rsx::{Color, Theme, TextStyle, ThemeTokens};
+
+use crate::core::config::{FontSpec, FontsConfig};
 
 /// Semantic text sizes, each a step off the theme's base [`font_size`](NordTheme::font_size).
 #[derive(Clone, Copy)]
@@ -27,6 +29,8 @@ pub struct NordTheme {
     pub icon_size: f32,
     /// Stroke width (SVG userspace units) forced on stroke-based icon glyphs, e.g. `1.5` to thin Lucide's default `2`. `None` keeps each glyph's own stroke. `[theme] icon_stroke` overrides it.
     pub icon_stroke: Option<f32>,
+    /// Per-role size/weight/italic overrides from `[theme.fonts]`, applied by [`text_style`](Self::text_style).
+    pub fonts: FontsConfig,
     pub base: Color,
     pub surface: Color,
     pub overlay: Color,
@@ -199,6 +203,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(25, 23, 36),
             surface: Color::from_rgb_u8(31, 29, 46),
             overlay: Color::from_rgb_u8(38, 35, 58),
@@ -232,6 +237,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(35, 33, 54),
             surface: Color::from_rgb_u8(42, 39, 63),
             overlay: Color::from_rgb_u8(57, 53, 82),
@@ -265,6 +271,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(250, 244, 237),
             surface: Color::from_rgb_u8(255, 250, 243),
             overlay: Color::from_rgb_u8(242, 233, 225),
@@ -299,6 +306,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(30, 30, 46),
             surface: Color::from_rgb_u8(49, 50, 68),
             overlay: Color::from_rgb_u8(69, 71, 90),
@@ -420,6 +428,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(40, 40, 40),
             surface: Color::from_rgb_u8(60, 56, 54),
             overlay: Color::from_rgb_u8(80, 73, 69),
@@ -482,6 +491,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(26, 27, 38),
             surface: Color::from_rgb_u8(36, 40, 59),
             overlay: Color::from_rgb_u8(41, 46, 66),
@@ -515,6 +525,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(45, 53, 59),
             surface: Color::from_rgb_u8(52, 63, 68),
             overlay: Color::from_rgb_u8(61, 72, 77),
@@ -548,6 +559,7 @@ impl NordTheme {
             font_size: 14.0,
             icon_size: 24.0,
             icon_stroke: None,
+            fonts: FontsConfig::default(),
             base: Color::from_rgb_u8(46, 52, 64),
             surface: Color::from_rgb_u8(59, 66, 82),
             overlay: Color::from_rgb_u8(67, 76, 94),
@@ -581,12 +593,40 @@ impl NordTheme {
 
     /// A text size by semantic role, stepping off [`font_size`](Self::font_size) so a theme scales its whole type ramp from one number.
     pub fn font(&self, role: FontRole) -> f32 {
-        match role {
+        let derived = match role {
             FontRole::Caption => self.font_size - 2.0,
             FontRole::Body => self.font_size,
             FontRole::Title => self.font_size + 1.0,
             FontRole::Display => (self.font_size * 2.4).round(),
+        };
+        self.font_spec(role).size_for(derived)
+    }
+
+    fn font_spec(&self, role: FontRole) -> FontSpec {
+        match role {
+            FontRole::Caption => self.fonts.caption,
+            FontRole::Body => self.fonts.body,
+            FontRole::Title => self.fonts.title,
+            FontRole::Display => self.fonts.display,
         }
+    }
+
+    /// A [`TextStyle`] carrying everything `[theme.fonts.<role>]` has to say — size, weight and slant.
+    ///
+    /// The one way to start a text style, so a per-role override reaches every label instead of only the ones
+    /// that remembered to ask. A call site that chains `.with_weight(…)` afterwards still wins, which is what
+    /// keeps a deliberately bold heading bold when the body weight is lowered: that is emphasis relative to the
+    /// role, not the role itself.
+    pub fn text_style(&self, role: FontRole, paint: impl Into<rsx::Paint>) -> TextStyle {
+        let spec = self.font_spec(role);
+        let mut style = TextStyle::new(self.font(role), paint);
+        if let Some(weight) = spec.weight {
+            style = style.with_weight(weight.clamp(100, 900));
+        }
+        if let Some(italic) = spec.italic {
+            style = style.with_italic(italic);
+        }
+        style
     }
 
     /// Overrides one palette token by name (as used in `[theme.colors]`), for config-defined custom colors; an unknown name is ignored with a warning.

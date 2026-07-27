@@ -6,8 +6,7 @@ use platform_layershell::timeout;
 use rsx::{
     AlignItems, Component, Container, Effect, Event, EventResult, Input, JustifyContent, LayoutError,
     LayoutItem, LayoutScrollArea, LayoutStyle, NodeId, Overlay, ReactiveList, ReadSignal, Rect,
-    RectStyle, RenderNode, RwSignal, ScrollViewport, SizeDimension, StyledContainer, Text,
-    TextStyle, anchor_rect, box_item, effect, signal, use_theme,
+    RectStyle, RenderNode, RwSignal, ScrollViewport, SizeDimension, StyledContainer, Text, anchor_rect, box_item, effect, signal, use_theme,
 };
 
 use super::{CollectionState, icon_collection, icon_view};
@@ -323,7 +322,7 @@ fn search_box(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn Layou
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
             .height(theme.font(FontRole::Body) * 1.4),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?
     .placeholder(rsx::t!("icon_picker.filter_placeholder"));
     let boxed = StyledContainer::new(
@@ -345,7 +344,7 @@ fn message(
     let label = Text::auto(
         text,
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
     let wrap = Container::new(
         LayoutStyle::new().padding_all(12.0),

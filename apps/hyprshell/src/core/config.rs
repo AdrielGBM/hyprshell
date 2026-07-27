@@ -407,13 +407,56 @@ impl PopoutsConfig {
 }
 
 /// Panel presentation shared by drawers and floating windows (`[panels]`): the gap they keep from the bar and the screen edges, and each form's size. One home for both so a drawer and a float are configured the same way.
-#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default)]
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 #[serde(default)]
 pub struct PanelsConfig {
     /// Gap a panel keeps from the bar and the screen edges. Unset (the default) derives it — the bar's own outer gap when it floats, else [`DEFAULT_PANEL_GAP`] — so panels sit off the bar just like tiled apps; set a value to pin a fixed gap on every edge regardless of the bar.
     pub gap: Option<u32>,
+    /// How far a chip must be dragged away from the bar before letting go opens its panel, in px. `0` switches
+    /// the gesture off. One threshold for every panel rather than one each: the gesture is the same everywhere
+    /// on the bar, and a per-panel distance would make the bar feel inconsistent under the same finger.
+    pub drag_threshold: f32,
+    /// How opaque a panel's background is, `0`–`1`. `1` (the default) is solid.
+    ///
+    /// This is also the half of "blurred panels" that belongs to the shell. The blur itself is the
+    /// compositor's — hyprshell already names each surface, so Hyprland can be told to blur them:
+    ///
+    /// ```text
+    /// layer_rule = blur, hyprshell-drawer
+    /// layer_rule = blur, hyprshell-float
+    /// layer_rule = blur, hyprshell-popup
+    /// layer_rule = blur, hyprshell-osd
+    /// ```
+    ///
+    /// Drawing the blur here instead would mean copying the screen behind every panel each frame and blurring
+    /// it on the CPU, to reproduce something the compositor is already doing on the GPU. What the compositor
+    /// cannot do is see through an opaque panel, which is what this key is for: without it the rules above
+    /// blur a region nothing shows.
+    pub opacity: f32,
     pub drawer: DrawerConfig,
     pub float: FloatConfig,
+}
+
+impl Default for PanelsConfig {
+    fn default() -> Self {
+        Self {
+            gap: None,
+            drag_threshold: 48.0,
+            opacity: 1.0,
+            drawer: DrawerConfig::default(),
+            float: FloatConfig::default(),
+        }
+    }
+}
+
+impl PanelsConfig {
+    /// The drag distance that opens a panel, or `None` when the gesture is off. Floored well above the tap
+    /// slop: a threshold a stray press could cross would open a panel every time a chip was clicked slightly
+    /// unsteadily.
+    pub fn drag_threshold(&self) -> Option<f32> {
+        (self.drag_threshold.is_finite() && self.drag_threshold > 0.0)
+            .then(|| self.drag_threshold.clamp(16.0, 400.0))
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -517,6 +560,9 @@ pub struct NotificationsConfig {
     pub body_lines: u32,
     pub open_expanded: bool,
     pub sound: String,
+    /// How far sideways a card must be dragged before letting go dismisses it, as a fraction of its width.
+    /// `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+    pub clear_threshold: f32,
 }
 
 impl Default for NotificationsConfig {
@@ -536,6 +582,7 @@ impl Default for NotificationsConfig {
             body_lines: 4,
             open_expanded: false,
             sound: String::new(),
+            clear_threshold: 0.35,
         }
     }
 }
@@ -557,6 +604,16 @@ impl NotificationsConfig {
     pub fn sound_command(&self) -> Option<&str> {
         let command = self.sound.trim();
         (!command.is_empty()).then_some(command)
+    }
+
+    /// The swipe distance that dismisses a card, in px for a card `width` wide, or `None` when the gesture is
+    /// off. Bounded below the full width: a threshold you cannot reach is a gesture that never fires, which
+    /// reads as the card being stuck rather than as the setting being wrong.
+    pub fn swipe_distance(&self, width: f32) -> Option<f32> {
+        if !self.clear_threshold.is_finite() || self.clear_threshold <= 0.0 {
+            return None;
+        }
+        Some(width * self.clear_threshold.min(0.9))
     }
 }
 
@@ -648,11 +705,16 @@ impl HelperApp {
 /// The `active_window` module. `compact` shows the app's class instead of the document title — stable while you
 /// move around inside one app, and much narrower. `max_chars` bounds the one bar value with no natural size: a
 /// browser tab title can be a paragraph, and letting it size the chip would push every other module off the bar.
+///
+/// `inverted` puts the icon after the title instead of before it. Which reads better depends on where the chip
+/// sits: leading the icon points into the bar from the left, and trailing it does the same from the right, so
+/// a chip in the end zone usually wants this on.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug)]
 #[serde(default)]
 pub struct ActiveWindowConfig {
     pub compact: bool,
     pub show_icon: bool,
+    pub inverted: bool,
     pub max_chars: u32,
 }
 
@@ -661,6 +723,7 @@ impl Default for ActiveWindowConfig {
         Self {
             compact: false,
             show_icon: true,
+            inverted: false,
             max_chars: 60,
         }
     }
@@ -734,6 +797,9 @@ pub struct WorkspacesConfig {
     /// Mark the active workspace with one box that slides between pills instead of recolouring each pill in
     /// place. Off restores the older look exactly — the pill paints its own accent and nothing moves.
     pub indicator: bool,
+    /// How far the indicator stretches along its direction of travel, as a fraction of the distance still to
+    /// cover. `0` keeps it exactly one pill wide the whole way; the default gives it a little speed.
+    pub indicator_trail: f32,
     /// The wheel over the pills switches workspace.
     pub scroll: bool,
     pub label: String,
@@ -755,6 +821,7 @@ impl Default for WorkspacesConfig {
             max_window_icons: 4,
             occupied_background: true,
             indicator: true,
+            indicator_trail: 0.35,
             scroll: true,
             label: "{id}".to_string(),
             occupied_label: String::new(),
@@ -766,6 +833,16 @@ impl Default for WorkspacesConfig {
 }
 
 impl WorkspacesConfig {
+    /// The trail fraction, bounded: at `1` the box would reach the whole way to its goal on every frame and
+    /// read as one long bar rather than as a pill in motion, and the indicator has to be off entirely for a
+    /// trail to mean nothing.
+    pub fn trail(&self) -> f32 {
+        if !self.indicator || !self.indicator_trail.is_finite() {
+            return 0.0;
+        }
+        self.indicator_trail.clamp(0.0, 0.9)
+    }
+
     /// The template a pill in this state renders from: the most specific one the user set, falling back to the
     /// general `label` so setting only `active_label` leaves every other pill alone.
     fn template(&self, occupied: bool, active: bool) -> &str {
@@ -1569,6 +1646,13 @@ impl ClockConfig {
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
+    /// The schema the file was written against. `0` (the default) is anything written before versioning
+    /// existed; [`migrate`] brings it forward on load. See [`CONFIG_VERSION`].
+    pub version: u32,
+    /// Design-token overrides read from the sibling `tokens.toml`, not from `config.toml` — skipped from
+    /// serialization so a section save can never write them into the user's config file.
+    #[serde(skip)]
+    pub tokens: TokenOverrides,
     pub general: GeneralConfig,
     pub bars: BarsConfig,
     pub theme: ThemeConfig,
@@ -1598,13 +1682,22 @@ pub struct Config {
     pub dashboard: DashboardConfig,
     pub paths: PathsConfig,
     pub tray: TrayConfig,
+    pub animation: AnimationConfig,
+    pub keynav: KeyNavConfig,
     pub modules: HashMap<String, ModuleOverride>,
 }
 
 /// One bar per screen edge; empty bars collapse to zero. Default is all-empty by design (serde fills missing fields), so configs get only what they specify — see [`Config::starter`] for the initial setup.
+///
+/// `excluded_screens` names outputs that get no bars at all — a TV, a projector, a monitor that only ever shows
+/// one fullscreen thing. Each entry matches the connector name (`DP-1`) as a `*` pattern, so `HDMI-*` covers a
+/// port whose index moves between reboots. *Which* modules a screen shows is a per-monitor config override
+/// (`monitors/<output>/config.toml`) rather than a key here: it is the same `[bars.<edge>]` shape, so there is
+/// nothing new to learn and nothing to keep in step.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct BarsConfig {
+    pub excluded_screens: Vec<String>,
     pub top: BarConfig,
     pub bottom: BarConfig,
     pub left: BarConfig,
@@ -1619,6 +1712,17 @@ impl BarsConfig {
             Edge::Left => &self.left,
             Edge::Right => &self.right,
         }
+    }
+
+    /// Whether this output should carry no bars. An output the compositor gave no name to is never excluded —
+    /// there is nothing to match it by, and dropping the bars off an unnameable screen would look like a bug.
+    pub fn excludes(&self, output: Option<&str>) -> bool {
+        let Some(output) = output else {
+            return false;
+        };
+        self.excluded_screens
+            .iter()
+            .any(|pattern| glob_matches(pattern, output))
     }
 }
 
@@ -1647,6 +1751,216 @@ impl Default for BarConfig {
             end: Vec::new(),
             shape: BarShape::default(),
         }
+    }
+}
+
+/// The design tokens themselves, overridable from `~/.config/hyprshell/tokens.toml`.
+///
+/// **Unstable, and deliberately so.** `[theme]` is the supported surface: it names the handful of knobs a
+/// theme is *meant* to expose, and those keys will keep working. This file reaches past that into the token
+/// set the shell draws from, which exists to serve the widgets and moves when they do — a token can be
+/// renamed or dropped in any release. It is here because a user building a palette wants every number in one
+/// place without waiting for each to grow a config key, not because it is a stable API.
+///
+/// Applied last in [`Config::resolve_theme`], after `[theme]` and after `[theme.scale]`, so it always wins.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(default)]
+pub struct TokenOverrides {
+    pub radius: Option<f32>,
+    pub spacing: Option<f32>,
+    pub font_size: Option<f32>,
+    pub icon_size: Option<f32>,
+    pub icon_stroke: Option<f32>,
+    /// Palette tokens by the same names [`NordTheme::accent_by_name`](crate::NordTheme) uses.
+    pub colors: HashMap<String, String>,
+}
+
+impl TokenOverrides {
+    /// Reads `tokens.toml` from the config directory. A missing file is the normal case and reads as "no
+    /// overrides"; an unparseable one is warned about and ignored, because a token file is a garnish and must
+    /// never be the reason a shell refuses to start.
+    pub fn load(config_path: &Path) -> Self {
+        let path = Self::path(config_path);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
+        match toml::from_str(&text) {
+            Ok(tokens) => tokens,
+            Err(e) => {
+                tracing::warn!("{}: {e}; ignoring the token overrides", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    pub fn path(config_path: &Path) -> PathBuf {
+        config_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("tokens.toml")
+    }
+
+    fn is_empty(&self) -> bool {
+        self.radius.is_none()
+            && self.spacing.is_none()
+            && self.font_size.is_none()
+            && self.icon_size.is_none()
+            && self.icon_stroke.is_none()
+            && self.colors.is_empty()
+    }
+
+    /// Stamps these overrides onto a resolved theme.
+    fn apply(&self, theme: &mut NordTheme) {
+        if let Some(r) = self.radius {
+            theme.radius = r;
+        }
+        if let Some(s) = self.spacing {
+            theme.spacing = s;
+        }
+        if let Some(f) = self.font_size {
+            theme.font_size = f;
+        }
+        if let Some(i) = self.icon_size {
+            theme.icon_size = i;
+        }
+        if self.icon_stroke.is_some() {
+            theme.icon_stroke = self.icon_stroke;
+        }
+        for (name, hex) in &self.colors {
+            match Color::from_hex(hex) {
+                Some(c) => *theme = theme.with_color(name, c),
+                None => tracing::warn!("token color '{name}': invalid hex '{hex}'"),
+            }
+        }
+    }
+}
+
+/// One text role's overrides (`[theme.fonts.<role>]`), each unset by default so a role keeps the size the
+/// theme derives for it.
+///
+/// No `family`: rsx's `TextStyle` carries no font family — the family is process-wide, applied through
+/// `rsx::set_default_font_family` from `[theme] font_family`. Per-role families need `TextStyle` to carry one
+/// and the renderer to select on it, which is an upstream change rather than a config key.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct FontSpec {
+    pub size: Option<f32>,
+    pub weight: Option<u16>,
+    pub italic: Option<bool>,
+}
+
+impl FontSpec {
+    /// The size for this role: the override, bounded to what a screen can actually render, else `derived`.
+    pub(crate) fn size_for(self, derived: f32) -> f32 {
+        self.size
+            .filter(|s| s.is_finite())
+            .map(|s| s.clamp(4.0, 200.0))
+            .unwrap_or(derived)
+    }
+}
+
+/// Per-role text overrides (`[theme.fonts]`). The roles are the ones the shell actually draws with, so there is
+/// no role here that nothing reads.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct FontsConfig {
+    pub display: FontSpec,
+    pub title: FontSpec,
+    pub body: FontSpec,
+    pub caption: FontSpec,
+}
+
+/// Keyboard navigation shared by every list surface (`[keynav]`).
+///
+/// `vim` is off by default and has to be: the launcher's list sits under a search field, and a list that reads
+/// `j` as "down" cannot also let you type `jitsi`. Turning it on is a deliberate trade a vim user makes
+/// knowingly — the arrows keep working either way.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default)]
+#[serde(default)]
+pub struct KeyNavConfig {
+    pub vim: bool,
+}
+
+/// How the shell moves (`[animation]`).
+///
+/// Two curve families rather than one, because rsx has two motion models and they answer different questions.
+/// `curve` names a **spring**, for motion that chases a target that can move mid-flight — the workspace
+/// indicator, which has to bend its path when you hold a workspace key rather than restart. `easing` names a
+/// **timing function**, for a transition with a start, an end and a duration — a panel opening.
+///
+/// `duration_scale` multiplies every duration at once, so "make it all a bit quicker" is one number; `enabled
+/// = false` collapses every duration to zero, which is the accessibility answer (and what a user on a remote
+/// desktop wants) rather than a per-surface opt-out.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct AnimationConfig {
+    pub enabled: bool,
+    pub duration_scale: f32,
+    /// The spring preset for continuous motion: `gentle`, `snappy` or `bouncy`.
+    pub curve: String,
+    /// The timing function for duration-based transitions: `linear`, `ease-in`, `ease-out`, `ease-in-out`.
+    pub easing: String,
+    /// How long a panel takes to enter or leave, before `duration_scale`.
+    pub panel_duration_ms: u64,
+}
+
+impl Default for AnimationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            duration_scale: 1.0,
+            curve: "gentle".to_string(),
+            easing: "ease-out".to_string(),
+            panel_duration_ms: 180,
+        }
+    }
+}
+
+impl AnimationConfig {
+    /// The multiplier, bounded: `0` (or a negative, or NaN) would make every animation instant by accident
+    /// rather than by the `enabled` switch that says so, and an unbounded one makes the shell feel broken.
+    fn scale(&self) -> f32 {
+        if self.duration_scale.is_finite() {
+            self.duration_scale.clamp(0.1, 10.0)
+        } else {
+            1.0
+        }
+    }
+
+    /// `base` scaled by `duration_scale`, or zero while animation is off. The one place a duration is derived,
+    /// so every surface shortens and lengthens together instead of each carrying its own constant.
+    pub fn duration(&self, base: Duration) -> Duration {
+        if !self.enabled {
+            return Duration::ZERO;
+        }
+        base.mul_f32(self.scale())
+    }
+
+    /// The spring every chase-a-moving-target animation uses.
+    pub fn spring(&self) -> rsx::motion::Spring {
+        match self.curve.trim().to_ascii_lowercase().as_str() {
+            "snappy" => rsx::motion::Spring::snappy(),
+            "bouncy" => rsx::motion::Spring::bouncy(),
+            _ => rsx::motion::Spring::gentle(),
+        }
+    }
+
+    /// The timing function every duration-based transition uses.
+    pub fn easing(&self) -> rsx::motion::Easing {
+        match self.easing.trim().to_ascii_lowercase().as_str() {
+            "linear" => rsx::motion::Easing::Linear,
+            "ease-in" | "ease_in" => rsx::motion::Easing::EaseIn,
+            "ease-in-out" | "ease_in_out" => rsx::motion::Easing::EaseInOut,
+            _ => rsx::motion::Easing::EaseOut,
+        }
+    }
+
+    /// A panel's enter/exit transition, ready to hand to `Animated`.
+    pub fn panel_tween(&self) -> rsx::motion::Tween {
+        rsx::motion::tween(
+            self.duration(Duration::from_millis(self.panel_duration_ms.clamp(0, 2_000))),
+            self.easing(),
+        )
     }
 }
 
@@ -1713,6 +2027,7 @@ pub struct ThemeConfig {
     /// Stroke width forced on stroke-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
     pub icon_stroke: Option<f32>,
     pub scale: ScaleConfig,
+    pub fonts: FontsConfig,
     pub colors: HashMap<String, String>,
 }
 
@@ -1728,6 +2043,7 @@ impl Default for ThemeConfig {
             font_family: None,
             icon_stroke: None,
             scale: ScaleConfig::default(),
+            fonts: FontsConfig::default(),
             colors: HashMap::new(),
         }
     }
@@ -1737,6 +2053,8 @@ impl Config {
     /// Fresh-install starter config (distinct from `Default`, which is all-empty and backs serde's missing-field fill).
     pub fn starter() -> Self {
         Self {
+            version: CONFIG_VERSION,
+            tokens: TokenOverrides::default(),
             bars: BarsConfig {
                 top: BarConfig {
                     size: 34,
@@ -1774,6 +2092,8 @@ impl Config {
             dashboard: DashboardConfig::default(),
             paths: PathsConfig::default(),
             tray: TrayConfig::default(),
+            animation: AnimationConfig::default(),
+            keynav: KeyNavConfig::default(),
             modules: HashMap::new(),
             general: GeneralConfig::default(),
         }
@@ -1930,6 +2250,7 @@ impl Config {
         if let Some(s) = t.icon_stroke {
             theme.icon_stroke = Some(s);
         }
+        theme.fonts = t.fonts;
         for (name, hex) in &t.colors {
             match Color::from_hex(hex) {
                 Some(c) => theme = theme.with_color(name, c),
@@ -1942,6 +2263,10 @@ impl Config {
             theme.spacing = (theme.spacing * ScaleConfig::factor(t.scale.spacing)).round();
             theme.font_size *= ScaleConfig::factor(t.scale.font);
             theme.icon_size *= ScaleConfig::factor(t.scale.icon);
+        }
+        // `tokens.toml` reaches past the supported `[theme]` surface, so it is applied after everything else and always wins — a user editing raw tokens has said which answer they want.
+        if !self.tokens.is_empty() {
+            self.tokens.apply(&mut theme);
         }
         theme
     }
@@ -1997,6 +2322,20 @@ impl Config {
     /// The corner radius a panel uses: the same as the bar on `edge` (its resolved `radius`, which itself falls back to the theme), so a drawer, float, OSD and notification card all carry the bar's rounding instead of a per-panel value.
     pub fn panel_radius(&self, edge: Edge) -> f32 {
         self.resolved_radius(edge)
+    }
+
+    /// The background every panel paints, at the configured `[panels] opacity`.
+    ///
+    /// Floored well above transparent: a panel faded past readability is indistinguishable from one that
+    /// failed to open, and the user's next move is to file a bug rather than to reach for the setting.
+    pub fn panel_fill(&self) -> Color {
+        let theme = self.resolve_theme();
+        let opacity = if self.panels.opacity.is_finite() {
+            self.panels.opacity.clamp(0.2, 1.0)
+        } else {
+            1.0
+        };
+        theme.surface.with_alpha(opacity)
     }
 
     /// A panel's margin `(top, right, bottom, left)` off the screen edges: uniformly the [`panel_gap`](Self::panel_gap). A panel surface uses `exclusive_zone = 0`, so the compositor already positions it past every bar's reserved zone (the reservation strip's exclusive zone); the panel only adds the standard gap beyond that — re-adding the bar's thickness here would double the distance off the bar. The one distance rule every panel shares, so a drawer, an OSD and a notification stack all clear the bar by the same config-controlled gap.
@@ -2067,7 +2406,56 @@ impl Config {
             }
             Err(e) => return Err(LoadError::Io(e)),
         };
-        toml::from_str(&text).map_err(LoadError::Parse)
+        let mut document: toml::Value = toml::from_str(&text).map_err(LoadError::Parse)?;
+        migrate(&mut document);
+        let mut config: Config = document.try_into().map_err(LoadError::Parse)?;
+        config.tokens = TokenOverrides::load(path);
+        Ok(config)
+    }
+
+    /// The config as `output` sees it: `config.toml` with `monitors/<output>/config.toml` deep-merged over it.
+    ///
+    /// A merge rather than a replacement, so a per-monitor file says only what differs — a vertical bar on the
+    /// second screen is four lines, not a copy of the whole config that then drifts. Tables merge key by key;
+    /// anything else (a scalar, an array, a module list) replaces outright, because a half-overridden array is
+    /// not something a user can predict.
+    ///
+    /// Sections in [`GLOBAL_ONLY_SECTIONS`] are dropped from the override with a warning: one process owns them,
+    /// so honouring them per monitor would be a setting that silently did nothing on every screen but one.
+    pub fn for_output(path: &Path, output: Option<&str>) -> Result<Self, LoadError> {
+        let Some(output) = output else {
+            return Config::load(path);
+        };
+        let override_path = monitor_config_path(path, output);
+        let Ok(override_text) = std::fs::read_to_string(&override_path) else {
+            return Config::load(path);
+        };
+        let base_text = std::fs::read_to_string(path).map_err(LoadError::Io)?;
+        let mut merged: toml::Value = toml::from_str(&base_text).map_err(LoadError::Parse)?;
+        let mut over: toml::Value = toml::from_str(&override_text).map_err(LoadError::Parse)?;
+        migrate(&mut merged);
+        migrate(&mut over);
+        if let Some(table) = over.as_table_mut() {
+            for section in GLOBAL_ONLY_SECTIONS {
+                if table.remove(*section).is_some() {
+                    tracing::warn!(
+                        "{}: [{section}] is global-only and was ignored",
+                        override_path.display()
+                    );
+                }
+            }
+        }
+        merge_into(&mut merged, over);
+        let mut config: Config = merged.try_into().map_err(LoadError::Parse)?;
+        config.tokens = TokenOverrides::load(path);
+        Ok(config)
+    }
+
+    /// Where a monitor's override lives: `<config dir>/monitors/<output>/config.toml`.
+    pub fn monitor_dir(path: &Path) -> PathBuf {
+        path.parent()
+            .unwrap_or(Path::new("."))
+            .join("monitors")
     }
 
     /// Serializes the whole config to `path`, creating its directory. Used only to seed a fresh install; edits
@@ -2119,6 +2507,106 @@ impl Config {
             std::fs::create_dir_all(parent).map_err(SaveError::Io)?;
         }
         std::fs::write(path, doc.to_string()).map_err(SaveError::Io)
+    }
+}
+
+/// The schema this build writes. A file carrying an older `version` is brought forward by [`migrate`] before
+/// it is deserialized; one carrying a *newer* version is read as-is, since guessing at a future schema is how a
+/// downgrade destroys a config.
+pub const CONFIG_VERSION: u32 = 1;
+
+/// Brings an older config document forward to [`CONFIG_VERSION`], in memory.
+///
+/// In memory, and never on disk: a shell that silently rewrites the file a user hand-edits is a shell they stop
+/// trusting, and the format-preserving save path ([`Config::save_section`]) already writes the current shape
+/// whenever they change something. Every step is therefore written to be idempotent — running it against an
+/// already-migrated document must be a no-op — so a file that never gets rewritten keeps working forever.
+fn migrate(document: &mut toml::Value) {
+    let from = document
+        .get("version")
+        .and_then(toml::Value::as_integer)
+        .unwrap_or(0)
+        .clamp(0, i64::from(u32::MAX)) as u32;
+    if from >= CONFIG_VERSION {
+        return;
+    }
+    if from < 1 {
+        migrate_terminal_into_apps(document);
+    }
+    tracing::info!("config migrated from version {from} to {CONFIG_VERSION}");
+}
+
+/// v0 → v1: `[general] terminal` became `[general.apps] terminal` when the other helper applications arrived.
+/// The older key wins nothing if the newer one is set, so a config carrying both keeps the deliberate value.
+fn migrate_terminal_into_apps(document: &mut toml::Value) {
+    let Some(general) = document.get_mut("general").and_then(toml::Value::as_table_mut) else {
+        return;
+    };
+    let Some(legacy) = general.get("terminal").and_then(toml::Value::as_str) else {
+        return;
+    };
+    let legacy = legacy.to_string();
+    if legacy.trim().is_empty() {
+        return;
+    }
+    let apps = general
+        .entry("apps")
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    let Some(apps) = apps.as_table_mut() else {
+        return;
+    };
+    let already_set = apps
+        .get("terminal")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|t| !t.trim().is_empty());
+    if !already_set {
+        apps.insert("terminal".to_string(), toml::Value::String(legacy));
+    }
+}
+
+/// Sections one process owns, and which a per-monitor file therefore cannot change.
+///
+/// Each of these is read once for the whole shell rather than once per surface: the UI locale and the helper
+/// applications (`general`), the icon store (`icons`), the notification daemon (`notifications`), the launcher
+/// — a single overlay, not a per-output surface — the user's directories (`paths`), and every section whose
+/// job is to start a background producer. A per-monitor value here would apply on whichever screen happened to
+/// be reconciled last and do nothing on the rest, which is worse than not being allowed at all.
+pub const GLOBAL_ONLY_SECTIONS: &[&str] = &[
+    "general",
+    "icons",
+    "notifications",
+    "launcher",
+    "paths",
+    "audio",
+    "brightness",
+    "battery",
+    "network",
+    "bluetooth",
+    "gpu",
+    "weather",
+];
+
+fn monitor_config_path(path: &Path, output: &str) -> PathBuf {
+    Config::monitor_dir(path).join(output).join("config.toml")
+}
+
+/// Deep-merges `over` into `base`: tables recurse key by key, everything else replaces.
+///
+/// Arrays replace rather than concatenate on purpose. A bar's module list is an array, and "the global list
+/// plus this monitor's" has no sensible reading — a user overriding `start` means *this* is the start zone.
+fn merge_into(base: &mut toml::Value, over: toml::Value) {
+    match (base, over) {
+        (toml::Value::Table(base), toml::Value::Table(over)) => {
+            for (key, value) in over {
+                match base.get_mut(&key) {
+                    Some(existing) => merge_into(existing, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, over) => *base = over,
     }
 }
 
@@ -2856,6 +3344,305 @@ end = ["battery", "volume"]
         })
         .unwrap();
         assert!(round_tripped.contains("fullscreen = \"never\""), "{round_tripped}");
+    }
+
+    /// A config directory with a global file and, optionally, one monitor override.
+    fn config_dir(name: &str, global: &str, monitor: Option<(&str, &str)>) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("hyprshell-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.toml"), global).unwrap();
+        if let Some((output, text)) = monitor {
+            let out_dir = dir.join("monitors").join(output);
+            std::fs::create_dir_all(&out_dir).unwrap();
+            std::fs::write(out_dir.join("config.toml"), text).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn a_monitor_override_merges_over_the_global_config_key_by_key() {
+        let dir = config_dir(
+            "monitor-merge",
+            r#"
+[bars.top]
+size = 34
+start = ["workspaces"]
+center = ["clock"]
+
+[theme]
+accent = "cyan"
+name = "nord"
+"#,
+            Some((
+                "DP-2",
+                r#"
+[bars.top]
+size = 44
+start = ["cpu", "memory"]
+
+[theme]
+accent = "orange"
+"#,
+            )),
+        );
+        let path = dir.join("config.toml");
+
+        let global = Config::for_output(&path, None).unwrap();
+        assert_eq!(global.bars.top.size, 34);
+        assert_eq!(ids(&global.bars.top.start), ["workspaces"]);
+        assert_eq!(global.theme.accent, "cyan");
+
+        let overridden = Config::for_output(&path, Some("DP-2")).unwrap();
+        assert_eq!(overridden.bars.top.size, 44, "the override wins");
+        assert_eq!(
+            ids(&overridden.bars.top.start),
+            ["cpu", "memory"],
+            "an array replaces rather than concatenating"
+        );
+        assert_eq!(
+            ids(&overridden.bars.top.center),
+            ["clock"],
+            "a key the override never mentions keeps the global value"
+        );
+        assert_eq!(overridden.theme.accent, "orange");
+        assert_eq!(
+            overridden.theme.name, "nord",
+            "merging is per key, not per section"
+        );
+
+        let unknown = Config::for_output(&path, Some("HDMI-A-1")).unwrap();
+        assert_eq!(unknown.bars.top.size, 34, "a screen with no file is the global config");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_monitor_override_cannot_change_a_section_one_process_owns() {
+        let dir = config_dir(
+            "monitor-global-only",
+            "[general]\nlanguage = \"en\"\n\n[shape]\ngap = 0\n",
+            Some((
+                "DP-1",
+                "[general]\nlanguage = \"es\"\n\n[notifications]\nmax_visible = 99\n\n[shape]\ngap = 12\n",
+            )),
+        );
+        let path = dir.join("config.toml");
+        let cfg = Config::for_output(&path, Some("DP-1")).unwrap();
+
+        assert_eq!(cfg.general.language, "en", "[general] is global-only");
+        assert_eq!(
+            cfg.notifications.max_visible,
+            NotificationsConfig::default().max_visible,
+            "[notifications] is global-only — one daemon owns it"
+        );
+        assert_eq!(cfg.shape.gap, 12, "a visual section is still the monitor's to set");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn excluded_screens_match_as_patterns_and_never_catch_an_unnamed_output() {
+        let bars = BarsConfig {
+            excluded_screens: vec!["HDMI-*".to_string(), "DP-3".to_string()],
+            ..BarsConfig::default()
+        };
+        assert!(bars.excludes(Some("HDMI-A-1")));
+        assert!(bars.excludes(Some("DP-3")));
+        assert!(!bars.excludes(Some("DP-1")));
+        assert!(
+            !bars.excludes(None),
+            "an output the compositor did not name has nothing to match, so it keeps its bars"
+        );
+        assert!(
+            !BarsConfig::default().excludes(Some("DP-1")),
+            "no exclusions is every screen"
+        );
+    }
+
+    #[test]
+    fn an_unversioned_config_is_migrated_forward_and_migration_is_idempotent() {
+        // v0: the terminal lived at `[general] terminal`, before `[general.apps]` existed.
+        let legacy = "[general]\nterminal = \"kitty\"\n";
+        let cfg: Config = {
+            let mut document: toml::Value = toml::from_str(legacy).unwrap();
+            migrate(&mut document);
+            document.try_into().unwrap()
+        };
+        assert_eq!(cfg.general.apps.terminal, "kitty", "moved into its new home");
+        assert_eq!(cfg.app_command(HelperApp::Terminal), "kitty");
+
+        let mut twice: toml::Value = toml::from_str(legacy).unwrap();
+        migrate(&mut twice);
+        let once = twice.clone();
+        migrate(&mut twice);
+        assert_eq!(twice, once);
+
+        let mut both: toml::Value =
+            toml::from_str("[general]\nterminal = \"xterm\"\n\n[general.apps]\nterminal = \"foot\"\n")
+                .unwrap();
+        migrate(&mut both);
+        let cfg: Config = both.try_into().unwrap();
+        assert_eq!(cfg.general.apps.terminal, "foot");
+
+        let mut current: toml::Value =
+            toml::from_str(&format!("version = {CONFIG_VERSION}\n[general]\nterminal = \"kitty\"\n"))
+                .unwrap();
+        let before = current.clone();
+        migrate(&mut current);
+        assert_eq!(current, before);
+    }
+
+    #[test]
+    fn animation_durations_scale_together_and_collapse_when_switched_off() {
+        let base = Duration::from_millis(200);
+        let d = AnimationConfig::default();
+        assert_eq!(d.duration(base), base, "the default scale moves nothing");
+
+        let quick = AnimationConfig {
+            duration_scale: 0.5,
+            ..AnimationConfig::default()
+        };
+        assert_eq!(quick.duration(base), Duration::from_millis(100));
+
+        let off = AnimationConfig {
+            enabled: false,
+            duration_scale: 4.0,
+            ..AnimationConfig::default()
+        };
+        assert_eq!(
+            off.duration(base),
+            Duration::ZERO,
+            "off wins over any scale — it is the accessibility answer, not a speed"
+        );
+
+        // Bounded, so a `0` cannot make everything instant by accident rather than by the switch that says so.
+        let broken = AnimationConfig {
+            duration_scale: 0.0,
+            ..AnimationConfig::default()
+        };
+        assert_eq!(broken.duration(base), Duration::from_millis(20));
+        let nan = AnimationConfig {
+            duration_scale: f32::NAN,
+            ..AnimationConfig::default()
+        };
+        assert_eq!(nan.duration(base), base, "an unusable factor is no factor");
+    }
+
+    #[test]
+    fn the_two_named_curve_families_resolve_and_fall_back() {
+        let with = |curve: &str, easing: &str| AnimationConfig {
+            curve: curve.to_string(),
+            easing: easing.to_string(),
+            ..AnimationConfig::default()
+        };
+        assert_eq!(with("snappy", "").spring(), rsx::motion::Spring::snappy());
+        assert_eq!(with("BOUNCY", "").spring(), rsx::motion::Spring::bouncy());
+        assert_eq!(
+            with("nonsense", "").spring(),
+            rsx::motion::Spring::gentle(),
+            "an unknown name is the default, not a panic"
+        );
+        assert_eq!(with("", "linear").easing(), rsx::motion::Easing::Linear);
+        assert_eq!(with("", "ease_in_out").easing(), rsx::motion::Easing::EaseInOut);
+        assert_eq!(with("", "nonsense").easing(), rsx::motion::Easing::EaseOut);
+    }
+
+    #[test]
+    fn a_per_role_font_override_changes_only_the_role_it_names() {
+        use crate::shared::theme::FontRole;
+
+        let cfg: Config = toml::from_str(
+            "[theme]\nfont_size = 13.0\n\n[theme.fonts.caption]\nsize = 20.0\nweight = 700\nitalic = true\n",
+        )
+        .unwrap();
+        let theme = cfg.resolve_theme();
+        assert_eq!(theme.font(FontRole::Caption), 20.0, "the named role takes the override");
+        assert_eq!(theme.font(FontRole::Body), 13.0, "and every other role is untouched");
+
+        let styled = theme.text_style(FontRole::Caption, theme.text);
+        assert_eq!(styled.weight, 700);
+        assert!(styled.italic);
+        let plain = theme.text_style(FontRole::Body, theme.text);
+        assert_eq!(plain.weight, 400, "a role with no override keeps the default weight");
+        assert!(!plain.italic);
+
+        // Bounded on read: a size a screen cannot render is not a size.
+        let absurd: Config =
+            toml::from_str("[theme.fonts.body]\nsize = 100000.0\n").unwrap();
+        assert_eq!(absurd.resolve_theme().font(FontRole::Body), 200.0);
+    }
+
+    #[test]
+    fn the_panel_background_is_solid_by_default_and_never_fades_past_readable() {
+        let solid = Config::starter();
+        assert_eq!(solid.panel_fill().a, 1.0, "a panel is opaque unless asked otherwise");
+        assert_eq!(
+            solid.panel_fill().to_rgba8(),
+            solid.resolve_theme().surface.to_rgba8(),
+            "and it is exactly the surface token, so nothing changes for a config that never sets it"
+        );
+
+        let translucent = Config {
+            panels: PanelsConfig {
+                opacity: 0.75,
+                ..PanelsConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(translucent.panel_fill().a, 0.75);
+
+        // Floored: a panel faded past readability looks like one that failed to open.
+        let ghost = Config {
+            panels: PanelsConfig {
+                opacity: 0.0,
+                ..PanelsConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(ghost.panel_fill().a, 0.2);
+        let broken = Config {
+            panels: PanelsConfig {
+                opacity: f32::NAN,
+                ..PanelsConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(broken.panel_fill().a, 1.0, "an unusable value is no value");
+    }
+
+    #[test]
+    fn the_two_drag_thresholds_are_bounded_and_switch_off_at_zero() {
+        // Drag-to-open: floored well above the tap slop, so an unsteady click cannot cross it.
+        assert_eq!(PanelsConfig::default().drag_threshold(), Some(48.0));
+        let off = PanelsConfig {
+            drag_threshold: 0.0,
+            ..PanelsConfig::default()
+        };
+        assert_eq!(off.drag_threshold(), None);
+        let tiny = PanelsConfig {
+            drag_threshold: 1.0,
+            ..PanelsConfig::default()
+        };
+        assert_eq!(tiny.drag_threshold(), Some(16.0));
+        let nan = PanelsConfig {
+            drag_threshold: f32::NAN,
+            ..PanelsConfig::default()
+        };
+        assert_eq!(nan.drag_threshold(), None);
+
+        // Swipe-to-dismiss: a fraction of the card, never the whole width — an unreachable threshold reads as a card that is stuck rather than as a setting that is wrong.
+        let n = NotificationsConfig::default();
+        assert_eq!(n.swipe_distance(400.0), Some(140.0));
+        let full = NotificationsConfig {
+            clear_threshold: 2.0,
+            ..NotificationsConfig::default()
+        };
+        assert_eq!(full.swipe_distance(400.0), Some(360.0));
+        let disabled = NotificationsConfig {
+            clear_threshold: 0.0,
+            ..NotificationsConfig::default()
+        };
+        assert_eq!(disabled.swipe_distance(400.0), None);
     }
 
     #[test]

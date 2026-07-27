@@ -378,8 +378,11 @@ fn report_config_error(error: &crate::core::config::LoadError) {
 /// Opens every bar / reservation / wallpaper / frame surface for the current config across all outputs and
 /// returns their handles — kept alive to keep the surfaces up; closing a handle tears its surface down.
 fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
+    let path = Config::default_path();
     let mut handles = Vec::new();
     for out in platform_layershell::outputs() {
+        // Every surface on this output resolves against the same merged config, so a per-monitor override reaches the bar, its reservation strip, the wallpaper and the frame together — a bar sized by one config and a reservation strip sized by another would carve the wrong zone out of the screen.
+        let config = &output_config(&path, config, out.name.as_deref());
         // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
         if config.background.is_enabled() {
             handles.push(platform_layershell::open_surface(
@@ -391,7 +394,7 @@ fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
             ));
         }
         for edge in Edge::ALL {
-            if config.edge_present(edge) {
+            if config.edge_present(edge) && !config.bars.excludes(out.name.as_deref()) {
                 handles.push(platform_layershell::open_surface(
                     layer_config_for(config, edge, out.name.clone()),
                     BarApp {
@@ -417,20 +420,59 @@ fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
     handles
 }
 
-/// The config-watch producer for `watch`: polls config.toml mtime (dependency-free, naturally debounced) and
+/// The config `output` runs under: its `monitors/<output>/config.toml` merged over the global one, falling back
+/// to the global config when it has no override or that override will not parse. A broken per-monitor file
+/// costs that one screen its overrides and a log line, never the whole shell's layout.
+fn output_config(path: &Path, global: &Arc<Config>, output: Option<&str>) -> Arc<Config> {
+    let Some(output) = output else {
+        return Arc::clone(global);
+    };
+    match Config::for_output(path, Some(output)) {
+        Ok(config) => Arc::new(config),
+        Err(e) => {
+            tracing::warn!("monitor '{output}': {e}; using the global config");
+            Arc::clone(global)
+        }
+    }
+}
+
+/// The config-watch producer for `watch`: polls the config's mtimes (dependency-free, naturally debounced) and
 /// sends a tick on each change so the driver thread reconciles the surface set.
 fn watch_config_changes(path: PathBuf, tx: platform_layershell::EventSender<()>) {
-    let mut last = config_mtime(&path);
+    let mut last = config_fingerprint(&path);
     loop {
         std::thread::sleep(Duration::from_millis(500));
-        let now = config_mtime(&path);
+        let now = config_fingerprint(&path);
         if now != last {
+            // An empty fingerprint means the main config went missing mid-edit (a rename-into-place, an editor's atomic save); reconciling against nothing would blank the screen for a moment.
+            let settled = !now.is_empty();
             last = now;
-            if now.is_some() && !tx.send(()) {
+            if settled && !tx.send(()) {
                 return;
             }
         }
     }
+}
+
+/// The mtimes the shell's layout depends on: `config.toml` and every `monitors/<output>/config.toml`. The
+/// per-monitor files are part of the same answer, so editing one has to trigger the same reload as editing the
+/// global file — a watcher that only knew about `config.toml` would leave a monitor override needing a restart.
+fn config_fingerprint(path: &Path) -> Vec<(PathBuf, SystemTime)> {
+    let mut stamps: Vec<(PathBuf, SystemTime)> = config_mtime(path)
+        .map(|t| (path.to_path_buf(), t))
+        .into_iter()
+        .collect();
+    let Ok(entries) = std::fs::read_dir(Config::monitor_dir(path)) else {
+        return stamps;
+    };
+    for entry in entries.flatten() {
+        let file = entry.path().join("config.toml");
+        if let Some(stamp) = config_mtime(&file) {
+            stamps.push((file, stamp));
+        }
+    }
+    stamps.sort();
+    stamps
 }
 
 fn config_mtime(path: &Path) -> Option<SystemTime> {

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use platform_layershell::EventSender;
 use rsx::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, TextStyle, box_item, signal,
+    ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
 };
 
@@ -170,7 +170,7 @@ fn pill(
         move || tab_label(tab),
         LayoutStyle::new(),
         move || {
-            TextStyle::new(theme.font(FontRole::Caption), ink(label_state.get())).with_weight(700)
+            theme.text_style(FontRole::Caption, ink(label_state.get())).with_weight(700)
         },
     )?;
 

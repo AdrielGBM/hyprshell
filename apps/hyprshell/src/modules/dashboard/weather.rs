@@ -88,7 +88,7 @@ fn current_card(
                     box_item(Text::auto(
                         move || condition.get(),
                         LayoutStyle::new(),
-                        move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
+                        move || theme.text_style(FontRole::Body, theme.subtle),
                     )?),
                 ],
             )?),
@@ -138,7 +138,7 @@ fn unit_toggle(
     let text = Text::auto(
         move || reading.get(),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Display), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Display, theme.text).with_weight(700),
     )?;
     Ok(Box::new(
         StyledContainer::new(

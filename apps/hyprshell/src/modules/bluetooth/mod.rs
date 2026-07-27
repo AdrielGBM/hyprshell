@@ -7,7 +7,7 @@
 
 use rsx::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
-    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item, signal,
+    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
 };
 
@@ -93,14 +93,14 @@ fn header(
     let title = Text::auto(
         || rsx::t!("bluetooth.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
     // Read out, then translate: `adapter_line` calls `t!`, and a `with` here would still hold the reactive
     // runtime's borrow when it read the locale signal.
     let subtitle = Text::auto(
         move || adapter_line(&subtitle_state.get()),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.subtle),
+        move || theme.text_style(FontRole::Caption, theme.subtle),
     )?;
     let labels = Container::new(
         LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
@@ -198,7 +198,7 @@ fn list(
     let empty = Text::auto(
         move || empty_line(&empty_state.get(), config),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
 
     Ok(Box::new(Container::new(
@@ -269,7 +269,7 @@ fn row(
     let name = Text::auto(
         move || label.clone(),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Body), theme.text),
+        move || theme.text_style(FontRole::Body, theme.text),
     )?;
     let status = Text::auto(
         {
@@ -292,7 +292,7 @@ fn row(
                 } else {
                     theme.subtle
                 };
-                TextStyle::new(theme.font(FontRole::Caption), tint)
+                theme.text_style(FontRole::Caption, tint)
             }
         },
     )?;
@@ -307,7 +307,7 @@ fn row(
             move || trailing_line(&device)
         },
         LayoutStyle::new().flex_shrink(0.0),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
 
     let paired = device.paired;
@@ -410,7 +410,7 @@ fn pill(
             } else {
                 theme.text
             };
-            TextStyle::new(theme.font(FontRole::Caption), tint)
+            theme.text_style(FontRole::Caption, tint)
         },
     )?;
     Ok(Box::new(

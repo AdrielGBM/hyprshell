@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use rsx::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, Rect, RectStyle,
-    SizeDimension, StyledContainer, Text, TextStyle, box_item, open_surface, set_theme,
+    SizeDimension, StyledContainer, Text, box_item, open_surface, set_theme,
 };
 
 use crate::shared::anchor::chip_placement;
@@ -190,7 +190,7 @@ fn row(
     let text = Text::auto(
         move || label.clone(),
         LayoutStyle::new().flex_grow(1.0),
-        move || TextStyle::new(theme.font(FontRole::Body), fg),
+        move || theme.text_style(FontRole::Body, fg),
     )?;
     content.push(box_item(text));
 

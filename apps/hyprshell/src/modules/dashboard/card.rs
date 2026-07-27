@@ -10,7 +10,7 @@
 
 use rsx::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
-    StyledContainer, Text, TextStyle, box_item,
+    StyledContainer, Text, box_item,
 };
 
 use crate::modules::drawer::content_radius;
@@ -125,13 +125,13 @@ fn heading(
     row.push(box_item(Text::auto(
         move || title.get(),
         LayoutStyle::new().flex_grow(1.0),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?));
     if let Some(value) = trailing {
         row.push(box_item(Text::auto(
             move || value.get(),
             LayoutStyle::new().flex_shrink(0.0),
-            move || TextStyle::new(theme.font(FontRole::Title), theme.accent).with_weight(700),
+            move || theme.text_style(FontRole::Title, theme.accent).with_weight(700),
         )?));
     }
     Ok(Box::new(Container::new(
@@ -149,7 +149,7 @@ pub fn detail(text: Live<String>, theme: NordTheme) -> Result<Box<dyn LayoutItem
     Ok(box_item(Text::auto(
         move || text.get(),
         LayoutStyle::new().width(SizeDimension::Percent(1.0)),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.subtle),
+        move || theme.text_style(FontRole::Caption, theme.subtle),
     )?))
 }
 
