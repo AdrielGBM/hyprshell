@@ -229,7 +229,7 @@ pub(crate) fn popout_content(
     };
     let framed = card::frame(
         inner,
-        theme,
+        config.panel_fill(),
         config.popouts.card_width(),
         config.panel_radius(edge),
         keep_open,

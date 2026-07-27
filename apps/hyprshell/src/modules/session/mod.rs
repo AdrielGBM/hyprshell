@@ -2,8 +2,10 @@
 
 use rsx::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, StyledContainer, Text, TextStyle, box_item, signal, use_theme,
+    SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
+
+use crate::shared::keynav::{self, Move};
 
 use crate::shared::services::session::{self, Action};
 use crate::shared::theme::{FontRole, NordTheme};
@@ -22,16 +24,25 @@ pub fn power_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
 pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let armed = signal(String::new());
+    let actions = session::available();
 
     let title = Text::auto(
         || rsx::t!("session.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
 
+    // Which tile the keyboard is on. `None` until a key is pressed, so opening the panel with the pointer does not paint a selection ring nobody asked for.
+    let selected = signal(None::<usize>);
     let mut tiles: Vec<Box<dyn LayoutItem>> = Vec::new();
-    for action in session::available() {
-        tiles.push(tile(action, armed.clone(), theme)?);
+    for (index, action) in actions.iter().enumerate() {
+        tiles.push(tile(
+            *action,
+            armed.clone(),
+            theme,
+            selected.read_only(),
+            index,
+        )?);
     }
 
     let grid = Container::new(
@@ -44,13 +55,48 @@ pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         tiles,
     )?;
 
-    Ok(Box::new(Container::new(
+    let panel = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
             .gap(12.0)
             .width(SizeDimension::Percent(1.0)),
+        |_| RectStyle::default(),
         vec![box_item(title), box_item(grid)],
-    )?))
+    )?
+    .on_key(move |key| {
+        let Some(movement) = navigation().interpret(key) else {
+            return;
+        };
+        match movement {
+            // Enter runs the selected tile through the same arm-then-confirm path a click takes, so the keyboard cannot end a session in one keystroke where the pointer needs two.
+            Move::Activate => {
+                let Some(action) = selected.peek().and_then(|at| actions.get(at).copied()) else {
+                    return;
+                };
+                press(action, &armed);
+            }
+            Move::Cancel => armed.set(String::new()),
+            movement => {
+                // Arming survives a click elsewhere but not a move of the keyboard cursor: leaving an armed tile behind you is how the wrong Enter ends the session.
+                armed.set(String::new());
+                let at = keynav::apply(selected.peek().unwrap_or(0), actions.len(), movement);
+                selected.set(Some(at));
+            }
+        }
+    });
+    Ok(Box::new(panel))
+}
+
+/// The session menu's key bindings. A wrapped row of tiles, so it reads the horizontal arrows as well: the
+/// tiles sit side by side, and Left/Right is what a hand on that row reaches for first.
+fn navigation() -> keynav::KeyNav {
+    let config = crate::core::shell::config()
+        .map(|c| c.keynav)
+        .unwrap_or_default();
+    keynav::KeyNav {
+        horizontal: true,
+        ..keynav::KeyNav::from_config(&config)
+    }
 }
 
 /// Whether pressing `action` ends work the user might not have saved. Suspend and lock are recoverable in a
@@ -70,12 +116,28 @@ fn label_for(action: Action) -> String {
     }
 }
 
+/// Runs `action`, arming it first when it is destructive and not already armed. The one path both the pointer
+/// and the keyboard take, so a tile cannot end the session in fewer presses from one than from the other.
+fn press(action: Action, armed: &rsx::RwSignal<String>) {
+    let id = action.id();
+    if !is_destructive(action) || armed.peek() == id {
+        session::perform(action);
+        crate::close_panel("session");
+        return;
+    }
+    // Arming one tile disarms any other, so two half-pressed tiles can never both be live.
+    armed.set(id.to_string());
+}
+
 fn tile(
     action: Action,
     armed: rsx::RwSignal<String>,
     theme: NordTheme,
+    selected: rsx::ReadSignal<Option<usize>>,
+    index: usize,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let id = action.id();
+    let selected_fill = selected.clone();
     // One handle per closure: a signal is not `Copy`, and each of the four readers below outlives the others.
     let armed_icon = armed.read_only();
     let armed_caption = armed.read_only();
@@ -103,7 +165,7 @@ fn tile(
             }
         },
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
+        move || theme.text_style(FontRole::Caption, theme.text),
     )?;
 
     let tile = StyledContainer::new(
@@ -115,8 +177,11 @@ fn tile(
             .width(88.0)
             .padding_vertical(12.0),
         move |_| {
+            // Armed wins over selected: a tile one press from ending the session must not be mistaken for one the cursor is merely resting on.
             let fill = if armed_fill.get() == id {
                 theme.red
+            } else if selected_fill.get() == Some(index) {
+                theme.overlay
             } else {
                 theme.base
             };
@@ -132,21 +197,45 @@ fn tile(
         };
         RectStyle::filled(fill, 10.0)
     })
-    .on_press(move || {
-        if !is_destructive(action) || armed.peek() == id {
-            session::perform(action);
-            crate::close_panel("session");
-            return;
-        }
-        // Arming one tile disarms any other, so two half-pressed tiles can never both be live.
-        armed.set(id.to_string());
-    });
+    .on_press(move || press(action, &armed));
     Ok(Box::new(tile))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The keyboard must not be a shortcut past the confirmation the pointer has to give.
+    #[test]
+    fn the_session_menu_reads_the_row_arrows_and_disarms_when_the_cursor_moves() {
+        use rsx::{Key, NamedKey};
+
+        let nav = navigation();
+        assert_eq!(
+            nav.interpret(&Key::Named(NamedKey::ArrowRight)),
+            Some(Move::Next),
+            "the tiles sit in a row, so Right is the next one"
+        );
+        assert_eq!(
+            nav.interpret(&Key::Named(NamedKey::Enter)),
+            Some(Move::Activate)
+        );
+        assert_eq!(
+            nav.interpret(&Key::Named(NamedKey::Escape)),
+            Some(Move::Cancel)
+        );
+
+        let armed = signal(String::new());
+        press(Action::Shutdown, &armed);
+        assert_eq!(
+            armed.peek(),
+            Action::Shutdown.id(),
+            "the first Enter arms rather than shutting down"
+        );
+        let unarmed = signal(String::new());
+        assert!(!is_destructive(Action::Lock));
+        assert!(unarmed.peek().is_empty());
+    }
 
     #[test]
     fn only_unrecoverable_actions_ask_twice() {

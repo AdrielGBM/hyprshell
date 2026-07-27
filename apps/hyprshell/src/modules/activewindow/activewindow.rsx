@@ -39,15 +39,16 @@ let body = use_theme::<NordTheme>().font(FontRole::Body);
 let size = crate::icon_px();
 // The app's own artwork, not a tinted glyph: the point of this chip is recognising the app at a glance. A class
 // with no installed icon simply renders nothing, leaving the title to carry the chip.
-let app_icon = crate::shared::icon::app_icon_view(&icon_view.get(), size)?;
-let show_icon = config.show_icon && app_icon.is_some();
-let icon = app_icon.unwrap_or(rsx::box_item(rsx::Container::new(
-    rsx::LayoutStyle::new(),
-    vec![],
-)?));
+let class = icon_view.get();
+let show_icon = config.show_icon
+    && crate::shared::icon::app_icon_view(&class, size)?.is_some();
+let leading = show_icon && !config.inverted;
+let trailing = show_icon && config.inverted;
 
 [view]
 row align:center gap:8
-    if show_icon
-        widget "icon"
+    if leading
+        build "crate::modules::activewindow::icon_slot(&class, size)?"
     text "{$title_view}" size:body color:$fg
+    if trailing
+        build "crate::modules::activewindow::icon_slot(&class, size)?"

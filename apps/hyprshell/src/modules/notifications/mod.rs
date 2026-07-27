@@ -12,7 +12,7 @@ use platform_layershell::{
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
-    RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, TextStyle, WindowConfig,
+    RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, WindowConfig,
     box_item, memo, reset_layout_runtime, set_theme, signal, use_theme,
 };
 
@@ -222,6 +222,8 @@ struct CardStyle {
     body_lines: Option<u16>,
     /// A tap on the card body invokes the notification's `default` action, when it declares one.
     action_on_click: bool,
+    /// How far sideways the card must be dragged before letting go dismisses it, in px; `None` is off.
+    swipe: Option<f32>,
 }
 
 impl CardStyle {
@@ -231,6 +233,7 @@ impl CardStyle {
             radius,
             body_lines: cfg.body_max_lines(),
             action_on_click: cfg.action_on_click,
+            swipe: cfg.swipe_distance(cfg.width),
         }
     }
 }
@@ -262,7 +265,7 @@ fn notification_card(
         move || summary.clone(),
         LayoutStyle::new(),
         move || {
-            TextStyle::new(theme.font(FontRole::Body), theme.text)
+            theme.text_style(FontRole::Body, theme.text)
                 .with_weight(700)
                 .with_max_lines(1)
                 .with_ellipsis(true)
@@ -276,7 +279,7 @@ fn notification_card(
             move || body.clone(),
             LayoutStyle::new(),
             move || {
-                let base = TextStyle::new(theme.font(FontRole::Caption), theme.muted);
+                let base = theme.text_style(FontRole::Caption, theme.muted);
                 match body_lines {
                     Some(lines) => base.with_max_lines(lines).with_ellipsis(true),
                     None => base,
@@ -300,6 +303,9 @@ fn notification_card(
     )?;
 
     let children: Vec<Box<dyn LayoutItem>> = vec![leading, Box::new(text_column)];
+    // How far the card has been swiped, in px. A signal because the card follows the finger: the transform re-reads it every frame the pointer moves, and it snaps back to zero if the gesture is abandoned.
+    let swiped = signal(0.0f32);
+    let offset = swiped.read_only();
     let mut card = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
@@ -319,8 +325,47 @@ fn notification_card(
             Some(key) => notifications::invoke_action(id, key),
             None => dismiss(id),
         });
+        if let Some(threshold) = style.swipe {
+            card = swipe_to_dismiss(card, swiped, offset.clone(), threshold, id);
+        }
     }
     Ok(Box::new(card))
+}
+
+/// Makes a card follow a sideways drag and dismiss itself if it is let go past `threshold`.
+///
+/// The card fades as it travels, so the gesture says what it will do before it does it — a card that slid and
+/// then sprang back with no visual difference reads as a failure rather than as a cancel. Below the threshold
+/// the offset is simply set back to zero, which is the snap-back.
+fn swipe_to_dismiss(
+    card: StyledContainer,
+    swiped: RwSignal<f32>,
+    offset: ReadSignal<f32>,
+    threshold: f32,
+    id: u32,
+) -> StyledContainer {
+    // The drag reports the pointer local to the card, so the *start* has to be remembered to get a delta — a press near the right edge would otherwise read as an instant swipe of nearly the card's width.
+    let start: Rc<RefCell<Option<f32>>> = Rc::new(RefCell::new(None));
+    let began = Rc::clone(&start);
+    let tracking = swiped.clone();
+    let fade = offset.clone();
+    card.on_drag(move |x, _y| {
+        let from = *began.borrow_mut().get_or_insert(x);
+        tracking.set(x - from);
+    })
+    .on_drag_end(move |x, _y| {
+        let from = start.borrow_mut().take().unwrap_or(x);
+        if (x - from).abs() >= threshold {
+            notifications::close(id);
+        } else {
+            swiped.set(0.0);
+        }
+    })
+    .with_transform(move |_rect| {
+        let dx = offset.get();
+        (dx != 0.0).then_some([1.0, 0.0, 0.0, 1.0, dx, 0.0])
+    })
+    .with_opacity(move || 1.0 - (fade.get().abs() / threshold).clamp(0.0, 0.85))
 }
 
 /// A card's list key. Keyed on what it *draws*, not on the notification's identity: a sender that edits a
@@ -401,7 +446,7 @@ fn action_pill(
     let text = Text::auto(
         move || label.clone(),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
+        move || theme.text_style(FontRole::Caption, theme.text),
     )?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
@@ -631,7 +676,7 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let badge = Text::auto(
         move || badge_text(unread_read.get()),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), fg.get()).with_weight(700),
+        move || theme.text_style(FontRole::Caption, fg.get()).with_weight(700),
     )?;
     let row = Container::new(
         LayoutStyle::new()
@@ -689,7 +734,7 @@ fn panel_header(
     let title = Text::auto(
         || rsx::t!("notifications.title"),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text).with_weight(700),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
     )?;
     let dnd_label = read.clone();
     let dnd_toggle = read.clone();
@@ -730,7 +775,7 @@ fn pill_button(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(label, LayoutStyle::new(), move || {
-        TextStyle::new(theme.font(FontRole::Caption), theme.text)
+        theme.text_style(FontRole::Caption, theme.text)
     })?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
@@ -913,7 +958,7 @@ fn group_header(
         move || name.clone(),
         LayoutStyle::new().flex_grow(1.0),
         move || {
-            TextStyle::new(theme.font(FontRole::Caption), theme.muted)
+            theme.text_style(FontRole::Caption, theme.muted)
                 .with_weight(700)
                 .with_max_lines(1)
                 .with_ellipsis(true)
@@ -923,7 +968,7 @@ fn group_header(
     let badge = Text::auto(
         move || if count > 1 { count.to_string() } else { String::new() },
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
+        move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
     let mute_app = app.clone();
     let mute = icon_button(
@@ -972,7 +1017,7 @@ fn expander_row(
         }
     };
     let text = Text::auto(label, LayoutStyle::new(), move || {
-        TextStyle::new(theme.font(FontRole::Caption), theme.accent)
+        theme.text_style(FontRole::Caption, theme.accent)
     })?;
     let row = StyledContainer::new(
         LayoutStyle::new()

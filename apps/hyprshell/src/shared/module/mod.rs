@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use rsx::{
@@ -108,6 +109,29 @@ pub struct ChipStyle {
     pub square: bool,
 }
 
+/// A chip's drag-to-open gesture: pulling it away from the bar opens the panel it would otherwise toggle.
+#[derive(Clone)]
+pub struct DragOpen {
+    pub module: String,
+    /// The bar's edge, which is what says which direction "away from the bar" is.
+    pub edge: Edge,
+    /// How far the pointer must travel inwards before letting go opens the panel, in px.
+    pub threshold: f32,
+}
+
+impl DragOpen {
+    /// How far a drag has travelled *away from the bar*, from a press at `from` to a pointer now at `to`.
+    /// Negative is back towards the bar, which is the direction that closes rather than opens.
+    fn travel(&self, from: (f32, f32), to: (f32, f32)) -> f32 {
+        match self.edge {
+            Edge::Top => to.1 - from.1,
+            Edge::Bottom => from.1 - to.1,
+            Edge::Left => to.0 - from.0,
+            Edge::Right => from.0 - to.0,
+        }
+    }
+}
+
 /// The base container every simple module sits in: a rounded, pressable box with hover/press feedback.
 /// `Filled` overrides the resting background with a solid accent.
 pub fn module_shell(
@@ -115,6 +139,7 @@ pub fn module_shell(
     style: ChipStyle,
     on_press: Option<Box<dyn Fn()>>,
     on_scroll: Option<fn(f32, f32)>,
+    drag_open: Option<DragOpen>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let ChipStyle {
         variant,
@@ -148,6 +173,21 @@ pub fn module_shell(
     }
     if let Some(cb) = on_scroll {
         shell = shell.on_scroll(cb);
+    }
+    // On the same box as the tap, not on a wrapper around it: a child hit-tests first, so a drag registered outside the pressable chip would never arm — the chip would swallow the press. The two gestures coexist because the tap cancels itself once the pointer travels past the slop, which is exactly the point a drag becomes a drag.
+    if let Some(drag) = drag_open {
+        let start: Rc<RefCell<Option<(f32, f32)>>> = Rc::new(RefCell::new(None));
+        let began = Rc::clone(&start);
+        shell = shell
+            .on_drag(move |x, y| {
+                began.borrow_mut().get_or_insert((x, y));
+            })
+            .on_drag_end(move |x, y| {
+                let from = start.borrow_mut().take().unwrap_or((x, y));
+                if drag.travel(from, (x, y)) >= drag.threshold {
+                    crate::modules::panel::open_panel(&drag.module);
+                }
+            });
     }
     Ok(Box::new(shell))
 }
@@ -383,6 +423,23 @@ pub fn default_registry() -> ModuleRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drag_opens_a_panel_only_when_it_pulls_away_from_the_bar() {
+        let gesture = |edge| DragOpen {
+            module: "clock".to_string(),
+            edge,
+            threshold: 48.0,
+        };
+        // "Away from the bar" is a different direction on each edge, and the sign is what decides.
+        assert_eq!(gesture(Edge::Top).travel((10.0, 5.0), (10.0, 65.0)), 60.0);
+        assert_eq!(gesture(Edge::Bottom).travel((10.0, 65.0), (10.0, 5.0)), 60.0);
+        assert_eq!(gesture(Edge::Left).travel((5.0, 10.0), (65.0, 10.0)), 60.0);
+        assert_eq!(gesture(Edge::Right).travel((65.0, 10.0), (5.0, 10.0)), 60.0);
+
+        assert!(gesture(Edge::Top).travel((10.0, 65.0), (10.0, 5.0)) < 0.0);
+        assert_eq!(gesture(Edge::Top).travel((10.0, 20.0), (300.0, 20.0)), 0.0);
+    }
 
     #[test]
     fn module_foreground_default_is_text_filled_is_contrast() {

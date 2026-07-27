@@ -29,7 +29,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
             crate::modules::drawer::set_content_radius(radius);
             let body = module_panel(&module).expect("float panel build failed");
             let style = SurfaceFrameStyle {
-                background: theme.surface,
+                background: crate::modules::drawer::panel_fill(),
                 title_bar: theme.overlay,
                 title_text: theme.text,
                 close: theme.muted,

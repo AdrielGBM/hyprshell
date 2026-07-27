@@ -1,9 +1,10 @@
+use rsx::motion::Animated;
 use rsx::{
-    LayoutError, LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceToken,
-    open_surface, set_theme,
+    LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceAlign,
+    SurfaceAnchor, SurfacePlacement, SurfaceToken, open_surface, set_theme,
 };
 
-use crate::core::config::{DrawerConfig, Edge, Zone};
+use crate::core::config::{AnimationConfig, DrawerConfig, Edge, Zone};
 use crate::shared::module::SurfaceEnv;
 
 fn anchor_for(edge: Edge) -> SurfaceAnchor {
@@ -43,16 +44,21 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
     }
 }
 
-/// Whether `module`'s panel hosts editable text and therefore needs the keyboard.
+/// Whether `module`'s panel needs the keyboard — because it hosts editable text, or because it is navigable
+/// with the arrow keys.
 ///
 /// Asking for it costs more than an unused capability. A layer surface granted keyboard focus takes it from the
 /// focused window, and the compositor re-focuses that window when the panel closes; a layout that follows focus
 /// — a scrolling one, say — moves the viewport on the way back. A panel that only displays readings has no use
 /// for the keyboard and should never provoke that.
 ///
-/// Kept beside [`module_panel`] so the two lists cannot drift: a panel that gains a text field must appear here.
+/// `session` is here for the second reason: its tiles are a list, and a menu whose most destructive entries are
+/// two presses away is exactly the one a user wants to reach without moving their hand to the mouse.
+///
+/// Kept beside [`module_panel`] so the two lists cannot drift: a panel that gains a text field, or keyboard
+/// navigation, must appear here.
 pub(crate) fn panel_wants_keyboard(module: &str) -> bool {
-    matches!(module, "notes" | "settings")
+    matches!(module, "notes" | "settings" | "session")
 }
 
 /// The per-panel-surface context (which module, its config, and the bar-matching corner radius), provided into
@@ -71,6 +77,60 @@ pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
         config: drawer,
         radius,
     });
+}
+
+/// Slides and fades `content` in from the bar edge it hangs off, over `[animation] panel_duration_ms` and the
+/// configured easing.
+///
+/// The *enter* half of the panel transition. Exit is not here and cannot be: closing a surface flags it and
+/// the driver tears it down on its next loop turn, so by the time an out-animation would run there is nothing
+/// left to draw it on — see `platform-layershell`'s `SurfaceHandle::close`.
+///
+/// Constructed away from its goal and retargeted at once, never at the goal: an `Animated` born settled never
+/// registers with the ticker, so nothing would schedule the frames that carry it in — the same trap the
+/// workspace indicator hit.
+pub fn enter_transition(
+    content: Box<dyn LayoutItem>,
+    edge: Edge,
+    animation: &AnimationConfig,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let tween = animation.panel_tween();
+    if tween.duration.is_zero() {
+        return Ok(content);
+    }
+    // The distance is in the panel's own travel, not the screen's: a drawer arrives from the edge it hangs off.
+    let travel = 24.0;
+    let progress = Animated::new(1.0f32, tween);
+    progress.retarget(0.0);
+    let slide = progress.clone();
+    let fade = progress;
+    let (dx, dy) = match edge {
+        Edge::Top => (0.0, -travel),
+        Edge::Bottom => (0.0, travel),
+        Edge::Left => (-travel, 0.0),
+        Edge::Right => (travel, 0.0),
+    };
+    Ok(Box::new(
+        StyledContainer::new(
+            LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+            |_| RectStyle::default(),
+            vec![content],
+        )?
+        .with_transform(move |_| {
+            let at = slide.get();
+            (at != 0.0).then_some([1.0, 0.0, 0.0, 1.0, dx * at, dy * at])
+        })
+        .with_opacity(move || 1.0 - fade.get()),
+    ))
+}
+
+/// The background a panel paints, at `[panels] opacity`. Read from the surface's own config so a per-monitor
+/// override reaches it, falling back to the solid theme token outside a surface (a test, a preview render).
+pub fn panel_fill() -> rsx::Color {
+    match crate::shared::module::surface_env() {
+        Some(env) => env.config.panel_fill(),
+        None => rsx::use_theme::<crate::shared::theme::NordTheme>().surface,
+    }
 }
 
 /// The module whose panel the drawer being built shows; read by `drawer_panel.rsx`.
@@ -115,14 +175,49 @@ pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let module = module_id.to_string();
     let drawer = env.config.panels.drawer;
     let radius = env.config.panel_radius(env.edge);
+    let animation = env.config.animation.clone();
+    let edge = env.edge;
     open_surface(
         placement,
         Box::new(move || {
             set_theme(theme);
-            set_drawer_ctx(module, drawer, radius);
-            crate::drawer_panel().expect("drawer panel build failed")
+            set_drawer_ctx(module.clone(), drawer, radius);
+            let panel = crate::drawer_panel().expect("drawer panel build failed");
+            enter_transition(panel, edge, &animation).expect("drawer transition build failed")
         }),
     )
+}
+
+#[cfg(test)]
+mod transition_tests {
+    use super::*;
+    use crate::shared::theme::NordTheme;
+
+    fn content() -> Box<dyn LayoutItem> {
+        rsx::box_item(rsx::Container::new(LayoutStyle::new(), vec![]).unwrap())
+    }
+
+    #[test]
+    fn a_panel_enters_on_every_edge_and_skips_the_wrapper_when_animation_is_off() {
+        for edge in Edge::ALL {
+            rsx::reset_layout_runtime();
+            rsx::set_theme(NordTheme::new());
+            assert!(
+                enter_transition(content(), edge, &AnimationConfig::default()).is_ok(),
+                "the enter transition builds on {edge:?}"
+            );
+        }
+
+        // Switched off, the panel is handed back untouched rather than wrapped in a box that animates nothing — an extra container around every panel is a layout change nobody asked for.
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let off = AnimationConfig {
+            enabled: false,
+            ..AnimationConfig::default()
+        };
+        assert!(off.panel_tween().duration.is_zero());
+        assert!(enter_transition(content(), Edge::Top, &off).is_ok());
+    }
 }
 
 #[cfg(test)]
@@ -130,9 +225,13 @@ mod keyboard_tests {
     use super::panel_wants_keyboard;
 
     #[test]
-    fn only_panels_with_text_input_ask_for_the_keyboard() {
+    fn only_panels_that_read_keys_ask_for_the_keyboard() {
         assert!(panel_wants_keyboard("notes"), "notes are edited in place");
         assert!(panel_wants_keyboard("settings"), "settings has text fields");
+        assert!(
+            panel_wants_keyboard("session"),
+            "the session tiles are arrow-navigable, which is the other reason to want the keyboard"
+        );
         for display_only in [
             "clock",
             "dashboard",
@@ -140,7 +239,6 @@ mod keyboard_tests {
             "bluetooth",
             "network",
             "notifications",
-            "session",
             "logo",
         ] {
             assert!(

@@ -5,8 +5,8 @@ use rsx::{
 
 use crate::core::config::{Config, Edge, ModuleEntry, ResolvedShape, Shape};
 use crate::shared::module::{
-    ChipStyle, ModuleClick, ModuleCtx, ModuleRegistry, module_foreground, module_shell,
-    set_module_fg,
+    ChipStyle, DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, module_foreground,
+    module_shell, set_module_fg,
 };
 use crate::shared::theme::NordTheme;
 
@@ -222,6 +222,25 @@ fn chip_wrapper(
     Ok(Box::new(wrapper))
 }
 
+/// The drag-to-open gesture for a chip, when it has a panel to open and the gesture is switched on.
+///
+/// Only a module whose click *opens a panel* gets one: dragging a volume chip has nothing to open, and arming
+/// a gesture that can only do nothing would still cancel the tap that does something.
+fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge) -> Option<DragOpen> {
+    if !matches!(def?.click, Some(ModuleClick::Panel)) {
+        return None;
+    }
+    let threshold = crate::shared::module::surface_env()?
+        .config
+        .panels
+        .drag_threshold()?;
+    Some(DragOpen {
+        module: id.to_string(),
+        edge,
+        threshold,
+    })
+}
+
 fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
     if edge.is_horizontal() {
         style.flex_row()
@@ -291,7 +310,13 @@ fn build_items(
             radius,
             square: def.is_some_and(|d| d.icon),
         };
-        let chip = module_shell(content, style, on_press, def.and_then(|d| d.scroll))?;
+        let chip = module_shell(
+            content,
+            style,
+            on_press,
+            def.and_then(|d| d.scroll),
+            drag_open_for(id, def, ctx.edge),
+        )?;
         // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
         items.push(if popout {
             chip_wrapper(chip, id, None, true, AlignItems::STRETCH, ctx.edge)?
@@ -352,6 +377,7 @@ mod tests {
                 square: true,
             },
             Some(Box::new(move || sink.set(true))),
+            None,
             None,
         )
         .unwrap();

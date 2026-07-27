@@ -35,6 +35,22 @@ fn truncate(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
+/// The chip's leading (or trailing) visual: the focused application's own artwork at `size`, or an empty box
+/// when its class has no installed icon.
+///
+/// A function rather than a bound widget because the view places it on one of two sides depending on
+/// `inverted`, and a `widget` binding is a *value* — placeable once. Each `build` site calls this and gets its
+/// own node, which is the rule the view DSL documents.
+pub fn icon_slot(class: &str, size: f32) -> Result<Box<dyn rsx::LayoutItem>, rsx::LayoutError> {
+    match crate::shared::icon::app_icon_view(class, size)? {
+        Some(icon) => Ok(icon),
+        None => Ok(rsx::box_item(rsx::Container::new(
+            rsx::LayoutStyle::new(),
+            vec![],
+        )?)),
+    }
+}
+
 /// Focuses the window the chip is showing — clicking the title takes you back to it, which is what the chip
 /// looks like it should do.
 pub fn focus_active() {

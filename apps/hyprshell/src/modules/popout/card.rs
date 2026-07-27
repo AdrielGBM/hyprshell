@@ -6,7 +6,7 @@
 
 use rsx::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
-    StyledContainer, Text, TextStyle, box_item,
+    StyledContainer, Text, box_item,
 };
 
 use crate::shared::icon::icon_view;
@@ -101,13 +101,13 @@ fn header(card: &Card, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
     labels.push(box_item(Text::auto(
         move || title.get(),
         LayoutStyle::new(),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text),
+        move || theme.text_style(FontRole::Title, theme.text),
     )?));
     if let Some(subtitle) = card.subtitle.clone() {
         labels.push(box_item(Text::auto(
             move || subtitle.get(),
             LayoutStyle::new(),
-            move || TextStyle::new(theme.font(FontRole::Caption), theme.subtle),
+            move || theme.text_style(FontRole::Caption, theme.subtle),
         )?));
     }
 
@@ -135,12 +135,15 @@ fn header(card: &Card, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
     )?))
 }
 
-/// The card's own box: the surface token at the bar's radius, and the pointer tracking that keeps the popout
+/// The card's own box: the panel background at the bar's radius, and the pointer tracking that keeps the popout
 /// up while it is hovered. `on_hover` is also what registers the box as an interactive target, which is how
 /// the surface knows which part of itself to take input over.
+///
+/// `fill` is passed in rather than read from the theme, because it carries `[panels] opacity` — and a popout
+/// surface is not a bar, so the config it should resolve against is the one its opener had in hand.
 pub fn frame(
     content: Box<dyn LayoutItem>,
-    theme: NordTheme,
+    fill: Color,
     width: f32,
     radius: f32,
     on_hover: impl Fn(bool) + 'static,
@@ -152,7 +155,7 @@ pub fn frame(
                 .width(width)
                 .padding_all(12.0)
                 .flex_shrink(0.0),
-            move |_r| RectStyle::filled(theme.surface, radius),
+            move |_r| RectStyle::filled(fill, radius),
             vec![content],
         )?
         .on_hover(on_hover),

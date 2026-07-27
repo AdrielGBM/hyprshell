@@ -6,8 +6,7 @@ use std::rc::Rc;
 use rsx::motion::{Animated, Spring};
 use rsx::{
     AlignItems, Canvas, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text,
-    TextStyle, box_item, signal, track_layout,
+    ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text, box_item, signal, track_layout,
 };
 
 use crate::core::config::WorkspacesConfig;
@@ -140,7 +139,7 @@ fn tracked_pill_view(
             content.push(box_item(Text::auto(
                 move || label.clone(),
                 LayoutStyle::new(),
-                move || TextStyle::new(theme.font(FontRole::Caption), fg),
+                move || theme.text_style(FontRole::Caption, fg),
             )?));
         }
     }
@@ -245,7 +244,45 @@ pub fn grid(
 }
 
 /// The box that marks the active workspace, carried to it rather than repainted in place.
+/// The spring the indicator chases its target with: `[animation] curve`, else the shell's own default. Read
+/// from the surface's config rather than hardcoded, so one `[animation]` section governs every moving part.
+fn indicator_spring() -> Spring {
+    crate::shared::module::surface_env()
+        .map(|env| env.config.animation.spring())
+        .unwrap_or_else(Spring::gentle)
+}
+
+/// The box actually painted: `target` stretched along its direction of travel toward `goal`.
+///
+/// Not new machinery — the same animated rect, drawn as the union of where it is and a `trail` fraction of
+/// where it is still going. That makes it exactly one pill wide the instant it arrives (the distance is zero,
+/// so the union is the rect itself) and longest at the moment it is moving fastest, which is what reads as
+/// speed rather than as a box that grew.
+fn with_trail(target: Rect, goal: Rect, trail: f32) -> Rect {
+    if trail <= 0.0 {
+        return target;
+    }
+    let lead_x = (goal.x - target.x) * trail;
+    let lead_y = (goal.y - target.y) * trail;
+    Rect {
+        x: target.x + lead_x.min(0.0),
+        y: target.y + lead_y.min(0.0),
+        width: target.width + lead_x.abs(),
+        height: target.height + lead_y.abs(),
+    }
+}
+
+/// How far the indicator stretches while travelling, as a fraction of the distance left to cover. `0` is the
+/// square box that was there before; the config bounds it below `1`, where the trail would reach the whole way
+/// to the goal and read as one long bar rather than as motion.
+fn indicator_trail() -> f32 {
+    crate::shared::module::surface_env()
+        .map(|env| env.config.workspaces.trail())
+        .unwrap_or(0.0)
+}
+
 fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let trail = indicator_trail();
     // Built on the first target rather than at construction: an `Animated` seeded with a zero rect would
     // travel out of the corner the first time the bar ever draws, which reads as a glitch rather than as the
     // motion this exists for. A spring rather than a tween because it keeps velocity through a retarget —
@@ -280,7 +317,7 @@ fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutIte
                         width: 0.0,
                         height: 0.0,
                     };
-                    let animated = Animated::new(seed, Spring::gentle());
+                    let animated = Animated::new(seed, indicator_spring());
                     animated.retarget(wanted);
                     *motion.borrow_mut() = Some(animated);
                 }
@@ -328,12 +365,13 @@ fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutIte
         if target.width <= 0.0 || target.height <= 0.0 {
             return RenderNode::Empty;
         }
+        let drawn = with_trail(target, goal, trail);
         RenderNode::rect(
             Rect {
-                x: target.x - row.x,
-                y: target.y - row.y,
-                width: target.width,
-                height: target.height,
+                x: drawn.x - row.x,
+                y: drawn.y - row.y,
+                width: drawn.width,
+                height: drawn.height,
             },
             RectStyle::filled(accent, radius),
         )
@@ -917,6 +955,61 @@ mod tests {
     }
 
     /// The indicator paints on its own, with no event to force a redraw.
+    #[test]
+    fn the_trail_stretches_toward_the_goal_and_collapses_on_arrival() {
+        let at = |x: f32| Rect {
+            x,
+            y: 10.0,
+            width: 30.0,
+            height: 30.0,
+        };
+
+        // Arrived: the distance is zero, so the union is the rect itself — one pill wide, as before.
+        assert_eq!(with_trail(at(100.0), at(100.0), 0.5), at(100.0));
+        // A trail of zero is the old square box the whole way.
+        assert_eq!(with_trail(at(0.0), at(100.0), 0.0), at(0.0));
+
+        let ahead = with_trail(at(0.0), at(100.0), 0.5);
+        assert_eq!(ahead.x, 0.0, "the trailing edge stays put");
+        assert_eq!(ahead.width, 80.0, "and it reaches half the remaining distance");
+
+        let behind = with_trail(at(100.0), at(0.0), 0.5);
+        assert_eq!(behind.x, 50.0);
+        assert_eq!(behind.width, 80.0);
+
+        let down = with_trail(
+            Rect { x: 5.0, y: 0.0, width: 30.0, height: 30.0 },
+            Rect { x: 5.0, y: 60.0, width: 30.0, height: 30.0 },
+            0.5,
+        );
+        assert_eq!((down.y, down.height, down.width), (0.0, 60.0, 30.0));
+    }
+
+    #[test]
+    fn the_trail_is_bounded_and_off_whenever_the_indicator_is() {
+        use crate::core::config::WorkspacesConfig;
+        assert_eq!(WorkspacesConfig::default().trail(), 0.35);
+        let no_indicator = WorkspacesConfig {
+            indicator: false,
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(
+            no_indicator.trail(),
+            0.0,
+            "there is nothing sliding for a trail to follow"
+        );
+        let absurd = WorkspacesConfig {
+            indicator_trail: 5.0,
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(absurd.trail(), 0.9, "clamped below the whole distance");
+        let broken = WorkspacesConfig {
+            indicator_trail: f32::NAN,
+            ..WorkspacesConfig::default()
+        };
+        assert_eq!(broken.trail(), 0.0);
+    }
+
     #[test]
     fn the_indicator_paints_without_a_pointer_event() {
         use rsx::{AvailableSpace, ComponentList, DrawCommand, compute_layout, new_container};

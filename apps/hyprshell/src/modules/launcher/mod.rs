@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use rsx::{
-    AlignItems, Container, Input, Key, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, NamedKey,
-    RectStyle, SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text, TextStyle,
+    AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle,
+    RectStyle, SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text,
     box_item, memo, open_surface, set_theme, signal,
 };
 
@@ -14,6 +14,7 @@ use crate::shared::calc;
 use crate::shared::reactive;
 use crate::shared::search::{self, Mode};
 use crate::shared::services::apps::{self, App};
+use crate::shared::keynav::{self, Move};
 use crate::shared::services::state;
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -216,17 +217,6 @@ fn open() -> SurfaceToken {
 ///
 /// Wraps at both ends, so holding Down cycles rather than sticking at the bottom, and Up from the first result
 /// jumps to the last — which is how every launcher behaves and what the hand expects.
-fn move_selection(current: usize, count: usize, down: bool) -> usize {
-    if count == 0 {
-        return 0;
-    }
-    if down {
-        (current + 1) % count
-    } else {
-        (current + count - 1) % count
-    }
-}
-
 fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let query = signal(String::new());
     let query_read = query.read_only();
@@ -266,6 +256,12 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
         theme,
     )?;
     let keys_shown = shown.clone();
+    // The shared list bindings, so the launcher and every other list surface agree on what a key means.
+    let nav = keynav::KeyNav::from_config(
+        &crate::core::shell::config()
+            .map(|c| c.keynav)
+            .unwrap_or_default(),
+    );
     let keys_selected = selected;
     let keys_armed = armed;
 
@@ -287,13 +283,11 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     // for exactly as long as the panel it is attached to.
     .on_key(move |key| {
         let _ = &follow_query;
-        match key {
-            Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::ArrowUp) => {
-                let down = matches!(key, Key::Named(NamedKey::ArrowDown));
-                let count = keys_shown.with(|list| list.len());
-                keys_selected.set(move_selection(keys_selected.peek(), count, down));
-            }
-            Key::Named(NamedKey::Enter) => {
+        let Some(movement) = nav.interpret(key) else {
+            return;
+        };
+        match movement {
+            Move::Activate => {
                 let chosen = keys_shown.with(|list| list.get(keys_selected.peek()).cloned());
                 let Some(entry) = chosen else { return };
                 let key = entry.key();
@@ -306,11 +300,17 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
                 choose(&entry);
                 shell::close(ID);
             }
-            Key::Named(NamedKey::Escape) if !keys_armed.peek().is_empty() => {
+            Move::Cancel => {
                 // Escape disarms first, so backing out of a confirmation doesn't also dismiss the launcher.
-                keys_armed.set(String::new());
+                // With nothing armed the surface's own dismiss handles it, so this does nothing.
+                if !keys_armed.peek().is_empty() {
+                    keys_armed.set(String::new());
+                }
             }
-            _ => {}
+            movement => {
+                let count = keys_shown.with(|list| list.len());
+                keys_selected.set(keynav::apply(keys_selected.peek(), count, movement));
+            }
         }
     });
     Ok(Box::new(panel))
@@ -325,7 +325,7 @@ fn search_field(
         LayoutStyle::new()
             .flex_grow(1.0)
             .height(theme.font(FontRole::Title) * 1.8),
-        move || TextStyle::new(theme.font(FontRole::Title), theme.text),
+        move || theme.text_style(FontRole::Title, theme.text),
     )?
     .placeholder(rsx::t!("launcher.placeholder"));
 
@@ -441,7 +441,7 @@ fn row(
             // An armed row reads in the warning colour, so the state is visible and not only implied by the
             // caption underneath it.
             let colour = if armed_title() { theme.red } else { theme.text };
-            TextStyle::new(theme.font(FontRole::Body), colour)
+            theme.text_style(FontRole::Body, colour)
                 .with_max_lines(1)
                 .with_ellipsis(true)
         },
@@ -466,7 +466,7 @@ fn row(
                 } else {
                     theme.muted
                 };
-                TextStyle::new(theme.font(FontRole::Caption), colour)
+                theme.text_style(FontRole::Caption, colour)
                     .with_max_lines(1)
                     .with_ellipsis(true)
             },
@@ -780,27 +780,30 @@ mod tests {
         assert!(Entry::Action(action("wipe", true)).is_dangerous());
     }
 
+    /// The launcher's own half of the shared bindings: with vim mode off (the default), a letter has to reach
+    /// the search field. `shared::keynav` owns the wrapping and the vim keys; this guards the one thing that is
+    /// the launcher's to get wrong — swallowing typing.
     #[test]
-    fn arrow_keys_wrap_at_both_ends() {
-        assert_eq!(move_selection(0, 3, true), 1);
-        assert_eq!(
-            move_selection(2, 3, true),
-            0,
-            "holding Down cycles rather than sticking at the bottom"
-        );
-        assert_eq!(
-            move_selection(0, 3, false),
-            2,
-            "Up from the first result reaches the last"
-        );
-    }
+    fn typing_reaches_the_search_field_while_the_arrows_drive_the_list() {
+        use crate::shared::keynav::{KeyNav, Move};
+        use rsx::{Key, NamedKey};
 
-    #[test]
-    fn moving_the_selection_with_no_results_stays_put() {
-        // An empty list must not produce an index the result lookup would then miss on.
-        assert_eq!(move_selection(0, 0, true), 0);
-        assert_eq!(move_selection(5, 0, false), 0);
-        assert_eq!(move_selection(0, 1, true), 0, "one result has nowhere to go");
+        let nav = KeyNav::from_config(&crate::core::config::KeyNavConfig::default());
+        for letter in ['j', 'k', 'g', 'G', 'q'] {
+            assert_eq!(
+                nav.interpret(&Key::Char(letter)),
+                None,
+                "'{letter}' must be typed into the query, not eaten by the list"
+            );
+        }
+        assert_eq!(
+            nav.interpret(&Key::Named(NamedKey::ArrowDown)),
+            Some(Move::Next)
+        );
+        assert_eq!(
+            nav.interpret(&Key::Named(NamedKey::Enter)),
+            Some(Move::Activate)
+        );
     }
 
     #[test]
