@@ -84,7 +84,7 @@ pub fn show(kind: OsdKind) {
     let theme = config
         .as_ref()
         .map(|c| c.resolve_theme())
-        .unwrap_or_else(NordTheme::new);
+        .unwrap_or_default();
     let osd = config.as_ref().map(|c| c.osd).unwrap_or_default();
     let output = match env.as_ref() {
         Some(env) => env.output.clone(),

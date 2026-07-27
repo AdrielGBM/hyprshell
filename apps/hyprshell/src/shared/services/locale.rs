@@ -63,7 +63,7 @@ pub fn attach(fallback: String) {
     SUBSCRIBED.with(|done| {
         if !done.get() {
             done.set(true);
-            platform_layershell::watch(subscribe, |lang| rsx::set_locale(lang));
+            platform_layershell::watch(subscribe, rsx::set_locale);
         }
     });
 }

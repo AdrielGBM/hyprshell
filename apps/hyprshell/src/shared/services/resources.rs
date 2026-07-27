@@ -411,7 +411,7 @@ fn run(out: &Arc<Broadcast<Resources>>) {
         memory_history.push(memory.used_percent());
 
         tick = tick.wrapping_add(1);
-        if tick % DISK_EVERY == 0 {
+        if tick.is_multiple_of(DISK_EVERY) {
             disks = mounts.iter().filter_map(|m| read_disk(m)).collect();
         }
 

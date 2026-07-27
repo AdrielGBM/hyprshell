@@ -447,9 +447,8 @@ mod tests {
         assert_eq!(sink.level, 40);
         assert!(!sink.muted);
         assert_eq!(sink.label(), "Built-in Audio");
-        assert_eq!(
-            mirror.apply(&batch(SINK)),
-            false,
+        assert!(
+            !mirror.apply(&batch(SINK)),
             "the same reading twice is not a change, so nothing republishes"
         );
     }

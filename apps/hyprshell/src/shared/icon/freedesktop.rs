@@ -353,7 +353,7 @@ mod tests {
         )
         .unwrap();
 
-        let order = theme_search_order("Papirus", &[root.clone()]);
+        let order = theme_search_order("Papirus", std::slice::from_ref(&root));
         assert_eq!(order, vec!["Papirus", "Adwaita", "gnome", "hicolor"]);
         fs::remove_dir_all(&root).ok();
     }
@@ -375,15 +375,15 @@ mod tests {
         fs::write(scalable.join("firefox.svg"), b"<svg/>").unwrap();
 
         // Both directories match size 48; the scalable SVG is preferred over the fixed PNG.
-        let hit = lookup("firefox", 48, &[root.clone()], &["Test".to_string()]).unwrap();
+        let hit = lookup("firefox", 48, std::slice::from_ref(&root), &["Test".to_string()]).unwrap();
         assert_eq!(hit, scalable.join("firefox.svg"));
 
         // A themeless icon resolves via the base-directory fallback.
         fs::write(root.join("loose.png"), b"x").unwrap();
-        let loose = lookup("loose", 48, &[root.clone()], &["Test".to_string()]).unwrap();
+        let loose = lookup("loose", 48, std::slice::from_ref(&root), &["Test".to_string()]).unwrap();
         assert_eq!(loose, root.join("loose.png"));
 
-        assert!(lookup("absent", 48, &[root.clone()], &["Test".to_string()]).is_none());
+        assert!(lookup("absent", 48, std::slice::from_ref(&root), &["Test".to_string()]).is_none());
         fs::remove_dir_all(&root).ok();
     }
 

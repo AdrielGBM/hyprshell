@@ -1819,7 +1819,7 @@ fn section_label(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label(),
+        label,
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Body), theme.text).with_weight(700),
     )?;
@@ -1831,7 +1831,7 @@ fn subheader(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label(),
+        label,
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.muted).with_weight(700),
     )?;
@@ -1844,7 +1844,7 @@ fn labelled(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let label_text = Text::auto(
-        move || label(),
+        label,
         LayoutStyle::new().width(120.0),
         move || TextStyle::new(theme.font(FontRole::Body), theme.subtle),
     )?;
@@ -1963,7 +1963,7 @@ fn save_button(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let fg = theme.accent.most_readable(&[theme.text, theme.base]);
     let text = Text::auto(
-        move || label(),
+        label,
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Body), fg).with_weight(700),
     )?;

@@ -640,6 +640,57 @@ impl Default for NordTheme {
     }
 }
 
+impl Theme for NordTheme {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl ThemeTokens for NordTheme {
+    fn primary(&self) -> Color {
+        self.accent
+    }
+    fn on_primary(&self) -> Color {
+        self.base
+    }
+    fn muted(&self) -> Color {
+        self.muted
+    }
+    fn scrollbar(&self) -> Color {
+        self.muted
+    }
+    fn ink(&self) -> Color {
+        self.text
+    }
+    fn surface_alt(&self) -> Color {
+        self.surface
+    }
+    fn border(&self) -> Color {
+        self.muted
+    }
+    fn success(&self) -> Color {
+        self.success
+    }
+    fn warning(&self) -> Color {
+        self.warning
+    }
+    fn error(&self) -> Color {
+        self.error
+    }
+    fn info(&self) -> Color {
+        self.info
+    }
+    fn highlight_low(&self) -> Color {
+        self.highlight_low
+    }
+    fn highlight_med(&self) -> Color {
+        self.highlight_med
+    }
+    fn highlight_high(&self) -> Color {
+        self.highlight_high
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,56 +843,5 @@ mod tests {
         assert_eq!(ThemeTokens::info(&t), t.blue);
         assert_ne!(t.highlight_low, t.highlight_med);
         assert_ne!(t.highlight_med, t.highlight_high);
-    }
-}
-
-impl Theme for NordTheme {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl ThemeTokens for NordTheme {
-    fn primary(&self) -> Color {
-        self.accent
-    }
-    fn on_primary(&self) -> Color {
-        self.base
-    }
-    fn muted(&self) -> Color {
-        self.muted
-    }
-    fn scrollbar(&self) -> Color {
-        self.muted
-    }
-    fn ink(&self) -> Color {
-        self.text
-    }
-    fn surface_alt(&self) -> Color {
-        self.surface
-    }
-    fn border(&self) -> Color {
-        self.muted
-    }
-    fn success(&self) -> Color {
-        self.success
-    }
-    fn warning(&self) -> Color {
-        self.warning
-    }
-    fn error(&self) -> Color {
-        self.error
-    }
-    fn info(&self) -> Color {
-        self.info
-    }
-    fn highlight_low(&self) -> Color {
-        self.highlight_low
-    }
-    fn highlight_med(&self) -> Color {
-        self.highlight_med
-    }
-    fn highlight_high(&self) -> Color {
-        self.highlight_high
     }
 }

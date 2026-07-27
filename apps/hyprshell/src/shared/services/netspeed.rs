@@ -111,9 +111,8 @@ pub fn format_rate(bytes_per_second: f64) -> String {
         value /= 1000.0;
         unit += 1;
     }
-    if unit == 0 {
-        format!("{value:.0} {}", UNITS[unit])
-    } else if value >= 100.0 {
+    // A decimal on a three-digit reading, or on raw bytes, is a digit that changes every frame and says nothing.
+    if unit == 0 || value >= 100.0 {
         format!("{value:.0} {}", UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])

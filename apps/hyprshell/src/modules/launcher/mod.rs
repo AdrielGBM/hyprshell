@@ -195,7 +195,7 @@ fn open() -> SurfaceToken {
     let theme = config
         .as_ref()
         .map(|c| c.resolve_theme())
-        .unwrap_or_else(NordTheme::new);
+        .unwrap_or_default();
     let launcher = config.map(|c| c.launcher.clone()).unwrap_or_default();
     let output = shell::focused_output();
 

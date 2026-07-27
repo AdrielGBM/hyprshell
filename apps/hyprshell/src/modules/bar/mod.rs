@@ -531,12 +531,11 @@ end = ["clock"]
     }
 
     fn size_for(edge: Edge, config: &Config) -> (u32, u32) {
-        if let Ok(s) = std::env::var("HYPRSHELL_VISUAL_SIZE") {
-            if let Some((w, h)) = s.split_once('x') {
-                if let (Ok(w), Ok(h)) = (w.parse(), h.parse()) {
-                    return (w, h);
-                }
-            }
+        if let Ok(s) = std::env::var("HYPRSHELL_VISUAL_SIZE")
+            && let Some((w, h)) = s.split_once('x')
+            && let (Ok(w), Ok(h)) = (w.parse(), h.parse())
+        {
+            return (w, h);
         }
         let thickness = config.bars.get(edge).size;
         if edge.is_horizontal() {

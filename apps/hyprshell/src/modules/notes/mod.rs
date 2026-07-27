@@ -290,7 +290,7 @@ fn pill_button(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
-        move || label(),
+        label,
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.text),
     )?;

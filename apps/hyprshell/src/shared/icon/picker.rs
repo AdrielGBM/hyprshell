@@ -343,7 +343,7 @@ fn message(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let label = Text::auto(
-        move || text(),
+        text,
         LayoutStyle::new(),
         move || TextStyle::new(theme.font(FontRole::Caption), theme.muted),
     )?;

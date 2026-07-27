@@ -1177,7 +1177,7 @@ fn set_dashboard_tab(name: &str) -> Result<(), String> {
 /// command that needs none is not a lookup, it is the command. `wifi disconnect` and `vpn toggle` both take no
 /// arguments, so running the test suite dropped the machine off the network; `volume up` and `brightness down`
 /// had been quietly moving the user's settings for far longer.
-fn resolve<'a>(line: &'a str) -> Result<(&'static Command, Vec<&'a str>), String> {
+fn resolve(line: &str) -> Result<(&'static Command, Vec<&str>), String> {
     let mut words = line.split_whitespace();
     let Some(target_name) = words.next() else {
         return Err("empty request".to_string());

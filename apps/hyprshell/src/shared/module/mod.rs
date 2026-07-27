@@ -252,125 +252,6 @@ impl ModuleRegistry {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn module_foreground_default_is_text_filled_is_contrast() {
-        let theme = NordTheme::new();
-        assert_eq!(
-            module_foreground(Variant::Default, theme.orange, theme),
-            theme.text,
-            "default variant paints with the plain text token"
-        );
-        let filled = module_foreground(Variant::Filled, theme.orange, theme);
-        assert!(
-            filled == theme.text || filled == theme.base,
-            "filled foreground is one of the two theme foregrounds"
-        );
-        assert_eq!(
-            filled, theme.base,
-            "over the light orange accent, the dark base wins the contrast"
-        );
-    }
-
-    #[test]
-    fn every_module_that_opens_a_panel_has_one() {
-        // `module_panel` falls back to the clock panel with a warning for an unregistered module; a module
-        // registered with `.opens()` and no panel would silently show the clock, which is a shipping bug.
-        const HAS_PANEL: &[&str] = &[
-            "clock",
-            "dashboard",
-            "battery",
-            "bluetooth",
-            "network",
-            "notifications",
-            "notes",
-            "settings",
-            "session",
-        ];
-        let registry = default_registry();
-        for id in HAS_PANEL {
-            let def = registry.def(id).unwrap_or_else(|| panic!("'{id}' is registered"));
-            assert!(
-                matches!(def.click, Some(ModuleClick::Panel)),
-                "'{id}' should open a panel"
-            );
-        }
-        // The direction that actually catches drift: a module wired with `.opens()` and left out of
-        // `module_panel` shows the clock instead, which is a shipping bug rather than a compile error.
-        for (id, def) in &registry.modules {
-            if matches!(def.click, Some(ModuleClick::Panel)) {
-                assert!(
-                    HAS_PANEL.contains(&id.as_str()),
-                    "'{id}' opens a panel, so it must be routed in `module_panel`"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn the_new_bar_modules_are_registered_with_the_right_roles() {
-        let r = default_registry();
-        assert!(
-            r.def("spacer").unwrap().self_managed,
-            "a gap gets no chip shell, padding or hover state"
-        );
-        assert!(
-            r.def("activewindow").unwrap().click.is_some(),
-            "clicking the title focuses the window it names"
-        );
-        assert!(
-            matches!(r.def("mic").unwrap().click, Some(ModuleClick::Action(_)))
-                && r.def("mic").unwrap().scroll.is_some(),
-            "the mic chip mutes on click and adjusts on scroll, like the volume chip"
-        );
-        for id in ["cpu", "memory", "temperature", "netspeed"] {
-            assert!(
-                r.def(id).unwrap().click.is_none(),
-                "'{id}' is a readout, not a control"
-            );
-        }
-        assert!(r.def("logo").unwrap().icon, "the logo is a square icon chip");
-    }
-
-    #[test]
-    fn registry_flags_reflect_module_roles() {
-        let r = default_registry();
-        assert!(
-            matches!(r.def("clock").unwrap().click, Some(ModuleClick::Panel)),
-            "clock opens a panel"
-        );
-        assert!(
-            matches!(r.def("volume").unwrap().click, Some(ModuleClick::Action(_))),
-            "volume runs a custom action (mute + OSD)"
-        );
-        assert!(
-            r.def("workspaces").unwrap().self_managed,
-            "workspaces manages its own layout"
-        );
-        let tray = r.def("tray").unwrap();
-        assert!(
-            tray.self_managed,
-            "each tray icon carries its own click, middle-click, right-click and scroll"
-        );
-        assert!(
-            tray.click.is_none() && tray.scroll.is_none(),
-            "a single chip-level handler would act on the row, not on the application clicked"
-        );
-        assert!(
-            matches!(r.def("battery").unwrap().click, Some(ModuleClick::Panel)),
-            "battery opens its detail panel"
-        );
-        assert!(
-            r.def("network").unwrap().icon
-                && matches!(r.def("network").unwrap().click, Some(ModuleClick::Panel)),
-            "network is an icon chip that opens its network list"
-        );
-    }
-}
-
 pub fn default_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
     registry.register("clock", ModuleDef::new(|_ctx| crate::clock()).opens());
@@ -497,4 +378,123 @@ pub fn default_registry() -> ModuleRegistry {
     // Wired from the one list that knows which modules have card content, so no chip is given a hover target it would open empty.
     registry.wire_popouts();
     registry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_foreground_default_is_text_filled_is_contrast() {
+        let theme = NordTheme::new();
+        assert_eq!(
+            module_foreground(Variant::Default, theme.orange, theme),
+            theme.text,
+            "default variant paints with the plain text token"
+        );
+        let filled = module_foreground(Variant::Filled, theme.orange, theme);
+        assert!(
+            filled == theme.text || filled == theme.base,
+            "filled foreground is one of the two theme foregrounds"
+        );
+        assert_eq!(
+            filled, theme.base,
+            "over the light orange accent, the dark base wins the contrast"
+        );
+    }
+
+    #[test]
+    fn every_module_that_opens_a_panel_has_one() {
+        // `module_panel` falls back to the clock panel with a warning for an unregistered module; a module
+        // registered with `.opens()` and no panel would silently show the clock, which is a shipping bug.
+        const HAS_PANEL: &[&str] = &[
+            "clock",
+            "dashboard",
+            "battery",
+            "bluetooth",
+            "network",
+            "notifications",
+            "notes",
+            "settings",
+            "session",
+        ];
+        let registry = default_registry();
+        for id in HAS_PANEL {
+            let def = registry.def(id).unwrap_or_else(|| panic!("'{id}' is registered"));
+            assert!(
+                matches!(def.click, Some(ModuleClick::Panel)),
+                "'{id}' should open a panel"
+            );
+        }
+        // The direction that actually catches drift: a module wired with `.opens()` and left out of
+        // `module_panel` shows the clock instead, which is a shipping bug rather than a compile error.
+        for (id, def) in &registry.modules {
+            if matches!(def.click, Some(ModuleClick::Panel)) {
+                assert!(
+                    HAS_PANEL.contains(&id.as_str()),
+                    "'{id}' opens a panel, so it must be routed in `module_panel`"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_new_bar_modules_are_registered_with_the_right_roles() {
+        let r = default_registry();
+        assert!(
+            r.def("spacer").unwrap().self_managed,
+            "a gap gets no chip shell, padding or hover state"
+        );
+        assert!(
+            r.def("activewindow").unwrap().click.is_some(),
+            "clicking the title focuses the window it names"
+        );
+        assert!(
+            matches!(r.def("mic").unwrap().click, Some(ModuleClick::Action(_)))
+                && r.def("mic").unwrap().scroll.is_some(),
+            "the mic chip mutes on click and adjusts on scroll, like the volume chip"
+        );
+        for id in ["cpu", "memory", "temperature", "netspeed"] {
+            assert!(
+                r.def(id).unwrap().click.is_none(),
+                "'{id}' is a readout, not a control"
+            );
+        }
+        assert!(r.def("logo").unwrap().icon, "the logo is a square icon chip");
+    }
+
+    #[test]
+    fn registry_flags_reflect_module_roles() {
+        let r = default_registry();
+        assert!(
+            matches!(r.def("clock").unwrap().click, Some(ModuleClick::Panel)),
+            "clock opens a panel"
+        );
+        assert!(
+            matches!(r.def("volume").unwrap().click, Some(ModuleClick::Action(_))),
+            "volume runs a custom action (mute + OSD)"
+        );
+        assert!(
+            r.def("workspaces").unwrap().self_managed,
+            "workspaces manages its own layout"
+        );
+        let tray = r.def("tray").unwrap();
+        assert!(
+            tray.self_managed,
+            "each tray icon carries its own click, middle-click, right-click and scroll"
+        );
+        assert!(
+            tray.click.is_none() && tray.scroll.is_none(),
+            "a single chip-level handler would act on the row, not on the application clicked"
+        );
+        assert!(
+            matches!(r.def("battery").unwrap().click, Some(ModuleClick::Panel)),
+            "battery opens its detail panel"
+        );
+        assert!(
+            r.def("network").unwrap().icon
+                && matches!(r.def("network").unwrap().click, Some(ModuleClick::Panel)),
+            "network is an icon chip that opens its network list"
+        );
+    }
 }
