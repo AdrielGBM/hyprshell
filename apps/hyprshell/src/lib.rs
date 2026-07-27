@@ -322,6 +322,11 @@ fn setup_shell(config_path: PathBuf) {
     // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
     // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
     platform_layershell::watch(crate::core::ipc::serve, crate::core::ipc::handle);
+    // The same request path as the socket, fed by the desktop portal instead: a bound shortcut runs exactly what `hyprshell …` would, without the process launch per keypress. Silently absent with no portal.
+    platform_layershell::watch(
+        crate::shared::services::shortcuts::serve,
+        crate::core::ipc::handle,
+    );
 
     // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
     // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live

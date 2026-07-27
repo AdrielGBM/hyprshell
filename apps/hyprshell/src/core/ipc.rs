@@ -46,6 +46,21 @@ pub struct Request {
     reply: mpsc::Sender<String>,
 }
 
+impl Request {
+    /// A request nobody is waiting on the answer to — a global shortcut, a keypress. [`handle`] still sends its
+    /// reply, into a receiver that has already been dropped, which is a no-op.
+    ///
+    /// Constructed here rather than by making the fields public: a `Request` carries a live reply channel the
+    /// socket path depends on, and the only two ways to make one should be "from a client" and "from nobody".
+    pub fn unattended(line: impl Into<String>) -> Self {
+        let (reply, _) = mpsc::channel();
+        Self {
+            line: line.into(),
+            reply,
+        }
+    }
+}
+
 /// A single command: what it's called, how to spell its arguments (for `--list`), what it does.
 struct Command {
     name: &'static str,
@@ -1223,6 +1238,15 @@ fn set_dashboard_tab(name: &str) -> Result<(), String> {
 /// command that needs none is not a lookup, it is the command. `wifi disconnect` and `vpn toggle` both take no
 /// arguments, so running the test suite dropped the machine off the network; `volume up` and `brightness down`
 /// had been quietly moving the user's settings for far longer.
+/// Whether `line` names a command the shell answers, **without running it**.
+///
+/// The distinction is the whole reason [`resolve`] is split out of [`dispatch`]: anything that wants to check a
+/// request line — the global-shortcut table, a future config validator — must be able to do so without
+/// performing it. Half this table changes the machine.
+pub fn resolves(line: &str) -> bool {
+    resolve(line).is_ok()
+}
+
 fn resolve(line: &str) -> Result<(&'static Command, Vec<&str>), String> {
     let mut words = line.split_whitespace();
     let Some(target_name) = words.next() else {
