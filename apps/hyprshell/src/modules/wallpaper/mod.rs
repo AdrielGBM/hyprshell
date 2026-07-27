@@ -1,14 +1,14 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use rsx::{
-    App, Color, Component, Container, Image, ImageData, ImageFilter, LayoutItem, LayoutStyle,
-    ObjectFit, SizeDimension, WindowConfig, reset_layout_runtime, set_theme,
+    App, Color, Component, Container, Image, ImageFilter, LayoutItem, LayoutStyle, ObjectFit,
+    SizeDimension, WindowConfig, reset_layout_runtime, set_theme,
 };
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::Config;
 use crate::shared::paths::expand_tilde;
+use crate::shared::picture;
 
 /// Per-output wallpaper: a full-screen background surface painting the configured image (cover-cropped, aspect preserved) over the theme's base colour, or just the base colour when no image resolves.
 pub struct WallpaperApp {
@@ -39,7 +39,7 @@ impl App for WallpaperApp {
 impl WallpaperApp {
     fn image_content(&self) -> Option<Box<dyn LayoutItem>> {
         let path = expand_tilde(self.config.background.image_for(self.output.as_deref())?);
-        let Some(data) = load_image(&path) else {
+        let Some(data) = picture::decode(&path) else {
             tracing::warn!(
                 "wallpaper '{}' could not be loaded; using the theme base colour",
                 path.display()
@@ -71,13 +71,6 @@ fn fill() -> Box<dyn LayoutItem> {
         )
         .expect("wallpaper fill container"),
     )
-}
-
-/// Decodes an image file into premultiplied RGBA, or `None` when the path is missing or the format is unsupported.
-fn load_image(path: &Path) -> Option<ImageData> {
-    let rgba = image::open(path).ok()?.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    Some(ImageData::new(rgba.into_raw(), width, height))
 }
 
 #[cfg(test)]
