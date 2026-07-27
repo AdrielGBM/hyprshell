@@ -463,7 +463,42 @@ impl Default for IconsConfig {
     }
 }
 
+/// Whether a popup still appears while a fullscreen window has focus. The three values escalate: `on` never
+/// holds anything back, `off` holds back everything but `critical` (don't interrupt a game or a film unless it
+/// matters), `never` holds back all of it. Suppression only affects the *popup* — the notification is recorded
+/// and waits in the history either way, exactly as Do-Not-Disturb does.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FullscreenPopups {
+    On,
+    #[default]
+    Off,
+    Never,
+}
+
+impl FullscreenPopups {
+    /// Whether a notification of `urgency` may still pop while a fullscreen window is focused.
+    pub fn allows(self, urgency: crate::shared::services::notifications::Urgency) -> bool {
+        use crate::shared::services::notifications::Urgency;
+        match self {
+            Self::On => true,
+            Self::Off => urgency == Urgency::Critical,
+            Self::Never => false,
+        }
+    }
+}
+
 /// Notification popups: where the stack anchors (defaults to top-right), how many show at once before the rest queue, the per-popup auto-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+///
+/// The history panel's own behaviour lives here too, since it draws the same cards: `group_by_app` collapses an
+/// application's notifications under one header with a count, a mute and a clear, showing `group_preview_num`
+/// of them until the group is expanded; `action_on_click` makes tapping a card body invoke the notification's
+/// `default` action rather than only dismissing it; `body_lines`/`open_expanded` bound (or release) how much of
+/// a long body a card shows.
+///
+/// `sound` is a command run — detached, through `sh -c` — each time a notification actually pops. Empty is
+/// silent, which is the default: a shell that started making noise on upgrade would be a bug, and the right
+/// command is per-machine (`canberra-gtk-play -i message`, `paplay /usr/share/sounds/…`).
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct NotificationsConfig {
@@ -474,6 +509,14 @@ pub struct NotificationsConfig {
     pub critical_sticky: bool,
     pub width: f32,
     pub gap: f32,
+    pub fullscreen: FullscreenPopups,
+    pub group_by_app: bool,
+    pub group_preview_num: u32,
+    pub action_on_click: bool,
+    /// Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is on.
+    pub body_lines: u32,
+    pub open_expanded: bool,
+    pub sound: String,
 }
 
 impl Default for NotificationsConfig {
@@ -486,7 +529,34 @@ impl Default for NotificationsConfig {
             critical_sticky: true,
             width: 380.0,
             gap: 10.0,
+            fullscreen: FullscreenPopups::default(),
+            group_by_app: true,
+            group_preview_num: 3,
+            action_on_click: true,
+            body_lines: 4,
+            open_expanded: false,
+            sound: String::new(),
         }
+    }
+}
+
+impl NotificationsConfig {
+    /// How many of a group's cards show before it is expanded. At least one, so a cap of `0` collapses a group
+    /// to its header instead of hiding the notifications behind a row that says nothing is there.
+    pub fn group_preview(&self) -> usize {
+        self.group_preview_num.max(1) as usize
+    }
+
+    /// The card's body cap, or `None` when `open_expanded` asks for the whole thing. Clamped so a `0` cannot
+    /// render a card with no body at all.
+    pub fn body_max_lines(&self) -> Option<u16> {
+        (!self.open_expanded).then(|| self.body_lines.clamp(1, 100) as u16)
+    }
+
+    /// The command to run when a notification pops, if one is configured.
+    pub fn sound_command(&self) -> Option<&str> {
+        let command = self.sound.trim();
+        (!command.is_empty()).then_some(command)
     }
 }
 
@@ -2731,6 +2801,61 @@ end = ["battery", "volume"]
         assert_eq!(cfg.notifications.timeout_ms, 0, "0 ms = sticky popups");
         assert_eq!(cfg.notifications.edge, Edge::Bottom);
         assert!(cfg.notifications.critical_sticky, "unset fields keep defaults");
+    }
+
+    #[test]
+    fn the_notification_panel_settings_default_to_grouped_and_silent() {
+        let d = NotificationsConfig::default();
+        assert!(d.group_by_app);
+        assert_eq!(d.group_preview(), 3);
+        assert!(d.action_on_click, "a tap opens what the notification is about");
+        assert_eq!(d.body_max_lines(), Some(4));
+        assert_eq!(
+            d.sound_command(),
+            None,
+            "a shell that started making noise on upgrade would be a bug"
+        );
+        assert_eq!(
+            d.fullscreen,
+            FullscreenPopups::Off,
+            "a fullscreen window is not interrupted unless it matters"
+        );
+
+        let zeroed = NotificationsConfig {
+            group_preview_num: 0,
+            body_lines: 0,
+            sound: "   ".to_string(),
+            ..NotificationsConfig::default()
+        };
+        assert_eq!(zeroed.group_preview(), 1);
+        assert_eq!(zeroed.body_max_lines(), Some(1));
+        assert_eq!(zeroed.sound_command(), None, "a whitespace-only command is silent");
+
+        let expanded = NotificationsConfig {
+            open_expanded: true,
+            ..NotificationsConfig::default()
+        };
+        assert_eq!(expanded.body_max_lines(), None, "the whole body, uncapped");
+    }
+
+    #[test]
+    fn the_fullscreen_policy_reads_as_the_three_words_it_writes() {
+        let parsed = |value: &str| {
+            toml::from_str::<Config>(&format!("[notifications]\nfullscreen = \"{value}\"\n"))
+                .unwrap()
+                .notifications
+                .fullscreen
+        };
+        assert_eq!(parsed("on"), FullscreenPopups::On);
+        assert_eq!(parsed("off"), FullscreenPopups::Off);
+        assert_eq!(parsed("never"), FullscreenPopups::Never);
+
+        let round_tripped = toml::to_string(&NotificationsConfig {
+            fullscreen: FullscreenPopups::Never,
+            ..NotificationsConfig::default()
+        })
+        .unwrap();
+        assert!(round_tripped.contains("fullscreen = \"never\""), "{round_tripped}");
     }
 
     #[test]

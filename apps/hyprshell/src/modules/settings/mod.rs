@@ -10,7 +10,8 @@ use serde::Serialize;
 use crate::core::config::{
     ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
-    CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig,
+    CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups,
+    GeneralConfig, GpuConfig,
     IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
     NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig,
     ScaleConfig, Shape,
@@ -29,6 +30,7 @@ const MEDIA_SCROLLS: &[&str] = &["volume", "track", "seek", "none"];
 const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
 const WEEKDAYS: &[&str] = &["monday", "sunday", "saturday"];
+const FULLSCREEN_POPUPS: &[&str] = &["on", "off", "never"];
 
 /// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
 /// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
@@ -1689,6 +1691,13 @@ fn notifications_section(
     let critical = signal(n.critical_sticky);
     let width = signal(n.width.to_string());
     let gap = signal(n.gap.to_string());
+    let fullscreen = signal(fullscreen_popups_str(n.fullscreen).to_string());
+    let group_by_app = signal(n.group_by_app);
+    let group_preview = signal(n.group_preview_num.to_string());
+    let action_on_click = signal(n.action_on_click);
+    let body_lines = signal(n.body_lines.to_string());
+    let open_expanded = signal(n.open_expanded);
+    let sound = signal(n.sound.clone());
 
     let rows = vec![
         enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
@@ -1717,6 +1726,45 @@ fn notifications_section(
         )?,
         text_field(|| rsx::t!("settings.field.width"), width.clone(), "380", theme)?,
         text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "10", theme)?,
+        enum_field(
+            || rsx::t!("settings.field.fullscreen_popups"),
+            fullscreen.clone(),
+            FULLSCREEN_POPUPS,
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.group_by_app"),
+            group_by_app.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.group_preview_num"),
+            group_preview.clone(),
+            "3",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.action_on_click"),
+            action_on_click.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.body_lines"),
+            body_lines.clone(),
+            "4",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.open_expanded"),
+            open_expanded.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.sound"),
+            sound.clone(),
+            "canberra-gtk-play -i message",
+            theme,
+        )?,
     ];
 
     let base = n.clone();
@@ -1730,6 +1778,13 @@ fn notifications_section(
             critical_sticky: critical.peek(),
             width: parse_f32(&width.peek(), base.width),
             gap: parse_f32(&gap.peek(), base.gap),
+            fullscreen: parse_fullscreen_popups(&fullscreen.peek()),
+            group_by_app: group_by_app.peek(),
+            group_preview_num: parse_u32(&group_preview.peek(), base.group_preview_num),
+            action_on_click: action_on_click.peek(),
+            body_lines: parse_u32(&body_lines.peek(), base.body_lines),
+            open_expanded: open_expanded.peek(),
+            sound: sound.peek(),
         };
         persist(&path, "notifications", &value);
     })?;
@@ -2071,6 +2126,22 @@ fn parse_edge(s: &str) -> Edge {
         "left" => Edge::Left,
         "right" => Edge::Right,
         _ => Edge::Top,
+    }
+}
+
+fn fullscreen_popups_str(policy: FullscreenPopups) -> &'static str {
+    match policy {
+        FullscreenPopups::On => "on",
+        FullscreenPopups::Off => "off",
+        FullscreenPopups::Never => "never",
+    }
+}
+
+fn parse_fullscreen_popups(s: &str) -> FullscreenPopups {
+    match s {
+        "on" => FullscreenPopups::On,
+        "never" => FullscreenPopups::Never,
+        _ => FullscreenPopups::Off,
     }
 }
 

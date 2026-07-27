@@ -242,10 +242,7 @@ pub fn run() {
     // Process-wide so every surface — bars, drawers, popups, OSD — renders in the theme's font family.
     // `run_once` re-applies (and warns) on every reload, so the popup host spawned here also gets it.
     rsx::set_default_font_family(initial.theme.font_family.clone());
-    crate::shared::services::notifications::init(
-        Duration::from_millis(initial.notifications.timeout_ms),
-        initial.notifications.critical_sticky,
-    );
+    crate::shared::services::notifications::init(notification_policy(&initial));
 
     // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
     // (via `setup_shell`, deferred with `run_on_start`) and reconciled on config change, so a reload never tears
@@ -353,6 +350,17 @@ fn apply_config(config: &Arc<Config>) {
     rsx::set_default_font_family(config.theme.font_family.clone());
     crate::core::shell::set_config(Arc::clone(config));
     crate::shared::icon::init_store(&config.icons);
+    // The daemon outlives every reload, so an edited `[notifications]` reaches it this way rather than by restarting it — which would drop the bus name and the history with it.
+    crate::shared::services::notifications::set_policy(notification_policy(config));
+}
+
+/// The daemon's slice of `[notifications]`, resolved in one place so startup and reload agree on it.
+fn notification_policy(config: &Config) -> crate::shared::services::notifications::Policy {
+    crate::shared::services::notifications::Policy {
+        timeout: Duration::from_millis(config.notifications.timeout_ms),
+        critical_sticky: config.notifications.critical_sticky,
+        sound: config.notifications.sound.clone(),
+    }
 }
 
 /// Tells the user their edit didn't take, through the shell's own notification daemon so the message lands on

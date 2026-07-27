@@ -24,6 +24,9 @@ pub struct ShellState {
     /// Per-output wallpaper, keyed by output name; falls back to `wallpaper`.
     pub wallpaper_monitors: HashMap<String, PathBuf>,
     pub dnd: bool,
+    /// Applications whose notifications are recorded but never allowed to pop. Persisted because a mute the
+    /// user set from the history panel is a standing decision about that application, not about this session.
+    pub muted_apps: Vec<String>,
     pub game_mode: bool,
     pub idle_inhibit: bool,
     /// The theme name and accent last chosen at runtime (the launcher's scheme picker), overriding `[theme]`.

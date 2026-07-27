@@ -71,6 +71,15 @@ pub struct Snapshot {
     pub unread: u32,
     /// Do-Not-Disturb: popups are suppressed, history still records.
     pub dnd: bool,
+    /// Applications whose notifications never pop. Carried in the snapshot so a panel can draw a group's mute
+    /// state from the same reading it draws its cards from, rather than reading the state file per row.
+    pub muted_apps: Vec<String>,
+}
+
+impl Snapshot {
+    pub fn is_muted(&self, app_name: &str) -> bool {
+        self.muted_apps.iter().any(|a| a == app_name)
+    }
 }
 
 pub type SharedSnapshot = Arc<Snapshot>;
@@ -80,6 +89,7 @@ struct State {
     next_id: u32,
     unread: u32,
     dnd: bool,
+    muted_apps: Vec<String>,
 }
 
 impl State {
@@ -88,22 +98,28 @@ impl State {
             active: self.active.clone(),
             unread: self.unread,
             dnd: self.dnd,
+            muted_apps: self.muted_apps.clone(),
         })
     }
 }
 
-/// Auto-dismiss policy, seeded from `[notifications]` config at startup.
-#[derive(Clone, Copy)]
-struct Defaults {
-    timeout: Duration,
-    critical_sticky: bool,
+/// The daemon's `[notifications]`-derived behaviour: the auto-dismiss defaults and the sound a pop makes.
+///
+/// Held behind a lock rather than copied in at startup, so [`set_policy`] can hand the daemon a new one on a
+/// config reload — the D-Bus name and the notification history stay put, only the policy moves.
+#[derive(Clone, Debug, Default)]
+pub struct Policy {
+    pub timeout: Duration,
+    pub critical_sticky: bool,
+    /// A shell command run detached each time a notification pops; empty is silent.
+    pub sound: String,
 }
 
 /// The in-process notification daemon: owns the D-Bus name, holds the live state, and fans each change out to every surface that subscribed. This is the shared source the architecture note calls for — one owner, many independent per-surface subscriptions.
 struct Inner {
     state: Mutex<State>,
     subscribers: Mutex<Vec<EventSender<SharedSnapshot>>>,
-    defaults: Defaults,
+    policy: Mutex<Policy>,
     /// The current history is shipped here after every change; a background thread debounces and writes it.
     saver: Sender<Vec<Notification>>,
 }
@@ -124,8 +140,12 @@ impl Inner {
             .retain(|tx| tx.send(SharedSnapshot::clone(&snapshot)));
     }
 
+    fn policy(&self) -> Policy {
+        self.policy.lock().unwrap().clone()
+    }
+
     fn push(&self, mut notification: Notification, replaces_id: u32) -> u32 {
-        let mut assigned = 0;
+        let (mut assigned, mut popped) = (0, false);
         self.commit(|state| {
             let id = if replaces_id != 0 {
                 replaces_id
@@ -135,6 +155,9 @@ impl Inner {
             };
             notification.id = id;
             assigned = id;
+            // Decided at the daemon's single entry point, so a mute holds for the shell's own advisories as much as for anything arriving over D-Bus.
+            notification.popup &= !state.muted_apps.contains(&notification.app_name);
+            popped = notification.popup && !state.dnd;
             if let Some(existing) = state.active.iter_mut().find(|n| n.id == id) {
                 *existing = notification;
             } else {
@@ -142,12 +165,31 @@ impl Inner {
                 state.unread = state.unread.saturating_add(1);
             }
         });
+        if popped && let Some(command) = sound_command(&self.policy().sound) {
+            crate::shared::services::apps::run_detached(command);
+        }
         assigned
     }
 
     /// Removes `id` from the history entirely — a manual dismiss (a history-card tap or clear-all).
     fn close(&self, id: u32) {
         self.commit(|state| state.active.retain(|n| n.id != id));
+    }
+
+    /// Drops every notification `app_name` sent, answering with the ids that went so the caller can close them
+    /// on the bus.
+    fn clear_app(&self, app_name: &str) -> Vec<u32> {
+        let mut closed = Vec::new();
+        self.commit(|state| {
+            state.active.retain(|n| {
+                let keep = n.app_name != app_name;
+                if !keep {
+                    closed.push(n.id);
+                }
+                keep
+            });
+        });
+        closed
     }
 
     /// Retires `id`'s popup while keeping it in the history: the popup stack stops showing it (it filters on
@@ -163,13 +205,14 @@ impl Inner {
 
     /// Schedules a popup expiry for `id` per the spec's `expire_timeout` (`>0` ms, `0` = never, `<0` = the configured default) and the urgency/critical-sticky policy. A detached timer keeps this independent of any surface, so popups expire correctly across focus changes and reloads. The notification stays in the history.
     fn schedule_expiry(&self, id: u32, expire_timeout: i32, urgency: Urgency) {
-        if urgency == Urgency::Critical && self.defaults.critical_sticky {
+        let policy = self.policy();
+        if urgency == Urgency::Critical && policy.critical_sticky {
             return;
         }
         let ms = match expire_timeout {
             t if t > 0 => t as u64,
             0 => return,
-            _ => self.defaults.timeout.as_millis() as u64,
+            _ => policy.timeout.as_millis() as u64,
         };
         if ms == 0 {
             return;
@@ -192,8 +235,11 @@ static SERVICE: OnceLock<NotificationService> = OnceLock::new();
 /// thread (the daemon thread just parks). Set once the bus name is claimed.
 static CONNECTION: OnceLock<zbus::blocking::Connection> = OnceLock::new();
 
-/// Starts the daemon once for the whole process (before any surface, so its state survives config reloads). `default_timeout`/`critical_sticky` seed the auto-dismiss policy. Idempotent; a second call is a no-op.
-pub fn init(default_timeout: Duration, critical_sticky: bool) {
+/// Starts the daemon once for the whole process (before any surface, so its state survives config reloads).
+/// Do-Not-Disturb and the per-application mutes are restored from the persisted shell state, so a toggle
+/// survives a restart rather than quietly re-arming every sender. Idempotent; a second call is a no-op — use
+/// [`set_policy`] to hand a running daemon a reloaded config.
+pub fn init(policy: Policy) {
     SERVICE.get_or_init(|| {
         // Restored notifications deserialize with `popup = false`, so they populate the history panel without
         // re-popping on login; ids continue past the highest restored one.
@@ -203,23 +249,30 @@ pub fn init(default_timeout: Duration, critical_sticky: bool) {
         let _ = std::thread::Builder::new()
             .name("hyprshell-notif-save".to_string())
             .spawn(move || run_saver(saver_rx));
+        let remembered = crate::shared::services::state::get();
         let inner = Arc::new(Inner {
             state: Mutex::new(State {
                 active: restored,
                 next_id,
                 unread: 0,
-                dnd: false,
+                dnd: remembered.dnd,
+                muted_apps: remembered.muted_apps,
             }),
             subscribers: Mutex::new(Vec::new()),
-            defaults: Defaults {
-                timeout: default_timeout,
-                critical_sticky,
-            },
+            policy: Mutex::new(policy),
             saver,
         });
         spawn_daemon(Arc::clone(&inner));
         NotificationService { inner }
     });
+}
+
+/// Replaces the running daemon's policy, so a `[notifications]` edit applies without restarting the shell (and
+/// without dropping the D-Bus name or the history). A no-op before [`init`].
+pub fn set_policy(policy: Policy) {
+    if let Some(service) = SERVICE.get() {
+        *service.inner.policy.lock().unwrap() = policy;
+    }
 }
 
 /// Registers `tx` (bound to a surface's event loop) to receive every state change, and immediately sends the current snapshot so the surface starts in sync. Called from a surface's `watch` producer; a no-op before [`init`].
@@ -313,6 +366,16 @@ pub fn clear_all() {
     }
 }
 
+/// Clears one application's notifications — the group header's own clear, so dismissing a run of chat messages
+/// is one gesture rather than one per card. Every removed id gets its `NotificationClosed`, since a sender
+/// watching for its own notification to go away cannot tell a group clear from a card tap.
+pub fn clear_app(app_name: &str) {
+    let Some(service) = SERVICE.get() else { return };
+    for id in service.inner.clear_app(app_name) {
+        emit_closed(id, 2);
+    }
+}
+
 /// Marks the history as seen without discarding it (e.g. when the bell panel opens).
 pub fn mark_read() {
     if let Some(service) = SERVICE.get() {
@@ -320,11 +383,45 @@ pub fn mark_read() {
     }
 }
 
-/// Toggles Do-Not-Disturb; popups are suppressed while on, history keeps recording.
+/// Toggles Do-Not-Disturb; popups are suppressed while on, history keeps recording. Persisted, so the toggle
+/// means the same thing after a restart as it did before one.
 pub fn set_dnd(dnd: bool) {
     if let Some(service) = SERVICE.get() {
         service.inner.commit(|state| state.dnd = dnd);
     }
+    crate::shared::services::state::update(move |s| s.dnd = dnd);
+}
+
+/// Mutes or unmutes one application: its notifications keep arriving into the history and stop popping.
+/// Persisted alongside Do-Not-Disturb, and applied at the daemon's single entry point rather than per surface.
+pub fn set_app_muted(app_name: &str, muted: bool) {
+    let app = app_name.to_string();
+    if let Some(service) = SERVICE.get() {
+        let app = app.clone();
+        service.inner.commit(move |state| {
+            state.muted_apps.retain(|a| *a != app);
+            if muted {
+                state.muted_apps.push(app);
+            }
+        });
+    }
+    crate::shared::services::state::update(move |s| {
+        s.muted_apps.retain(|a| *a != app);
+        if muted {
+            s.muted_apps.push(app);
+        }
+    });
+}
+
+/// Whether `app_name` is muted, without subscribing — for IPC and tests; a surface reads the snapshot instead.
+pub fn is_app_muted(app_name: &str) -> bool {
+    snapshot_now().is_some_and(|s| s.is_muted(app_name))
+}
+
+/// The command a pop should run, if the policy configures one. Trimmed so a whitespace-only setting is silent.
+fn sound_command(configured: &str) -> Option<String> {
+    let command = configured.trim();
+    (!command.is_empty()).then(|| command.to_string())
 }
 
 /// The persisted history file: a TOML array of tables under the data dir.
@@ -542,25 +639,31 @@ fn to_rgba(width: u32, height: u32, rowstride: usize, channels: usize, data: &[u
 mod tests {
     use super::*;
 
-    #[test]
-    fn push_assigns_ids_replaces_and_counts_unread() {
-        let inner = Inner {
+    /// A daemon core with no D-Bus name, no saver thread and no subscribers — everything `Inner` decides is
+    /// decided here, so the tests drive it directly rather than through the process-wide service.
+    fn test_inner(muted_apps: Vec<String>) -> Inner {
+        Inner {
             state: Mutex::new(State {
                 active: Vec::new(),
                 next_id: 0,
                 unread: 0,
                 dnd: false,
+                muted_apps,
             }),
             subscribers: Mutex::new(Vec::new()),
-            defaults: Defaults {
+            policy: Mutex::new(Policy {
                 timeout: Duration::from_millis(5000),
                 critical_sticky: true,
-            },
+                sound: String::new(),
+            }),
             saver: channel().0,
-        };
-        let sample = |summary: &str| Notification {
+        }
+    }
+
+    fn sample_from(app: &str, summary: &str) -> Notification {
+        Notification {
             id: 0,
-            app_name: "app".into(),
+            app_name: app.into(),
             app_icon: String::new(),
             summary: summary.into(),
             body: String::new(),
@@ -568,7 +671,13 @@ mod tests {
             urgency: Urgency::Normal,
             popup: true,
             image: None,
-        };
+        }
+    }
+
+    #[test]
+    fn push_assigns_ids_replaces_and_counts_unread() {
+        let inner = test_inner(Vec::new());
+        let sample = |summary: &str| sample_from("app", summary);
 
         let first = inner.push(sample("a"), 0);
         let second = inner.push(sample("b"), 0);
@@ -637,34 +746,8 @@ mod tests {
 
     #[test]
     fn expiry_retires_the_popup_but_keeps_the_notification_in_history() {
-        let inner = Inner {
-            state: Mutex::new(State {
-                active: Vec::new(),
-                next_id: 0,
-                unread: 0,
-                dnd: false,
-            }),
-            subscribers: Mutex::new(Vec::new()),
-            defaults: Defaults {
-                timeout: Duration::from_millis(5000),
-                critical_sticky: true,
-            },
-            saver: channel().0,
-        };
-        let id = inner.push(
-            Notification {
-                id: 0,
-                app_name: "a".into(),
-                app_icon: String::new(),
-                summary: "hi".into(),
-                body: String::new(),
-                actions: Vec::new(),
-                urgency: Urgency::Normal,
-                popup: true,
-                image: None,
-            },
-            0,
-        );
+        let inner = test_inner(Vec::new());
+        let id = inner.push(sample_from("a", "hi"), 0);
 
         inner.expire(id);
         {
@@ -680,12 +763,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_muted_app_is_recorded_and_never_popped() {
+        let inner = test_inner(vec!["Slack".to_string()]);
+        inner.push(sample_from("Slack", "muted"), 0);
+        inner.push(sample_from("Calendar", "heard"), 0);
+
+        let state = inner.state.lock().unwrap();
+        assert_eq!(state.active.len(), 2, "a mute silences, it does not drop");
+        assert!(!state.active[0].popup, "the muted sender never reaches the screen");
+        assert!(state.active[1].popup, "and nobody else is affected by it");
+        assert_eq!(state.unread, 2, "a muted notification is still one to read");
+    }
+
+    #[test]
+    fn clearing_one_group_leaves_every_other_app_alone() {
+        let inner = test_inner(Vec::new());
+        let first = inner.push(sample_from("Slack", "a"), 0);
+        let second = inner.push(sample_from("Slack", "b"), 0);
+        inner.push(sample_from("Calendar", "standup"), 0);
+
+        let closed = inner.clear_app("Slack");
+        assert_eq!(closed, vec![first, second], "every cleared id comes back to be closed on the bus");
+        let state = inner.state.lock().unwrap();
+        assert_eq!(state.active.len(), 1);
+        assert_eq!(state.active[0].app_name, "Calendar");
+
+        drop(state);
+        assert!(
+            inner.clear_app("Nobody").is_empty(),
+            "clearing an app with nothing waiting closes nothing"
+        );
+    }
+
     // Live D-Bus round-trip. Run under a private bus so it never collides with the desktop's real daemon:
     // `dbus-run-session -- cargo test -p hyprshell --lib notifications::tests::daemon -- --ignored --nocapture`
     #[test]
     #[ignore = "needs a session bus; run under dbus-run-session"]
     fn daemon_receives_notify_over_dbus() {
-        init(Duration::from_millis(5000), true);
+        init(Policy {
+            timeout: Duration::from_millis(5000),
+            critical_sticky: true,
+            sound: String::new(),
+        });
         let client = zbus::blocking::Connection::session().expect("session bus");
         let hints: HashMap<&str, Value> = HashMap::new();
         let mut sent = false;

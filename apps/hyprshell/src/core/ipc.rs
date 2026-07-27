@@ -352,11 +352,46 @@ static TARGETS: &[Target] = &[
         commands: &[
             Command {
                 name: "clear",
-                args: "",
-                help: "drop every notification from the history",
-                run: |_| {
-                    crate::shared::services::notifications::clear_all();
+                args: "[app]",
+                help: "drop one application's notifications, or the whole history",
+                run: |args| {
+                    use crate::shared::services::notifications as notifs;
+                    let app = args.join(" ");
+                    match app.trim() {
+                        "" => notifs::clear_all(),
+                        app => notifs::clear_app(app),
+                    }
                     Ok("cleared".to_string())
+                },
+            },
+            Command {
+                name: "mute",
+                args: "<app> [on|off|toggle]",
+                help: "read or set whether an application's notifications may pop",
+                run: |args| {
+                    use crate::shared::services::notifications as notifs;
+                    let (app, rest) = args.split_first().ok_or("missing argument <app>")?;
+                    let current = notifs::is_app_muted(app);
+                    let next = match rest.first().copied() {
+                        None => return Ok(on_off(current).to_string()),
+                        Some("on") => true,
+                        Some("off") => false,
+                        Some("toggle") => !current,
+                        Some(other) => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    };
+                    notifs::set_app_muted(app, next);
+                    Ok(on_off(next).to_string())
+                },
+            },
+            Command {
+                name: "muted",
+                args: "",
+                help: "the applications whose notifications are muted",
+                run: |_| {
+                    let muted = crate::shared::services::notifications::snapshot_now()
+                        .map(|s| s.muted_apps.clone())
+                        .unwrap_or_default();
+                    Ok(muted.join("\t"))
                 },
             },
             Command {
@@ -1384,6 +1419,7 @@ mod tests {
         const ARGUMENTLESS_MUTATIONS: &[(&str, &str)] = &[
             ("shell", "quit"),
             ("shell", "reload"),
+            ("notifs", "clear"),
             ("wifi", "scan"),
             ("wifi", "disconnect"),
             ("vpn", "toggle"),
