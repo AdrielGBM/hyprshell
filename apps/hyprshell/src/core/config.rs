@@ -1036,6 +1036,124 @@ impl WeatherConfig {
     }
 }
 
+/// One page of the dashboard. Named in `[dashboard] tabs`, so the ids are the config surface and stay stable
+/// regardless of the UI language — the same reason [`Condition::id`](crate::shared::services::weather::Condition::id) is not the translated label.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DashboardTab {
+    #[default]
+    Dash,
+    Media,
+    Performance,
+    Weather,
+}
+
+impl DashboardTab {
+    pub const ALL: [DashboardTab; 4] = [Self::Dash, Self::Media, Self::Performance, Self::Weather];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Dash => "dash",
+            Self::Media => "media",
+            Self::Performance => "performance",
+            Self::Weather => "weather",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tab| tab.id() == id.trim())
+    }
+
+    /// The glyph the tab strip draws.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Dash => "layout-dashboard",
+            Self::Media => "disc-3",
+            Self::Performance => "activity",
+            Self::Weather => "cloud-sun",
+        }
+    }
+}
+
+/// The dashboard surface (`[dashboard]`).
+///
+/// The two intervals are here rather than on the services they read because the cost is the dashboard's, not
+/// theirs: the performance cards redraw a sparkline per tick, and the playhead is an MPRIS property no player
+/// signals — following it means asking for it. A bar chip's own rate is unaffected either way, and neither
+/// ticker exists while the dashboard is closed.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct DashboardConfig {
+    /// Which pages the dashboard offers, in order; an id it doesn't know is dropped with a warning rather than
+    /// failing the whole config parse, which would cost the user every other section over one typo.
+    pub tabs: Vec<String>,
+    /// Milliseconds between playhead reads while the media card is up.
+    pub media_update_interval: u64,
+    /// Milliseconds between resource refreshes in the performance cards.
+    pub resource_update_interval: u64,
+    /// Which column the calendar starts on: `monday`, `sunday` or `saturday`.
+    pub first_day_of_week: String,
+    /// The image the user card shows. Empty means the usual places — `~/.face`, `~/.face.icon`, then the
+    /// AccountsService icon a display manager writes.
+    pub avatar: String,
+}
+
+impl Default for DashboardConfig {
+    fn default() -> Self {
+        Self {
+            tabs: DashboardTab::ALL
+                .iter()
+                .map(|t| t.id().to_string())
+                .collect(),
+            media_update_interval: 500,
+            resource_update_interval: 1000,
+            first_day_of_week: "monday".to_string(),
+            avatar: String::new(),
+        }
+    }
+}
+
+impl DashboardConfig {
+    /// The configured pages, unknown ids warned about and dropped. An empty list falls back to all of them: a
+    /// dashboard with no pages is a surface that opens onto nothing.
+    pub fn tabs(&self) -> Vec<DashboardTab> {
+        let resolved: Vec<DashboardTab> = self
+            .tabs
+            .iter()
+            .filter_map(|id| match DashboardTab::from_id(id) {
+                Some(tab) => Some(tab),
+                None => {
+                    tracing::warn!("unknown dashboard tab '{id}'");
+                    None
+                }
+            })
+            .collect();
+        if resolved.is_empty() {
+            return DashboardTab::ALL.to_vec();
+        }
+        resolved
+    }
+
+    /// Clamped on read: below ~100 ms a playhead poll is a D-Bus round-trip per frame for a number that moves
+    /// one pixel, and above a few seconds the scrubber visibly lags the audio.
+    pub fn media_interval(&self) -> Duration {
+        Duration::from_millis(self.media_update_interval.clamp(100, 5_000))
+    }
+
+    /// Clamped to the resource service's own tick at the fast end — asking more often than it publishes cannot
+    /// produce a new reading, only more repaints.
+    pub fn resource_interval(&self) -> Duration {
+        Duration::from_millis(self.resource_update_interval.clamp(1_000, 60_000))
+    }
+
+    pub fn first_weekday(&self) -> chrono::Weekday {
+        match self.first_day_of_week.trim().to_ascii_lowercase().as_str() {
+            "sunday" | "sun" => chrono::Weekday::Sun,
+            "saturday" | "sat" => chrono::Weekday::Sat,
+            _ => chrono::Weekday::Mon,
+        }
+    }
+}
+
 /// Where the shell reads and writes user content (`[paths]`).
 ///
 /// Every entry is empty by default, meaning "work it out": the wallpaper, screenshot and recording directories
@@ -1402,6 +1520,7 @@ pub struct Config {
     pub bluetooth: BluetoothConfig,
     pub gpu: GpuConfig,
     pub weather: WeatherConfig,
+    pub dashboard: DashboardConfig,
     pub paths: PathsConfig,
     pub tray: TrayConfig,
     pub modules: HashMap<String, ModuleOverride>,
@@ -1527,6 +1646,7 @@ impl Config {
             bluetooth: BluetoothConfig::default(),
             gpu: GpuConfig::default(),
             weather: WeatherConfig::default(),
+            dashboard: DashboardConfig::default(),
             paths: PathsConfig::default(),
             tray: TrayConfig::default(),
             modules: HashMap::new(),

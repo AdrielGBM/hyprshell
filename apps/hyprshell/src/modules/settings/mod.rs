@@ -9,11 +9,12 @@ use serde::Serialize;
 
 use crate::core::config::{
     ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
-    BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
-    DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig, IconsConfig, LauncherConfig,
-    LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry, NotificationsConfig, OsdConfig,
-    NetworkConfig, PanelsConfig, PathsConfig, PopoutsConfig, Shape, ShapeConfig, StatusIconsConfig,
-    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, WeatherConfig, WorkspacesConfig,
+    BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
+    CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, GeneralConfig, GpuConfig,
+    IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
+    NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig, Shape,
+    ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
+    WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -26,6 +27,7 @@ const LANGUAGES: &[&str] = &["en", "es"];
 const MEDIA_SCROLLS: &[&str] = &["volume", "track", "seek", "none"];
 const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
+const WEEKDAYS: &[&str] = &["monday", "sunday", "saturday"];
 
 /// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
 /// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
@@ -82,6 +84,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         bluetooth_section(&config, &path, theme)?,
         gpu_section(&config, &path, theme)?,
         weather_section(&config, &path, theme)?,
+        dashboard_section(&config, &path, theme)?,
         paths_section(&config, &path, theme)?,
         tray_section(&config, &path, theme)?,
         launcher_section(&config, &path, theme)?,
@@ -1275,6 +1278,66 @@ fn weather_section(
         persist(&path, "weather", &value);
     })?;
     section(|| rsx::t!("settings.section.weather"), rows, save, theme)
+}
+
+fn dashboard_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let d = &config.dashboard;
+    let tabs = signal(join_csv(&d.tabs));
+    let media = signal(d.media_update_interval.to_string());
+    let resources = signal(d.resource_update_interval.to_string());
+    let first_day = signal(d.first_day_of_week.clone());
+    let avatar = signal(d.avatar.clone());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.tabs"),
+            tabs.clone(),
+            "dash, media, performance, weather",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.media_update_interval"),
+            media.clone(),
+            "500",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.resource_update_interval"),
+            resources.clone(),
+            "1000",
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.first_day_of_week"),
+            first_day.clone(),
+            WEEKDAYS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.avatar"),
+            avatar.clone(),
+            "~/.face",
+            theme,
+        )?,
+    ];
+
+    let base = d.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.dashboard"), theme, move || {
+        let value = DashboardConfig {
+            tabs: split_csv(&tabs.peek()),
+            media_update_interval: parse_u64(&media.peek(), base.media_update_interval),
+            resource_update_interval: parse_u64(&resources.peek(), base.resource_update_interval),
+            first_day_of_week: first_day.peek(),
+            avatar: avatar.peek(),
+        };
+        persist(&path, "dashboard", &value);
+    })?;
+    section(|| rsx::t!("settings.section.dashboard"), rows, save, theme)
 }
 
 fn paths_section(

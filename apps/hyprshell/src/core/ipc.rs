@@ -209,6 +209,52 @@ static TARGETS: &[Target] = &[
         ],
     },
     Target {
+        name: "dashboard",
+        commands: &[
+            Command {
+                name: "toggle",
+                args: "",
+                help: "open the dashboard, or close it if it is up",
+                run: |_| {
+                    crate::toggle_panel(crate::modules::dashboard::ID);
+                    Ok("toggled".to_string())
+                },
+            },
+            Command {
+                name: "open",
+                args: "[tab]",
+                help: "open the dashboard, optionally on a named page",
+                run: |args| {
+                    if let Some(name) = args.first() {
+                        set_dashboard_tab(name)?;
+                    }
+                    crate::modules::panel::open_panel(crate::modules::dashboard::ID);
+                    Ok(crate::modules::dashboard::tab().id().to_string())
+                },
+            },
+            Command {
+                name: "close",
+                args: "",
+                help: "close the dashboard",
+                run: |_| {
+                    crate::modules::panel::close_panel(crate::modules::dashboard::ID);
+                    Ok("closed".to_string())
+                },
+            },
+            Command {
+                name: "tab",
+                args: "[dash|media|performance|weather]",
+                help: "read or switch the page the dashboard shows",
+                run: |args| {
+                    if let Some(name) = args.first() {
+                        set_dashboard_tab(name)?;
+                    }
+                    Ok(crate::modules::dashboard::tab().id().to_string())
+                },
+            },
+        ],
+    },
+    Target {
         name: "apps",
         commands: &[
             Command {
@@ -1019,6 +1065,18 @@ fn number(args: &[&str], index: usize, name: &str) -> Result<i32, String> {
     let raw = arg(args, index, name)?;
     raw.parse()
         .map_err(|_| format!("<{name}> must be a whole number, got '{raw}'"))
+}
+
+/// Switches the dashboard's page by its config id, refusing an unknown one by name — a keybind bound to a page
+/// that was renamed should say so rather than silently leaving the dashboard where it was.
+fn set_dashboard_tab(name: &str) -> Result<(), String> {
+    use crate::core::config::DashboardTab;
+    let tab = DashboardTab::from_id(name).ok_or_else(|| {
+        let known: Vec<&str> = DashboardTab::ALL.iter().map(|t| t.id()).collect();
+        format!("unknown tab '{name}', expected one of {}", known.join("|"))
+    })?;
+    crate::modules::dashboard::set_tab(tab);
+    Ok(())
 }
 
 /// Runs one request line and renders the reply. `ok`/`err` prefixes let a caller branch on the outcome without

@@ -281,6 +281,7 @@ mod tests {
         // registered with `.opens()` and no panel would silently show the clock, which is a shipping bug.
         const HAS_PANEL: &[&str] = &[
             "clock",
+            "dashboard",
             "battery",
             "bluetooth",
             "network",
@@ -373,6 +374,12 @@ mod tests {
 pub fn default_registry() -> ModuleRegistry {
     let mut registry = ModuleRegistry::new();
     registry.register("clock", ModuleDef::new(|_ctx| crate::clock()).opens());
+    registry.register(
+        "dashboard",
+        ModuleDef::new(|_ctx| crate::modules::dashboard::dashboard_chip())
+            .icon()
+            .opens(),
+    );
     registry.register(
         "workspaces",
         ModuleDef::new(|_ctx| crate::workspaces())

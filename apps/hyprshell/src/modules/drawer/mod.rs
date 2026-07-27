@@ -28,6 +28,7 @@ fn align_for(zone: Option<Zone>) -> SurfaceAlign {
 pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutError> {
     match module {
         "clock" => crate::clock_panel(),
+        "dashboard" => crate::modules::dashboard::dashboard_panel(),
         "battery" => crate::battery_panel(),
         "bluetooth" => crate::modules::bluetooth::bluetooth_panel(),
         "network" => crate::modules::network::network_panel(),
@@ -132,7 +133,16 @@ mod keyboard_tests {
     fn only_panels_with_text_input_ask_for_the_keyboard() {
         assert!(panel_wants_keyboard("notes"), "notes are edited in place");
         assert!(panel_wants_keyboard("settings"), "settings has text fields");
-        for display_only in ["clock", "battery", "bluetooth", "network", "notifications", "session", "logo"] {
+        for display_only in [
+            "clock",
+            "dashboard",
+            "battery",
+            "bluetooth",
+            "network",
+            "notifications",
+            "session",
+            "logo",
+        ] {
             assert!(
                 !panel_wants_keyboard(display_only),
                 "'{display_only}' only shows readings; taking keyboard focus from the window would make the \

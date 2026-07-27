@@ -1,13 +1,21 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// The user's home directory, or `None` where `$HOME` names nothing — which is how a shell started without an
+/// environment presents, and a reason to fall back rather than to build a path rooted at `/`.
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Expands a leading `~` (bare or `~/…`) to `$HOME`, leaving every other path untouched. User-authored config paths (e.g. a wallpaper) commonly use `~`, which the OS doesn't resolve on its own.
 pub fn expand_tilde(path: &Path) -> PathBuf {
     let Ok(rest) = path.strip_prefix("~") else {
         return path.to_path_buf();
     };
-    match std::env::var_os("HOME") {
-        Some(home) => PathBuf::from(home).join(rest),
+    match home_dir() {
+        Some(home) => home.join(rest),
         None => path.to_path_buf(),
     }
 }

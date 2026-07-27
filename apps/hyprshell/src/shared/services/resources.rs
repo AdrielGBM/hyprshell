@@ -77,7 +77,7 @@ impl Memory {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Disk {
     pub mount: PathBuf,
     /// Bytes.
