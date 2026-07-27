@@ -9,6 +9,7 @@ Usage:
   hyprshell toggle <module>       shorthand for `panel toggle <module>`
   hyprshell launcher              shorthand for `launcher toggle`
   hyprshell --list                list every command the shell answers
+  hyprshell config schema [name]  print the annotated default config
   hyprshell --help | --version
 
 Examples:
@@ -40,6 +41,19 @@ fn main() -> ExitCode {
         Some("--list" | "-s") => {
             print!("{}", hyprshell::ipc_describe());
             ExitCode::SUCCESS
+        }
+        // Answered here rather than over the socket: the schema is a function of the binary, not of a running shell, and generating the docs on a build machine must not need one started first.
+        Some("config") if args.get(1).map(String::as_str) == Some("schema") => {
+            match hyprshell::config_schema(args.get(2).map(String::as_str)) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("hyprshell: {e}");
+                    ExitCode::FAILURE
+                }
+            }
         }
         _ => send(&args),
     }

@@ -1132,12 +1132,23 @@ static TARGETS: &[Target] = &[
     },
     Target {
         name: "config",
-        commands: &[Command {
-            name: "path",
-            args: "",
-            help: "where config.toml is read from",
-            run: |_| Ok(crate::Config::default_path().display().to_string()),
-        }],
+        commands: &[
+            Command {
+                name: "path",
+                args: "",
+                help: "where config.toml is read from",
+                run: |_| Ok(crate::Config::default_path().display().to_string()),
+            },
+            Command {
+                name: "schema",
+                args: "[section]",
+                help: "the annotated default config, or one section of it",
+                run: |args| {
+                    let section = args.first().copied().filter(|s| !s.is_empty());
+                    crate::core::schema::render(section)
+                },
+            },
+        ],
     },
 ];
 

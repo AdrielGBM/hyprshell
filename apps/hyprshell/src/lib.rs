@@ -62,6 +62,7 @@ pub use crate::core::config::{
 pub use crate::core::ipc::{
     call as ipc_call, describe as ipc_describe, dispatch as ipc_dispatch, socket_path,
 };
+pub use crate::core::schema::render as config_schema;
 pub use crate::modules::bar::build_bar;
 pub use crate::modules::frame::FrameApp;
 pub use crate::modules::notes::{notes_chip, notes_panel};
