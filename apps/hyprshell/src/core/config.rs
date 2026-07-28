@@ -2646,11 +2646,41 @@ impl Config {
             *table.decor_mut() = existing.decor().clone();
         }
         doc.insert(name, Item::Table(table));
+        keep_subtables_with_their_parent(&mut doc);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(SaveError::Io)?;
         }
         std::fs::write(path, doc.to_string()).map_err(SaveError::Io)
     }
+}
+
+/// Re-numbers every table in `doc` so each one renders where its key sits, with its children under it.
+///
+/// `toml_edit` carries a render position on every table it *parsed*, and a table built from scratch has none —
+/// so replacing `[theme]` with a value carrying `[theme.scale]` and `[theme.fonts.*]` scattered those children
+/// through the file between unrelated sections, and printed `[theme]` itself *after* its own children. The
+/// result still parses, which is why nothing caught it; it also destroys the layout of a file this function
+/// promises to preserve.
+///
+/// Walking the document once and handing out positions in key order puts every child back under its parent
+/// without touching any decor, so the comments and key order the caller was promised survive.
+fn keep_subtables_with_their_parent(doc: &mut DocumentMut) {
+    fn walk(table: &mut toml_edit::Table, next: &mut isize) {
+        for (_, item) in table.iter_mut() {
+            match item {
+                Item::Table(child) => {
+                    child.set_position(Some(*next));
+                    *next += 1;
+                    walk(child, next);
+                }
+                // A list of tables (`[[idle.stages]]`) renders with its parent already; only its own children
+                // need positions, and it has none.
+                Item::ArrayOfTables(_) | Item::Value(_) | Item::None => {}
+            }
+        }
+    }
+    let mut next: isize = 0;
+    walk(doc.as_table_mut(), &mut next);
 }
 
 /// The schema this build writes. A file carrying an older `version` is brought forward by [`migrate`] before
@@ -2879,6 +2909,54 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
             reloaded.icons.default_set, "lucide",
             "the other section round-trips"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn saving_a_section_keeps_its_sub_tables_under_it_instead_of_scattering_them() {
+        // What this catches is not a parse failure — the scattered file still parses, which is why nothing saw
+        // it. Saving `[theme]` printed `[theme.scale]` between `[panels]` and `[bars.top]`, put
+        // `[theme.fonts.title]` inside the bar definitions, and left `[theme]` itself *after* its own children.
+        // For a function whose whole promise is "preserving every other section, key order, and comment", that
+        // is the failure.
+        let dir = std::env::temp_dir().join(format!("hyprshell-save-order-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            "[shape]\ngap = 8\n\n[panels]\ngap = 8\n\n[theme]\nname = \"nord\"\n\n[workspaces]\nshown = 10\n",
+        )
+        .unwrap();
+
+        Config::save_section(&path, "theme", &ThemeConfig::default()).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let headers: Vec<&str> = text
+            .lines()
+            .filter(|line| line.starts_with('['))
+            .collect();
+        let at = |name: &str| {
+            headers
+                .iter()
+                .position(|h| *h == name)
+                .unwrap_or_else(|| panic!("{name} missing from\n{text}"))
+        };
+
+        assert!(at("[theme]") < at("[theme.scale]"), "a parent precedes its children:\n{text}");
+        assert!(at("[shape]") < at("[panels]"), "{text}");
+        assert!(at("[panels]") < at("[theme]"), "{text}");
+        assert!(
+            headers[at("[panels]") + 1] == "[theme]",
+            "a section of theme's leaked between [panels] and [theme]:\n{text}"
+        );
+        assert!(
+            at("[workspaces]") > at("[theme.scale]"),
+            "an unrelated section was pushed in among theme's children:\n{text}"
+        );
+        let reloaded: Config = toml::from_str(&text).expect("the saved file parses");
+        assert_eq!(reloaded.workspaces.shown, 10);
+        assert_eq!(reloaded.panels.gap, Some(8));
+        assert_eq!(reloaded.theme.name, "nord");
+
         std::fs::remove_dir_all(&dir).ok();
     }
 

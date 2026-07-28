@@ -123,16 +123,24 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
     Ok(out)
 }
 
-/// A section's keys: each documented field's comment, then the key and its default. Nested tables (`[theme.scale]`)
-/// are emitted after the flat keys, which is the order TOML requires.
+/// A section's keys: each documented field's comment, then the key and its default. Nested tables
+/// (`[theme.scale]`) and lists of tables are emitted after the flat keys, which is the order TOML requires — a
+/// `[theme.scale]` header printed before `[theme]`'s own keys would swallow them.
 fn render_section(section: &str, value: &toml::Value, structure: &str) -> String {
     let Some(table) = value.as_table() else {
         return String::new();
     };
     let mut out = String::new();
+    let mut nested = String::new();
     let mut arrays = String::new();
     for (key, entry) in table {
-        if entry.is_table() {
+        if let Some(inner) = entry.as_table() {
+            nested.push_str(&render_nested(
+                &format!("{section}.{key}"),
+                inner,
+                doc_for(structure, key),
+                type_of(structure, key),
+            ));
             continue;
         }
         if let Some(doc) = doc_for(structure, key) {
@@ -156,8 +164,60 @@ fn render_section(section: &str, value: &toml::Value, structure: &str) -> String
         out.push_str(&rendered);
     }
     out.push_str(&render_unset(table, structure));
+    out.push_str(&nested);
     out.push_str(&arrays);
     out
+}
+
+/// One nested table, headed and annotated from the struct that backs it.
+///
+/// A map-valued key (`[theme.colors]`) has no struct and no fixed keys, so it is printed as an empty header —
+/// which is still the right answer: it tells a reader the table exists and what to call it, which is exactly
+/// what they cannot learn anywhere else.
+fn render_nested(
+    path: &str,
+    table: &toml::map::Map<String, toml::Value>,
+    doc: Option<&'static str>,
+    structure: Option<&'static str>,
+) -> String {
+    let mut out = String::from("\n");
+    if let Some(doc) = doc {
+        out.push_str(&comment(doc, ""));
+    }
+    let _ = writeln!(out, "[{path}]");
+    let Some(structure) = structure else {
+        return out;
+    };
+    let mut deeper = String::new();
+    for (key, entry) in table {
+        if let Some(inner) = entry.as_table() {
+            deeper.push_str(&render_nested(
+                &format!("{path}.{key}"),
+                inner,
+                doc_for(structure, key),
+                type_of(structure, key),
+            ));
+            continue;
+        }
+        if let Some(doc) = doc_for(structure, key) {
+            out.push_str(&comment(doc, ""));
+        }
+        out.push_str(
+            &toml::to_string(&toml::map::Map::from_iter([(key.clone(), entry.clone())]))
+                .unwrap_or_default(),
+        );
+    }
+    out.push_str(&render_unset(table, structure));
+    out.push_str(&deeper);
+    out
+}
+
+/// The struct backing `structure::field`, when the field is a plain nested config struct.
+fn type_of(structure: &str, field: &str) -> Option<&'static str> {
+    CONFIG_FIELD_TYPES
+        .iter()
+        .find(|(owner, name, _)| *owner == structure && *name == field)
+        .map(|(_, _, kind)| *kind)
 }
 
 /// `entry` as a non-empty array of tables, which is the one shape that needs its own header.
