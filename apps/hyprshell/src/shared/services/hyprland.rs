@@ -353,6 +353,48 @@ pub fn focus_workspace(dir: &Path, id: i32) {
     dispatch(dir, &format!("hl.dsp.focus({{ workspace = {id} }})"));
 }
 
+/// The two ways Hyprland 0.56's `dpms` dispatcher might take its state.
+///
+/// Every other Lua dispatcher names its arguments when given the wrong ones — `hl.dsp.focus({ nonsense = 1 })`
+/// answers with "Expected one of: direction, monitor, window, …" — but `hl.dsp.dpms` accepts anything at all,
+/// including a function, without complaint. There is nothing to read the shape off, so it is not guessed:
+/// [`set_dpms`] tries these and checks whether the compositor's own `dpmsStatus` moved.
+fn dpms_calls(state: &str) -> [String; 2] {
+    [
+        format!("hl.dsp.dpms(\"{state}\")"),
+        format!("hl.dsp.dpms({{ state = \"{state}\" }})"),
+    ]
+}
+
+/// Switches every monitor's output on or off, and reports whether it worked.
+///
+/// Verified rather than trusted, for the reason above: the call is made and `dpmsStatus` read back, so an idle
+/// stage that blanks the screen either does or says it could not. DPMS is idempotent, so a second shape landing
+/// after a first one already worked costs nothing.
+pub fn set_dpms(dir: &Path, on: bool) -> bool {
+    let state = if on { "on" } else { "off" };
+    if dpms_is(dir, on) {
+        return true;
+    }
+    for call in dpms_calls(state) {
+        dispatch(dir, &call);
+        if dpms_is(dir, on) {
+            return true;
+        }
+    }
+    tracing::warn!("hyprshell: no `hl.dsp.dpms` call shape turned the outputs {state}");
+    false
+}
+
+/// Whether every enabled monitor's output is in the requested state. Read from the compositor rather than
+/// remembered, since a `hyprctl` or a keybind can move it behind the shell's back.
+fn dpms_is(dir: &Path, on: bool) -> bool {
+    let Some(monitors) = query_monitors(dir, "j/monitors") else {
+        return false;
+    };
+    !monitors.is_empty() && monitors.iter().all(|m| m.dpms_status == on)
+}
+
 /// Every window the compositor is managing, in Hyprland's own order. One parse feeds both readers of it — the
 /// workspace pills, which want the classes grouped by workspace, and the client list itself — so the two can't
 /// disagree about what is open.

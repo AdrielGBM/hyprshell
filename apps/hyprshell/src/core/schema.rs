@@ -38,6 +38,8 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("temperature", "TemperatureConfig"),
         ("battery", "BatteryConfig"),
         ("lock_status", "LockStatusConfig"),
+        ("lock", "LockConfig"),
+        ("idle", "IdleConfig"),
         ("status_icons", "StatusIconsConfig"),
         ("network", "NetworkConfig"),
         ("bluetooth", "BluetoothConfig"),

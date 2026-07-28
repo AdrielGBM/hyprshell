@@ -150,12 +150,125 @@ static TARGETS: &[Target] = &[
                 },
             },
             Command {
+                name: "dpms",
+                args: "<on|off>",
+                help: "switch every monitor's output on or off",
+                run: |args| {
+                    use crate::shared::services::hyprland;
+                    let on = match arg(args, 0, "state")? {
+                        "on" => true,
+                        "off" => false,
+                        other => return Err(format!("expected on|off, got '{other}'")),
+                    };
+                    let dir = hyprland::socket_dir().ok_or("not running under Hyprland")?;
+                    if hyprland::set_dpms(&dir, on) {
+                        Ok(on_off(on).to_string())
+                    } else {
+                        Err("the compositor did not change its DPMS state".to_string())
+                    }
+                },
+            },
+            Command {
                 name: "quit",
                 args: "",
                 help: "shut the shell down",
                 run: |_| {
                     shell::request_quit();
                     Ok("bye".to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "lock",
+        commands: &[
+            Command {
+                name: "on",
+                args: "",
+                help: "lock the session",
+                run: |_| {
+                    use crate::shared::services::lock;
+                    // Refused up front rather than after the screen is covered: a lock this shell cannot
+                    // undo is the one failure the user has no way out of.
+                    lock::can_lock()?;
+                    lock::lock();
+                    Ok("locking".to_string())
+                },
+            },
+            Command {
+                name: "off",
+                args: "",
+                help: "unlock the session",
+                run: |_| {
+                    crate::shared::services::lock::unlock();
+                    Ok("unlocking".to_string())
+                },
+            },
+            Command {
+                name: "toggle",
+                args: "",
+                help: "lock the session, or unlock it if it is locked",
+                run: |_| {
+                    use crate::shared::services::lock;
+                    if lock::current().wanted {
+                        lock::unlock();
+                        Ok("unlocking".to_string())
+                    } else {
+                        lock::can_lock()?;
+                        lock::lock();
+                        Ok("locking".to_string())
+                    }
+                },
+            },
+            Command {
+                name: "status",
+                args: "",
+                help: "whether the session is locked, and whether this machine can lock at all",
+                run: |_| {
+                    use crate::shared::services::lock;
+                    let state = lock::current();
+                    let supported = match lock::can_lock() {
+                        Ok(()) => "supported".to_string(),
+                        Err(reason) => reason,
+                    };
+                    // Three columns because the middle one is the honest answer: between asking and being
+                    // granted, the desktop may still be on screen.
+                    Ok(format!(
+                        "{}\t{}\t{supported}",
+                        on_off(state.locked),
+                        on_off(state.wanted)
+                    ))
+                },
+            },
+        ],
+    },
+    Target {
+        name: "idle",
+        commands: &[
+            Command {
+                name: "status",
+                args: "",
+                help: "whether the idle timers are armed, and what is holding them off",
+                run: |_| {
+                    use crate::shared::services::idle;
+                    let config = shell::config().map(|c| c.idle.clone()).unwrap_or_default();
+                    let held = idle::inhibited_by(&config).map(|r| r.id()).unwrap_or("-");
+                    Ok(format!("{}\t{held}", on_off(config.enabled)))
+                },
+            },
+            Command {
+                name: "inhibit",
+                args: "<on|off|toggle>",
+                help: "hold the idle timers off by hand",
+                run: |args| {
+                    use crate::shared::services::idle;
+                    match arg(args, 0, "state")? {
+                        "on" => idle::set_manual_inhibit(true),
+                        "off" => idle::set_manual_inhibit(false),
+                        "toggle" => idle::toggle_manual_inhibit(),
+                        other => return Err(format!("expected on|off|toggle, got '{other}'")),
+                    }
+                    Ok(on_off(idle::manual_inhibit()).to_string())
                 },
             },
         ],

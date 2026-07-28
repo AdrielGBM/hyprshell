@@ -25,6 +25,7 @@ use rsx::{
 };
 
 pub use crate::core::config::DashboardTab;
+pub use dash::avatar_path;
 
 use crate::core::config::Config;
 use crate::shared::icon::icon_view;

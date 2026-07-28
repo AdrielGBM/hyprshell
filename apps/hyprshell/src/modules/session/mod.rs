@@ -105,6 +105,13 @@ fn is_destructive(action: Action) -> bool {
     !matches!(action, Action::Lock | Action::Suspend)
 }
 
+/// Whether this machine can perform `action` right now. Everything but Lock is logind's answer, already
+/// filtered by [`session::available`]; Lock is the shell's own, because a compositor without
+/// `ext-session-lock-v1` or a machine with no PAM cannot be unlocked afterwards and so must not be offered.
+fn is_offered(action: Action) -> bool {
+    action != Action::Lock || crate::shared::services::lock::can_lock().is_ok()
+}
+
 fn label_for(action: Action) -> String {
     match action {
         Action::Lock => rsx::t!("session.lock"),
@@ -121,7 +128,17 @@ fn label_for(action: Action) -> String {
 fn press(action: Action, armed: &rsx::RwSignal<String>) {
     let id = action.id();
     if !is_destructive(action) || armed.peek() == id {
-        session::perform(action);
+        // Lock goes to the lock service rather than to logind, so it works on a machine with no system bus —
+        // and logind's own `Lock` signal lands in the same place, so the two remain one lock.
+        if action == Action::Lock {
+            if let Err(reason) = crate::shared::services::lock::can_lock() {
+                tracing::warn!("cannot lock: {reason}");
+                return;
+            }
+            crate::shared::services::lock::lock();
+        } else {
+            session::perform(action);
+        }
         crate::close_panel("session");
         return;
     }
@@ -143,11 +160,16 @@ fn tile(
     let armed_caption = armed.read_only();
     let armed_fill = armed.read_only();
     let armed_hover = armed.read_only();
+    // Resolved once, at build time: whether this machine can lock is a fact about the compositor and the PAM
+    // stack, not something that changes while a menu is on screen.
+    let offered = is_offered(action);
 
     let icon = crate::icon_view(
         move || action.icon().to_string(),
         move || {
-            if armed_icon.get() == id {
+            if !offered {
+                theme.muted
+            } else if armed_icon.get() == id {
                 theme.red
             } else {
                 theme.text
@@ -158,14 +180,21 @@ fn tile(
 
     let caption = Text::auto(
         move || {
-            if armed_caption.get() == id {
+            if !offered {
+                // Says *why* rather than greying a tile out silently: a Lock that does nothing on press is
+                // indistinguishable from a broken shell.
+                rsx::t!("lock.unsupported")
+            } else if armed_caption.get() == id {
                 rsx::t!("session.confirm")
             } else {
                 label_for(action)
             }
         },
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Caption, theme.text),
+        move || {
+            let colour = if offered { theme.text } else { theme.muted };
+            theme.text_style(FontRole::Caption, colour)
+        },
     )?;
 
     let tile = StyledContainer::new(
@@ -190,14 +219,22 @@ fn tile(
         vec![icon, box_item(caption)],
     )?
     .on_hover_style(move |_| {
-        let fill = if armed_hover.get() == id {
+        let fill = if !offered {
+            theme.base
+        } else if armed_hover.get() == id {
             theme.red
         } else {
             theme.overlay
         };
         RectStyle::filled(fill, 10.0)
-    })
-    .on_press(move || press(action, &armed));
+    });
+    // No press handler at all, rather than one that returns early: a tile with nothing behind it should not
+    // take the click away from the surface either.
+    let tile = if offered {
+        tile.on_press(move || press(action, &armed))
+    } else {
+        tile
+    };
     Ok(Box::new(tile))
 }
 

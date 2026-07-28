@@ -300,7 +300,9 @@ fn user_card(
 
 /// The first image that exists, in the order a desktop conventionally writes them: the user's own `~/.face`
 /// first, then whatever their display manager put in AccountsService.
-fn avatar_path(config: &DashboardConfig) -> Option<PathBuf> {
+/// Where the user's picture is: the `[dashboard] avatar` override, else the conventional places a desktop
+/// keeps one. Shared with the lock screen so the two never disagree about whose face this is.
+pub fn avatar_path(config: &DashboardConfig) -> Option<PathBuf> {
     let configured = config.avatar.trim();
     if !configured.is_empty() {
         let path = paths::expand_tilde(&PathBuf::from(configured));

@@ -337,6 +337,21 @@ fn setup_shell(config_path: PathBuf) {
         crate::shared::services::battery::on_reading,
     );
 
+    // The session lock. All three at app level and in this order: the performer must be listening before
+    // anything can ask for a lock, and logind's signals are how `loginctl lock-session` and a suspend reach it.
+    // None of them is torn down by a reload — a lock that dropped when the user saved their config would put
+    // the desktop back on screen.
+    platform_layershell::watch(
+        crate::shared::services::lock::subscribe,
+        crate::shared::services::lock::on_state,
+    );
+    platform_layershell::watch(
+        crate::shared::services::session::watch,
+        crate::shared::services::session::on_event,
+    );
+    // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
+    // so a saved `[idle]` re-arms without a second entry point that could disagree with it.
+
     let on_config_change = Rc::clone(&reconcile);
     platform_layershell::watch(
         move |tx| watch_config_changes(config_path, tx),
@@ -356,6 +371,9 @@ fn apply_config(config: &Arc<Config>) {
     rsx::set_default_font_family(config.theme.font_family.clone());
     crate::core::shell::set_config(Arc::clone(config));
     crate::shared::icon::init_store(&config.icons);
+    // After `set_config`, so the stages are armed from the config that was just published rather than the one
+    // they were armed from last time.
+    crate::shared::services::idle::reconcile();
     // The daemon outlives every reload, so an edited `[notifications]` reaches it this way rather than by restarting it — which would drop the bus name and the history with it.
     crate::shared::services::notifications::set_policy(notification_policy(config));
 }
