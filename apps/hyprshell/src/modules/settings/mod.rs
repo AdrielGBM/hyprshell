@@ -10,13 +10,13 @@ use serde::Serialize;
 use crate::core::config::{
     ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
-    CornersConfig, DashboardConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups,
-    GeneralConfig, GpuConfig,
+    CornersConfig, DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig,
+    FullscreenPopups, GeneralConfig, GpuConfig,
     IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
-    KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, PopoutsConfig,
+    KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, Placement, PopoutsConfig,
     ScaleConfig, Shape,
     ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
-    WeatherConfig, WorkspacesConfig,
+    WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -31,14 +31,30 @@ const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
 const WEEKDAYS: &[&str] = &["monday", "sunday", "saturday"];
 const FULLSCREEN_POPUPS: &[&str] = &["on", "off", "never"];
+const MODES: &[&str] = &["auto", "dark", "light"];
+const VARIANTS: &[&str] = &["vibrant", "content", "expressive", "fidelity", "muted"];
+const TRANSITIONS: &[&str] = &["fade", "wipe", "none"];
+const PLACEMENTS: &[&str] = &[
+    "center",
+    "top_left",
+    "top_center",
+    "top_right",
+    "center_left",
+    "center_right",
+    "bottom_left",
+    "bottom_center",
+    "bottom_right",
+];
 
-/// What the theme picker cycles: every built-in palette plus `custom`, which starts from nord for
-/// `[theme.colors]` to override. Derived from [`BUILT_IN_THEMES`] so a new palette shows up here on its own.
+/// What the theme picker cycles: every built-in palette, `custom` (which starts from nord for `[theme.colors]`
+/// to override) and `dynamic` (the wallpaper's own). Derived from [`BUILT_IN_THEMES`] so a new palette shows up
+/// here on its own.
 fn theme_options() -> &'static [&'static str] {
     static OPTIONS: OnceLock<Vec<&'static str>> = OnceLock::new();
     OPTIONS.get_or_init(|| {
         let mut options = BUILT_IN_THEMES.to_vec();
         options.push("custom");
+        options.push(crate::shared::scheme::DYNAMIC);
         options
     })
 }
@@ -98,6 +114,8 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
         background_section(&config, &path, theme)?,
+        wallpaper_section(&config, &path, theme)?,
+        desktop_clock_section(&config, &path, theme)?,
         corners_section(&config, &path, theme)?,
     ];
 
@@ -252,6 +270,9 @@ fn theme_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let t = &config.theme;
     let name = signal(t.name.clone());
+    let mode = signal(t.mode.clone());
+    let variant = signal(t.variant.clone());
+    let fallback = signal(t.fallback.clone());
     let accent = signal(t.accent.clone());
     let font_family = signal(t.font_family.clone().unwrap_or_default());
     let radius = signal(opt_num(t.radius));
@@ -269,6 +290,24 @@ fn theme_section(
             || rsx::t!("settings.field.name"),
             name.clone(),
             theme_options(),
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.color_mode"),
+            mode.clone(),
+            MODES,
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.variant"),
+            variant.clone(),
+            VARIANTS,
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.fallback"),
+            fallback.clone(),
+            BUILT_IN_THEMES,
             theme,
         )?,
         text_field(
@@ -344,6 +383,9 @@ fn theme_section(
     let save = save_button(|| rsx::t!("settings.save.theme"), theme, move || {
         let value = ThemeConfig {
             name: name.peek(),
+            mode: mode.peek(),
+            variant: variant.peek(),
+            fallback: fallback.peek(),
             accent: accent.peek(),
             font_family: opt_string(&font_family.peek()),
             radius: opt_u32(&radius.peek()),
@@ -357,8 +399,9 @@ fn theme_section(
                 font: parse_f32(&scale_font.peek(), base.scale.font),
                 icon: parse_f32(&scale_icon.peek(), base.scale.icon),
             },
-            // Carried through unchanged, like `colors`: per-role overrides are a nested table the flat panel has no rows for, and rewriting the section must not drop them.
+            // Carried through unchanged, like `colors`: per-role overrides and the export switches are nested tables the flat panel has no rows for, and rewriting the section must not drop them.
             fonts: base.fonts,
+            export: base.export.clone(),
             colors: base.colors.clone(),
         };
         persist(&path, "theme", &value);
@@ -1972,6 +2015,26 @@ fn keynav_section(
     section(|| rsx::t!("settings.section.keynav"), rows, save, theme)
 }
 
+/// Every screen a `[background.monitors]` row should exist for: the ones plugged in now, plus any the config
+/// already names.
+///
+/// Both halves matter. Only listing the connected screens would silently drop the override a user wrote for the
+/// monitor they left at the office the moment they saved anything; only listing the configured ones would mean
+/// a screen can never get its first override from the UI, which is the whole of J9.
+fn monitor_keys(configured: &std::collections::HashMap<String, PathBuf>) -> Vec<String> {
+    let mut names: Vec<String> = platform_layershell::outputs()
+        .into_iter()
+        .filter_map(|output| output.name)
+        .collect();
+    for name in configured.keys() {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names.sort();
+    names
+}
+
 fn background_section(
     config: &Config,
     path: &Path,
@@ -1985,8 +2048,10 @@ fn background_section(
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
     );
+    let transition = signal(b.transition.id().to_string());
+    let transition_ms = signal(b.transition_ms.to_string());
 
-    let rows = vec![
+    let mut rows = vec![
         toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.image"),
@@ -1994,19 +2059,207 @@ fn background_section(
             "~/wall.png",
             theme,
         )?,
+        enum_field(
+            || rsx::t!("settings.field.transition"),
+            transition.clone(),
+            TRANSITIONS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.transition_ms"),
+            transition_ms.clone(),
+            "600",
+            theme,
+        )?,
     ];
+
+    // One row per screen, which is what makes a map-valued section editable without K13's generic key/value
+    // machinery: the keys are not free text here, they are the monitors that exist.
+    let names = monitor_keys(&b.monitors);
+    let mut monitors: Vec<(String, RwSignal<String>)> = Vec::new();
+    if !names.is_empty() {
+        rows.push(subheader(|| rsx::t!("settings.subheader.monitors"), theme)?);
+    }
+    for name in names {
+        let value = signal(
+            b.monitors
+                .get(&name)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        );
+        let label = name.clone();
+        rows.push(text_field(
+            move || label.clone(),
+            value.clone(),
+            "(global image)",
+            theme,
+        )?);
+        monitors.push((name, value));
+    }
 
     let base = b.clone();
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.background"), theme, move || {
+        let monitors = monitors
+            .iter()
+            .filter_map(|(name, value)| {
+                opt_string(&value.peek()).map(|path| (name.clone(), PathBuf::from(path)))
+            })
+            .collect();
         let value = BackgroundConfig {
             enabled: enabled.peek(),
             image: opt_string(&image.peek()).map(PathBuf::from),
-            monitors: base.monitors.clone(),
+            monitors,
+            transition: WallpaperTransition::from_id(&transition.peek()).unwrap_or_default(),
+            transition_ms: parse_u64(&transition_ms.peek(), base.transition_ms),
+            clock: base.clock.clone(),
         };
         persist(&path, "background", &value);
     })?;
     section(|| rsx::t!("settings.section.background"), rows, save, theme)
+}
+
+fn wallpaper_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let w = &config.wallpaper;
+    let enabled = signal(w.enabled);
+    let recursive = signal(w.recursive);
+    let max_entries = signal(w.max_entries.to_string());
+    let thumbnail_size = signal(w.thumbnail_size.to_string());
+    let extensions = signal(join_csv(&w.extensions));
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.recursive"),
+            recursive.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.max_entries"),
+            max_entries.clone(),
+            "2000",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.thumbnail_size"),
+            thumbnail_size.clone(),
+            "320",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.extensions"),
+            extensions.clone(),
+            "png, jpg",
+            theme,
+        )?,
+    ];
+
+    let base = w.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.wallpaper"), theme, move || {
+        let value = WallpaperConfig {
+            enabled: enabled.peek(),
+            recursive: recursive.peek(),
+            max_entries: parse_u32(&max_entries.peek(), base.max_entries),
+            thumbnail_size: parse_u32(&thumbnail_size.peek(), base.thumbnail_size),
+            extensions: split_csv(&extensions.peek()),
+        };
+        persist(&path, "wallpaper", &value);
+    })?;
+    section(|| rsx::t!("settings.section.wallpaper"), rows, save, theme)
+}
+
+/// The clock drawn on the wallpaper. Its own section rather than rows inside `[background]`: it is a nested
+/// table, and one Save writing both would mean every clock tweak rewrote the wallpaper settings with it.
+fn desktop_clock_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let c = &config.background.clock;
+    let enabled = signal(c.enabled);
+    let position = signal(c.position.id().to_string());
+    let scale = signal(c.scale.to_string());
+    let margin = signal(c.margin.to_string());
+    let invert = signal(c.invert);
+    let show_date = signal(c.show_date);
+    let format = signal(c.format.clone().unwrap_or_default());
+    let date_format = signal(c.date_format.clone().unwrap_or_default());
+    let background = signal(c.background);
+    let opacity = signal(c.background_opacity.to_string());
+    let blur = signal(c.background_blur.to_string());
+    let shadow = signal(c.shadow);
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        enum_field(
+            || rsx::t!("settings.field.position"),
+            position.clone(),
+            PLACEMENTS,
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.scale"), scale.clone(), "3", theme)?,
+        text_field(|| rsx::t!("settings.field.margin"), margin.clone(), "48", theme)?,
+        toggle_field(|| rsx::t!("settings.field.invert"), invert.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.show_date"), show_date.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.time_format"),
+            format.clone(),
+            "(clock)",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.date_format"),
+            date_format.clone(),
+            "(clock)",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.plate"),
+            background.clone(),
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.plate_opacity"),
+            opacity.clone(),
+            "0.35",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.blur"), blur.clone(), "0", theme)?,
+        toggle_field(|| rsx::t!("settings.field.shadow"), shadow.clone(), theme)?,
+    ];
+
+    let base = config.background.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.desktop_clock"), theme, move || {
+        let clock = DesktopClockConfig {
+            enabled: enabled.peek(),
+            position: Placement::from_id(&position.peek()).unwrap_or_default(),
+            scale: parse_f32(&scale.peek(), base.clock.scale),
+            margin: parse_u32(&margin.peek(), base.clock.margin),
+            invert: invert.peek(),
+            show_date: show_date.peek(),
+            format: opt_string(&format.peek()),
+            date_format: opt_string(&date_format.peek()),
+            background: background.peek(),
+            background_opacity: parse_f32(&opacity.peek(), base.clock.background_opacity),
+            background_blur: parse_f32(&blur.peek(), base.clock.background_blur),
+            shadow: shadow.peek(),
+        };
+        persist(
+            &path,
+            "background",
+            &BackgroundConfig {
+                clock,
+                ..base.clone()
+            },
+        );
+    })?;
+    section(|| rsx::t!("settings.section.desktop_clock"), rows, save, theme)
 }
 
 fn corners_section(

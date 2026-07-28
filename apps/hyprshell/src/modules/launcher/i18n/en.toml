@@ -2,3 +2,8 @@
 placeholder = "Search applications…"
 empty = "No matches"
 confirm = "Press Enter again to confirm"
+
+[launcher.scheme]
+palette = "Colour palette"
+mode = "Light/dark mode"
+variant = "Scheme variant"

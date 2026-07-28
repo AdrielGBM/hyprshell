@@ -1,16 +1,40 @@
+//! The background surface: the wallpaper, its transition, and anything drawn on top of it.
+//!
+//! One surface per monitor, at the bottom of the background layer. It paints the image the wallpaper service
+//! says this screen should show, cover-cropped over the theme's base colour, and — when `[background.clock]`
+//! asks for it — a clock face on top.
+//!
+//! **The transition is why this surface is reactive rather than rebuilt.** Every other config change tears the
+//! surface down and opens a new one, which is fine for a bar and useless for a cross-fade: by the time the new
+//! surface exists there is nothing left of the old one to fade *from*. So a runtime wallpaper change arrives as
+//! an event on the live surface instead, carrying an image the service already decoded off the UI thread, and
+//! the two layers are simply ping-ponged.
+
+use std::cell::Cell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use rsx::{
-    App, Color, Component, Container, Image, ImageFilter, LayoutItem, LayoutStyle, ObjectFit,
-    SizeDimension, WindowConfig, reset_layout_runtime, set_theme,
+    AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
+    LayoutError, LayoutItem, LayoutStyle, ObjectFit, RectStyle, Shadow, SizeDimension,
+    StyledContainer, Text, WindowConfig, box_item, motion::Animated, reset_layout_runtime,
+    set_theme, signal,
 };
 
 use crate::core::app::SurfaceRoot;
-use crate::core::config::Config;
-use crate::shared::paths::expand_tilde;
-use crate::shared::picture;
+use crate::core::config::{Align, Config, WallpaperTransition};
+use crate::shared::services::{clock, wallpaper};
+use crate::shared::theme::FontRole;
 
-/// Per-output wallpaper: a full-screen background surface painting the configured image (cover-cropped, aspect preserved) over the theme's base colour, or just the base colour when no image resolves.
+/// How far a wipe travels when the compositor has not said how wide this screen is. Only reached before the
+/// output list has been read, and a wipe that starts slightly off-screen is invisible either way.
+const FALLBACK_TRAVEL: f32 = 1920.0;
+
+/// Reading where the hand-over between the two image layers has got to, and moving it. `Rc` on the reading half
+/// because both layers hold one; `Box` on the writing half because only the frame consumer does.
+type FadeControl = (Rc<dyn Fn() -> f32>, Box<dyn Fn(f32)>);
+
+/// Per-output wallpaper: a full-screen background surface painting the current image (cover-cropped, aspect preserved) over the theme's base colour, or just the base colour when no image resolves.
 pub struct WallpaperApp {
     pub config: Arc<Config>,
     /// The monitor this wallpaper covers, so a `[background.monitors]` entry can target it.
@@ -21,8 +45,8 @@ impl App for WallpaperApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
         set_theme(self.config.resolve_theme());
-        let content = self.image_content().unwrap_or_else(fill);
-        Box::new(SurfaceRoot::new(content).expect("wallpaper layout failed"))
+        crate::shared::services::locale::attach(self.config.language());
+        Box::new(SurfaceRoot::new(self.content()).expect("wallpaper layout failed"))
     }
 
     fn clear_color(&self) -> Option<Color> {
@@ -37,40 +61,314 @@ impl App for WallpaperApp {
 }
 
 impl WallpaperApp {
-    fn image_content(&self) -> Option<Box<dyn LayoutItem>> {
-        let path = expand_tilde(self.config.background.image_for(self.output.as_deref())?);
-        let Some(data) = picture::decode(&path) else {
+    fn content(&self) -> Box<dyn LayoutItem> {
+        let mut layers: Vec<Box<dyn LayoutItem>> = Vec::new();
+        match self.image_layers() {
+            Ok(Some(images)) => layers.push(images),
+            Ok(None) => {}
+            Err(e) => tracing::warn!("wallpaper images: {e}"),
+        }
+        if self.config.background.clock.enabled {
+            match clock_face(&self.config) {
+                Ok(face) => layers.push(face),
+                Err(e) => tracing::warn!("desktop clock: {e}"),
+            }
+        }
+        Container::new(fill(), layers)
+            .map(|container| Box::new(container) as Box<dyn LayoutItem>)
+            .expect("wallpaper root container")
+    }
+
+    /// The two stacked image slots and the animation that hands the screen from one to the other.
+    ///
+    /// A ping-pong rather than an "outgoing / incoming" pair: `fade` runs `0` → slot A visible, `1` → slot B
+    /// visible, and each new image lands in whichever slot is currently hidden. One animation, no bookkeeping
+    /// about which layer is on the way out, and an interrupted transition — a second change arriving mid-fade —
+    /// simply retargets from wherever it had got to instead of snapping.
+    fn image_layers(&self) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+        let initial = wallpaper::current_image(&self.config, self.output.as_deref());
+        let first = initial.as_deref().and_then(crate::shared::picture::decode);
+        if first.is_none() && initial.is_some() {
             tracing::warn!(
                 "wallpaper '{}' could not be loaded; using the theme base colour",
-                path.display()
+                initial.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
             );
-            return None;
-        };
-        let data = Arc::new(data);
-        let image = Image::new(
-            LayoutStyle::new()
-                .width(SizeDimension::Percent(1.0))
-                .height(SizeDimension::Percent(1.0)),
-            move || data.clone(),
-            || ImageFilter::Linear,
-            || ObjectFit::Cover,
+        }
+
+        let slot_a = signal(first.map(Arc::new));
+        let slot_b = signal(None::<Arc<ImageData>>);
+        let transition = self.config.background.transition;
+        let (read_fade, set_fade) = self.fade_control();
+        let travel = self.output_width();
+
+        let layer_a = image_layer(slot_a.read_only(), read_fade.clone(), 0.0, transition, travel)?;
+        let layer_b = image_layer(slot_b.read_only(), read_fade, 1.0, transition, travel)?;
+
+        // Which slot holds the newest image. A plain `Cell`: it only ever changes on the driver thread, from
+        // the consumer below, so a signal would buy reactivity that nothing reads.
+        let showing_b = Rc::new(Cell::new(false));
+        platform_layershell::watch(
+            wallpaper::frames(self.output.clone(), initial),
+            move |frame: Option<wallpaper::Frame>| {
+                // `None` is the producer's liveness heartbeat, not a wallpaper.
+                let Some(frame) = frame else { return };
+                let next_is_b = !showing_b.get();
+                if next_is_b {
+                    slot_b.set(Some(frame.image));
+                } else {
+                    slot_a.set(Some(frame.image));
+                }
+                showing_b.set(next_is_b);
+                set_fade(if next_is_b { 1.0 } else { 0.0 });
+            },
+        );
+
+        let stack = Container::new(fill(), vec![layer_a, layer_b])?;
+        Ok(Some(Box::new(stack)))
+    }
+
+    /// How the layers are handed over: reading the current position, and moving it.
+    ///
+    /// Two shapes behind one pair of closures. An animated transition drives an `Animated`, built at `0.0` and
+    /// retargeted — never at its destination, which would leave it inert. `transition = "none"` (and animation
+    /// switched off globally) drives a plain signal instead of an `Animated` with a zero-length tween, because a
+    /// tween that has no duration to divide by is a division waiting to happen, and "no transition" should not
+    /// go anywhere near the ticker.
+    fn fade_control(&self) -> FadeControl {
+        let instant = self.config.background.transition == WallpaperTransition::None
+            || !self.config.animation.enabled
+            || self.config.background.transition_ms == 0;
+        if instant {
+            let at = signal(0.0f32);
+            let reading = at.read_only();
+            return (Rc::new(move || reading.get()), Box::new(move |to| at.set(to)));
+        }
+        let tween = self
+            .config
+            .animation
+            .tween_ms(self.config.background.transition_ms, 10_000);
+        let fade = Animated::new(0.0f32, tween);
+        let reading = fade.clone();
+        (
+            Rc::new(move || reading.get()),
+            Box::new(move |to| fade.retarget(to)),
         )
-        .ok()?;
-        Some(Box::new(image))
+    }
+
+    /// This screen's logical width, for how far a wipe has to travel.
+    fn output_width(&self) -> f32 {
+        platform_layershell::outputs()
+            .into_iter()
+            .find(|out| out.name == self.output || self.output.is_none())
+            .and_then(|out| out.logical_size)
+            .map(|(width, _)| width as f32)
+            .filter(|width| *width > 0.0)
+            .unwrap_or(FALLBACK_TRAVEL)
     }
 }
 
-/// A full-surface empty box, letting `clear_color` (the theme base) show through.
-fn fill() -> Box<dyn LayoutItem> {
-    Box::new(
-        Container::new(
+/// A full-surface style, used for every layer so they stack rather than sit side by side.
+fn fill() -> LayoutStyle {
+    LayoutStyle::new()
+        .width(SizeDimension::Percent(1.0))
+        .height(SizeDimension::Percent(1.0))
+}
+
+/// One image slot: absolutely filling the surface, shown in proportion to how close `fade` is to `visible_at`.
+///
+/// The image itself is rebuilt whenever the slot's signal changes — `Image::new` takes the data as a closure,
+/// so the layer is one node for the life of the surface and swapping the picture is a signal write, not a
+/// re-layout.
+fn image_layer(
+    slot: rsx::ReadSignal<Option<Arc<ImageData>>>,
+    fade: Rc<dyn Fn() -> f32>,
+    visible_at: f32,
+    transition: WallpaperTransition,
+    travel: f32,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let data = slot.clone();
+    let image = Image::new(
+        fill(),
+        move || data.get().unwrap_or_else(blank),
+        || ImageFilter::Linear,
+        || ObjectFit::Cover,
+    )?;
+
+    let present = slot;
+    let opacity_fade = Rc::clone(&fade);
+    let mut layer = StyledContainer::new(
+        fill().absolute_fill(),
+        |_| RectStyle::default(),
+        vec![box_item(image)],
+    )?
+    .with_opacity(move || {
+        // Both read before the early return: a slot that is empty this frame must still re-run when it fills.
+        let at = opacity_fade();
+        let filled = present.get().is_some();
+        if !filled {
+            return 0.0;
+        }
+        // `visible_at` is 0 or 1, so this is "how close the hand-over has got to me".
+        1.0 - (at - visible_at).abs()
+    });
+
+    if transition == WallpaperTransition::Wipe {
+        // A wipe is the incoming layer sliding over the outgoing one, so only the layer being *left* moves —
+        // the arriving one has to end up at rest exactly where the other was.
+        layer = layer.with_transform(move |_| {
+            let distance = (fade() - visible_at).abs();
+            (distance != 0.0).then_some([1.0, 0.0, 0.0, 1.0, distance * travel, 0.0])
+        });
+    }
+    Ok(Box::new(layer))
+}
+
+/// A single transparent pixel, stood in for an empty slot.
+///
+/// Shared rather than built per call: `ImageData::new` mints a new id every time, and a slot that handed the
+/// renderer a fresh id on every frame would fill the texture cache with copies of nothing.
+fn blank() -> Arc<ImageData> {
+    thread_local! {
+        static BLANK: Arc<ImageData> = Arc::new(ImageData::new(vec![0, 0, 0, 0], 1, 1));
+    }
+    BLANK.with(Arc::clone)
+}
+
+/// The clock drawn on the wallpaper (`[background.clock]`).
+///
+/// It lives here rather than in the `clock` module because it is not that module: the bar chip is a chip in a
+/// row of chips, and this is a face placed on a screen. What they do share — the tick and the `strftime`
+/// patterns — they share through the clock *service* and `[clock]`, which is the part that would actually be
+/// wrong to duplicate.
+fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = config.resolve_theme();
+    let settings = config.background.clock.clone();
+    let ink = if settings.invert { theme.base } else { theme.text };
+
+    let format = settings.time_format(&config.clock).to_string();
+    let date_format = settings.date_format(&config.clock).to_string();
+    let now = signal(chrono::Local::now().format(&format).to_string());
+    let today = signal(chrono::Local::now().format(&date_format).to_string());
+    let (tick_time, tick_date) = (now.clone(), today.clone());
+    platform_layershell::watch(clock::subscribe, move |at: clock::Now| {
+        tick_time.set(at.format(&format).to_string());
+        tick_date.set(at.format(&date_format).to_string());
+    });
+
+    let size = theme.font(FontRole::Display) * settings.resolved_scale();
+    let shadow = settings
+        .shadow
+        .then(|| Shadow::new(0.0, 2.0, 12.0, Color::BLACK.with_alpha(0.55)));
+
+    let reading = now.read_only();
+    let time = Text::auto(
+        move || reading.get(),
+        LayoutStyle::new(),
+        move || {
+            let style = theme
+                .text_style(FontRole::Display, ink)
+                .with_weight(600)
+                .with_size(size);
+            match shadow {
+                Some(shadow) => style.with_shadow(shadow),
+                None => style,
+            }
+        },
+    )?;
+
+    let mut lines: Vec<Box<dyn LayoutItem>> = vec![box_item(time)];
+    if settings.show_date {
+        let reading = today.read_only();
+        let date_size = (size * 0.28).max(theme.font(FontRole::Body));
+        let date = Text::auto(
+            move || reading.get(),
+            LayoutStyle::new(),
+            move || {
+                let style = theme.text_style(FontRole::Title, ink).with_size(date_size);
+                match shadow {
+                    Some(shadow) => style.with_shadow(shadow),
+                    None => style,
+                }
+            },
+        )?;
+        lines.push(box_item(date));
+    }
+
+    // Every reading is centred inside its own row, since a `Text` in a column takes the column's width and
+    // draws its glyphs from the left — the same rule the lock screen's `centred` exists for.
+    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::new();
+    for line in lines {
+        rows.push(Box::new(Container::new(
             LayoutStyle::new()
-                .width(SizeDimension::Percent(1.0))
-                .height(SizeDimension::Percent(1.0)),
-            Vec::new(),
-        )
-        .expect("wallpaper fill container"),
-    )
+                .flex_row()
+                .justify_content(JustifyContent::CENTER)
+                .width(SizeDimension::Percent(1.0)),
+            vec![line],
+        )?));
+    }
+
+    let column = Container::new(
+        LayoutStyle::new().flex_column().gap(size * 0.08),
+        rows,
+    )?;
+
+    let plate_radius = theme.radius.max(12.0);
+    let opacity = settings.plate_opacity();
+    let feather = settings.background_blur.max(0.0);
+    // The raised surface, not the base: a plate painted in the colour behind it is invisible on a screen with
+    // no image, which is exactly the state a user switching it on for the first time is looking at.
+    let plate_fill = if settings.invert { theme.text } else { theme.surface };
+    let plate = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .padding_horizontal(size * 0.3)
+            .padding_vertical(size * 0.1),
+        move |_| {
+            if !settings.background {
+                return RectStyle::default();
+            }
+            let mut style = RectStyle::filled(plate_fill.with_alpha(opacity), plate_radius);
+            if feather > 0.0 {
+                // A feathered plate is drawn as its own shadow: same colour, spread to the plate's size, blurred
+                // by `background_blur`. That is what "the plate's edge fades into the wallpaper" means with the
+                // primitives the renderer has — there is no backdrop blur to sample the image through.
+                style.shadow = Some(
+                    Shadow::new(0.0, 0.0, feather, plate_fill.with_alpha(opacity)).with_spread(feather * 0.5),
+                );
+            }
+            style
+        },
+        vec![box_item(column)],
+    )?;
+
+    let (vertical, horizontal) = settings.position.alignment();
+    let margin = settings.margin as f32;
+    let placed = Container::new(
+        fill()
+            .absolute_fill()
+            .flex_row()
+            .padding_all(margin)
+            .align_items(align_items(vertical))
+            .justify_content(justify(horizontal)),
+        vec![box_item(plate)],
+    )?;
+    Ok(Box::new(placed))
+}
+
+fn align_items(align: Align) -> AlignItems {
+    match align {
+        Align::Start => AlignItems::FLEX_START,
+        Align::Center => AlignItems::CENTER,
+        Align::End => AlignItems::FLEX_END,
+    }
+}
+
+fn justify(align: Align) -> JustifyContent {
+    match align {
+        Align::Start => JustifyContent::FLEX_START,
+        Align::Center => JustifyContent::CENTER,
+        Align::End => JustifyContent::FLEX_END,
+    }
 }
 
 #[cfg(test)]
@@ -78,10 +376,115 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::core::config::Config;
+    use crate::core::config::{Config, DesktopClockConfig, Placement};
+
+    fn built(config: Config) -> Box<dyn Component> {
+        WallpaperApp {
+            config: Arc::new(config),
+            output: None,
+        }
+        .root()
+    }
+
+    #[test]
+    fn the_surface_builds_with_and_without_an_image_and_with_the_clock_on() {
+        // The build is where a layout error would surface, and nothing else runs these closures.
+        let _ = built(Config::starter());
+
+        let mut with_clock = Config::starter();
+        with_clock.background.clock.enabled = true;
+        let _ = built(with_clock);
+
+        for transition in crate::core::config::WallpaperTransition::ALL {
+            let mut config = Config::starter();
+            config.background.transition = transition;
+            config.background.clock.enabled = true;
+            let _ = built(config);
+        }
+    }
+
+    #[test]
+    fn the_clock_builds_in_every_position_and_with_every_decoration() {
+        for position in Placement::ALL {
+            let mut config = Config::starter();
+            config.background.clock = DesktopClockConfig {
+                enabled: true,
+                position,
+                background: true,
+                background_blur: 8.0,
+                invert: true,
+                shadow: true,
+                ..DesktopClockConfig::default()
+            };
+            let _ = built(config);
+        }
+    }
+
+    #[test]
+    fn the_desktop_face_drops_the_seconds_the_bar_chip_keeps() {
+        let clock = crate::core::config::ClockConfig::default();
+        let desktop = DesktopClockConfig::default();
+        assert_eq!(clock.time_format(), "%H:%M:%S");
+        assert_eq!(
+            desktop.time_format(&clock),
+            "%H:%M",
+            "a wallpaper that repainted every second would be a wallpaper animating"
+        );
+
+        // A user who set `[clock] format` has said what a clock looks like; the face follows rather than
+        // second-guessing them.
+        let explicit = crate::core::config::ClockConfig {
+            format: Some("%H.%M".to_string()),
+            ..crate::core::config::ClockConfig::default()
+        };
+        assert_eq!(desktop.time_format(&explicit), "%H.%M");
+
+        // And its own override wins over both.
+        let own = DesktopClockConfig {
+            format: Some("%I%p".to_string()),
+            ..DesktopClockConfig::default()
+        };
+        assert_eq!(own.time_format(&explicit), "%I%p");
+    }
+
+    #[test]
+    fn the_plate_opacity_can_never_resolve_to_invisible_or_opaque_by_accident() {
+        let bounded = |value: f32| {
+            DesktopClockConfig {
+                background_opacity: value,
+                ..DesktopClockConfig::default()
+            }
+            .plate_opacity()
+        };
+        assert_eq!(bounded(0.5), 0.5);
+        assert_eq!(bounded(0.0), 0.05, "a plate asked for is a plate you can see");
+        assert_eq!(bounded(4.0), 1.0);
+        assert_eq!(bounded(f32::NAN), 0.35);
+    }
+
+    #[test]
+    fn the_nine_positions_map_onto_distinct_corners() {
+        let corners: Vec<(Align, Align)> = Placement::ALL
+            .into_iter()
+            .map(|placement| placement.alignment())
+            .collect();
+        for (index, corner) in corners.iter().enumerate() {
+            for other in &corners[index + 1..] {
+                assert_ne!(corner, other, "two placements land in the same spot");
+            }
+        }
+        assert_eq!(
+            Placement::TopLeft.alignment(),
+            (Align::Start, Align::Start),
+            "the row is the vertical axis and the column the horizontal one"
+        );
+        assert_eq!(Placement::from_id("bottom-right"), Some(Placement::BottomRight));
+        assert_eq!(Placement::from_id("nowhere"), None);
+    }
 
     /// Renders the wallpaper surface end-to-end (real decode + cover-crop). Point it at an image to eyeball the crop:
     /// `RSX_VISUAL_WALLPAPER_OUT=/tmp/w.png RSX_VISUAL_WALLPAPER_IMG=/path/to/wall.png cargo test -p hyprshell --lib visual_wallpaper -- --nocapture`.
+    /// Set `RSX_VISUAL_WALLPAPER_CLOCK=1` to draw the desktop clock over it.
     #[test]
     fn visual_wallpaper_png() {
         let Ok(out) = std::env::var("RSX_VISUAL_WALLPAPER_OUT") else {
@@ -93,6 +496,10 @@ mod tests {
         config.background.image = std::env::var("RSX_VISUAL_WALLPAPER_IMG")
             .ok()
             .map(PathBuf::from);
+        if std::env::var("RSX_VISUAL_WALLPAPER_CLOCK").is_ok() {
+            config.background.clock.enabled = true;
+            config.background.clock.background = true;
+        }
         crate::test_support::render_png(
             WallpaperApp {
                 config: Arc::new(config),

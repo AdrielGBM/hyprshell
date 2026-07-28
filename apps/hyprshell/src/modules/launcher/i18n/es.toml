@@ -2,3 +2,8 @@
 placeholder = "Buscar aplicaciones…"
 empty = "Sin coincidencias"
 confirm = "Pulsa Enter otra vez para confirmar"
+
+[launcher.scheme]
+palette = "Paleta de colores"
+mode = "Modo claro/oscuro"
+variant = "Variante del esquema"

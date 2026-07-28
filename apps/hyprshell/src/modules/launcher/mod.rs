@@ -12,6 +12,7 @@ use crate::core::config::{LauncherAction, LauncherConfig};
 use crate::core::shell;
 use crate::shared::calc;
 use crate::shared::reactive;
+use crate::shared::scheme;
 use crate::shared::search::{self, Mode};
 use crate::shared::services::apps::{self, App};
 use crate::shared::keynav::{self, Move};
@@ -28,6 +29,9 @@ const ACTION_PREFIX: char = '>';
 /// where a bare `2` is far more likely the start of an app name.
 const CALC_PREFIX: char = '=';
 
+/// Typing this first lists the colour schemes: every palette, the light/dark modes and the dynamic variants.
+const SCHEME_PREFIX: char = '#';
+
 /// One row of the launcher. The launcher lists *things you can do*, not only applications, so each mode
 /// contributes the same shape and one `row` renders any of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +41,9 @@ pub enum Entry {
     /// The calculator's answer. Selecting it copies the result rather than the whole sum, which is what you
     /// want to paste.
     Calculation { expression: String, result: String },
+    /// A palette, a light/dark mode or a dynamic-scheme variant. Choosing one writes it to `[theme]`, which the
+    /// config watcher then reloads — the same route the settings panel and `hyprshell scheme` take.
+    Scheme { choice: scheme::Choice, value: String },
 }
 
 impl Entry {
@@ -47,6 +54,7 @@ impl Entry {
             Entry::App(app) => format!("app:{}", app.id),
             Entry::Action(action) => format!("action:{}", action.name),
             Entry::Calculation { expression, .. } => format!("calc:{expression}"),
+            Entry::Scheme { choice, value } => format!("scheme:{choice:?}:{value}"),
         }
     }
 
@@ -62,6 +70,7 @@ pub enum QueryMode {
     Apps,
     Actions,
     Calculator,
+    Schemes,
 }
 
 /// Reads the mode off the query's first character. An explicit prefix always wins; without one the query is an
@@ -73,6 +82,9 @@ pub fn mode_of(query: &str) -> (QueryMode, &str) {
     }
     if let Some(rest) = trimmed.strip_prefix(CALC_PREFIX) {
         return (QueryMode::Calculator, rest.trim_start());
+    }
+    if let Some(rest) = trimmed.strip_prefix(SCHEME_PREFIX) {
+        return (QueryMode::Schemes, rest.trim_start());
     }
     (QueryMode::Apps, query.trim())
 }
@@ -88,6 +100,7 @@ pub fn entries(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<Entr
     match mode {
         QueryMode::Actions => actions(rest, config).into_iter().take(cap).collect(),
         QueryMode::Calculator => calculation(rest, config).into_iter().collect(),
+        QueryMode::Schemes => schemes(rest, config).into_iter().take(cap).collect(),
         QueryMode::Apps => {
             let mut rows: Vec<Entry> = Vec::new();
             if config.calculator && calc::looks_like_math(rest) {
@@ -129,6 +142,45 @@ pub fn actions(query: &str, config: &LauncherConfig) -> Vec<Entry> {
     .into_iter()
     .map(Entry::Action)
     .collect()
+}
+
+/// The colour schemes matching `query`, ranked by the same matcher the other modes use.
+///
+/// Palettes, modes and variants in one list rather than three sub-modes: they are all answers to "make the
+/// desktop look like this", and a picker that made the user first say *which kind* of answer they wanted would
+/// be one more step than typing `#latte` needs.
+pub fn schemes(query: &str, config: &LauncherConfig) -> Vec<Entry> {
+    let listed: Vec<Entry> = scheme::choices()
+        .into_iter()
+        .map(|(choice, value)| Entry::Scheme { choice, value })
+        .collect();
+    search::rank(
+        listed,
+        query,
+        match_mode(config),
+        |entry| {
+            let (name, kind) = scheme_text(entry);
+            format!("{name} {kind}")
+        },
+        |_| 0,
+    )
+}
+
+/// A scheme row's name and what kind of choice it is. The name is the palette's own where there is one, so
+/// `#moc` finds "Catppuccin Mocha" and not just the config spelling.
+fn scheme_text(entry: &Entry) -> (String, String) {
+    let Entry::Scheme { choice, value } = entry else {
+        return (String::new(), String::new());
+    };
+    match choice {
+        scheme::Choice::Palette if value != scheme::DYNAMIC => (
+            format!("{} {value}", NordTheme::meta(value).name),
+            rsx::t!("launcher.scheme.palette"),
+        ),
+        scheme::Choice::Palette => (value.clone(), rsx::t!("launcher.scheme.palette")),
+        scheme::Choice::Mode => (value.clone(), rsx::t!("launcher.scheme.mode")),
+        scheme::Choice::Variant => (value.clone(), rsx::t!("launcher.scheme.variant")),
+    }
 }
 
 fn match_mode(config: &LauncherConfig) -> Mode {
@@ -183,6 +235,11 @@ fn choose(entry: &Entry) {
         Entry::App(app) => apps::launch(app),
         Entry::Action(action) => apps::run_detached(action.command.clone()),
         Entry::Calculation { result, .. } => crate::shared::clipboard::copy(result),
+        Entry::Scheme { choice, value } => {
+            if let Err(e) = scheme::apply(*choice, value) {
+                tracing::warn!("launcher: {e}");
+            }
+        }
     }
 }
 
@@ -404,6 +461,18 @@ fn row_text(entry: &Entry) -> (String, String) {
         Entry::Calculation { expression, result } => {
             (result.clone(), format!("{expression} ="))
         }
+        // The palette's own name leads and the kind is the caption, so a list mixing all three reads as a list
+        // of looks rather than as a list of settings keys.
+        Entry::Scheme { choice, value } => match choice {
+            scheme::Choice::Palette if value != scheme::DYNAMIC => (
+                NordTheme::meta(value).name.to_string(),
+                NordTheme::meta(value).description.to_string(),
+            ),
+            _ => {
+                let (name, kind) = scheme_text(entry);
+                (name, kind)
+            }
+        },
     }
 }
 
@@ -419,6 +488,14 @@ fn row_icon(entry: &Entry, theme: NordTheme) -> Result<Option<Box<dyn LayoutItem
         }
         Entry::Calculation { .. } => {
             crate::icon_view(|| "equal".to_string(), move || theme.accent, SIZE).map(Some)
+        }
+        Entry::Scheme { choice, .. } => {
+            let glyph = match choice {
+                scheme::Choice::Palette => "palette",
+                scheme::Choice::Mode => "sun-moon",
+                scheme::Choice::Variant => "droplet",
+            };
+            crate::icon_view(move || glyph.to_string(), move || theme.accent, SIZE).map(Some)
         }
     }
 }
@@ -650,6 +727,7 @@ mod tests {
                 Entry::App(app) => app.id.clone(),
                 Entry::Action(a) => a.name.clone(),
                 Entry::Calculation { result, .. } => result.clone(),
+                Entry::Scheme { value, .. } => value.clone(),
             })
             .collect()
     }
@@ -694,6 +772,61 @@ mod tests {
         // A bare number is treated as the start of a name, not a sum — unless asked explicitly.
         assert!(!entries(catalog(), "2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
         assert_eq!(names(&entries(catalog(), "=2", &config)), vec!["2".to_string()]);
+    }
+
+    #[test]
+    fn the_scheme_mode_lists_palettes_modes_and_variants_and_finds_them_by_real_name() {
+        let config = LauncherConfig::default();
+        assert_eq!(mode_of("#latte"), (QueryMode::Schemes, "latte"));
+
+        // Uncapped, because what is under test is which choices exist, not the row cap the other modes share.
+        let uncapped = LauncherConfig {
+            max_results: 200,
+            ..LauncherConfig::default()
+        };
+        let all = entries(catalog(), "#", &uncapped);
+        assert!(
+            all.iter().all(|e| matches!(e, Entry::Scheme { .. })),
+            "the mode is exclusive: apps do not leak into it"
+        );
+        let kinds = |choice: scheme::Choice| {
+            all.iter()
+                .filter(|e| matches!(e, Entry::Scheme { choice: c, .. } if *c == choice))
+                .count()
+        };
+        assert!(kinds(scheme::Choice::Palette) > 1, "every palette is offered");
+        assert!(kinds(scheme::Choice::Mode) >= 3, "auto, dark and light");
+        assert_eq!(kinds(scheme::Choice::Variant), scheme::Variant::ALL.len());
+
+        // The palette's own name, not just its config spelling — `catppuccin-latte` is not what anyone types.
+        let found = entries(catalog(), "#latte", &config);
+        assert!(
+            matches!(found.first(), Some(Entry::Scheme { value, .. }) if value == "catppuccin-latte"),
+            "'#latte' finds Catppuccin Latte: {:?}",
+            names(&found)
+        );
+        assert!(
+            entries(catalog(), "#dynamic", &config)
+                .iter()
+                .any(|e| matches!(e, Entry::Scheme { value, .. } if value == scheme::DYNAMIC)),
+            "the wallpaper-derived palette is pickable too"
+        );
+    }
+
+    #[test]
+    fn a_scheme_row_cannot_collide_with_another_kind_of_row() {
+        // The reactive list reconciles on these, and "dark" is a plausible application name.
+        let palette = Entry::Scheme {
+            choice: scheme::Choice::Palette,
+            value: "nord".to_string(),
+        };
+        let mode = Entry::Scheme {
+            choice: scheme::Choice::Mode,
+            value: "nord".to_string(),
+        };
+        assert_ne!(palette.key(), mode.key(), "the kind is part of the identity");
+        assert_ne!(palette.key(), Entry::App(app("nord", "nord", &[])).key());
+        assert!(!palette.is_dangerous(), "a palette is never a confirming choice");
     }
 
     #[test]

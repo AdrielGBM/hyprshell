@@ -1259,6 +1259,235 @@ static TARGETS: &[Target] = &[
         ],
     },
     Target {
+        name: "wallpaper",
+        commands: &[
+            Command {
+                name: "get",
+                args: "[output]",
+                help: "the image a screen is showing (no output means the focused one)",
+                run: |args| {
+                    use crate::shared::services::wallpaper;
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let output = reading_output(args.first().copied())?;
+                    wallpaper::current_image(&config, output.as_deref())
+                        .map(|path| path.display().to_string())
+                        .ok_or_else(|| "no wallpaper is set".to_string())
+                },
+            },
+            Command {
+                name: "list",
+                args: "",
+                help: "every image in the library: folder, name and path",
+                run: |_| {
+                    let rows: Vec<String> = crate::shared::services::wallpaper::all()
+                        .iter()
+                        .map(|entry| {
+                            format!(
+                                "{}\t{}\t{}",
+                                if entry.folder.is_empty() { "-" } else { &entry.folder },
+                                entry.name,
+                                entry.path.display()
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+            Command {
+                name: "reload",
+                args: "",
+                help: "re-scan the wallpaper folder",
+                run: |_| Ok(crate::shared::services::wallpaper::reload().to_string()),
+            },
+            Command {
+                name: "set",
+                args: "<path> [output]",
+                help: "put an image on every screen, or on one of them",
+                run: |args| {
+                    use crate::shared::services::wallpaper;
+                    let path = crate::shared::paths::expand_tilde(std::path::Path::new(arg(
+                        args, 0, "path",
+                    )?));
+                    // Checked here rather than left to the surface: a `set` that answered `ok` and changed
+                    // nothing because the file is gone is the one reply a script cannot act on.
+                    if !path.is_file() {
+                        return Err(format!("'{}' is not a file", path.display()));
+                    }
+                    wallpaper::set(&path, target_output(args.get(1).copied())?.as_deref());
+                    refresh_scheme();
+                    Ok(path.display().to_string())
+                },
+            },
+            Command {
+                name: "random",
+                args: "[output]",
+                help: "pick one from the library at random",
+                run: |args| {
+                    use crate::shared::services::wallpaper;
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let output = target_output(args.first().copied())?;
+                    let showing = wallpaper::current_image(&config, output.as_deref());
+                    // Named, because the folder is the thing that is wrong nine times out of ten — it defaults
+                    // to `$XDG_PICTURES_DIR/Wallpapers` and a user whose collection is one directory over has
+                    // no way to tell an empty folder from the wrong one.
+                    let picked = wallpaper::random(showing.as_deref()).ok_or_else(|| {
+                        format!(
+                            "no images in {} (set [paths] wallpapers)",
+                            config.wallpaper_dir().display()
+                        )
+                    })?;
+                    wallpaper::set(&picked, output.as_deref());
+                    refresh_scheme();
+                    Ok(picked.display().to_string())
+                },
+            },
+            Command {
+                name: "clear",
+                args: "[output]",
+                help: "drop the runtime choice, putting [background] back in charge",
+                run: |args| {
+                    let output = target_output(args.first().copied())?;
+                    crate::shared::services::wallpaper::clear(output.as_deref());
+                    refresh_scheme();
+                    Ok("cleared".to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "scheme",
+        commands: &[
+            Command {
+                name: "status",
+                args: "",
+                help: "the palette in use: theme, mode, variant and the wallpaper it came from",
+                run: |_| {
+                    use crate::shared::scheme;
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let (mode, variant) = config.scheme_selection();
+                    let source = match scheme::current() {
+                        Some(current) => current.source.display().to_string(),
+                        None => "-".to_string(),
+                    };
+                    Ok(format!(
+                        "{}\t{}\t{}\t{source}",
+                        config.theme.name,
+                        mode.id(),
+                        variant.id()
+                    ))
+                },
+            },
+            Command {
+                name: "colors",
+                args: "",
+                help: "every token of the palette now on screen, as name and hex",
+                run: |_| {
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    Ok(palette_rows(&config.resolve_theme()))
+                },
+            },
+            Command {
+                name: "list",
+                args: "",
+                help: "the palettes `scheme set` accepts",
+                run: |_| {
+                    let mut names: Vec<&str> = crate::BUILT_IN_THEMES.to_vec();
+                    names.push("custom");
+                    names.push(crate::shared::scheme::DYNAMIC);
+                    Ok(names.join("\t"))
+                },
+            },
+            Command {
+                name: "set",
+                args: "<name>",
+                help: "switch palette, `dynamic` for one built from the wallpaper",
+                run: |args| {
+                    use crate::shared::scheme::{self, Choice};
+                    scheme::apply(Choice::Palette, arg(args, 0, "name")?)
+                },
+            },
+            Command {
+                name: "mode",
+                args: "[dark|light|auto|toggle]",
+                help: "read or set the light/dark mode",
+                run: |args| {
+                    use crate::shared::scheme::{self, Mode};
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let Some(wanted) = args.first().copied() else {
+                        return Ok(config.theme.mode.clone());
+                    };
+                    let next = match wanted {
+                        "auto" => "auto".to_string(),
+                        // Toggling resolves the *effective* mode first: `auto` is not a third state to flip
+                        // through, it is "whatever the palette is", and a user pressing a toggle means the
+                        // other one.
+                        "toggle" => match Mode::of(&config.resolve_theme()) {
+                            Mode::Dark => Mode::Light,
+                            Mode::Light => Mode::Dark,
+                        }
+                        .id()
+                        .to_string(),
+                        other => Mode::from_id(other)
+                            .ok_or_else(|| {
+                                format!("expected dark|light|auto|toggle, got '{other}'")
+                            })?
+                            .id()
+                            .to_string(),
+                    };
+                    scheme::apply(scheme::Choice::Mode, &next)
+                },
+            },
+            Command {
+                name: "variant",
+                args: "[name]",
+                help: "read or set how much colour a dynamic scheme carries",
+                run: |args| {
+                    use crate::shared::scheme::{self, Variant};
+                    let Some(wanted) = args.first().copied() else {
+                        let config = shell::config().ok_or("the shell is not running")?;
+                        return Ok(config.theme.variant.clone());
+                    };
+                    let variant = Variant::from_id(wanted).ok_or_else(|| {
+                        let known: Vec<&str> = Variant::ALL.iter().map(|v| v.id()).collect();
+                        format!("unknown variant '{wanted}', expected one of {}", known.join("|"))
+                    })?;
+                    scheme::apply(scheme::Choice::Variant, variant.id())
+                },
+            },
+            Command {
+                name: "refresh",
+                args: "",
+                help: "re-derive a dynamic palette from the current wallpaper",
+                run: |_| {
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    if !config.theme.is_dynamic() {
+                        return Err("[theme] name is not 'dynamic'".to_string());
+                    }
+                    crate::shared::scheme::refresh(&config, Duration::ZERO);
+                    Ok("refreshing".to_string())
+                },
+            },
+            Command {
+                name: "export",
+                args: "",
+                help: "write the palette out for the rest of the desktop, ignoring [theme.export] enabled",
+                run: |_| {
+                    use crate::shared::scheme;
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let current = scheme::current()
+                        .ok_or("no dynamic palette has been derived yet")?;
+                    let export = crate::core::config::SchemeExportConfig {
+                        enabled: true,
+                        ..config.theme.export.clone()
+                    };
+                    let dir = export.resolved_dir();
+                    scheme::export_scheme(&current, &export);
+                    Ok(dir.display().to_string())
+                },
+            },
+        ],
+    },
+    Target {
         name: "config",
         commands: &[
             Command {
@@ -1327,6 +1556,101 @@ fn node_id(args: &[&str]) -> Result<u32, String> {
     let raw = arg(args, 0, "id")?;
     raw.parse()
         .map_err(|_| format!("<id> must be a PipeWire node id, got '{raw}'"))
+}
+
+/// Which screen a wallpaper command means: the one named, else the focused one.
+///
+/// Resolved to a name rather than left as `None`, because `None` means "every screen" to the service and
+/// "wherever the user is looking" to a keybind — and a `wallpaper random` bound to a key should change the
+/// screen in front of them, not all of them.
+///
+/// A name that is not a monitor is refused. Accepting one writes an entry into the persisted assignment that
+/// no surface will ever read, and answers `ok` while changing nothing — which is how a stray `--features` from
+/// a dev harness ended up saved as a screen. It costs one lookup to make a typo say so.
+/// Which screen a wallpaper command changes: the one named, or every screen when none is.
+///
+/// "Every screen" and not "the focused one", because that is what each command's own help says it does, and
+/// because the focused-screen reading made `wallpaper clear` unable to do the one thing it exists for: it
+/// removed the focused monitor's entry, answered `cleared`, and left every other entry — including one written
+/// under a name no monitor has — sitting in the state file with no way left to reach it.
+fn target_output(named: Option<&str>) -> Result<Option<String>, String> {
+    named.map(validated).transpose()
+}
+
+/// Which screen a wallpaper command *reads*: the one named, else the focused one. A reading has to be about
+/// some screen, so here the focused one is the only sensible default.
+fn reading_output(named: Option<&str>) -> Result<Option<String>, String> {
+    match named {
+        Some(name) => validated(name).map(Some),
+        None => Ok(shell::focused_output()),
+    }
+}
+
+fn validated(name: &str) -> Result<String, String> {
+    let screens: Vec<String> = platform_layershell::outputs()
+        .into_iter()
+        .filter_map(|output| output.name)
+        .collect();
+    known_screen(name, &screens)
+}
+
+/// `name` if it is one of `screens`, else an error naming the real ones.
+fn known_screen(name: &str, screens: &[String]) -> Result<String, String> {
+    if screens.iter().any(|screen| screen == name) {
+        return Ok(name.to_string());
+    }
+    if screens.is_empty() {
+        return Err(format!("'{name}' is not a monitor (none are connected)"));
+    }
+    Err(format!(
+        "'{name}' is not a monitor (this session has: {})",
+        screens.join(", ")
+    ))
+}
+
+/// Re-derives the dynamic palette after a wallpaper change, once the transition to the new image has finished.
+/// A no-op unless `[theme] name = "dynamic"`, so every wallpaper command can call it blind.
+fn refresh_scheme() {
+    if let Some(config) = shell::config() {
+        let settle = config.wallpaper_transition();
+        crate::shared::scheme::refresh(&config, settle);
+    }
+}
+
+/// The palette as one `name<TAB>#rrggbb` row per token, which is what a script recolouring something else needs.
+fn palette_rows(theme: &crate::NordTheme) -> String {
+    let hex = |color: rsx::Color| {
+        let [r, g, b, _] = color.to_rgba8();
+        format!("#{r:02x}{g:02x}{b:02x}")
+    };
+    [
+        ("base", theme.base),
+        ("surface", theme.surface),
+        ("overlay", theme.overlay),
+        ("muted", theme.muted),
+        ("subtle", theme.subtle),
+        ("text", theme.text),
+        ("accent", theme.accent),
+        ("blue", theme.blue),
+        ("cyan", theme.cyan),
+        ("teal", theme.teal),
+        ("red", theme.red),
+        ("orange", theme.orange),
+        ("yellow", theme.yellow),
+        ("green", theme.green),
+        ("purple", theme.purple),
+        ("success", theme.success),
+        ("warning", theme.warning),
+        ("error", theme.error),
+        ("info", theme.info),
+        ("highlight_low", theme.highlight_low),
+        ("highlight_med", theme.highlight_med),
+        ("highlight_high", theme.highlight_high),
+    ]
+    .iter()
+    .map(|(name, color)| format!("{name}\t{}", hex(*color)))
+    .collect::<Vec<String>>()
+    .join("\n")
 }
 
 /// Switches the dashboard's page by its config id, refusing an unknown one by name — a keybind bound to a page
@@ -1578,6 +1902,11 @@ mod tests {
             ("brightness", "up"),
             ("brightness", "down"),
             ("media", "play-pause"),
+            ("wallpaper", "reload"),
+            ("wallpaper", "random"),
+            ("wallpaper", "clear"),
+            ("scheme", "refresh"),
+            ("scheme", "export"),
         ];
         for (target, command) in ARGUMENTLESS_MUTATIONS {
             assert!(
@@ -1585,6 +1914,36 @@ mod tests {
                 "'{target} {command}' is listed here but no longer exists"
             );
         }
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_monitor_is_refused_rather_than_saved() {
+        // Not hypothetical: a dev harness appending `--features rsx/dev` to the program's arguments had
+        // `wallpaper random` read `--features` as a screen, write it into the persisted assignment, and answer
+        // `ok`. Nothing would ever have painted it.
+        let screens = vec!["DP-1".to_string(), "HDMI-A-1".to_string()];
+        assert_eq!(known_screen("DP-1", &screens), Ok("DP-1".to_string()));
+
+        let refused = known_screen("--features", &screens).expect_err("a flag is not a screen");
+        assert!(refused.contains("not a monitor"), "{refused}");
+        assert!(refused.contains("DP-1"), "and it says what there is: {refused}");
+        // A typo in a real name is the common case and must not read as "no monitors".
+        assert!(known_screen("DP1", &screens).is_err());
+        assert!(
+            known_screen("DP-1", &[]).unwrap_err().contains("none are connected"),
+            "no screens at all is its own message, not an empty list"
+        );
+    }
+
+    #[test]
+    fn a_wallpaper_command_with_no_screen_named_means_every_screen() {
+        // `clear` defaulting to the focused screen removed one entry, answered `cleared`, and left the rest —
+        // including one saved under a name no monitor has, which validation then made unreachable. A command
+        // whose help says "every screen" has to mean it.
+        assert_eq!(target_output(None), Ok(None));
+        // The reading side is the opposite and deliberately so: "which image is showing" needs a screen.
+        // Only the `None` branch is asserted here — resolving a name asks the compositor.
+        assert!(reading_output(None).is_ok());
     }
 
     #[test]

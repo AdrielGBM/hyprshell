@@ -28,6 +28,7 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("icons", "IconsConfig"),
         ("notifications", "NotificationsConfig"),
         ("background", "BackgroundConfig"),
+        ("wallpaper", "WallpaperConfig"),
         ("active_window", "ActiveWindowConfig"),
         ("clock", "ClockConfig"),
         ("media", "MediaConfig"),
@@ -124,8 +125,8 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
 }
 
 /// A section's keys: each documented field's comment, then the key and its default. Nested tables
-/// (`[theme.scale]`) and lists of tables are emitted after the flat keys, which is the order TOML requires — a
-/// `[theme.scale]` header printed before `[theme]`'s own keys would swallow them.
+/// (`[theme.scale]`, `[background.clock]`) and lists of tables are emitted after the flat keys, which is the
+/// order TOML requires — a `[theme.scale]` header printed before `[theme]`'s own keys would swallow them.
 fn render_section(section: &str, value: &toml::Value, structure: &str) -> String {
     let Some(table) = value.as_table() else {
         return String::new();
@@ -171,9 +172,9 @@ fn render_section(section: &str, value: &toml::Value, structure: &str) -> String
 
 /// One nested table, headed and annotated from the struct that backs it.
 ///
-/// A map-valued key (`[theme.colors]`) has no struct and no fixed keys, so it is printed as an empty header —
-/// which is still the right answer: it tells a reader the table exists and what to call it, which is exactly
-/// what they cannot learn anywhere else.
+/// A map-valued key (`[theme.colors]`, `[background.monitors]`) has no struct and no fixed keys, so it is
+/// printed as an empty header — which is still the right answer: it tells a reader the table exists and what to
+/// call it, which is exactly what they cannot learn anywhere else.
 fn render_nested(
     path: &str,
     table: &toml::map::Map<String, toml::Value>,

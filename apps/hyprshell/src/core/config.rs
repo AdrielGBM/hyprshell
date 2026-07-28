@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item};
 
 use crate::shared::paths;
+use crate::shared::scheme;
 use crate::shared::theme::NordTheme;
 
 /// Fallback gap a panel keeps from a hugging bar (one with no outer gap of its own) and from the screen edges.
@@ -617,26 +618,283 @@ impl NotificationsConfig {
     }
 }
 
-/// Full-screen wallpaper behind everything, one surface per monitor. Off by default so the compositor's own background shows through; setting an `image` — or `enabled = true` for a plain themed background — turns it on. `[background.monitors]` maps output names to per-monitor images, each falling back to the global `image`. Paths may use `~`.
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+/// How one wallpaper gives way to the next.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WallpaperTransition {
+    /// The new image simply replaces the old one.
+    None,
+    /// Cross-fade.
+    #[default]
+    Fade,
+    /// The new image sweeps across from one side.
+    Wipe,
+}
+
+impl WallpaperTransition {
+    pub const ALL: [WallpaperTransition; 3] = [
+        WallpaperTransition::None,
+        WallpaperTransition::Fade,
+        WallpaperTransition::Wipe,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            WallpaperTransition::None => "none",
+            WallpaperTransition::Fade => "fade",
+            WallpaperTransition::Wipe => "wipe",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id.trim().to_ascii_lowercase().as_str() {
+            "none" => Some(WallpaperTransition::None),
+            "fade" => Some(WallpaperTransition::Fade),
+            "wipe" => Some(WallpaperTransition::Wipe),
+            _ => None,
+        }
+    }
+}
+
+/// Full-screen wallpaper behind everything, one surface per monitor. Off by default so the compositor's own background shows through; setting an `image` — or `enabled = true` for a plain themed background — turns it on. `[background.monitors]` maps output names to per-monitor images, each falling back to the global `image`, and `hyprshell wallpaper set` overrides both at runtime. Paths may use `~`.
+#[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct BackgroundConfig {
     pub enabled: bool,
     pub image: Option<PathBuf>,
     pub monitors: HashMap<String, PathBuf>,
+    /// How a change from one wallpaper to the next is drawn: `fade` (the default), `wipe` or `none`.
+    pub transition: WallpaperTransition,
+    /// How long that transition runs, before `[animation] duration_scale`. Ignored while `[animation] enabled` is off, which makes every change instant.
+    pub transition_ms: u64,
+    pub clock: DesktopClockConfig,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            image: None,
+            monitors: HashMap::new(),
+            transition: WallpaperTransition::default(),
+            transition_ms: 600,
+            clock: DesktopClockConfig::default(),
+        }
+    }
 }
 
 impl BackgroundConfig {
-    /// Whether hyprshell paints a background surface at all; opt-in so it never clobbers the compositor's wallpaper unless asked (an image or per-monitor entry implies it).
+    /// Whether hyprshell paints a background surface at all; opt-in so it never clobbers the compositor's wallpaper unless asked (an image, a per-monitor entry or the desktop clock implies it).
     pub fn is_enabled(&self) -> bool {
-        self.enabled || self.image.is_some() || !self.monitors.is_empty()
+        self.enabled
+            || self.image.is_some()
+            || !self.monitors.is_empty()
+            || self.clock.enabled
     }
 
-    /// The image for `output`: its per-monitor entry, else the global `image`; `None` paints the theme base colour.
+    /// The image `[background]` alone would paint on `output`: its per-monitor entry, else the global `image`.
+    /// The runtime override lives in the wallpaper service, so read
+    /// [`wallpaper::current_image`](crate::shared::services::wallpaper::current_image) rather than this at a
+    /// call site that draws.
     pub fn image_for(&self, output: Option<&str>) -> Option<&PathBuf> {
         output
             .and_then(|name| self.monitors.get(name))
             .or(self.image.as_ref())
+    }
+}
+
+/// Where on the screen a widget on the background surface sits.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    CenterLeft,
+    #[default]
+    Center,
+    CenterRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
+impl Placement {
+    pub const ALL: [Placement; 9] = [
+        Placement::TopLeft,
+        Placement::TopCenter,
+        Placement::TopRight,
+        Placement::CenterLeft,
+        Placement::Center,
+        Placement::CenterRight,
+        Placement::BottomLeft,
+        Placement::BottomCenter,
+        Placement::BottomRight,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Placement::TopLeft => "top_left",
+            Placement::TopCenter => "top_center",
+            Placement::TopRight => "top_right",
+            Placement::CenterLeft => "center_left",
+            Placement::Center => "center",
+            Placement::CenterRight => "center_right",
+            Placement::BottomLeft => "bottom_left",
+            Placement::BottomCenter => "bottom_center",
+            Placement::BottomRight => "bottom_right",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Placement::ALL
+            .into_iter()
+            .find(|placement| placement.id() == id.trim().to_ascii_lowercase().replace('-', "_"))
+    }
+
+    /// The row and column this placement occupies, as `flex` alignment values.
+    pub fn alignment(self) -> (Align, Align) {
+        let vertical = match self {
+            Placement::TopLeft | Placement::TopCenter | Placement::TopRight => Align::Start,
+            Placement::CenterLeft | Placement::Center | Placement::CenterRight => Align::Center,
+            _ => Align::End,
+        };
+        let horizontal = match self {
+            Placement::TopLeft | Placement::CenterLeft | Placement::BottomLeft => Align::Start,
+            Placement::TopCenter | Placement::Center | Placement::BottomCenter => Align::Center,
+            _ => Align::End,
+        };
+        (vertical, horizontal)
+    }
+}
+
+/// A clock drawn on the wallpaper itself (`[background.clock]`), the way a lock screen or a phone's home screen
+/// shows one. Off by default. `format`/`date_format` fall back to `[clock]`, so the desktop face and the bar
+/// chip read the same unless one is deliberately given its own.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct DesktopClockConfig {
+    pub enabled: bool,
+    /// One of the nine positions: `top_left` … `bottom_right`, `center` being the default.
+    pub position: Placement,
+    /// Multiplies the theme's display size, so the face can be made as large as the screen allows.
+    pub scale: f32,
+    /// How far the face is kept from the screen edges, in px.
+    pub margin: u32,
+    /// Draw the face in the theme's base colour instead of its text colour — for a pale wallpaper, where light
+    /// text disappears.
+    pub invert: bool,
+    pub show_date: bool,
+    /// Overrides `[clock] format` for the desktop face only. A desktop clock usually wants `%H:%M` where the bar chip wants seconds.
+    pub format: Option<String>,
+    /// Overrides `[clock] date_format` for the desktop face only.
+    pub date_format: Option<String>,
+    /// Paint a plate behind the face, so it stays legible over a busy photograph.
+    pub background: bool,
+    /// How opaque that plate is, `0`–`1`.
+    pub background_opacity: f32,
+    /// How far the plate's edge is feathered into the wallpaper, in px. `0` gives a hard-edged card.
+    pub background_blur: f32,
+    /// Drop a shadow under the glyphs, which is what keeps a plateless face readable over a light wallpaper.
+    pub shadow: bool,
+}
+
+impl Default for DesktopClockConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            position: Placement::Center,
+            scale: 3.0,
+            margin: 48,
+            invert: false,
+            show_date: true,
+            format: None,
+            date_format: None,
+            background: false,
+            background_opacity: 0.35,
+            background_blur: 0.0,
+            shadow: true,
+        }
+    }
+}
+
+impl DesktopClockConfig {
+    /// The `strftime` pattern the face renders: its own override, else `[clock]`'s answer without seconds — a
+    /// desktop clock that ticks every second is a wallpaper that repaints every second.
+    pub fn time_format<'a>(&'a self, clock: &'a ClockConfig) -> &'a str {
+        if let Some(format) = &self.format {
+            return format;
+        }
+        if clock.format.is_some() {
+            return clock.time_format();
+        }
+        if clock.twelve_hour { "%I:%M %p" } else { "%H:%M" }
+    }
+
+    pub fn date_format<'a>(&'a self, clock: &'a ClockConfig) -> &'a str {
+        self.date_format.as_deref().unwrap_or(&clock.date_format)
+    }
+
+    /// The plate's fill, bounded so `background = true` cannot resolve to an invisible plate or a fully opaque
+    /// one the user did not ask for.
+    pub fn plate_opacity(&self) -> f32 {
+        if self.background_opacity.is_finite() {
+            self.background_opacity.clamp(0.05, 1.0)
+        } else {
+            0.35
+        }
+    }
+
+    pub fn resolved_scale(&self) -> f32 {
+        if self.scale.is_finite() {
+            self.scale.clamp(0.5, 20.0)
+        } else {
+            1.0
+        }
+    }
+}
+
+/// The wallpaper library: which folder is browsed and how (`[wallpaper]`). The folder itself is `[paths] wallpapers`, so the two settings that name a directory stay in one place.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct WallpaperConfig {
+    /// Whether the library is scanned at all. Off means `[background] image` is the only wallpaper the shell knows, which is what it did before the library existed.
+    pub enabled: bool,
+    /// Descend into sub-folders. On, because a wallpaper collection is almost always filed by theme or by artist.
+    pub recursive: bool,
+    /// How many images the library holds at most, so pointing it at a picture archive cannot cost a scan of the whole disk.
+    pub max_entries: u32,
+    /// The edge length of a cached thumbnail, in px.
+    pub thumbnail_size: u32,
+    /// The file extensions counted as wallpapers, lowercase and without the dot.
+    pub extensions: Vec<String>,
+}
+
+impl Default for WallpaperConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            recursive: true,
+            max_entries: 2000,
+            thumbnail_size: 320,
+            extensions: ["png", "jpg", "jpeg", "webp"]
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        }
+    }
+}
+
+impl WallpaperConfig {
+    /// Whether `path` names a file the library should list.
+    pub fn accepts(&self, path: &Path) -> bool {
+        let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
+            return false;
+        };
+        let extension = extension.to_ascii_lowercase();
+        self.extensions
+            .iter()
+            .any(|allowed| allowed.trim().trim_start_matches('.').eq_ignore_ascii_case(&extension))
     }
 }
 
@@ -1803,6 +2061,7 @@ pub struct Config {
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
     pub background: BackgroundConfig,
+    pub wallpaper: WallpaperConfig,
     pub active_window: ActiveWindowConfig,
     pub clock: ClockConfig,
     pub media: MediaConfig,
@@ -2098,8 +2357,14 @@ impl AnimationConfig {
 
     /// A panel's enter/exit transition, ready to hand to `Animated`.
     pub fn panel_tween(&self) -> rsx::motion::Tween {
+        self.tween_ms(self.panel_duration_ms, 2_000)
+    }
+
+    /// A tween of `base_ms`, scaled and eased by `[animation]`, and bounded by `max_ms` so a mistyped duration
+    /// is a slow transition rather than one that never ends. The general form `panel_tween` is a preset of.
+    pub fn tween_ms(&self, base_ms: u64, max_ms: u64) -> rsx::motion::Tween {
         rsx::motion::tween(
-            self.duration(Duration::from_millis(self.panel_duration_ms.clamp(0, 2_000))),
+            self.duration(Duration::from_millis(base_ms.clamp(0, max_ms))),
             self.easing(),
         )
     }
@@ -2153,12 +2418,22 @@ impl ScaleConfig {
     }
 }
 
-/// Theme selection and overrides. `name` picks a built-in palette (or `custom`); the rest override individual tokens on top of it — numbers directly, `[theme.scale]` proportionally, and `[theme.colors]` per-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built-in's value.
+/// Theme selection and overrides. `name` picks a built-in palette, `custom`, or `dynamic` (a palette generated from the current wallpaper); the rest override individual tokens on top of it — numbers directly, `[theme.scale]` proportionally, and `[theme.colors]` per-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built-in's value.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct ThemeConfig {
     pub name: String,
     pub accent: String,
+    /// `dark`, `light`, or `auto` (the default) to keep whatever the named palette already is. A built-in with
+    /// a sibling in the asked-for mode switches to it (`gruvbox` ↔ `gruvbox-light`); one without keeps its own.
+    pub mode: String,
+    /// How much colour a `dynamic` scheme carries: `vibrant` (the default), `content`, `expressive`, `fidelity`
+    /// or `muted`. Ignored by the built-in palettes, which carry their own.
+    pub variant: String,
+    /// The palette a `dynamic` theme falls back to before a wallpaper has been quantised — on the very first
+    /// start, or with no wallpaper set at all.
+    pub fallback: String,
+    pub export: SchemeExportConfig,
     pub radius: Option<u32>,
     pub spacing: Option<u32>,
     pub font_size: Option<f32>,
@@ -2172,11 +2447,62 @@ pub struct ThemeConfig {
     pub colors: HashMap<String, String>,
 }
 
+/// Where the resolved palette is written for the rest of the desktop to read (`[theme.export]`).
+///
+/// A wallpaper-driven scheme is only worth having if the applications around the shell follow it, and none of
+/// them reads `config.toml`. Each switch writes one flat file of the same tokens into `dir`: `scheme.json`,
+/// `scheme.css` (GTK `@define-color`), `scheme.conf` (an ini for Qt/Kvantum themes) and `scheme.sh` plus
+/// `sequences` (shell variables and the OSC escapes that recolour a running terminal). `hooks` are commands run
+/// once the files are on disk, which is where a `gsettings`/`makoctl reload` belongs.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct SchemeExportConfig {
+    pub enabled: bool,
+    /// Where the files land. Empty means the shell's own config directory, next to `config.toml`.
+    pub dir: String,
+    pub json: bool,
+    pub gtk: bool,
+    pub qt: bool,
+    pub terminal: bool,
+    pub hooks: Vec<String>,
+}
+
+impl Default for SchemeExportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dir: String::new(),
+            json: true,
+            gtk: true,
+            qt: false,
+            terminal: false,
+            hooks: Vec::new(),
+        }
+    }
+}
+
+impl SchemeExportConfig {
+    pub fn resolved_dir(&self) -> PathBuf {
+        let configured = self.dir.trim();
+        if configured.is_empty() {
+            return Config::default_path()
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+        }
+        paths::expand_tilde(Path::new(configured))
+    }
+}
+
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self {
             name: "nord".to_string(),
             accent: "cyan".to_string(),
+            mode: "auto".to_string(),
+            variant: "vibrant".to_string(),
+            fallback: "nord".to_string(),
+            export: SchemeExportConfig::default(),
             radius: None,
             spacing: None,
             font_size: None,
@@ -2190,7 +2516,46 @@ impl Default for ThemeConfig {
     }
 }
 
+impl ThemeConfig {
+    /// Whether this config asks for a wallpaper-derived palette rather than a built-in one.
+    pub fn is_dynamic(&self) -> bool {
+        self.name.trim().eq_ignore_ascii_case(scheme::DYNAMIC)
+    }
+
+    /// The mode asked for, or `None` for `auto` — "keep whatever the palette already is".
+    pub fn requested_mode(&self) -> Option<scheme::Mode> {
+        scheme::Mode::from_id(&self.mode)
+    }
+
+    pub fn requested_variant(&self) -> scheme::Variant {
+        scheme::Variant::from_id(&self.variant).unwrap_or_default()
+    }
+}
+
 impl Config {
+    /// How long a wallpaper transition actually runs, after `[animation]` has had its say. Zero when animation
+    /// is off or the transition is `none`, which is what makes "wait for the picture to settle" a no-op there
+    /// instead of a pause with nothing happening in it.
+    pub fn wallpaper_transition(&self) -> Duration {
+        if self.background.transition == WallpaperTransition::None {
+            return Duration::ZERO;
+        }
+        self.animation
+            .duration(Duration::from_millis(self.background.transition_ms.min(10_000)))
+    }
+
+    /// The mode and variant a dynamic scheme is generated at.
+    ///
+    /// `auto` resolves through the fallback palette rather than to a hardcoded dark: a user whose fallback is
+    /// Catppuccin Latte has already said which end of the ramp they live at, and asking them to say it twice is
+    /// how the two settings end up disagreeing.
+    pub fn scheme_selection(&self) -> (scheme::Mode, scheme::Variant) {
+        let mode = self.theme.requested_mode().unwrap_or_else(|| {
+            scheme::Mode::of(&NordTheme::named(&self.theme.fallback))
+        });
+        (mode, self.theme.requested_variant())
+    }
+
     /// Fresh-install starter config (distinct from `Default`, which is all-empty and backs serde's missing-field fill).
     pub fn starter() -> Self {
         Self {
@@ -2215,6 +2580,7 @@ impl Config {
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
             background: BackgroundConfig::default(),
+            wallpaper: WallpaperConfig::default(),
             active_window: ActiveWindowConfig::default(),
             clock: ClockConfig::default(),
             media: MediaConfig::default(),
@@ -2374,10 +2740,31 @@ impl Config {
         }
     }
 
+    /// The palette `[theme] name` selects, before any override: the wallpaper's for `dynamic`, else the built-in
+    /// — switched to its light or dark sibling when `[theme] mode` asks for one it has.
+    ///
+    /// A dynamic theme with nothing extracted yet resolves to `[theme] fallback` rather than to a blank or a
+    /// hardcoded default, so the first frame after an install is already the palette the user asked to fall back
+    /// to instead of a colour scheme they never chose.
+    fn base_palette(&self) -> NordTheme {
+        if self.theme.is_dynamic() {
+            return scheme::theme()
+                .unwrap_or_else(|| self.in_requested_mode(&self.theme.fallback));
+        }
+        self.in_requested_mode(&self.theme.name)
+    }
+
+    fn in_requested_mode(&self, name: &str) -> NordTheme {
+        match self.theme.requested_mode() {
+            Some(mode) => NordTheme::named(NordTheme::in_mode(name, mode)),
+            None => NordTheme::named(name),
+        }
+    }
+
     /// The theme this config selects, with every `[theme]` override applied — accent, numeric tokens, and per-token `[theme.colors]` hex. The single place a theme is resolved, so its tokens back the config defaults everywhere.
     pub fn resolve_theme(&self) -> NordTheme {
         let t = &self.theme;
-        let mut theme = NordTheme::named(&t.name).with_accent(&t.accent);
+        let mut theme = self.base_palette().with_accent(&t.accent);
         if let Some(r) = t.radius {
             theme.radius = r as f32;
         }
@@ -2657,10 +3044,10 @@ impl Config {
 /// Re-numbers every table in `doc` so each one renders where its key sits, with its children under it.
 ///
 /// `toml_edit` carries a render position on every table it *parsed*, and a table built from scratch has none —
-/// so replacing `[theme]` with a value carrying `[theme.scale]` and `[theme.fonts.*]` scattered those children
-/// through the file between unrelated sections, and printed `[theme]` itself *after* its own children. The
-/// result still parses, which is why nothing caught it; it also destroys the layout of a file this function
-/// promises to preserve.
+/// so replacing `[theme]` with a value carrying `[theme.scale]`, `[theme.export]` and `[theme.fonts.*]` scattered
+/// those children through the file between unrelated sections, and printed `[theme]` itself *after* its own
+/// children. The result still parses, which is why nothing caught it; it also destroys the layout of a file this
+/// function promises to preserve.
 ///
 /// Walking the document once and handing out positions in key order puts every child back under its parent
 /// without touching any decor, so the comments and key order the caller was promised survive.
@@ -2915,7 +3302,7 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
     #[test]
     fn saving_a_section_keeps_its_sub_tables_under_it_instead_of_scattering_them() {
         // What this catches is not a parse failure — the scattered file still parses, which is why nothing saw
-        // it. Saving `[theme]` printed `[theme.scale]` between `[panels]` and `[bars.top]`, put
+        // it. Saving `[theme]` printed `[theme.export]` between `[panels]` and `[bars.top]`, put
         // `[theme.fonts.title]` inside the bar definitions, and left `[theme]` itself *after* its own children.
         // For a function whose whole promise is "preserving every other section, key order, and comment", that
         // is the failure.
@@ -2941,7 +3328,8 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
                 .unwrap_or_else(|| panic!("{name} missing from\n{text}"))
         };
 
-        assert!(at("[theme]") < at("[theme.scale]"), "a parent precedes its children:\n{text}");
+        assert!(at("[theme]") < at("[theme.export]"), "a parent precedes its children:\n{text}");
+        assert!(at("[theme]") < at("[theme.scale]"), "{text}");
         assert!(at("[shape]") < at("[panels]"), "{text}");
         assert!(at("[panels]") < at("[theme]"), "{text}");
         assert!(
@@ -2949,7 +3337,7 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
             "a section of theme's leaked between [panels] and [theme]:\n{text}"
         );
         assert!(
-            at("[workspaces]") > at("[theme.scale]"),
+            at("[workspaces]") > at("[theme.export]"),
             "an unrelated section was pushed in among theme's children:\n{text}"
         );
         let reloaded: Config = toml::from_str(&text).expect("the saved file parses");
@@ -3894,6 +4282,116 @@ accent = "orange"
         let theme = broken.resolve_theme();
         assert_eq!(theme.font_size, 3.0, "clamped to the 0.25 floor");
         assert_eq!(theme.icon_size, 20.0, "an unusable factor is no factor");
+    }
+
+    #[test]
+    fn a_mode_switches_a_family_to_its_other_side_and_leaves_a_one_sided_palette_alone() {
+        use crate::shared::scheme::Mode;
+        assert_eq!(NordTheme::in_mode("gruvbox", Mode::Light), "gruvbox-light");
+        assert_eq!(NordTheme::in_mode("gruvbox-light", Mode::Dark), "gruvbox");
+        assert_eq!(NordTheme::in_mode("catppuccin-frappe", Mode::Light), "catppuccin-latte");
+        assert_eq!(NordTheme::in_mode("rose_pine_moon", Mode::Light), "rose-pine-dawn");
+        // Nord has no light sibling anyone drew, and inventing one by inversion would be a palette its author
+        // never made.
+        assert_eq!(NordTheme::in_mode("nord", Mode::Light), "nord");
+        assert_eq!(NordTheme::in_mode("tokyo-night", Mode::Light), "tokyo-night");
+        // Already on the asked-for side: a no-op, not a round trip through the other one.
+        assert_eq!(NordTheme::in_mode("gruvbox-light", Mode::Light), "gruvbox-light");
+
+        let light: Config = toml::from_str("[theme]\nname = \"gruvbox\"\nmode = \"light\"\n").unwrap();
+        assert_eq!(
+            light.resolve_theme().base,
+            NordTheme::gruvbox_light().base,
+            "the mode reaches the resolved theme, not just the name"
+        );
+        let auto: Config = toml::from_str("[theme]\nname = \"gruvbox\"\n").unwrap();
+        assert_eq!(
+            auto.resolve_theme().base,
+            NordTheme::gruvbox().base,
+            "'auto' keeps whatever the palette already is"
+        );
+    }
+
+    #[test]
+    fn a_dynamic_theme_falls_back_to_a_real_palette_until_a_wallpaper_has_been_read() {
+        // Nothing has been quantised in a unit test, which is also the state of a fresh install's first frame.
+        let dynamic: Config =
+            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"catppuccin-latte\"\n").unwrap();
+        assert!(dynamic.theme.is_dynamic());
+        assert_eq!(
+            dynamic.resolve_theme().base,
+            NordTheme::catppuccin_latte().base,
+            "the fallback is a setting, not a formality"
+        );
+        let tuned: Config = toml::from_str(
+            "[theme]\nname = \"dynamic\"\nfallback = \"nord\"\nradius = 14\n",
+        )
+        .unwrap();
+        assert_eq!(tuned.resolve_theme().radius, 14.0);
+    }
+
+    #[test]
+    fn auto_reads_the_mode_a_dynamic_scheme_should_be_generated_at_off_the_fallback() {
+        use crate::shared::scheme::{Mode, Variant};
+        let dark: Config = toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"nord\"\n").unwrap();
+        assert_eq!(dark.scheme_selection(), (Mode::Dark, Variant::Vibrant));
+
+        // A user whose fallback is a light palette has already said which end of the ramp they live at.
+        let light: Config =
+            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"gruvbox-light\"\n").unwrap();
+        assert_eq!(light.scheme_selection().0, Mode::Light);
+
+        let pinned: Config = toml::from_str(
+            "[theme]\nname = \"dynamic\"\nfallback = \"gruvbox-light\"\nmode = \"dark\"\nvariant = \"muted\"\n",
+        )
+        .unwrap();
+        assert_eq!(pinned.scheme_selection(), (Mode::Dark, Variant::Muted));
+        let nonsense: Config = toml::from_str("[theme]\nvariant = \"sparkly\"\n").unwrap();
+        assert_eq!(nonsense.scheme_selection().1, Variant::Vibrant);
+    }
+
+    #[test]
+    fn a_wallpaper_transition_is_zero_whenever_nothing_should_move() {
+        let fading: Config = toml::from_str("[background]\ntransition_ms = 400\n").unwrap();
+        assert_eq!(fading.wallpaper_transition(), Duration::from_millis(400));
+
+        let none: Config =
+            toml::from_str("[background]\ntransition = \"none\"\ntransition_ms = 400\n").unwrap();
+        assert!(none.wallpaper_transition().is_zero());
+
+        let off: Config =
+            toml::from_str("[background]\ntransition_ms = 400\n\n[animation]\nenabled = false\n")
+                .unwrap();
+        assert!(
+            off.wallpaper_transition().is_zero(),
+            "the global animation switch reaches this like every other duration"
+        );
+
+        let scaled: Config =
+            toml::from_str("[background]\ntransition_ms = 400\n\n[animation]\nduration_scale = 2.0\n")
+                .unwrap();
+        assert_eq!(scaled.wallpaper_transition(), Duration::from_millis(800));
+
+        // An absurd duration is a slow transition, never one that outlives the session.
+        let absurd: Config = toml::from_str("[background]\ntransition_ms = 999999999\n").unwrap();
+        assert_eq!(absurd.wallpaper_transition(), Duration::from_millis(10_000));
+    }
+
+    #[test]
+    fn the_background_surface_is_opened_by_anything_that_needs_to_draw_on_it() {
+        let bare: Config = toml::from_str("").unwrap();
+        assert!(!bare.background.is_enabled(), "opt-in, so it never clobbers the compositor's own");
+
+        for toml_text in [
+            "[background]\nenabled = true\n",
+            "[background]\nimage = \"~/wall.png\"\n",
+            "[background.monitors]\nDP-1 = \"~/wall.png\"\n",
+            // The clock lives on that surface, so asking for it is asking for the surface.
+            "[background.clock]\nenabled = true\n",
+        ] {
+            let config: Config = toml::from_str(toml_text).unwrap();
+            assert!(config.background.is_enabled(), "'{toml_text}' needs the surface");
+        }
     }
 
     #[test]

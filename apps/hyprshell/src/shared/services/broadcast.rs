@@ -8,6 +8,7 @@
 //! A module consumes one by handing [`Service::subscribe`] to `platform_layershell::watch`, which delivers each
 //! value on that surface's own loop thread and unsubscribes it when the surface goes away.
 
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use platform_layershell::EventSender;
@@ -16,6 +17,13 @@ use platform_layershell::EventSender;
 pub struct Broadcast<T> {
     current: Mutex<Option<T>>,
     subscribers: Mutex<Vec<EventSender<T>>>,
+    /// Plain-channel listeners, for another *producer* thread rather than a surface.
+    ///
+    /// A surface reads through `EventSender`, which only the driver can hand out — so a producer that has to
+    /// react to a service instead of to the system had no way to wait for one, and could only poll. The
+    /// wallpaper surface is the case that needs it: the moment the choice changes, something has to decode a
+    /// full-resolution image, and that something must be neither the UI thread nor a timer.
+    listeners: Mutex<Vec<mpsc::Sender<T>>>,
 }
 
 impl<T: Clone> Broadcast<T> {
@@ -23,6 +31,7 @@ impl<T: Clone> Broadcast<T> {
         Self {
             current: Mutex::new(None),
             subscribers: Mutex::new(Vec::new()),
+            listeners: Mutex::new(Vec::new()),
         }
     }
 
@@ -34,6 +43,10 @@ impl<T: Clone> Broadcast<T> {
             .lock()
             .unwrap()
             .retain(|tx| tx.send(value.clone()));
+        self.listeners
+            .lock()
+            .unwrap()
+            .retain(|tx| tx.send(value.clone()).is_ok());
     }
 
     pub fn current(&self) -> Option<T> {
@@ -151,6 +164,18 @@ impl<T: Clone + Send + 'static> Store<T> {
             return;
         }
         broadcast.subscribers.lock().unwrap().push(tx);
+    }
+
+    /// Registers a plain channel for changes, sending the current value immediately. For a producer thread
+    /// that has to *wait* on this store rather than poll it; a surface wants [`subscribe`](Self::subscribe).
+    pub fn listen(&'static self, tx: mpsc::Sender<T>) {
+        let broadcast = self.started();
+        if let Some(value) = broadcast.current()
+            && tx.send(value).is_err()
+        {
+            return;
+        }
+        broadcast.listeners.lock().unwrap().push(tx);
     }
 }
 

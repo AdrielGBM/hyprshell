@@ -90,10 +90,12 @@ fn normalize(name: &str) -> String {
 }
 
 impl NordTheme {
-    /// The built-in palette for `name` (see [`BUILT_IN_THEMES`]); `custom` starts from nord for config to override, and an unknown name falls back to nord with a warning.
+    /// The built-in palette for `name` (see [`BUILT_IN_THEMES`]); `custom` starts from nord for config to
+    /// override, `dynamic` likewise until [`Config::resolve_theme`](crate::Config::resolve_theme) substitutes
+    /// the wallpaper's own palette, and an unknown name falls back to nord with a warning.
     pub fn named(name: &str) -> Self {
         match normalize(name).as_str() {
-            "nord" | "custom" => Self::nord(),
+            "nord" | "custom" | "dynamic" => Self::nord(),
             "rosepine" => Self::rose_pine(),
             "rosepinemoon" => Self::rose_pine_moon(),
             "rosepinedawn" => Self::rose_pine_dawn(),
@@ -110,6 +112,50 @@ impl NordTheme {
                 Self::nord()
             }
         }
+    }
+
+    /// The sibling of `name` in `mode`, or `name` itself when the family has no palette at that end.
+    ///
+    /// A light/dark switch is a *family* choice, not a recolouring: Gruvbox Light is a designed palette, and
+    /// inverting Gruvbox Dark's ramp would produce something that is neither. A family with only one side —
+    /// Nord, Tokyo Night, Everforest — therefore keeps what it has rather than being forced through an
+    /// inversion its author never drew.
+    pub fn in_mode(name: &str, mode: crate::shared::scheme::Mode) -> &'static str {
+        use crate::shared::scheme::Mode;
+        let normalized = normalize(name);
+        let family: &[(&str, &str)] = &[
+            ("rosepine", "rosepinedawn"),
+            ("rosepinemoon", "rosepinedawn"),
+            ("catppuccinmocha", "catppuccinlatte"),
+            ("catppuccin", "catppuccinlatte"),
+            ("catppuccinmacchiato", "catppuccinlatte"),
+            ("catppuccinfrappe", "catppuccinlatte"),
+            ("gruvbox", "gruvboxlight"),
+            ("gruvboxdark", "gruvboxlight"),
+        ];
+        let sibling = match mode {
+            Mode::Light => family
+                .iter()
+                .find(|(dark, _)| *dark == normalized)
+                .map(|(_, light)| *light),
+            Mode::Dark => family
+                .iter()
+                .find(|(_, light)| *light == normalized)
+                .map(|(dark, _)| *dark),
+        };
+        Self::canonical(sibling.unwrap_or(&normalized))
+    }
+
+    /// A name as [`BUILT_IN_THEMES`] spells it, so [`in_mode`](Self::in_mode) hands back something a user can
+    /// read and `hyprshell scheme set` accepts — not the separator-stripped form the lookup matches on. An
+    /// unknown name resolves to nord, which is where [`named`](Self::named) would send it anyway.
+    fn canonical(name: &str) -> &'static str {
+        let normalized = normalize(name);
+        BUILT_IN_THEMES
+            .iter()
+            .copied()
+            .find(|known| normalize(known) == normalized)
+            .unwrap_or("nord")
     }
 
     /// Metadata for a built-in theme name (falls back to nord's).

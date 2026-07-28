@@ -328,6 +328,14 @@ fn setup_shell(config_path: PathBuf) {
         crate::core::ipc::handle,
     );
 
+    // A wallpaper-derived palette landing. At app level because it rebuilds every surface, and because the
+    // extraction outlives any one of them: a scheme asked for while a panel was open must still arrive after
+    // that panel has closed. The first delivery is what startup already resolved, so it reloads nothing.
+    platform_layershell::watch(
+        crate::shared::scheme::subscribe,
+        crate::shared::scheme::on_change,
+    );
+
     // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
     // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live
     // config, which only the driver thread can read. Costs nothing on a desktop — the producer retires when
@@ -371,6 +379,13 @@ fn apply_config(config: &Arc<Config>) {
     rsx::set_default_font_family(config.theme.font_family.clone());
     crate::core::shell::set_config(Arc::clone(config));
     crate::shared::icon::init_store(&config.icons);
+    // After `set_config`: deriving a palette needs to know which wallpaper is up, and that answer comes from the
+    // config that was just published. Cheap when the palette is already cached, which is every start after the
+    // first; a miss quantises the image on a thread of its own and lands through the scheme watcher below.
+    crate::shared::scheme::init(config);
+    // The surfaces this reload is about to open will carry whatever `init` just resolved, so the watcher must
+    // not read the delivery that follows as a change and ask for a second, identical reload.
+    crate::shared::scheme::mark_painted();
     // After `set_config`, so the stages are armed from the config that was just published rather than the one
     // they were armed from last time.
     crate::shared::services::idle::reconcile();

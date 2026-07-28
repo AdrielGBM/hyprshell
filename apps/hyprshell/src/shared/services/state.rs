@@ -29,9 +29,6 @@ pub struct ShellState {
     pub muted_apps: Vec<String>,
     pub game_mode: bool,
     pub idle_inhibit: bool,
-    /// The theme name and accent last chosen at runtime (the launcher's scheme picker), overriding `[theme]`.
-    pub scheme: Option<String>,
-    pub scheme_variant: Option<String>,
     /// How many times each desktop-entry id was launched, so the launcher can rank by familiarity.
     pub launch_counts: HashMap<String, u32>,
 }
