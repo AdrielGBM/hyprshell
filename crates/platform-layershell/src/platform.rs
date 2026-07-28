@@ -23,6 +23,9 @@ use smithay_client_toolkit::reexports::calloop::ping::make_ping;
 use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle, RegistrationToken};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
+use smithay_client_toolkit::reexports::protocols::ext::idle_notify::v1::client::ext_idle_notifier_v1::ExtIdleNotifierV1;
+use smithay_client_toolkit::reexports::protocols::ext::session_lock::v1::client::ext_session_lock_manager_v1::ExtSessionLockManagerV1;
+use smithay_client_toolkit::reexports::protocols::ext::session_lock::v1::client::ext_session_lock_surface_v1::ExtSessionLockSurfaceV1;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::keyboard::{
     KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers,
@@ -45,12 +48,13 @@ use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_s
 use wayland_client::{Connection, Proxy, QueueHandle};
 
 use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
+use crate::lock::LockSession;
 use crate::window::LayerWindow;
 
 /// The type driven every surface handler is boxed to, so one loop holds statically-declared bars and
 /// runtime-opened drawers/OSDs in one `Vec` (the blanket `EventHandler for Box<dyn EventHandler>` makes the
 /// box callable). All surfaces share this UI thread; isolation is the handler's own `ui_core::Surface`.
-type BoxedHandler = Box<dyn EventHandler<LayerWindow>>;
+pub(crate) type BoxedHandler = Box<dyn EventHandler<LayerWindow>>;
 
 /// The calloop sources (timers, channels) a surface registered while its handler ran, removed together when the
 /// surface is torn down. Shared by `Rc` so `with_current` can hand the sink to `interval`/`watch` without
@@ -254,10 +258,35 @@ impl MultiSurfacePlatform for LayerShellPlatform {
     }
 }
 
-/// A single mounted surface: its layer-shell object, wgpu-bridging window, and (unless it is a reservation-only
+/// The shell object a surface is mounted through. Two roles share every other part of the driver — one
+/// connection, one seat, one loop, the same rsx handler and the same `LayerWindow` bridging it to wgpu — and
+/// differ only in which protocol object carries the surface and how it is configured.
+pub(crate) enum Shell {
+    Layer(LayerSurface),
+    /// A session-lock surface, which owns its `wl_surface` directly (there is no SCTK wrapper for it).
+    Lock {
+        surface: wl_surface::WlSurface,
+        lock: ExtSessionLockSurfaceV1,
+    },
+}
+
+impl Shell {
+    pub(crate) fn wl_surface(&self) -> &wl_surface::WlSurface {
+        match self {
+            Shell::Layer(layer) => layer.wl_surface(),
+            Shell::Lock { surface, .. } => surface,
+        }
+    }
+
+    fn commit(&self) {
+        self.wl_surface().commit();
+    }
+}
+
+/// A single mounted surface: its shell object, wgpu-bridging window, and (unless it is a reservation-only
 /// strip) the rsx handler that renders it. All entries live on one thread and share one Wayland connection.
-struct SurfaceEntry {
-    layer: LayerSurface,
+pub(crate) struct SurfaceEntry {
+    pub(crate) shell: Shell,
     wl_id: ObjectId,
     window: Option<LayerWindow>,
     handler: Option<BoxedHandler>,
@@ -282,11 +311,61 @@ struct SurfaceEntry {
     reservation: Option<(SlotPool, Buffer, (u32, u32))>,
 }
 
+impl SurfaceEntry {
+    /// A surface the driver mounts with no layer-shell configuration of its own — currently only a lock
+    /// surface, whose size, anchoring and input are the compositor's to decide.
+    pub(crate) fn new(
+        shell: Shell,
+        wl_id: ObjectId,
+        handler: Option<BoxedHandler>,
+        close: Option<Arc<AtomicBool>>,
+        namespace: String,
+        scale: i32,
+        logical_size: (u32, u32),
+    ) -> Self {
+        Self {
+            shell,
+            wl_id,
+            window: None,
+            handler,
+            close,
+            sources: SourceSink::default(),
+            namespace,
+            reserve_only: false,
+            interactive_input_region: false,
+            scale,
+            logical_size,
+            configured: false,
+            resumed: false,
+            closed: false,
+            events: Vec::new(),
+            timeout: None,
+            input_region: Vec::new(),
+            reservation: None,
+        }
+    }
+
+    /// Adopts a compositor-decided size: records it, resizes the window behind the renderer, and (once the
+    /// first configure has been taken) tells the handler to re-lay-out.
+    pub(crate) fn apply_configure(&mut self, width: u32, height: u32) {
+        self.logical_size = (width, height);
+        let scale = self.scale.max(1) as u32;
+        if let Some(window) = &self.window {
+            window.set_size(width * scale, height * scale);
+        }
+        self.shell.wl_surface().set_buffer_scale(self.scale.max(1));
+        if self.configured {
+            self.events.push(Event::WindowResized { width, height });
+        }
+        self.configured = true;
+    }
+}
+
 /// The single-thread driver: one Wayland connection's shared globals (registry/output/seat/shm) plus every
 /// live surface. The SCTK delegate handlers route each event to its surface by `wl_surface` id.
-struct Driver {
+pub(crate) struct Driver {
     registry_state: RegistryState,
-    output_state: OutputState,
+    pub(crate) output_state: OutputState,
     seat_state: SeatState,
     shm: Shm,
     keyboard: Option<wl_keyboard::WlKeyboard>,
@@ -294,7 +373,26 @@ struct Driver {
     modifiers: ModifiersState,
     // The surface currently holding keyboard focus, so key events route to the right handler.
     keyboard_focus: Option<ObjectId>,
-    surfaces: Vec<SurfaceEntry>,
+    pub(crate) surfaces: Vec<SurfaceEntry>,
+    /// `None` where the compositor does not implement `ext-session-lock-v1`, which is what makes the shell
+    /// refuse to lock rather than draw an overlay it cannot enforce.
+    pub(crate) lock_manager: Option<ExtSessionLockManagerV1>,
+    pub(crate) lock: Option<LockSession>,
+}
+
+/// What the shell can ask about this compositor before it commits to a feature. Read from any thread that has
+/// gone through the driver, so a UI handler can grey out "lock" rather than fail on the attempt.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DriverFacts {
+    pub(crate) lock_supported: bool,
+}
+
+thread_local! {
+    static FACTS: RefCell<DriverFacts> = const { RefCell::new(DriverFacts { lock_supported: false }) };
+}
+
+pub(crate) fn with_driver_facts<R>(read: impl FnOnce(&DriverFacts) -> R) -> R {
+    FACTS.with(|facts| read(&facts.borrow()))
 }
 
 impl Driver {
@@ -401,26 +499,18 @@ fn create_surface_entry(
     layer.commit();
 
     let wl_id = layer.wl_surface().id();
-    driver.surfaces.push(SurfaceEntry {
-        layer,
+    let mut entry = SurfaceEntry::new(
+        Shell::Layer(layer),
         wl_id,
-        window: None,
         handler,
         close,
-        sources: SourceSink::default(),
-        namespace: config.namespace.clone(),
-        reserve_only: config.reserve_only,
-        interactive_input_region: config.interactive_input_region,
+        config.namespace.clone(),
         scale,
-        logical_size: (config.size.0.max(1), config.size.1.max(1)),
-        configured: false,
-        resumed: false,
-        closed: false,
-        events: Vec::new(),
-        timeout: None,
-        input_region: Vec::new(),
-        reservation: None,
-    });
+        (config.size.0.max(1), config.size.1.max(1)),
+    );
+    entry.reserve_only = config.reserve_only;
+    entry.interactive_input_region = config.interactive_input_region;
+    driver.surfaces.push(entry);
 }
 
 fn run_driver<H, F>(
@@ -445,6 +535,17 @@ where
         .map_err(|e| PlatformError(format!("zwlr_layer_shell_v1 unavailable: {e}")))?;
     let shm =
         Shm::bind(&globals, &qh).map_err(|e| PlatformError(format!("wl_shm unavailable: {e}")))?;
+    // Optional by design: a compositor without either protocol still runs every bar and panel. The features
+    // that need them ask first (`lock_supported`, `idle_supported`) rather than failing at the point of use.
+    let lock_manager = globals
+        .bind::<ExtSessionLockManagerV1, Driver, ()>(&qh, 1..=1, ())
+        .inspect_err(|e| tracing::info!("ext-session-lock-v1 unavailable: {e}"))
+        .ok();
+    let idle_notifier = globals
+        .bind::<ExtIdleNotifierV1, Driver, ()>(&qh, 1..=2, ())
+        .inspect_err(|e| tracing::info!("ext-idle-notify-v1 unavailable: {e}"))
+        .ok();
+    FACTS.with(|facts| facts.borrow_mut().lock_supported = lock_manager.is_some());
 
     let mut driver = Driver {
         registry_state: RegistryState::new(&globals),
@@ -456,6 +557,8 @@ where
         modifiers: ModifiersState::default(),
         keyboard_focus: None,
         surfaces: Vec::new(),
+        lock_manager,
+        lock: None,
     };
 
     let mut event_loop: EventLoop<Driver> =
@@ -485,6 +588,12 @@ where
         }
     }
 
+    // After priming, since an idle notification is taken out against a seat and the seat only exists once the
+    // registry has been round-tripped. Absent either half, idle timers report themselves as unsupported.
+    if let (Some(notifier), Some(seat)) = (idle_notifier, driver.seat_state.seats().next()) {
+        crate::idle::install(notifier, seat, qh.clone());
+    }
+
     for (id, _window_config) in surfaces {
         let config = configs.get(&id).cloned().unwrap_or_default();
         let handler: Option<BoxedHandler> = if config.reserve_only {
@@ -510,6 +619,10 @@ where
 
     let mut next_timeout: Option<Duration> = Some(Duration::ZERO);
     loop {
+        // Before the surface pass, so a lock taken during the last dispatch has its surfaces mounted — and an
+        // unlock has them torn down — in this same turn rather than one frame late.
+        crate::lock::poll(&mut driver, &compositor, &qh, &conn, &loop_handle);
+
         // Mount any dynamic surfaces requested since the last turn (drawers/OSDs opened via `open_surface`).
         let pending: Vec<PendingSurface> = DYN_QUEUE.with(|q| std::mem::take(&mut *q.borrow_mut()));
         for p in pending {
@@ -570,7 +683,7 @@ where
                     continue;
                 };
                 let Some(surface_ptr) =
-                    NonNull::new(entry.layer.wl_surface().id().as_ptr() as *mut c_void)
+                    NonNull::new(entry.shell.wl_surface().id().as_ptr() as *mut c_void)
                 else {
                     remove.push(index);
                     continue;
@@ -632,7 +745,7 @@ where
                     .unwrap_or_default();
                 update_input_region(
                     &compositor,
-                    &entry.layer,
+                    entry.shell.wl_surface(),
                     &entry.namespace,
                     rects,
                     &mut entry.input_region,
@@ -657,13 +770,19 @@ where
 
 /// Suspends a surface's handler and then removes every loop source it registered, so its timers and watch
 /// channels stop with it. Dropping the channel receivers also ends the producer threads feeding them.
-fn tear_down(mut entry: SurfaceEntry, loop_handle: &LoopHandle<'static, Driver>) {
+pub(crate) fn tear_down(mut entry: SurfaceEntry, loop_handle: &LoopHandle<'static, Driver>) {
     if let Some(mut handler) = entry.handler.take() {
         let sources = Rc::clone(&entry.sources);
         with_current(&entry.close, &sources, || handler.on_suspend());
     }
     for token in entry.sources.borrow_mut().drain(..) {
         loop_handle.remove(token);
+    }
+    // A layer surface is destroyed by dropping SCTK's wrapper; a lock surface has no wrapper, so its two
+    // protocol objects are released here — the role object first, as the protocol's ordering requires.
+    if let Shell::Lock { surface, lock } = &entry.shell {
+        lock.destroy();
+        surface.destroy();
     }
 }
 
@@ -703,11 +822,11 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
             return;
         }
     };
-    let surface = entry.layer.wl_surface();
+    let surface = entry.shell.wl_surface();
     surface.set_buffer_scale(scale as i32);
     if buffer.attach_to(surface).is_ok() {
         surface.damage_buffer(0, 0, w as i32, h as i32);
-        entry.layer.commit();
+        entry.shell.commit();
         entry.reservation = Some((pool, buffer, (w, h)));
     }
 }
@@ -723,7 +842,7 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
 /// always empty, so every surface using this was click-through everywhere.
 fn update_input_region(
     compositor: &CompositorState,
-    layer: &LayerSurface,
+    surface: &wl_surface::WlSurface,
     namespace: &str,
     rects: Vec<rsx::Rect>,
     last: &mut Vec<(i32, i32, i32, i32)>,
@@ -753,14 +872,12 @@ fn update_input_region(
     for (x, y, w, h) in &rects {
         region.add(*x, *y, *w, *h);
     }
-    layer
-        .wl_surface()
-        .set_input_region(Some(region.wl_region()));
-    layer.wl_surface().commit();
+    surface.set_input_region(Some(region.wl_region()));
+    surface.commit();
     *last = rects;
 }
 
-struct NoPaths;
+pub(crate) struct NoPaths;
 impl rsx::AppPathsProvider for NoPaths {
     fn config_dir(&self) -> Option<std::path::PathBuf> {
         None
@@ -1105,7 +1222,15 @@ impl OutputHandler for Driver {
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
         self.refresh_outputs();
     }
-    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+    fn output_destroyed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        output: wl_output::WlOutput,
+    ) {
+        // Before the refresh, so a monitor unplugged and plugged back in gets a fresh lock surface instead of
+        // being skipped as one this session already covered.
+        crate::lock::forget_output(self, &output);
         self.refresh_outputs();
     }
 }
@@ -1138,22 +1263,7 @@ impl LayerShellHandler for Driver {
         if lh == 0 {
             lh = entry.logical_size.1.max(1);
         }
-        entry.logical_size = (lw, lh);
-        let scale = entry.scale.max(1) as u32;
-        if let Some(window) = &entry.window {
-            window.set_size(lw * scale, lh * scale);
-        }
-        entry
-            .layer
-            .wl_surface()
-            .set_buffer_scale(entry.scale.max(1));
-        if entry.configured {
-            entry.events.push(Event::WindowResized {
-                width: lw,
-                height: lh,
-            });
-        }
-        entry.configured = true;
+        entry.apply_configure(lw, lh);
     }
 }
 
