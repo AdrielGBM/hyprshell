@@ -117,7 +117,7 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
             out.push_str(&comment(doc, ""));
         }
         let _ = writeln!(out, "[{name}]");
-        out.push_str(&render_section(value, structure));
+        out.push_str(&render_section(name, value, structure));
         out.push('\n');
     }
     Ok(out)
@@ -125,17 +125,28 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
 
 /// A section's keys: each documented field's comment, then the key and its default. Nested tables (`[theme.scale]`)
 /// are emitted after the flat keys, which is the order TOML requires.
-fn render_section(value: &toml::Value, structure: &str) -> String {
+fn render_section(section: &str, value: &toml::Value, structure: &str) -> String {
     let Some(table) = value.as_table() else {
         return String::new();
     };
     let mut out = String::new();
+    let mut arrays = String::new();
     for (key, entry) in table {
         if entry.is_table() {
             continue;
         }
         if let Some(doc) = doc_for(structure, key) {
             out.push_str(&comment(doc, ""));
+        }
+        // A list of tables (`[[battery.warn_levels]]`, `[[idle.stages]]`) has to carry its section in the
+        // header and has to come after the section's flat keys — serializing it as a bare one-key map gets
+        // both wrong, and yields a reference whose own text does not parse back into the section it documents.
+        if let Some(entries) = table_array(entry) {
+            for element in entries {
+                let _ = writeln!(arrays, "\n[[{section}.{key}]]");
+                arrays.push_str(&toml::to_string(element).unwrap_or_default());
+            }
+            continue;
         }
         let rendered = toml::to_string(&toml::map::Map::from_iter([(
             key.clone(),
@@ -145,7 +156,14 @@ fn render_section(value: &toml::Value, structure: &str) -> String {
         out.push_str(&rendered);
     }
     out.push_str(&render_unset(table, structure));
+    out.push_str(&arrays);
     out
+}
+
+/// `entry` as a non-empty array of tables, which is the one shape that needs its own header.
+fn table_array(entry: &toml::Value) -> Option<&[toml::Value]> {
+    let array = entry.as_array()?;
+    (!array.is_empty() && array.iter().all(toml::Value::is_table)).then_some(array.as_slice())
 }
 
 /// The keys serde left out because they default to `None`.
@@ -206,6 +224,25 @@ mod tests {
         // And it round-trips: what the reference prints is a config the shell would accept.
         let parsed: Config = toml::from_str(&text).expect("the printed schema parses");
         assert_eq!(parsed.notifications.max_visible, 4);
+    }
+
+    #[test]
+    fn a_list_of_tables_is_printed_under_the_section_that_owns_it() {
+        // Round-tripping is not enough on its own to catch this: a bare `[[stages]]` parses as an unknown
+        // top-level key, which serde drops silently — so the reference read as valid while documenting a
+        // section the shell would never see.
+        let text = render(Some("idle")).expect("renders");
+        assert!(text.contains("[[idle.stages]]"), "{text}");
+        assert!(!text.contains("\n[[stages]]"), "{text}");
+
+        let parsed: Config = toml::from_str(&text).expect("the printed section parses");
+        let printed = Config::starter().idle.stages;
+        assert_eq!(parsed.idle.stages.len(), printed.len());
+        assert_eq!(parsed.idle.stages[0].action, printed[0].action);
+
+        // The same shape one section over, so the fix is not one special case.
+        let battery = render(Some("battery")).expect("renders");
+        assert!(battery.contains("[[battery.warn_levels]]"), "{battery}");
     }
 
     #[test]
