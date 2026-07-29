@@ -1,0 +1,12 @@
+[toast]
+charging = "Charging"
+on_battery = "On battery"
+game_mode = "Game mode"
+dnd = "Do Not Disturb"
+audio_output = "Output"
+audio_input = "Input"
+caps_lock = "Caps Lock"
+num_lock = "Num Lock"
+kb_layout = "Keyboard layout"
+vpn = "VPN"
+config_loaded = "Configuration reloaded"

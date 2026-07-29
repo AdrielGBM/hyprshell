@@ -1,0 +1,12 @@
+[toast]
+charging = "Cargando"
+on_battery = "Con batería"
+game_mode = "Modo juego"
+dnd = "No molestar"
+audio_output = "Salida"
+audio_input = "Entrada"
+caps_lock = "Bloq Mayús"
+num_lock = "Bloq Num"
+kb_layout = "Distribución de teclado"
+vpn = "VPN"
+config_loaded = "Configuración recargada"

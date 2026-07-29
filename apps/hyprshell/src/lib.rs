@@ -276,6 +276,10 @@ fn setup_shell(config_path: PathBuf) {
     // startup; notification state lives in the daemon, so it need not be rebuilt on a bar-config change).
     crate::modules::notifications::popup_host(Arc::clone(&config));
 
+    // Toasts. The host holds no surface until something is posted; the watchers are installed by `apply_config`,
+    // which has already run, so an event switched on later gets its watcher on the next reload.
+    crate::modules::toast::toast_host();
+
     let initial = open_surfaces(&config);
     // Through tracing rather than `println!`: this runs on the driver thread, where a direct write to a pipe
     // nobody is draining blocks forever. See `init_tracing`.
@@ -304,12 +308,18 @@ fn setup_shell(config_path: PathBuf) {
             // Panels were built against the outgoing config; leaving one up would leave a stale theme and a
             // dangling anchor on screen. The popout tracks what is showing, so it is reset rather than only dropped.
             crate::modules::popout::close();
+            // The region picker is its own surface with its own frozen still, so a reload has to take it down too
+            // — a picker holding a picture of the old desktop would keep the screen covered.
+            crate::modules::capture::close_picker();
             crate::core::shell::close_all();
             for handle in handles.borrow_mut().drain(..) {
                 handle.close();
             }
             *handles.borrow_mut() = open_surfaces(&config);
             *live.borrow_mut() = config;
+            // From here rather than from `apply_config`, which also runs at startup: a toast saying the config
+            // was reloaded is only true of a reload.
+            crate::modules::toast::config_reloaded();
         }
     };
     let reconcile = Rc::new(reconcile);
@@ -391,6 +401,10 @@ fn apply_config(config: &Arc<Config>) {
     crate::shared::services::idle::reconcile();
     // The daemon outlives every reload, so an edited `[notifications]` reaches it this way rather than by restarting it — which would drop the bus name and the history with it.
     crate::shared::services::notifications::set_policy(notification_policy(config));
+    // The toast watchers a switched-on event needs. Additive and idempotent: a subscription cannot be undone, so
+    // this installs what is missing and leaves the rest — an event switched *off* is silenced by the toaster's own
+    // gate rather than by tearing its watcher down.
+    crate::modules::toast::watch_events(config);
 }
 
 /// The daemon's slice of `[notifications]`, resolved in one place so startup and reload agree on it.
