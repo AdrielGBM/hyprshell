@@ -541,6 +541,204 @@ static TARGETS: &[Target] = &[
                     Ok(on_off(next).to_string())
                 },
             },
+            Command {
+                name: "center",
+                args: "[open|close|toggle]",
+                help: "the notification centre: history and quick toggles on a full-height surface",
+                run: |args| {
+                    use crate::modules::sidebar;
+                    match args.first().copied().unwrap_or("toggle") {
+                        "open" => sidebar::open(),
+                        "close" => sidebar::close(),
+                        "toggle" => sidebar::toggle(),
+                        other => {
+                            return Err(format!("expected open|close|toggle, got '{other}'"));
+                        }
+                    }
+                    Ok(on_off(sidebar::is_open()).to_string())
+                },
+            },
+        ],
+    },
+    Target {
+        name: "screenshot",
+        commands: &[
+            Command {
+                name: "screen",
+                args: "",
+                help: "capture every monitor, composed into one image",
+                run: |_| {
+                    use crate::shared::services::screenshot::Target;
+                    crate::modules::capture::screenshot(Target::Screen);
+                    Ok("capturing".to_string())
+                },
+            },
+            Command {
+                name: "output",
+                args: "[name]",
+                help: "capture one monitor, the focused one by default",
+                run: |args| {
+                    use crate::shared::services::screenshot::Target;
+                    match reading_output(args.first().copied())? {
+                        Some(name) => crate::modules::capture::screenshot(Target::Output(name)),
+                        None => crate::modules::capture::screenshot(Target::Screen),
+                    }
+                    Ok("capturing".to_string())
+                },
+            },
+            Command {
+                name: "region",
+                args: "",
+                help: "pick a region with the pointer, then capture it",
+                run: |_| {
+                    crate::modules::capture::screenshot_region();
+                    Ok("picking".to_string())
+                },
+            },
+            Command {
+                name: "cancel",
+                args: "",
+                help: "close the region picker without capturing",
+                run: |_| {
+                    crate::modules::capture::close_picker();
+                    Ok("cancelled".to_string())
+                },
+            },
+            Command {
+                name: "last",
+                args: "",
+                help: "where the last capture went, or why it failed",
+                run: |_| {
+                    use crate::shared::services::screenshot;
+                    match screenshot::current() {
+                        Some(Ok(shot)) => Ok(match shot.path {
+                            Some(path) => path.display().to_string(),
+                            None => "clipboard".to_string(),
+                        }),
+                        Some(Err(reason)) => Err(reason),
+                        None => Ok(String::new()),
+                    }
+                },
+            },
+        ],
+    },
+    Target {
+        name: "record",
+        commands: &[
+            Command {
+                name: "start",
+                args: "[screen|output|region]",
+                help: "start recording; a region opens the picker first",
+                run: |args| {
+                    match args.first().copied().unwrap_or("screen") {
+                        "screen" => crate::modules::capture::record_screen(),
+                        "output" => crate::modules::capture::record_output(),
+                        "region" => crate::modules::capture::record_region(),
+                        other => {
+                            return Err(format!("expected screen|output|region, got '{other}'"));
+                        }
+                    }
+                    Ok("recording".to_string())
+                },
+            },
+            Command {
+                name: "stop",
+                args: "",
+                help: "stop the recording, letting the encoder close its file",
+                run: |_| {
+                    crate::shared::services::recorder::stop();
+                    Ok("stopping".to_string())
+                },
+            },
+            Command {
+                name: "toggle",
+                args: "",
+                help: "stop the recording, or start one of the whole screen",
+                run: |_| {
+                    crate::modules::capture::toggle_recording();
+                    Ok("toggled".to_string())
+                },
+            },
+            Command {
+                name: "pause",
+                args: "",
+                help: "suspend or resume the recording, on a backend that can",
+                run: |_| {
+                    let paused = crate::shared::services::recorder::toggle_pause()?;
+                    Ok(on_off(paused).to_string())
+                },
+            },
+            Command {
+                name: "status",
+                args: "",
+                help: "whether something is being recorded, for how long, and where",
+                run: |_| {
+                    use crate::shared::services::recorder;
+                    let state = recorder::current();
+                    let backend = state
+                        .backend
+                        .map(|backend| backend.program().to_string())
+                        .unwrap_or_else(|| "-".to_string());
+                    let file = state
+                        .path
+                        .as_ref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default();
+                    // Four columns, most useful first, so a bar script can cut one out.
+                    Ok(format!(
+                        "{}\t{}\t{backend}\t{file}",
+                        on_off(state.active),
+                        recorder::format_elapsed(state.elapsed())
+                    ))
+                },
+            },
+            Command {
+                name: "list",
+                args: "",
+                help: "the recordings, newest first",
+                run: |_| {
+                    use crate::shared::services::recorder;
+                    let config = shell::config().ok_or("the shell is not running")?;
+                    let rows: Vec<String> = recorder::recordings(
+                        &config.recordings_dir(),
+                        config.recorder.entries(),
+                    )
+                    .into_iter()
+                    .map(|entry| format!("{}\t{}", entry.size_label(), entry.path.display()))
+                    .collect();
+                    Ok(rows.join("\n"))
+                },
+            },
+        ],
+    },
+    Target {
+        name: "toast",
+        commands: &[
+            Command {
+                name: "show",
+                args: "<text…>",
+                help: "show an in-shell toast, for a script that wants to say something",
+                run: |args| {
+                    use crate::shared::services::toaster::{self, Event};
+                    let text = args.join(" ");
+                    if text.trim().is_empty() {
+                        return Err("missing argument <text>".to_string());
+                    }
+                    // Under the config-reload event, which is the one that means "the shell itself is talking";
+                    // a script's toast should be switchable off by the same key.
+                    toaster::post(Event::ConfigLoaded, "info", text.clone(), String::new());
+                    Ok(text)
+                },
+            },
+            Command {
+                name: "clear",
+                args: "",
+                help: "dismiss every toast on screen",
+                run: |_| {
+                    crate::shared::services::toaster::clear();
+                    Ok("cleared".to_string())
+                },
+            },
         ],
     },
     Target {
@@ -1907,6 +2105,15 @@ mod tests {
             ("wallpaper", "clear"),
             ("scheme", "refresh"),
             ("scheme", "export"),
+            ("screenshot", "screen"),
+            ("screenshot", "region"),
+            ("screenshot", "cancel"),
+            ("record", "start"),
+            ("record", "stop"),
+            ("record", "toggle"),
+            ("record", "pause"),
+            ("toast", "clear"),
+            ("notifs", "center"),
         ];
         for (target, command) in ARGUMENTLESS_MUTATIONS {
             assert!(
