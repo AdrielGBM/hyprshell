@@ -187,6 +187,53 @@ pub fn num_lock() -> &'static str {
     "mdi:numeric"
 }
 
+/// Do-Not-Disturb, which the bell chip and the quick toggle both draw.
+pub fn dnd(on: bool) -> &'static str {
+    if on { "bell-off" } else { "bell" }
+}
+
+pub fn game_mode(active: bool) -> &'static str {
+    if active { "gamepad-2" } else { "gamepad" }
+}
+
+pub fn vpn(connected: bool) -> &'static str {
+    if connected { "shield-check" } else { "shield-off" }
+}
+
+/// Holding the idle timers off reads as a machine kept awake, not as one asleep.
+pub fn idle_inhibit(held: bool) -> &'static str {
+    if held { "coffee" } else { "moon" }
+}
+
+pub fn keyboard_layout() -> &'static str {
+    "keyboard"
+}
+
+pub fn now_playing() -> &'static str {
+    "music"
+}
+
+pub fn screenshot() -> &'static str {
+    "camera"
+}
+
+/// A recorder's toggle: what pressing it will do, so a live recording offers the way to stop it.
+pub fn recording(active: bool) -> &'static str {
+    if active { "circle-stop" } else { "video" }
+}
+
+pub fn utilities() -> &'static str {
+    "sliders-horizontal"
+}
+
+pub fn window_info() -> &'static str {
+    "app-window"
+}
+
+pub fn area_select() -> &'static str {
+    "crop"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

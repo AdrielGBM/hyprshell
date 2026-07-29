@@ -1,3 +1,21 @@
+[screenshot]
+saved_title = "Captura de pantalla"
+saved = "Guardada como {file}"
+saved_and_copied = "Copiada y guardada como {file}"
+copied = "Copiada al portapapeles"
+taken = "Capturada"
+failed_title = "No se pudo capturar"
+
+[recorder]
+started_title = "Grabando"
+started = "Grabando en {file}"
+saved_title = "Grabación terminada"
+saved = "Guardada como {file}"
+failed_title = "No se pudo grabar"
+no_backend = "No hay grabador — instala wf-recorder o gpu-screen-recorder."
+no_pause = "{backend} no puede pausar una grabación."
+not_recording = "No se está grabando nada."
+
 [weather]
 clear = "Despejado"
 mostly_clear = "Poco nuboso"

@@ -21,15 +21,32 @@ pub fn copy(text: &str) {
         });
 }
 
+/// Copies `data` to the clipboard under `mime`, off the UI thread — a screenshot is megabytes, and the write
+/// only returns once `wl-copy` has read all of it.
+pub fn copy_bytes(mime: &'static str, data: Vec<u8>) {
+    let _ = std::thread::Builder::new()
+        .name("hyprshell-clipboard".to_string())
+        .spawn(move || {
+            if feed_wl_copy(&["--type", mime], &data).is_none() {
+                tracing::warn!("clipboard: `wl-copy` is not available; nothing was copied");
+            }
+        });
+}
+
 /// Feeds `text` to `wl-copy` on stdin, so it never appears in the process table the way an argument would.
 fn write_to_wl_copy(text: &str) -> Option<()> {
+    feed_wl_copy(&[], text.as_bytes())
+}
+
+fn feed_wl_copy(args: &[&str], data: &[u8]) -> Option<()> {
     let mut child = Command::new("wl-copy")
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.take()?.write_all(text.as_bytes()).ok()?;
+    child.stdin.take()?.write_all(data).ok()?;
     // `wl-copy` forks a daemon to own the selection and exits, so waiting here is bounded.
     child.wait().ok()?;
     Some(())

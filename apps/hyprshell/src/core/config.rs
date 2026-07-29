@@ -2040,6 +2040,312 @@ impl ClockConfig {
     }
 }
 
+/// Screenshots (`[screenshot]`).
+///
+/// `backend` is `auto` (the default), `screencopy` to insist on the Wayland protocol, or `grim` to insist on the
+/// tool. `auto` prefers the protocol — it needs nothing installed and hands the shell the pixels rather than a
+/// file — and falls back to `grim` on a compositor that does not implement it.
+///
+/// `annotator` is the command a saved capture is handed to, with `{file}` where the path goes (appended when the
+/// command does not name it): `satty --filename {file}`, `swappy -f`. Empty means the capture is simply saved.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct ScreenshotConfig {
+    /// Put every capture on the clipboard, as well as saving it.
+    pub copy: bool,
+    pub save: bool,
+    pub include_cursor: bool,
+    /// Hold the last frame on screen while a region is being selected, so a menu or a hover state can be
+    /// captured without disappearing the moment the overlay takes the pointer.
+    pub freeze: bool,
+    /// Say where the file went, through the shell's own notification daemon.
+    pub notify: bool,
+    pub backend: String,
+    /// `strftime` pattern for the file's stem; the extension is always `.png`.
+    pub file_name: String,
+    pub annotator: String,
+}
+
+impl Default for ScreenshotConfig {
+    fn default() -> Self {
+        Self {
+            copy: true,
+            save: true,
+            include_cursor: false,
+            freeze: true,
+            notify: true,
+            backend: "auto".to_string(),
+            file_name: "screenshot_%Y-%m-%d_%H-%M-%S".to_string(),
+            annotator: String::new(),
+        }
+    }
+}
+
+impl ScreenshotConfig {
+    fn backend_id(&self) -> String {
+        self.backend.trim().to_ascii_lowercase()
+    }
+
+    /// Whether `grim` is the route to take first, because the user asked for it by name.
+    pub fn prefers_grim(&self) -> bool {
+        self.backend_id() == "grim"
+    }
+
+    /// Whether a failed protocol capture may fall back to `grim`. `screencopy` means "this route or none": a
+    /// user who names a backend is usually debugging one, and a silent fallback is what hides the answer.
+    pub fn may_use_grim(&self) -> bool {
+        self.backend_id() != "screencopy"
+    }
+
+    pub fn has_annotator(&self) -> bool {
+        !self.annotator.trim().is_empty()
+    }
+}
+
+/// Screen recording (`[recorder]`).
+///
+/// `backend` is `auto`, `wf-recorder` or `gpu-screen-recorder`; `auto` takes whichever is installed. Neither is a
+/// dependency of the shell — with no recorder present the controls grey out rather than failing on the press.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct RecorderConfig {
+    pub backend: String,
+    pub audio: bool,
+    /// The PipeWire node to record from; empty is the session's default output.
+    pub audio_device: String,
+    pub fps: u32,
+    /// `strftime` pattern for the file's stem; the backend decides the container.
+    pub file_name: String,
+    pub notify: bool,
+    /// How many recordings the list in the utilities panel shows.
+    pub max_entries: u32,
+}
+
+impl Default for RecorderConfig {
+    fn default() -> Self {
+        Self {
+            backend: "auto".to_string(),
+            audio: false,
+            audio_device: String::new(),
+            fps: 60,
+            file_name: "recording_%Y-%m-%d_%H-%M-%S".to_string(),
+            notify: true,
+            max_entries: 12,
+        }
+    }
+}
+
+impl RecorderConfig {
+    /// Clamped to what an encoder will accept: a `0` here would be a recorder that writes no frames, and a
+    /// four-figure rate is a typo rather than a request.
+    pub fn fps(&self) -> u32 {
+        self.fps.clamp(1, 240)
+    }
+
+    pub fn entries(&self) -> usize {
+        self.max_entries.clamp(1, 200) as usize
+    }
+}
+
+/// Which in-shell toasts to show (`[toasts.events]`).
+///
+/// One switch per event rather than a single `enabled`, because the useful set is personal: the point of a toast
+/// is that it tells you something you would otherwise miss, and a toast about something you already know is
+/// noise. Every one is on by default except the two that fire most often.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct ToastEvents {
+    pub config_loaded: bool,
+    pub charging: bool,
+    pub game_mode: bool,
+    pub dnd: bool,
+    pub audio_output: bool,
+    pub audio_input: bool,
+    /// Caps Lock and Num Lock — the one piece of state a keyboard changes and never reports.
+    pub lock_keys: bool,
+    pub kb_layout: bool,
+    pub vpn: bool,
+    /// Off by default: a music player already says what it is playing, and every skipped track would be a toast.
+    pub now_playing: bool,
+    pub screenshot: bool,
+    pub recording: bool,
+}
+
+impl Default for ToastEvents {
+    fn default() -> Self {
+        Self {
+            config_loaded: true,
+            charging: true,
+            game_mode: true,
+            dnd: true,
+            audio_output: true,
+            audio_input: true,
+            lock_keys: true,
+            kb_layout: true,
+            vpn: true,
+            now_playing: false,
+            screenshot: false,
+            recording: true,
+        }
+    }
+}
+
+/// In-shell toasts (`[toasts]`): the transient messages the shell says about itself.
+///
+/// Not notifications. A notification belongs to an application, goes into history and waits under
+/// Do-Not-Disturb; "Caps Lock is on" is feedback about a key that was just pressed and is worthless a second
+/// later. See `shared::services::toaster`.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct ToastsConfig {
+    pub enabled: bool,
+    pub edge: Edge,
+    pub align: Align,
+    pub max_toasts: u32,
+    pub timeout_ms: u64,
+    pub width: f32,
+    pub gap: f32,
+    pub events: ToastEvents,
+}
+
+impl Default for ToastsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            edge: Edge::Bottom,
+            align: Align::Center,
+            max_toasts: 3,
+            timeout_ms: 2500,
+            width: 300.0,
+            gap: 8.0,
+            events: ToastEvents::default(),
+        }
+    }
+}
+
+impl ToastsConfig {
+    /// Whether `event` should reach the screen: toasts on at all, and this event not switched off.
+    pub fn allows(&self, event: crate::shared::services::toaster::Event) -> bool {
+        use crate::shared::services::toaster::Event;
+        self.enabled
+            && match event {
+                Event::ConfigLoaded => self.events.config_loaded,
+                Event::Charging => self.events.charging,
+                Event::GameMode => self.events.game_mode,
+                Event::Dnd => self.events.dnd,
+                Event::AudioOutput => self.events.audio_output,
+                Event::AudioInput => self.events.audio_input,
+                Event::LockKeys => self.events.lock_keys,
+                Event::KbLayout => self.events.kb_layout,
+                Event::Vpn => self.events.vpn,
+                Event::NowPlaying => self.events.now_playing,
+                Event::Screenshot => self.events.screenshot,
+                Event::Recording => self.events.recording,
+            }
+    }
+
+    /// How long a toast stays. Floored rather than allowed to be zero: a toast that expires on the frame it was
+    /// posted is a feature that looks broken.
+    pub fn lifetime(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_ms.clamp(400, 60_000))
+    }
+
+    pub fn visible(&self) -> usize {
+        self.max_toasts.clamp(1, 10) as usize
+    }
+}
+
+/// The notification centre (`[sidebar]`): a full-height surface that is the home for the notification history and
+/// the quick toggles.
+///
+/// Distinct from the bell drawer, which is a glance: this is where a user goes to *deal with* what has arrived,
+/// so it takes the whole edge, scrolls, and hosts the utilities panel's own toggles rather than a second set.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct SidebarConfig {
+    pub edge: Edge,
+    /// Width for a left/right sidebar, height for a top/bottom one, in px.
+    pub size: u32,
+    pub show_toggles: bool,
+    pub show_history: bool,
+}
+
+impl Default for SidebarConfig {
+    fn default() -> Self {
+        Self {
+            edge: Edge::Right,
+            size: 400,
+            show_toggles: true,
+            show_history: true,
+        }
+    }
+}
+
+impl SidebarConfig {
+    /// Clamped so a hand-edited `size` cannot produce a sidebar too narrow to read or one that covers the screen.
+    pub fn thickness(&self) -> u32 {
+        self.size.clamp(240, 1200)
+    }
+}
+
+/// The utilities panel (`[utilities]`): the quick toggles it lists, and in which order.
+///
+/// `toggles` is a list of ids rather than a switch per toggle, because the order is the point — the toggles a
+/// user reaches for live at the front. Unknown ids are dropped with a warning rather than failing the config, so
+/// a name from a newer build costs a line in the log instead of the whole panel.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct UtilitiesConfig {
+    pub toggles: Vec<String>,
+    /// Show the capture (screenshot / recorder) card under the toggles.
+    pub show_capture: bool,
+    /// Show the recordings list under the capture controls.
+    pub show_recordings: bool,
+    /// How many columns the toggle grid uses.
+    pub columns: u32,
+    /// How often the window info panel re-captures its preview, in ms. `0` takes one still and leaves it, which
+    /// is what a machine on battery wants — the preview is a screen capture per refresh.
+    pub window_preview_ms: u64,
+}
+
+impl Default for UtilitiesConfig {
+    fn default() -> Self {
+        Self {
+            toggles: [
+                "wifi",
+                "bluetooth",
+                "mic",
+                "dnd",
+                "game_mode",
+                "vpn",
+                "idle_inhibit",
+                "settings",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            show_capture: true,
+            show_recordings: true,
+            columns: 4,
+            window_preview_ms: 1000,
+        }
+    }
+}
+
+impl UtilitiesConfig {
+    pub fn grid_columns(&self) -> usize {
+        self.columns.clamp(1, 8) as usize
+    }
+
+    /// The preview's refresh period, or `None` for a single still. Floored well above a frame: each refresh is a
+    /// compositor round trip and a full-window copy, and asking for it 60 times a second would cost more than
+    /// the panel showing it.
+    pub fn window_preview_interval(&self) -> Option<Duration> {
+        (self.window_preview_ms > 0)
+            .then(|| Duration::from_millis(self.window_preview_ms.clamp(250, 60_000)))
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
@@ -2060,6 +2366,11 @@ pub struct Config {
     pub osd: OsdConfig,
     pub icons: IconsConfig,
     pub notifications: NotificationsConfig,
+    pub toasts: ToastsConfig,
+    pub screenshot: ScreenshotConfig,
+    pub recorder: RecorderConfig,
+    pub utilities: UtilitiesConfig,
+    pub sidebar: SidebarConfig,
     pub background: BackgroundConfig,
     pub wallpaper: WallpaperConfig,
     pub active_window: ActiveWindowConfig,
@@ -2579,6 +2890,11 @@ impl Config {
             osd: OsdConfig::default(),
             icons: IconsConfig::default(),
             notifications: NotificationsConfig::default(),
+            toasts: ToastsConfig::default(),
+            screenshot: ScreenshotConfig::default(),
+            recorder: RecorderConfig::default(),
+            utilities: UtilitiesConfig::default(),
+            sidebar: SidebarConfig::default(),
             background: BackgroundConfig::default(),
             wallpaper: WallpaperConfig::default(),
             active_window: ActiveWindowConfig::default(),

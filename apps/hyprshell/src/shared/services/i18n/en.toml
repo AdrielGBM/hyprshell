@@ -1,3 +1,21 @@
+[screenshot]
+saved_title = "Screenshot"
+saved = "Saved as {file}"
+saved_and_copied = "Copied, and saved as {file}"
+copied = "Copied to the clipboard"
+taken = "Captured"
+failed_title = "Screenshot failed"
+
+[recorder]
+started_title = "Recording"
+started = "Recording to {file}"
+saved_title = "Recording finished"
+saved = "Saved as {file}"
+failed_title = "Recording failed"
+no_backend = "No recorder found — install wf-recorder or gpu-screen-recorder."
+no_pause = "{backend} cannot pause a recording."
+not_recording = "Nothing is being recorded."
+
 [weather]
 clear = "Clear"
 mostly_clear = "Mostly clear"
