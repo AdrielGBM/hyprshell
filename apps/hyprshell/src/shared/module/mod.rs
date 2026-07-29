@@ -415,6 +415,18 @@ pub fn default_registry() -> ModuleRegistry {
             .icon()
             .opens(),
     );
+    registry.register(
+        "utilities",
+        ModuleDef::new(|_ctx| crate::modules::utilities::utilities_chip())
+            .icon()
+            .opens(),
+    );
+    registry.register(
+        "windowinfo",
+        ModuleDef::new(|_ctx| crate::modules::windowinfo::window_chip())
+            .icon()
+            .opens(),
+    );
     // Wired from the one list that knows which modules have card content, so no chip is given a hover target it would open empty.
     registry.wire_popouts();
     registry
@@ -474,6 +486,8 @@ mod tests {
             "notes",
             "settings",
             "session",
+            "utilities",
+            "windowinfo",
         ];
         let registry = default_registry();
         for id in HAS_PANEL {

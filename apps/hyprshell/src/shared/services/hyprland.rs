@@ -614,6 +614,87 @@ pub fn focus_window(dir: &Path, address: &str) {
     dispatch(dir, &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"));
 }
 
+/// The window actions live under `hl.dsp.window.<action>`, and which *shape* each takes cannot be read off the
+/// compositor: called outside a dispatch context they refuse to build at all, so the usual trick of passing a
+/// nonsense field and reading the "expected one of" reply gets nothing. The same rule the `dpms` dispatcher
+/// taught applies — try a shape, then check whether the compositor's own state moved. See [`set_dpms`].
+///
+/// The table form first, because it is the one shape a verified dispatcher (`focus`) is known to take.
+fn window_calls(action: &str, address: &str, extra: &str) -> [String; 2] {
+    [
+        format!("hl.dsp.window.{action}({{ window = \"address:{address}\"{extra} }})"),
+        format!("hl.dsp.window.{action}(\"address:{address}\")"),
+    ]
+}
+
+/// Runs each shape until `moved` reports the compositor did what was asked. The state is re-read after each
+/// attempt rather than slept on: a dispatch reply arrives after the action, so the next query already sees it.
+fn dispatch_until(dir: &Path, calls: [String; 2], moved: impl Fn(&Path) -> bool) -> bool {
+    if moved(dir) {
+        return true;
+    }
+    for call in calls {
+        dispatch(dir, &call);
+        if moved(dir) {
+            return true;
+        }
+    }
+    false
+}
+
+fn client_of(dir: &Path, address: &str) -> Option<Client> {
+    clients(dir).into_iter().find(|c| c.address == address)
+}
+
+/// Closes a window.
+///
+/// The one action with no second shape to fall back on: a close either happened or it did not, and trying another
+/// spelling of it afterwards is how the wrong window gets closed twice. A refused dispatch is a log line.
+pub fn close_window(dir: &Path, address: &str) {
+    dispatch(
+        dir,
+        &format!("hl.dsp.window.close({{ window = \"address:{address}\" }})"),
+    );
+}
+
+/// Floats or tiles a window, reporting whether the compositor agreed.
+pub fn set_floating(dir: &Path, address: &str, floating: bool) -> bool {
+    let address = address.to_string();
+    dispatch_until(
+        dir,
+        window_calls("float", &address, &format!(", state = {floating}")),
+        move |dir| {
+            client_of(dir, &address).is_some_and(|client| client.floating == floating)
+        },
+    )
+}
+
+/// Puts a window into or out of fullscreen, reporting whether the compositor agreed.
+pub fn set_fullscreen(dir: &Path, address: &str, fullscreen: bool) -> bool {
+    let address = address.to_string();
+    dispatch_until(
+        dir,
+        window_calls("fullscreen", &address, &format!(", state = {fullscreen}")),
+        move |dir| {
+            client_of(dir, &address).is_some_and(|client| client.fullscreen == fullscreen)
+        },
+    )
+}
+
+/// Moves a window to a workspace by id, reporting whether it arrived.
+pub fn move_window_to_workspace(dir: &Path, address: &str, workspace: i32) -> bool {
+    let address = address.to_string();
+    let calls = [
+        format!(
+            "hl.dsp.window.move({{ window = \"address:{address}\", workspace = \"{workspace}\" }})"
+        ),
+        format!("hl.dsp.window.move(\"address:{address}\", \"{workspace}\")"),
+    ];
+    dispatch_until(dir, calls, move |dir| {
+        client_of(dir, &address).is_some_and(|client| client.workspace == workspace)
+    })
+}
+
 /// Whether a line reports something that could have changed the set of open windows, where they are, or how
 /// they are laid out. Deliberately wider than [`affects_workspaces`]: a window moving between monitors or
 /// toggling float changes nothing about the workspace pills and everything about a window list.

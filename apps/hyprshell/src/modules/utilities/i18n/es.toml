@@ -1,0 +1,12 @@
+[utilities]
+title = "Utilidades"
+wifi = "Wi-Fi"
+bluetooth = "Bluetooth"
+mic = "Silenciar micro"
+dnd = "No molestar"
+game_mode = "Modo juego"
+vpn = "VPN"
+idle_inhibit = "Mantener activo"
+screenshot = "Captura"
+record = "Grabar"
+settings = "Ajustes"

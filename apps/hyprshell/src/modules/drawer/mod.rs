@@ -36,6 +36,8 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
         "notifications" => crate::modules::notifications::bell_panel(),
         "notes" => crate::notes_panel(),
         "settings" => crate::modules::settings::settings_panel(),
+        "utilities" => crate::modules::utilities::utilities_panel(),
+        "windowinfo" => crate::modules::windowinfo::window_panel(),
         "session" | "logo" => crate::modules::session::session_panel(),
         other => {
             tracing::warn!("no panel registered for module '{other}'");
