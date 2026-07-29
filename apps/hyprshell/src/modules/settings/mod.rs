@@ -14,8 +14,9 @@ use crate::core::config::{
     FullscreenPopups, GeneralConfig, GpuConfig,
     IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
     KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, Placement, PopoutsConfig,
-    ScaleConfig, Shape,
-    ShapeConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig,
+    RecorderConfig, ScaleConfig, ScreenshotConfig, Shape,
+    ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
+    ToastEvents, ToastsConfig, TrayConfig, UtilitiesConfig,
     WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
@@ -34,6 +35,8 @@ const FULLSCREEN_POPUPS: &[&str] = &["on", "off", "never"];
 const MODES: &[&str] = &["auto", "dark", "light"];
 const VARIANTS: &[&str] = &["vibrant", "content", "expressive", "fidelity", "muted"];
 const TRANSITIONS: &[&str] = &["fade", "wipe", "none"];
+const SHOT_BACKENDS: &[&str] = &["auto", "screencopy", "grim"];
+const RECORDER_BACKENDS: &[&str] = &["auto", "wf-recorder", "gpu-screen-recorder"];
 const PLACEMENTS: &[&str] = &[
     "center",
     "top_left",
@@ -113,6 +116,11 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         osd_section(&config, &path, theme)?,
         icons_section(&config, &path, theme)?,
         notifications_section(&config, &path, theme)?,
+        toasts_section(&config, &path, theme)?,
+        screenshot_section(&config, &path, theme)?,
+        recorder_section(&config, &path, theme)?,
+        utilities_section(&config, &path, theme)?,
+        sidebar_section(&config, &path, theme)?,
         background_section(&config, &path, theme)?,
         wallpaper_section(&config, &path, theme)?,
         desktop_clock_section(&config, &path, theme)?,
@@ -1999,6 +2007,359 @@ fn notifications_section(
         persist(&path, "notifications", &value);
     })?;
     section(|| rsx::t!("settings.section.notifications"), rows, save, theme)
+}
+
+/// `[toasts]`, including the per-event switches.
+///
+/// The event matrix is a nested table (`[toasts.events]`) with a fixed set of keys, so it is edited here rather
+/// than left to the TOML — the same reason `background.monitors` came off the map-editing list: the keys are
+/// enumerable, so the panel can name them all.
+fn toasts_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let t = &config.toasts;
+    let enabled = signal(t.enabled);
+    let edge = signal(edge_str(t.edge).to_string());
+    let align = signal(align_str(t.align).to_string());
+    let max_toasts = signal(t.max_toasts.to_string());
+    let timeout = signal(t.timeout_ms.to_string());
+    let width = signal(t.width.to_string());
+    let gap = signal(t.gap.to_string());
+
+    let events = t.events;
+    let config_loaded = signal(events.config_loaded);
+    let charging = signal(events.charging);
+    let game_mode = signal(events.game_mode);
+    let dnd = signal(events.dnd);
+    let audio_output = signal(events.audio_output);
+    let audio_input = signal(events.audio_input);
+    let lock_keys = signal(events.lock_keys);
+    let kb_layout = signal(events.kb_layout);
+    let vpn = signal(events.vpn);
+    let now_playing = signal(events.now_playing);
+    let screenshot = signal(events.screenshot);
+    let recording = signal(events.recording);
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        enum_field(|| rsx::t!("settings.field.align"), align.clone(), ALIGNS, theme)?,
+        text_field(
+            || rsx::t!("settings.field.max_toasts"),
+            max_toasts.clone(),
+            "3",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.timeout_ms"),
+            timeout.clone(),
+            "2500",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.width"), width.clone(), "300", theme)?,
+        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "8", theme)?,
+        subheader(|| rsx::t!("settings.subheader.events"), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.event_config_loaded"),
+            config_loaded.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_charging"),
+            charging.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_game_mode"),
+            game_mode.clone(),
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.event_dnd"), dnd.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.event_audio_output"),
+            audio_output.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_audio_input"),
+            audio_input.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_lock_keys"),
+            lock_keys.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_kb_layout"),
+            kb_layout.clone(),
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.event_vpn"), vpn.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.event_now_playing"),
+            now_playing.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_screenshot"),
+            screenshot.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.event_recording"),
+            recording.clone(),
+            theme,
+        )?,
+    ];
+
+    let base = t.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.toasts"), theme, move || {
+        let value = ToastsConfig {
+            enabled: enabled.peek(),
+            edge: parse_edge(&edge.peek()),
+            align: parse_align(&align.peek()),
+            max_toasts: parse_u32(&max_toasts.peek(), base.max_toasts),
+            timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
+            width: parse_f32(&width.peek(), base.width),
+            gap: parse_f32(&gap.peek(), base.gap),
+            events: ToastEvents {
+                config_loaded: config_loaded.peek(),
+                charging: charging.peek(),
+                game_mode: game_mode.peek(),
+                dnd: dnd.peek(),
+                audio_output: audio_output.peek(),
+                audio_input: audio_input.peek(),
+                lock_keys: lock_keys.peek(),
+                kb_layout: kb_layout.peek(),
+                vpn: vpn.peek(),
+                now_playing: now_playing.peek(),
+                screenshot: screenshot.peek(),
+                recording: recording.peek(),
+            },
+        };
+        persist(&path, "toasts", &value);
+    })?;
+    section(|| rsx::t!("settings.section.toasts"), rows, save, theme)
+}
+
+fn screenshot_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let s = &config.screenshot;
+    let copy = signal(s.copy);
+    let save_to_disk = signal(s.save);
+    let cursor = signal(s.include_cursor);
+    let freeze = signal(s.freeze);
+    let notify = signal(s.notify);
+    let backend = signal(s.backend.clone());
+    let file_name = signal(s.file_name.clone());
+    let annotator = signal(s.annotator.clone());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.copy"), copy.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.save"), save_to_disk.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.include_cursor"),
+            cursor.clone(),
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.freeze"), freeze.clone(), theme)?,
+        toggle_field(|| rsx::t!("settings.field.notify"), notify.clone(), theme)?,
+        enum_field(
+            || rsx::t!("settings.field.backend"),
+            backend.clone(),
+            SHOT_BACKENDS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.file_name"),
+            file_name.clone(),
+            "screenshot_%Y-%m-%d_%H-%M-%S",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.annotator"),
+            annotator.clone(),
+            "satty --filename {file}",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.screenshot"), theme, move || {
+        let value = ScreenshotConfig {
+            copy: copy.peek(),
+            save: save_to_disk.peek(),
+            include_cursor: cursor.peek(),
+            freeze: freeze.peek(),
+            notify: notify.peek(),
+            backend: backend.peek(),
+            file_name: file_name.peek(),
+            annotator: annotator.peek(),
+        };
+        persist(&path, "screenshot", &value);
+    })?;
+    section(|| rsx::t!("settings.section.screenshot"), rows, save, theme)
+}
+
+fn recorder_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let r = &config.recorder;
+    let backend = signal(r.backend.clone());
+    let audio = signal(r.audio);
+    let device = signal(r.audio_device.clone());
+    let fps = signal(r.fps.to_string());
+    let file_name = signal(r.file_name.clone());
+    let notify = signal(r.notify);
+    let max_entries = signal(r.max_entries.to_string());
+
+    let rows = vec![
+        enum_field(
+            || rsx::t!("settings.field.backend"),
+            backend.clone(),
+            RECORDER_BACKENDS,
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.audio"), audio.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.audio_device"),
+            device.clone(),
+            "default_output",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.fps"), fps.clone(), "60", theme)?,
+        text_field(
+            || rsx::t!("settings.field.file_name"),
+            file_name.clone(),
+            "recording_%Y-%m-%d_%H-%M-%S",
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.notify"), notify.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.max_entries"),
+            max_entries.clone(),
+            "12",
+            theme,
+        )?,
+    ];
+
+    let base = r.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.recorder"), theme, move || {
+        let value = RecorderConfig {
+            backend: backend.peek(),
+            audio: audio.peek(),
+            audio_device: device.peek(),
+            fps: parse_u32(&fps.peek(), base.fps),
+            file_name: file_name.peek(),
+            notify: notify.peek(),
+            max_entries: parse_u32(&max_entries.peek(), base.max_entries),
+        };
+        persist(&path, "recorder", &value);
+    })?;
+    section(|| rsx::t!("settings.section.recorder"), rows, save, theme)
+}
+
+fn utilities_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let u = &config.utilities;
+    let toggles = signal(join_csv(&u.toggles));
+    let show_capture = signal(u.show_capture);
+    let show_recordings = signal(u.show_recordings);
+    let columns = signal(u.columns.to_string());
+    let preview = signal(u.window_preview_ms.to_string());
+
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.toggles"),
+            toggles.clone(),
+            "wifi, bluetooth, mic, dnd",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_capture"),
+            show_capture.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_recordings"),
+            show_recordings.clone(),
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.columns"), columns.clone(), "4", theme)?,
+        text_field(
+            || rsx::t!("settings.field.window_preview_ms"),
+            preview.clone(),
+            "1000",
+            theme,
+        )?,
+    ];
+
+    let base = u.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.utilities"), theme, move || {
+        let value = UtilitiesConfig {
+            toggles: split_csv(&toggles.peek()),
+            show_capture: show_capture.peek(),
+            show_recordings: show_recordings.peek(),
+            columns: parse_u32(&columns.peek(), base.columns),
+            window_preview_ms: parse_u64(&preview.peek(), base.window_preview_ms),
+        };
+        persist(&path, "utilities", &value);
+    })?;
+    section(|| rsx::t!("settings.section.utilities"), rows, save, theme)
+}
+
+fn sidebar_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let s = &config.sidebar;
+    let edge = signal(edge_str(s.edge).to_string());
+    let size = signal(s.size.to_string());
+    let show_toggles = signal(s.show_toggles);
+    let show_history = signal(s.show_history);
+
+    let rows = vec![
+        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        text_field(|| rsx::t!("settings.field.size"), size.clone(), "400", theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.show_toggles"),
+            show_toggles.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.show_history"),
+            show_history.clone(),
+            theme,
+        )?,
+    ];
+
+    let base = s.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.sidebar"), theme, move || {
+        let value = SidebarConfig {
+            edge: parse_edge(&edge.peek()),
+            size: parse_u32(&size.peek(), base.size),
+            show_toggles: show_toggles.peek(),
+            show_history: show_history.peek(),
+        };
+        persist(&path, "sidebar", &value);
+    })?;
+    section(|| rsx::t!("settings.section.sidebar"), rows, save, theme)
 }
 
 fn keynav_section(
