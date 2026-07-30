@@ -16,7 +16,9 @@ use rsx::{
 use super::card::{self, Card, METER_HEIGHT};
 use crate::core::config::Config;
 use crate::shared::art::{self, ArtState};
+use crate::shared::asset::Load;
 use crate::shared::icon::icon_view;
+use crate::shared::lyrics;
 use crate::shared::reactive::{Live, derive, fixed, fixed_text};
 use crate::shared::services::mpris::{self, LoopStatus, Playback, Player};
 use crate::shared::theme::{FontRole, NordTheme};
@@ -25,6 +27,12 @@ use crate::shared::{picture, widget};
 const COVER: f32 = 96.0;
 const TRANSPORT_ICON: f32 = 22.0;
 const PRIMARY_ICON: f32 = 30.0;
+
+/// Tall enough to show the line before and after the one being sung, which is what makes a lyric readable.
+const LYRICS_HEIGHT: f32 = 200.0;
+
+/// Kept off the edge when the card scrolls to it, so the current line never sits flush against the top.
+const LYRIC_REVEAL_MARGIN: f32 = 28.0;
 
 pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let player = signal(mpris::current().unwrap_or_default());
@@ -39,7 +47,167 @@ pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
         move |micros| ticker.set(micros),
     );
 
-    card::page(vec![now_playing(player, position, theme)?])
+    let mut cards = vec![now_playing(player.clone(), position.clone(), theme)?];
+    if config.lyrics.enabled {
+        cards.push(lyrics_card(player, position, theme)?);
+    }
+    card::page(cards)
+}
+
+/// One line of the lyrics card, or the one line it shows when there are none.
+///
+/// A line carries the window it is sung in rather than the whole song: whether it is the current line is then a
+/// comparison against two numbers, instead of every line re-scanning the list on every tick of the playhead.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LyricLine {
+    Sung {
+        index: usize,
+        from: i64,
+        until: i64,
+        text: String,
+    },
+    /// Nothing to show yet, or nothing to show at all — two different sentences, one row.
+    Absent { searching: bool },
+}
+
+impl LyricLine {
+    fn key(&self) -> (usize, String) {
+        match self {
+            LyricLine::Sung { index, text, .. } => (*index, text.clone()),
+            LyricLine::Absent { searching } => (usize::MAX, searching.to_string()),
+        }
+    }
+}
+
+/// Turns timed lines into rows, giving each the moment the next one takes over.
+fn lyric_lines(lines: &[lyrics::Line], searching: bool) -> Vec<LyricLine> {
+    if lines.is_empty() {
+        return vec![LyricLine::Absent { searching }];
+    }
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| LyricLine::Sung {
+            index,
+            from: line.at,
+            // The last line holds until the track ends, which is what keeps it lit through an outro.
+            until: lines.get(index + 1).map(|next| next.at).unwrap_or(i64::MAX),
+            text: line.text.clone(),
+        })
+        .collect()
+}
+
+/// The lyrics, with the line being sung now lit and scrolled to.
+///
+/// The scroll area carries a definite height because it is a layout leaf — its content is laid out as its own root,
+/// so nothing inside it contributes to its size and a `max_height` alone would measure zero.
+fn lyrics_card(
+    player: RwSignal<Player>,
+    position: RwSignal<i64>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let scroll = rsx::LayoutScrollArea::new_with(
+        LayoutStyle::new()
+            .flex_column()
+            .width(SizeDimension::Percent(1.0))
+            .height(LYRICS_HEIGHT),
+        move |viewport| {
+            let source = {
+                let player = player.clone();
+                move || {
+                    // Read the track out of its cell first, then ask for its words: a signal read nested inside
+                    // another's borrow panics, and `lyrics::of` takes a signal of its own.
+                    let track = player.get();
+                    let state = lyrics::of(&track).get();
+                    let searching = state == Load::Loading;
+                    lyric_lines(state.ready().map(Vec::as_slice).unwrap_or_default(), searching)
+                }
+            };
+            let build = move |line: LyricLine| -> Result<Box<dyn LayoutItem>, LayoutError> {
+                match line {
+                    LyricLine::Absent { searching } => {
+                        let message = if searching {
+                            rsx::t!("dashboard.lyrics_searching")
+                        } else {
+                            rsx::t!("dashboard.lyrics_none")
+                        };
+                        Ok(box_item(Text::auto(
+                            move || message.clone(),
+                            LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+                            move || theme.text_style(FontRole::Caption, theme.muted),
+                        )?))
+                    }
+                    LyricLine::Sung {
+                        from, until, text, ..
+                    } => {
+                        let at = position.read_only();
+                        let is_current = move || {
+                            let now = at.get();
+                            now >= from && now < until
+                        };
+                        let row = lyric_row(text, is_current.clone(), theme)?;
+                        // Follow the song: the current line is brought into view, and only when it becomes the
+                        // current one, so a user who scrolled ahead is not fighting the card. Tied to the row,
+                        // since the list rebuilds these on every track change.
+                        let node = row.layout_node();
+                        let viewport = viewport.clone();
+                        let follow = rsx::effect(move || {
+                            if is_current() {
+                                viewport.reveal(node, LYRIC_REVEAL_MARGIN);
+                            }
+                        });
+                        crate::shared::reactive::keeping(row, follow)
+                    }
+                }
+            };
+            Ok(Box::new(ReactiveList::with_style(
+                LayoutStyle::new()
+                    .flex_column()
+                    .gap(2.0)
+                    .width(SizeDimension::Percent(1.0)),
+                source,
+                |line: &LyricLine| line.key(),
+                build,
+            )?) as Box<dyn LayoutItem>)
+        },
+    )?;
+
+    Card::titled(rsx::t!("dashboard.lyrics"))
+        .icon("mic-vocal")
+        .child(Box::new(scroll))
+        .build(theme)
+}
+
+/// One line of words. An empty line is a gap between verses and still takes its height, so the lines do not
+/// shuffle upwards while an instrumental break plays — but it is a *box* of that height rather than a `Text` of
+/// blank characters: a space has no outline, and asking the renderer to fill an empty path is how tiny-skia's
+/// "empty paths cannot be filled" warning gets emitted once per frame.
+fn lyric_row(
+    text: String,
+    is_current: impl Fn() -> bool + Clone + 'static,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    if text.trim().is_empty() {
+        return Ok(box_item(Container::new(
+            LayoutStyle::new()
+                .width(SizeDimension::Percent(1.0))
+                .height(theme.font(FontRole::Caption)),
+            vec![],
+        )?));
+    }
+    let shown = text;
+    let styled = is_current.clone();
+    Ok(box_item(Text::auto(
+        move || shown.clone(),
+        LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+        move || {
+            if styled() {
+                theme.text_style(FontRole::Body, theme.accent)
+            } else {
+                theme.text_style(FontRole::Caption, theme.subtle)
+            }
+        },
+    )?))
 }
 
 /// Reads the playhead on one long-lived thread. `mpris::position` opens its own session connection per call,
@@ -374,5 +542,90 @@ mod tests {
             "1:02:05",
             "past an hour the field grows rather than wrapping"
         );
+    }
+
+    fn sample_lines() -> Vec<lyrics::Line> {
+        lyrics::parse("[00:10.00]First\n[00:14.00]\n[00:20.00]Last")
+    }
+
+    #[test]
+    fn each_lyric_line_carries_the_window_it_is_sung_in() {
+        let rows = lyric_lines(&sample_lines(), false);
+        assert_eq!(rows.len(), 3);
+        let window = |row: &LyricLine| match row {
+            LyricLine::Sung { from, until, .. } => (*from, *until),
+            LyricLine::Absent { .. } => (0, 0),
+        };
+        assert_eq!(window(&rows[0]), (10_000_000, 14_000_000));
+        assert_eq!(
+            window(&rows[1]),
+            (14_000_000, 20_000_000),
+            "a gap between verses is a line with no words, and it still takes its turn"
+        );
+        assert_eq!(
+            window(&rows[2]),
+            (20_000_000, i64::MAX),
+            "the last line holds through the outro"
+        );
+
+        // Every row is its own identity, or the reactive list would reuse one line's widget for another's words.
+        let keys: Vec<(usize, String)> = rows.iter().map(LyricLine::key).collect();
+        assert_eq!(keys.len(), 3);
+        assert!(keys.iter().all(|key| keys.iter().filter(|k| *k == key).count() == 1));
+    }
+
+    #[test]
+    fn a_track_with_no_words_says_which_kind_of_nothing_it_is() {
+        // Two different sentences: one is "wait", the other is "there is nothing to wait for".
+        assert_eq!(
+            lyric_lines(&[], true),
+            vec![LyricLine::Absent { searching: true }]
+        );
+        assert_eq!(
+            lyric_lines(&[], false),
+            vec![LyricLine::Absent { searching: false }]
+        );
+        assert_ne!(
+            LyricLine::Absent { searching: true }.key(),
+            LyricLine::Absent { searching: false }.key(),
+            "the row has to be rebuilt when the search gives up"
+        );
+    }
+
+    /// The card's closures only run when something builds them, and each reads a signal — the shape that panics on
+    /// a re-entrant borrow. Measured as well as built, because a scroll area is a layout leaf: it takes no size from
+    /// its content, so a viewport with no height of its own clips every line away (see the launcher's list).
+    #[test]
+    fn the_lyrics_card_builds_with_a_viewport_that_has_a_size() {
+        use rsx::{AvailableSpace, compute_layout, new_container};
+
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let player = signal(Player {
+            title: "So What".to_string(),
+            artist: "Miles Davis".to_string(),
+            ..Player::default()
+        });
+        let position = signal(12_000_000i64);
+        let card = lyrics_card(player, position, NordTheme::new()).expect("the card builds");
+        let rect = track_layout(card.layout_node()).expect("the card registers its rect");
+        let root = new_container(
+            LayoutStyle::new().flex_column().width(420.0).height(600.0),
+            &[card.layout_node()],
+        )
+        .expect("root");
+        compute_layout(
+            root,
+            AvailableSpace::Definite(420.0),
+            AvailableSpace::Definite(600.0),
+        )
+        .expect("layout");
+        let rect = rect.get();
+        assert!(
+            rect.height >= LYRICS_HEIGHT,
+            "the card measured {}px tall, which cannot hold a {LYRICS_HEIGHT}px lyric viewport",
+            rect.height
+        );
+        assert!(rect.width > 0.0);
     }
 }

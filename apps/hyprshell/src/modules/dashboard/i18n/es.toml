@@ -1,6 +1,10 @@
 [dashboard]
 title = "Panel"
 now_playing = "Reproduciendo"
+lyrics = "Letras"
+lyrics_searching = "Buscando la letra…"
+lyrics_none = "No hay letra sincronizada para esta pista"
+lyrics_off = "Las letras están desactivadas en [lyrics]"
 uptime = "Encendido {time}"
 storage = "Almacenamiento"
 network = "Red"

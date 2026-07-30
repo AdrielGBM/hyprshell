@@ -1,6 +1,10 @@
 [dashboard]
 title = "Dashboard"
 now_playing = "Now playing"
+lyrics = "Lyrics"
+lyrics_searching = "Looking for the words…"
+lyrics_none = "No timed lyrics for this track"
+lyrics_off = "Lyrics are switched off in [lyrics]"
 uptime = "Up {time}"
 storage = "Storage"
 network = "Network"

@@ -60,6 +60,9 @@ pub struct Player {
     pub album: String,
     /// Cover art URL as the player gave it — usually `file://` or `https://`.
     pub art_url: String,
+    /// The track's own URL (`xesam:url`), which for a local file is where its `.lrc` lives next to it. Empty for a
+    /// stream, and for the players that simply do not report one.
+    pub url: String,
     /// Track length in microseconds; 0 when the player doesn't report one (a live stream).
     pub length: i64,
     pub playback: Playback,
@@ -253,6 +256,7 @@ fn read_player(conn: &Connection, bus: &str) -> Option<Player> {
         artist: meta_string(&metadata, "xesam:artist"),
         album: meta_string(&metadata, "xesam:album"),
         art_url: meta_string(&metadata, "mpris:artUrl"),
+        url: meta_string(&metadata, "xesam:url"),
         length: meta_i64(&metadata, "mpris:length"),
         playback: Playback::parse(&status),
         can_go_next: get("CanGoNext")
@@ -349,8 +353,14 @@ fn watch_bus(out: &Broadcast<Player>, conn: &Connection) -> Option<()> {
         .build();
 
     let dbus = DBusProxy::new(conn).ok()?;
+    dbus.add_match_rule(properties).ok()?;
     dbus.add_match_rule(ownership).ok()?;
-    let signals = MessageIterator::for_match_rule(properties, conn, None).ok()?;
+    // Every message this connection receives, rather than one rule's: `for_match_rule` builds an iterator that
+    // *filters* to its own rule, so the ownership signals reached the socket and were then dropped on the floor —
+    // which is why a player quitting went unnoticed and its track stayed on the bar and the dashboard until
+    // something else happened to change. Waking on anything and re-reading is the honest shape here: only a
+    // reading that actually differs is published, so an extra wake costs one property get and nothing else.
+    let signals = MessageIterator::from(conn);
 
     let mut last = read_active(conn);
     for _ in signals {
