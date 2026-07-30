@@ -122,6 +122,160 @@ pub fn sparkline(
     Ok(Box::new(canvas))
 }
 
+/// How a spectrum's bars are drawn: the gap between them and how round their ends are, both in pixels.
+///
+/// A struct rather than two more positional arguments because the two consumers are drawn very differently —
+/// a desktop-wide row and a ring the size of an album cover — and a call site reading `(4.0, 2.0, 3.0)` says
+/// nothing about which number is which.
+#[derive(Clone, Copy, Debug)]
+pub struct SpectrumStyle {
+    pub gap: f32,
+    pub radius: f32,
+    /// How tall a band reading zero still draws, so a silent row is a line rather than nothing at all. The
+    /// caller decides whether that is wanted: a background visualiser that vanishes entirely is the point.
+    pub floor: f32,
+}
+
+impl Default for SpectrumStyle {
+    fn default() -> Self {
+        Self {
+            gap: 3.0,
+            radius: 2.0,
+            floor: 0.0,
+        }
+    }
+}
+
+/// A row of bars, one per band, growing away from `edge`.
+///
+/// The bars are laid out across the box's *long* axis and grow along its short one, so the same call draws a
+/// row along the bottom of a screen and a column up its left-hand side. Each is one `RenderNode::rect`: a
+/// spectrum arriving sixty times a second is the one place in this shell where the drawing has to be free, and
+/// a rounded rect is a primitive the renderer already batches.
+pub fn spectrum(
+    bands: Live<Arc<[f32]>>,
+    tint: Live<Color>,
+    edge: crate::core::config::Edge,
+    style: SpectrumStyle,
+    layout: LayoutStyle,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let canvas = Canvas::new(layout, move |rect| {
+        let values = bands.get();
+        let color = tint.get();
+        if values.is_empty() {
+            return RenderNode::Empty;
+        }
+        RenderNode::group(
+            bar_rects(&values, edge, style, rect)
+                .map(|bar| RenderNode::rect(bar, RectStyle::filled(color, style.radius))),
+        )
+    })?;
+    Ok(Box::new(canvas))
+}
+
+/// Where each band's bar sits inside `rect`, in the canvas's own local coordinates.
+fn bar_rects(
+    values: &[f32],
+    edge: crate::core::config::Edge,
+    style: SpectrumStyle,
+    rect: Rect,
+) -> impl Iterator<Item = Rect> + '_ {
+    let along = if edge.is_horizontal() {
+        rect.width
+    } else {
+        rect.height
+    };
+    let across = if edge.is_horizontal() {
+        rect.height
+    } else {
+        rect.width
+    };
+    let slot = along / values.len() as f32;
+    // A gap wider than the slot would give every bar a negative width, which reads as bars that vanish as the
+    // row gets denser rather than as a gap the user set too large.
+    let thickness = (slot - style.gap).max(1.0);
+    let inset = (slot - thickness) / 2.0;
+
+    values.iter().enumerate().map(move |(index, value)| {
+        let length = (value.clamp(0.0, 1.0) * across).max(style.floor).min(across);
+        let start = index as f32 * slot + inset;
+        match edge {
+            crate::core::config::Edge::Bottom => Rect {
+                x: start,
+                y: rect.height - length,
+                width: thickness,
+                height: length,
+            },
+            crate::core::config::Edge::Top => Rect {
+                x: start,
+                y: 0.0,
+                width: thickness,
+                height: length,
+            },
+            crate::core::config::Edge::Left => Rect {
+                x: 0.0,
+                y: start,
+                width: length,
+                height: thickness,
+            },
+            crate::core::config::Edge::Right => Rect {
+                x: rect.width - length,
+                y: start,
+                width: length,
+                height: thickness,
+            },
+        }
+    })
+}
+
+/// The same bands radiating outward from a circle of `inner` radius, centred in the box.
+///
+/// A ring rather than a second row because what it wraps is a square picture: bars along one of its sides
+/// would read as belonging to the layout, and the thing a cover-art visualiser is *for* is looking like it
+/// belongs to the record. Each bar is an upright rect rotated about the centre — the renderer's rotation, so a
+/// band that changes costs a matrix and not a re-tessellated path.
+pub fn spectrum_ring(
+    bands: Live<Arc<[f32]>>,
+    tint: Live<Color>,
+    inner: f32,
+    reach: f32,
+    style: SpectrumStyle,
+    layout: LayoutStyle,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let canvas = Canvas::new(layout, move |rect| {
+        let values = bands.get();
+        let color = tint.get();
+        if values.is_empty() {
+            return RenderNode::Empty;
+        }
+        let (cx, cy) = (rect.width / 2.0, rect.height / 2.0);
+        // The spectrum is mirrored around the top of the circle rather than wrapped once, so the two halves
+        // answer each other. A single sweep puts the bass beside the treble, which reads as a seam.
+        let spokes = values.len() * 2;
+        let thickness = ((std::f32::consts::TAU * inner / spokes as f32) - style.gap).max(1.0);
+
+        RenderNode::group((0..spokes).map(|spoke| {
+            let band = if spoke < values.len() {
+                spoke
+            } else {
+                spokes - 1 - spoke
+            };
+            let length = (values[band].clamp(0.0, 1.0) * reach).max(style.floor);
+            let bar = Rect {
+                x: cx - thickness / 2.0,
+                y: cy - inner - length,
+                width: thickness,
+                height: length.max(f32::EPSILON),
+            };
+            RenderNode::transform_with(
+                Transform::rotate_around(spoke as f32 * 360.0 / spokes as f32, cx, cy).to_array(),
+                [RenderNode::rect(bar, RectStyle::filled(color, style.radius))],
+            )
+        }))
+    })?;
+    Ok(Box::new(canvas))
+}
+
 /// The polyline through `values`. `None` for a series too short to be a line — one reading is a dot, and a
 /// chart drawn from it would claim a trend the shell has not measured yet.
 fn series_path(values: &[f32], ceiling: f32, rect: Rect) -> Option<PathData> {
@@ -156,6 +310,7 @@ fn close_to_baseline(line: &PathData, rect: Rect) -> PathData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::Edge;
     use rsx::PathVerb;
 
     fn rect() -> Rect {
@@ -241,6 +396,125 @@ mod tests {
                 "finite and in the box: {p:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_bar_grows_away_from_its_own_edge() {
+        // The one thing that makes this widget work on all four edges. Getting it wrong is not a crash: the
+        // bars simply grow *into* the screen from the far side, which on a bottom row means a fringe hanging
+        // off the top of the surface.
+        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let values = [0.5, 1.0, 0.0];
+        let style = SpectrumStyle::default();
+        let at = |edge| bar_rects(&values, edge, style, box_).collect::<Vec<_>>();
+
+        for bar in at(Edge::Bottom) {
+            assert_eq!(bar.y + bar.height, box_.height, "a bottom bar is rooted on the bottom");
+        }
+        for bar in at(Edge::Top) {
+            assert_eq!(bar.y, 0.0, "a top bar hangs from the top");
+        }
+        for bar in at(Edge::Left) {
+            assert_eq!(bar.x, 0.0, "a left bar grows rightward off the left edge");
+        }
+        for bar in at(Edge::Right) {
+            assert_eq!(bar.x + bar.width, box_.width, "a right bar is rooted on the right");
+        }
+    }
+
+    #[test]
+    fn every_band_gets_one_bar_inside_the_box() {
+        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let values: Vec<f32> = (0..24).map(|i| i as f32 / 23.0).collect();
+        for edge in Edge::ALL {
+            let bars: Vec<Rect> = bar_rects(&values, edge, SpectrumStyle::default(), box_).collect();
+            assert_eq!(bars.len(), values.len(), "one bar per band on {edge:?}");
+            for bar in bars {
+                // A band reading zero is a bar with no *length*, which is right; a bar with no thickness is
+                // a slot that swallowed its own width, which is a row that draws nothing.
+                let thickness = if edge.is_horizontal() { bar.width } else { bar.height };
+                assert!(thickness > 0.0, "{edge:?}: {bar:?} has no thickness");
+                assert!(
+                    bar.x >= 0.0
+                        && bar.y >= 0.0
+                        && bar.x + bar.width <= box_.width + f32::EPSILON
+                        && bar.y + bar.height <= box_.height + f32::EPSILON,
+                    "{edge:?}: {bar:?} leaves the box"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_gap_wider_than_the_slot_still_draws_bars() {
+        // A dense row with a generous gap is a config a user reaches by turning one number up, and the
+        // arithmetic answer — a negative width — is a row that silently empties as it gets more detailed.
+        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let values = vec![1.0f32; 64];
+        let style = SpectrumStyle { gap: 20.0, ..SpectrumStyle::default() };
+        for bar in bar_rects(&values, Edge::Bottom, style, box_) {
+            assert!(bar.width >= 1.0, "{bar:?}");
+        }
+    }
+
+    /// Draws both spectrum forms over a synthetic sweep, which is the only way to see that the ring's spokes
+    /// mirror rather than wrap and that the row's caps are the radius asked for:
+    /// `RSX_VISUAL_SPECTRUM_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture`
+    #[test]
+    fn visual_spectrum_png() {
+        let Ok(out) = std::env::var("RSX_VISUAL_SPECTRUM_OUT") else {
+            eprintln!("set RSX_VISUAL_SPECTRUM_OUT to render the spectrum; skipping");
+            return;
+        };
+
+        struct Sweep;
+        impl rsx::App for Sweep {
+            fn root(&self) -> Box<dyn rsx::Component> {
+                rsx::reset_layout_runtime();
+                let theme = crate::core::config::Config::starter().resolve_theme();
+                // A hump rather than a ramp, so a band drawn in the wrong slot is obvious rather than plausible.
+                let bands: Arc<[f32]> = (0..48)
+                    .map(|i| {
+                        let x = (i as f32 - 16.0) / 12.0;
+                        (-x * x).exp() * 0.9 + 0.08
+                    })
+                    .collect();
+                let row = spectrum(
+                    crate::shared::reactive::fixed(bands.clone()),
+                    crate::shared::reactive::fixed(theme.accent),
+                    crate::core::config::Edge::Bottom,
+                    SpectrumStyle { gap: 4.0, radius: 3.0, floor: 0.0 },
+                    LayoutStyle::new().width(SizeDimension::Percent(1.0)).height(160.0),
+                )
+                .expect("row");
+                let ring = spectrum_ring(
+                    crate::shared::reactive::fixed(bands),
+                    crate::shared::reactive::fixed(theme.text),
+                    60.0,
+                    50.0,
+                    SpectrumStyle { gap: 2.0, radius: 2.0, floor: 2.0 },
+                    LayoutStyle::new().width(240.0).height(240.0),
+                )
+                .expect("ring");
+                let column = Container::new(
+                    LayoutStyle::new()
+                        .flex_column()
+                        .align_items(AlignItems::CENTER)
+                        .gap(20.0)
+                        .padding_all(20.0)
+                        .width(SizeDimension::Percent(1.0)),
+                    vec![ring, row],
+                )
+                .expect("column");
+                Box::new(crate::core::app::SurfaceRoot::new(Box::new(column)).expect("root"))
+            }
+
+            fn clear_color(&self) -> Option<Color> {
+                Some(crate::core::config::Config::starter().resolve_theme().base)
+            }
+        }
+
+        crate::test_support::render_png(Sweep, 520, 480, &out);
     }
 
     #[test]
