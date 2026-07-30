@@ -1402,54 +1402,103 @@ static TARGETS: &[Target] = &[
         commands: &[
             Command {
                 name: "get",
-                args: "",
-                help: "the backlight level",
-                run: |_| {
-                    let level = crate::shared::services::brightness::current()
-                        .ok_or("no backlight available")?;
+                args: "[output]",
+                help: "the brightness of a screen (no output means the primary one)",
+                run: |args| {
+                    use crate::shared::services::brightness;
+                    let level = match args.first().copied() {
+                        Some(output) => {
+                            let output = dimmable_output(output)?;
+                            brightness::current_output(&output)
+                                .ok_or_else(|| format!("'{output}' reports no brightness"))?
+                        }
+                        None => brightness::current().ok_or("no controllable display")?,
+                    };
                     Ok(level.to_string())
+                },
+            },
+            Command {
+                name: "refresh",
+                args: "",
+                help: "detect displays again, for a monitor plugged in since startup",
+                run: |_| {
+                    crate::shared::services::brightness::refresh();
+                    Ok("detecting".to_string())
+                },
+            },
+            Command {
+                name: "list",
+                args: "",
+                help: "every controllable display: output, level, kind and label",
+                run: |_| {
+                    use crate::shared::services::brightness::Kind;
+                    let rows: Vec<String> = crate::shared::services::brightness::snapshot()
+                        .displays
+                        .iter()
+                        .map(|display| {
+                            let kind = match display.kind {
+                                Kind::Internal { .. } => "internal",
+                                Kind::External { .. } => "external",
+                            };
+                            format!(
+                                "{}\t{}\t{kind}\t{}",
+                                display.output, display.level, display.label
+                            )
+                        })
+                        .collect();
+                    Ok(rows.join("\n"))
                 },
             },
             Command {
                 name: "set",
-                args: "<percent>",
-                help: "set the backlight level",
+                args: "<percent> [output|all]",
+                help: "set the brightness of a screen (no output means the primary one)",
                 run: |args| {
                     let level = number(args, 0, "percent")?;
-                    crate::shared::services::brightness::set(level);
+                    for output in dimmable_targets(args.get(1).copied())? {
+                        crate::shared::services::brightness::set_output(&output, level);
+                    }
                     crate::modules::osd::show_brightness();
-                    Ok(level.to_string())
+                    // The applied value, not the requested one: `set 150` puts the panel at 100, and a script that
+                    // reads the reply back is owed the level the screen is actually at.
+                    Ok(level.clamp(0, 100).to_string())
                 },
             },
             Command {
                 name: "step",
-                args: "<±percent>",
-                help: "move the backlight by a delta",
+                args: "<±percent> [output|all]",
+                help: "move a screen's brightness by a delta",
                 run: |args| {
                     let delta = number(args, 0, "delta")?;
-                    crate::shared::services::brightness::step(delta);
+                    for output in dimmable_targets(args.get(1).copied())? {
+                        crate::shared::services::brightness::step_output(&output, delta);
+                    }
                     crate::modules::osd::show_brightness();
                     Ok(delta.to_string())
                 },
             },
             Command {
                 name: "up",
-                args: "",
-                help: "raise the backlight by [brightness] increment",
-                run: |_| {
+                args: "[output|all]",
+                help: "raise the brightness by [brightness] increment",
+                run: |args| {
                     let step = crate::shared::services::brightness::settings().step();
-                    crate::shared::services::brightness::step(step);
+                    for output in dimmable_targets(args.first().copied())? {
+                        crate::shared::services::brightness::step_output(&output, step);
+                    }
                     crate::modules::osd::show_brightness();
                     Ok(step.to_string())
                 },
             },
             Command {
                 name: "down",
-                args: "",
-                help: "lower the backlight by [brightness] increment",
-                run: |_| {
+                args: "[output|all]",
+                help: "lower the brightness by [brightness] increment",
+                run: |args| {
                     let step = crate::shared::services::brightness::settings().step();
-                    crate::shared::services::brightness::step(-step);
+                    for output in dimmable_targets(args.first().copied())? {
+                        crate::shared::services::brightness::step_output(&output, -step);
+                    }
                     crate::modules::osd::show_brightness();
                     Ok((-step).to_string())
                 },
@@ -1784,6 +1833,62 @@ fn reading_output(named: Option<&str>) -> Result<Option<String>, String> {
     }
 }
 
+/// Which displays a brightness *mutation* means: the one named, `all` of them, or — with nothing named — the
+/// primary one.
+///
+/// Deliberately not the wallpaper rule, where an unnamed mutation means every screen. A wallpaper is one desktop
+/// look; brightness is per-panel hardware, and `brightness up` is overwhelmingly a laptop's function key, which
+/// means *this* panel. `all` is there for the desk, and both are in the command's help so neither is a surprise.
+fn dimmable_targets(named: Option<&str>) -> Result<Vec<String>, String> {
+    use crate::shared::services::brightness;
+    let snapshot = brightness::snapshot();
+    match named {
+        Some(name) if name.eq_ignore_ascii_case("all") => {
+            let outputs: Vec<String> = snapshot
+                .displays
+                .iter()
+                .map(|display| display.output.clone())
+                .collect();
+            if outputs.is_empty() {
+                return Err("no controllable display".to_string());
+            }
+            Ok(outputs)
+        }
+        Some(name) => Ok(vec![dimmable_output(name)?]),
+        None => snapshot
+            .primary()
+            .map(|display| vec![display.output.clone()])
+            .ok_or_else(|| "no controllable display".to_string()),
+    }
+}
+
+/// `name` if a display on it can be dimmed, else an error naming the ones that can.
+///
+/// Checked against the brightness snapshot rather than against the compositor's outputs: those are two different
+/// sets. A monitor with no DDC support is an output that cannot be dimmed, and a DDC monitor whose connector could
+/// not be resolved answers to `i2c-6` — a name no compositor has ever heard of.
+fn dimmable_output(name: &str) -> Result<String, String> {
+    use crate::shared::services::brightness;
+    let snapshot = brightness::snapshot();
+    if let Some(display) = snapshot.get(name) {
+        return Ok(display.output.clone());
+    }
+    if snapshot.is_empty() {
+        return Err(format!(
+            "'{name}' has no controllable brightness (nothing on this machine does)"
+        ));
+    }
+    let known: Vec<&str> = snapshot
+        .displays
+        .iter()
+        .map(|display| display.output.as_str())
+        .collect();
+    Err(format!(
+        "'{name}' has no controllable brightness (this machine has: {})",
+        known.join(", ")
+    ))
+}
+
 fn validated(name: &str) -> Result<String, String> {
     let screens: Vec<String> = platform_layershell::outputs()
         .into_iter()
@@ -1809,10 +1914,7 @@ fn known_screen(name: &str, screens: &[String]) -> Result<String, String> {
 /// Re-derives the dynamic palette after a wallpaper change, once the transition to the new image has finished.
 /// A no-op unless `[theme] name = "dynamic"`, so every wallpaper command can call it blind.
 fn refresh_scheme() {
-    if let Some(config) = shell::config() {
-        let settle = config.wallpaper_transition();
-        crate::shared::scheme::refresh(&config, settle);
-    }
+    crate::shared::scheme::refresh_current();
 }
 
 /// The palette as one `name<TAB>#rrggbb` row per token, which is what a script recolouring something else needs.

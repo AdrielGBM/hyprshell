@@ -176,7 +176,11 @@ fn playing_label(graph: &pipewire::Graph) -> String {
 fn brightness_card(theme: NordTheme) -> Card {
     let level = signal(brightness::current().unwrap_or(0));
     let sink = level.clone();
-    platform_layershell::watch(brightness::subscribe, move |percent| sink.set(percent));
+    platform_layershell::watch(brightness::subscribe, move |snapshot: brightness::Snapshot| {
+        if let Some(percent) = snapshot.level() {
+            sink.set(percent);
+        }
+    });
 
     Card::titled(rsx::t!("popout.brightness"))
         .icon(fixed_text(glyph::brightness()))

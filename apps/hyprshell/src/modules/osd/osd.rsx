@@ -24,7 +24,7 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
         (glyph::volume(v), v.level.clamp(0, 100) as f32 / 100.0, v.muted)
     }
     OsdKind::Brightness => {
-        let level = brightness::current().unwrap_or(0).clamp(0, 100);
+        let level = brightness::osd_level().unwrap_or(0).clamp(0, 100);
         (glyph::brightness(), level as f32 / 100.0, false)
     }
     OsdKind::Microphone => {
