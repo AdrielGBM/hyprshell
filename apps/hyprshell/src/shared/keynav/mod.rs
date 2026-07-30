@@ -20,6 +20,10 @@ pub enum Move {
     Previous,
     First,
     Last,
+    /// One row down in a grid — a whole column count, not one tile. Same as [`Move::Next`] in a single-column
+    /// list, which is what lets one `apply` serve both.
+    NextRow,
+    PreviousRow,
     /// Run the selected row.
     Activate,
     /// Back out: dismiss the surface, or undo an armed confirmation.
@@ -36,6 +40,9 @@ pub struct KeyNav {
     pub vim: bool,
     /// The list runs along the screen's horizontal, so Left/Right move it rather than Up/Down.
     pub horizontal: bool,
+    /// The list wraps into rows, so it uses *both* pairs of arrows: Left/Right for one tile and Up/Down for a
+    /// whole row. Only a grid can, which is why it is a mode rather than the default.
+    pub grid: bool,
 }
 
 impl KeyNav {
@@ -44,11 +51,19 @@ impl KeyNav {
         Self {
             vim: config.vim,
             horizontal: false,
+            grid: false,
         }
     }
 
     pub fn horizontal(mut self) -> Self {
         self.horizontal = true;
+        self
+    }
+
+    /// A grid: tiles run along a row, so Left/Right step one and Up/Down step a row.
+    pub fn grid(mut self) -> Self {
+        self.horizontal = true;
+        self.grid = true;
         self
     }
 
@@ -67,6 +82,14 @@ impl KeyNav {
             if *named == back {
                 return Some(Move::Previous);
             }
+            if self.grid {
+                if *named == NamedKey::ArrowDown {
+                    return Some(Move::NextRow);
+                }
+                if *named == NamedKey::ArrowUp {
+                    return Some(Move::PreviousRow);
+                }
+            }
             return match named {
                 NamedKey::Enter => Some(Move::Activate),
                 NamedKey::Escape => Some(Move::Cancel),
@@ -79,14 +102,21 @@ impl KeyNav {
             return None;
         }
         // Vim's own pairs, and the readline pair every terminal user already has in their fingers. `G` before `g` because the shift-key distinction is the whole difference between them.
+        let (down, up) = if self.grid {
+            (Move::NextRow, Move::PreviousRow)
+        } else {
+            (Move::Next, Move::Previous)
+        };
         match key {
             Key::Char(c) => match c {
-                'j' => Some(Move::Next),
-                'k' => Some(Move::Previous),
+                'j' => Some(down),
+                'k' => Some(up),
+                'h' if self.grid => Some(Move::Previous),
+                'l' if self.grid => Some(Move::Next),
                 'g' => Some(Move::First),
                 'G' => Some(Move::Last),
-                '\u{e}' => Some(Move::Next),      // Ctrl-N
-                '\u{10}' => Some(Move::Previous), // Ctrl-P
+                '\u{e}' => Some(down), // Ctrl-N
+                '\u{10}' => Some(up),  // Ctrl-P
                 _ => None,
             },
             _ => None,
@@ -99,15 +129,45 @@ impl KeyNav {
 /// Wraps at both ends: a list short enough to see all of is faster to reach the bottom of by pressing up once,
 /// and a list too long to see wraps rather than sticking silently, which reads as the key not working.
 pub fn apply(current: usize, count: usize, movement: Move) -> usize {
+    apply_grid(current, count, 1, movement)
+}
+
+/// Where a move lands in a grid `columns` tiles wide. A single column is a list, which is why [`apply`] is this
+/// with `columns = 1` rather than a second implementation.
+///
+/// A row move off the bottom lands on the nearest tile below where there is one — a partial last row is still a
+/// row — and wraps to the same column otherwise, matching the horizontal rule.
+pub fn apply_grid(current: usize, count: usize, columns: usize, movement: Move) -> usize {
     if count == 0 {
         return 0;
     }
+    let columns = columns.max(1);
     let current = current.min(count - 1);
+    let last = count - 1;
     match movement {
         Move::Next => (current + 1) % count,
         Move::Previous => (current + count - 1) % count,
         Move::First => 0,
-        Move::Last => count - 1,
+        Move::Last => last,
+        Move::NextRow => {
+            let below = current + columns;
+            if below <= last {
+                below
+            } else if current / columns < last / columns {
+                // A shorter last row: down from the end of a full row still goes down, to its final tile.
+                last
+            } else {
+                current % columns
+            }
+        }
+        Move::PreviousRow => {
+            if current >= columns {
+                current - columns
+            } else {
+                let bottom = (last / columns) * columns + current % columns;
+                if bottom > last { bottom - columns } else { bottom }
+            }
+        }
         Move::Activate | Move::Cancel => current,
     }
 }
@@ -120,6 +180,7 @@ mod tests {
         KeyNav {
             vim: false,
             horizontal: false,
+            grid: false,
         }
     }
 
@@ -127,6 +188,7 @@ mod tests {
         KeyNav {
             vim: true,
             horizontal: false,
+            grid: false,
         }
     }
 
@@ -184,5 +246,61 @@ mod tests {
         // A selection left over from a longer list is clamped rather than wrapping off a stale index — the launcher's results shrink on every keystroke.
         assert_eq!(apply(9, 3, Move::Next), 0);
         assert_eq!(apply(9, 3, Move::Previous), 1);
+
+        // A list is a one-column grid, so a row move is a step: the launcher's rows and its wallpaper grid share
+        // one `apply` and must not need to know which they are.
+        assert_eq!(apply(0, 3, Move::NextRow), 1);
+        assert_eq!(apply(2, 3, Move::PreviousRow), 1);
+        assert_eq!(apply(2, 3, Move::NextRow), 0, "still wraps");
+    }
+
+    #[test]
+    fn a_grid_uses_both_pairs_of_arrows() {
+        let grid = arrows().grid();
+        assert_eq!(grid.interpret(&named(NamedKey::ArrowRight)), Some(Move::Next));
+        assert_eq!(grid.interpret(&named(NamedKey::ArrowLeft)), Some(Move::Previous));
+        assert_eq!(grid.interpret(&named(NamedKey::ArrowDown)), Some(Move::NextRow));
+        assert_eq!(grid.interpret(&named(NamedKey::ArrowUp)), Some(Move::PreviousRow));
+        assert_eq!(grid.interpret(&named(NamedKey::Enter)), Some(Move::Activate));
+
+        // With vim off — the launcher's default, since the grid sits under a search field — a letter is typing.
+        assert_eq!(grid.interpret(&character('j')), None);
+        assert_eq!(grid.interpret(&character('h')), None);
+
+        let keys = vim().grid();
+        assert_eq!(keys.interpret(&character('j')), Some(Move::NextRow));
+        assert_eq!(keys.interpret(&character('k')), Some(Move::PreviousRow));
+        assert_eq!(keys.interpret(&character('l')), Some(Move::Next));
+        assert_eq!(keys.interpret(&character('h')), Some(Move::Previous));
+    }
+
+    /// Nine tiles in three columns, plus the awkward case a wallpaper folder always ends in: a partial last row.
+    #[test]
+    fn a_row_move_crosses_a_whole_row_and_a_partial_one_is_still_a_row() {
+        // 0 1 2
+        // 3 4 5
+        // 6 7 8
+        assert_eq!(apply_grid(0, 9, 3, Move::NextRow), 3);
+        assert_eq!(apply_grid(4, 9, 3, Move::PreviousRow), 1);
+        assert_eq!(apply_grid(1, 9, 3, Move::Next), 2, "along the row, not down it");
+        assert_eq!(apply_grid(7, 9, 3, Move::NextRow), 1, "wraps to the same column");
+        assert_eq!(apply_grid(1, 9, 3, Move::PreviousRow), 7, "and back to the bottom of it");
+
+        // 0 1 2
+        // 3 4
+        // Down from 2 has no tile of its own below, but there *is* a row: landing on 4 beats not moving.
+        assert_eq!(apply_grid(2, 5, 3, Move::NextRow), 4);
+        assert_eq!(apply_grid(1, 5, 3, Move::NextRow), 4);
+        assert_eq!(apply_grid(0, 5, 3, Move::NextRow), 3);
+        // Up from the top column 2 finds the bottom-most tile in that column, which is on the row above the gap.
+        assert_eq!(apply_grid(2, 5, 3, Move::PreviousRow), 2);
+        assert_eq!(apply_grid(1, 5, 3, Move::PreviousRow), 4);
+        assert_eq!(apply_grid(4, 5, 3, Move::NextRow), 1, "the last row wraps to the first");
+
+        // One row: a row move has nowhere to go and must stay put rather than run off the end.
+        assert_eq!(apply_grid(1, 3, 3, Move::NextRow), 1);
+        assert_eq!(apply_grid(1, 3, 3, Move::PreviousRow), 1);
+        assert_eq!(apply_grid(0, 0, 4, Move::NextRow), 0);
+        assert_eq!(apply_grid(9, 5, 3, Move::NextRow), 1, "a stale index is clamped first");
     }
 }

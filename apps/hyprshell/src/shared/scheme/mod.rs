@@ -642,6 +642,19 @@ fn source_image(config: &Config) -> Option<PathBuf> {
 /// surface down — including the wallpaper surface that is halfway through cross-fading to the very image the
 /// palette came from. Waiting out the transition means the colours arrive once the picture has, which is both
 /// what the eye expects and the only way the fade survives. Zero everywhere a transition is not running.
+/// Re-derives the palette after *the shell itself* changed the wallpaper, reading the running config for both the
+/// dynamic check and the transition to wait out.
+///
+/// Every path that sets a wallpaper has to call this, and there is more than one: the IPC commands, and the
+/// launcher's `@` grid — which shipped without it, so a dynamic theme kept the old picture's colours until the next
+/// reload. One helper rather than the two lines at each call site is what stops the third one forgetting too.
+pub fn refresh_current() {
+    if let Some(config) = crate::core::shell::config() {
+        let settle = config.wallpaper_transition();
+        refresh(&config, settle);
+    }
+}
+
 pub fn refresh(config: &Config, settle: std::time::Duration) {
     if !config.theme.is_dynamic() {
         return;

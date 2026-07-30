@@ -391,7 +391,7 @@ fn choose<'a>(library: &'a [Entry], exclude: Option<&Path>, roll: usize) -> Opti
 /// of what used to be there. Callers run this off the UI thread: a cache miss decodes and rescales a full-size
 /// photograph.
 pub fn thumbnail(source: &Path, size: u32) -> Option<PathBuf> {
-    let size = size.clamp(32, 1024);
+    let size = clamp_size(size);
     let cached = thumbnail_path(source, size);
     if cached.exists() {
         return Some(cached);
@@ -408,6 +408,18 @@ pub fn thumbnail(source: &Path, size: u32) -> Option<PathBuf> {
             None
         }
     }
+}
+
+/// The thumbnail for `source` only if it has already been generated. What a grid asks before queueing work: a
+/// cache hit is one `exists` and can be drawn on the frame it is asked for, where a miss is a full-size decode.
+pub fn cached_thumbnail(source: &Path, size: u32) -> Option<PathBuf> {
+    let cached = thumbnail_path(source, clamp_size(size));
+    cached.exists().then_some(cached)
+}
+
+/// Small enough to be pointless, large enough to be the original: neither is a thumbnail.
+fn clamp_size(size: u32) -> u32 {
+    size.clamp(32, 1024)
 }
 
 fn thumbnail_path(source: &Path, size: u32) -> PathBuf {

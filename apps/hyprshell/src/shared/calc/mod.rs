@@ -6,6 +6,13 @@
 //!
 //! Percentages are context-sensitive, because that is what people mean by them: `200 + 10%` is 220, not 200.1.
 //! A percentage on the right of `+`/`-` is taken *of the left operand*; anywhere else it is simply a hundredth.
+//!
+//! Two things sit on top of the evaluator. [`units`] answers `3 km in mi` from a static table, still with no
+//! dependency and no subprocess. [`qalc`] is the fallback for everything neither of them does — and it *is* a
+//! subprocess, so it runs on a worker thread and its answer arrives when it arrives.
+
+pub mod qalc;
+pub mod units;
 
 /// A value plus whether it was written as a percentage, which the `+`/`-` rule needs.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -292,6 +299,38 @@ pub fn format(value: f64) -> String {
     }
 }
 
+/// An answer the calculator can give: a plain number, or a number in a unit.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Answer {
+    Number(f64),
+    Quantity { value: f64, unit: &'static str },
+}
+
+impl Answer {
+    /// What to show, and what selecting the row copies. The unit travels with the number: an answer of `1.86`
+    /// pasted somewhere else is a different claim from `1.86 mi`.
+    pub fn text(&self) -> String {
+        match self {
+            Answer::Number(value) => format(*value),
+            Answer::Quantity { value, unit } => format!("{} {unit}", format(*value)),
+        }
+    }
+}
+
+/// Solves `input`, whatever kind of question it is: a conversion first, then arithmetic.
+///
+/// Conversions are tried first because `3 km in mi` is not arithmetic at all — the evaluator rejects it on the
+/// first unit name — and because a conversion that parses is unambiguous about what was meant.
+pub fn solve(input: &str) -> Option<Answer> {
+    if let Some(quantity) = units::convert(input) {
+        return Some(Answer::Quantity {
+            value: quantity.value,
+            unit: quantity.unit,
+        });
+    }
+    evaluate(input).map(Answer::Number)
+}
+
 /// Whether `query` reads as a calculation worth showing a result for.
 ///
 /// A bare number is deliberately excluded: typing `2` is far more likely the start of an app name than a sum
@@ -301,7 +340,7 @@ pub fn looks_like_math(query: &str) -> bool {
     if trimmed.is_empty() || trimmed.parse::<f64>().is_ok() {
         return false;
     }
-    evaluate(trimmed).is_some()
+    solve(trimmed).is_some()
 }
 
 #[cfg(test)]
@@ -384,6 +423,23 @@ mod tests {
     fn division_by_zero_is_not_an_answer() {
         assert!(evaluate("1/0").is_none());
         assert!(evaluate("5 / (3 - 3)").is_none());
+    }
+
+    #[test]
+    fn solve_answers_arithmetic_and_conversions_through_one_call() {
+        assert_eq!(solve("2+2").map(|a| a.text()).as_deref(), Some("4"));
+        assert_eq!(
+            solve("3 km in mi").map(|a| a.text()).as_deref(),
+            Some("1.8641135767 mi"),
+            "the unit travels with the number, since 1.86 alone is a different claim"
+        );
+        assert_eq!(solve("firefox").map(|a| a.text()), None);
+
+        // A conversion is tried first because the evaluator cannot see one at all: it stops at the unit's name.
+        assert!(evaluate("3 km in mi").is_none());
+        assert!(looks_like_math("3 km in mi"));
+        assert!(looks_like_math("100 c in f"));
+        assert!(!looks_like_math("photos in library"));
     }
 
     #[test]

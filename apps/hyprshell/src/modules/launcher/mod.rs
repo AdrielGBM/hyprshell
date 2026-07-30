@@ -17,6 +17,8 @@ use crate::shared::search::{self, Mode};
 use crate::shared::services::apps::{self, App};
 use crate::shared::keynav::{self, Move};
 use crate::shared::services::state;
+use crate::shared::services::wallpaper;
+use crate::shared::thumbnail;
 use crate::shared::theme::{FontRole, NordTheme};
 
 /// The id the surface registry keys the launcher on.
@@ -32,6 +34,32 @@ const CALC_PREFIX: char = '=';
 /// Typing this first lists the colour schemes: every palette, the light/dark modes and the dynamic variants.
 const SCHEME_PREFIX: char = '#';
 
+/// Typing this first browses the wallpaper library as a grid of thumbnails.
+const WALLPAPER_PREFIX: char = '@';
+
+/// The widest a wallpaper tile gets before another column fits. Thumbnails are landscape, so a tile the width of
+/// a row would show one picture where four fit — the grid is the point of this mode.
+const TILE_WIDTH: f32 = 150.0;
+
+/// Wallpaper tiles are pictures of screens, so a tile is shaped like one.
+const TILE_ASPECT: f32 = 9.0 / 16.0;
+
+const TILE_GAP: f32 = 8.0;
+
+/// The panel's own inset, which is what the grid has to subtract to know how much width it really has.
+const PANEL_PADDING: f32 = 14.0;
+
+/// The width to lay a grid out for when there is no config to read one from — a headless render, or a preview.
+const DEFAULT_PANEL_WIDTH: f32 = 640.0;
+
+/// How many wallpapers the grid draws at once.
+///
+/// A bound the *reactive list* needs, not the library: it builds a widget per tile up front, so pointing the shell
+/// at a picture archive would spend the UI thread building thousands of them before the panel appeared. Far above
+/// the row cap because a grid shows several rows of what a list shows one of, and typing narrows a bigger library
+/// faster than scrolling one would. Lifting it properly means a `VirtualList` for the lines.
+const GRID_CAP: usize = 150;
+
 /// One row of the launcher. The launcher lists *things you can do*, not only applications, so each mode
 /// contributes the same shape and one `row` renders any of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +72,9 @@ pub enum Entry {
     /// A palette, a light/dark mode or a dynamic-scheme variant. Choosing one writes it to `[theme]`, which the
     /// config watcher then reloads — the same route the settings panel and `hyprshell scheme` take.
     Scheme { choice: scheme::Choice, value: String },
+    /// An image from the wallpaper library. Drawn as a tile rather than a row, because a wallpaper is chosen by
+    /// looking at it — a list of file names would be a worse version of `ls`.
+    Wallpaper(wallpaper::Entry),
 }
 
 impl Entry {
@@ -55,6 +86,7 @@ impl Entry {
             Entry::Action(action) => format!("action:{}", action.name),
             Entry::Calculation { expression, .. } => format!("calc:{expression}"),
             Entry::Scheme { choice, value } => format!("scheme:{choice:?}:{value}"),
+            Entry::Wallpaper(entry) => format!("wallpaper:{}", entry.path.display()),
         }
     }
 
@@ -71,6 +103,21 @@ pub enum QueryMode {
     Actions,
     Calculator,
     Schemes,
+    Wallpapers,
+}
+
+impl QueryMode {
+    /// How many tiles a row of this mode holds inside a panel `width` px wide, or 1 for the modes that are lists.
+    ///
+    /// The selection, the keys and the reveal all work in one flat index whatever the shape, so this is the only
+    /// thing that has to know a grid from a list.
+    pub fn columns(self, width: f32) -> usize {
+        if self != QueryMode::Wallpapers {
+            return 1;
+        }
+        let inner = (width - PANEL_PADDING * 2.0).max(TILE_WIDTH);
+        (((inner + TILE_GAP) / (TILE_WIDTH + TILE_GAP)).floor() as usize).clamp(2, 8)
+    }
 }
 
 /// Reads the mode off the query's first character. An explicit prefix always wins; without one the query is an
@@ -86,6 +133,9 @@ pub fn mode_of(query: &str) -> (QueryMode, &str) {
     if let Some(rest) = trimmed.strip_prefix(SCHEME_PREFIX) {
         return (QueryMode::Schemes, rest.trim_start());
     }
+    if let Some(rest) = trimmed.strip_prefix(WALLPAPER_PREFIX) {
+        return (QueryMode::Wallpapers, rest.trim_start());
+    }
     (QueryMode::Apps, query.trim())
 }
 
@@ -94,13 +144,25 @@ pub fn mode_of(query: &str) -> (QueryMode, &str) {
 /// The calculator is additive rather than a mode you fall into: an unambiguous sum puts its answer at the top
 /// and the app matches still follow underneath, so typing something that happens to parse as arithmetic never
 /// hides the app you were reaching for.
-pub fn entries(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<Entry> {
+pub fn entries(
+    apps: Vec<App>,
+    library: Vec<wallpaper::Entry>,
+    query: &str,
+    config: &LauncherConfig,
+) -> Vec<Entry> {
     let (mode, rest) = mode_of(query);
     let cap = config.max_results.max(1) as usize;
     match mode {
         QueryMode::Actions => actions(rest, config).into_iter().take(cap).collect(),
-        QueryMode::Calculator => calculation(rest, config).into_iter().collect(),
+        QueryMode::Calculator => calculation_or_qalc(rest, config).into_iter().collect(),
         QueryMode::Schemes => schemes(rest, config).into_iter().take(cap).collect(),
+        // A grid fits several rows of what a list shows one of, so the row cap would cut the browse mode off at a
+        // third of a screen. It gets its own, much larger bound instead — see `GRID_CAP`.
+        QueryMode::Wallpapers => {
+            let mut tiles = wallpapers(library, rest, config);
+            tiles.truncate(GRID_CAP);
+            tiles
+        }
         QueryMode::Apps => {
             let mut rows: Vec<Entry> = Vec::new();
             if config.calculator && calc::looks_like_math(rest) {
@@ -117,9 +179,27 @@ fn calculation(expression: &str, config: &LauncherConfig) -> Option<Entry> {
     if !config.calculator {
         return None;
     }
-    calc::evaluate(expression).map(|value| Entry::Calculation {
+    calc::solve(expression).map(|answer| Entry::Calculation {
         expression: expression.trim().to_string(),
-        result: calc::format(value),
+        result: answer.text(),
+    })
+}
+
+/// The calculator row for an explicit `=` query, falling back to `qalc` for what the in-house evaluator cannot do.
+///
+/// Only on the explicit prefix, and only after the local evaluator has declined: an app search must never spawn a
+/// process, and a sum with a local answer must never wait for one. While the subprocess is out there is no row —
+/// the answer simply appears, because this runs inside the results memo and the loader's signal is what re-runs it.
+fn calculation_or_qalc(expression: &str, config: &LauncherConfig) -> Option<Entry> {
+    if let Some(local) = calculation(expression, config) {
+        return Some(local);
+    }
+    if !config.calculator || !config.qalc {
+        return None;
+    }
+    calc::qalc::answer(expression).map(|result| Entry::Calculation {
+        expression: expression.trim().to_string(),
+        result,
     })
 }
 
@@ -164,6 +244,27 @@ pub fn schemes(query: &str, config: &LauncherConfig) -> Vec<Entry> {
         },
         |_| 0,
     )
+}
+
+/// The wallpapers matching `query`, ranked by the same matcher every other mode uses.
+///
+/// The folder is part of the haystack, so `@nature` finds a whole folder without the user having to remember what
+/// any single picture in it is called.
+pub fn wallpapers(
+    library: Vec<wallpaper::Entry>,
+    query: &str,
+    config: &LauncherConfig,
+) -> Vec<Entry> {
+    search::rank(
+        library,
+        query,
+        match_mode(config),
+        |entry| format!("{} {}", entry.name, entry.folder),
+        |_| 0,
+    )
+    .into_iter()
+    .map(Entry::Wallpaper)
+    .collect()
 }
 
 /// A scheme row's name and what kind of choice it is. The name is the palette's own where there is one, so
@@ -240,6 +341,13 @@ fn choose(entry: &Entry) {
                 tracing::warn!("launcher: {e}");
             }
         }
+        // Every screen, not the focused one: a choice made with no monitor named is a choice about the desktop,
+        // which is the same rule `hyprshell wallpaper set` follows — including re-deriving a dynamic palette from
+        // the new picture, which is the other half of "the wallpaper changed" and is easy to ship without.
+        Entry::Wallpaper(entry) => {
+            wallpaper::set(&entry.path, None);
+            scheme::refresh_current();
+        }
     }
 }
 
@@ -281,8 +389,10 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
 
     // The app list is read once per open, not per keystroke: it only changes when software is installed.
     let installed = apps::all();
-    let for_results = config.clone();
-    let shown = memo(move || query_read.with(|q| entries(installed.clone(), q, &for_results)));
+    let shown = results_memo(installed, library(), query_read, config.clone());
+    let for_columns = query.read_only();
+    let width = config.width as f32;
+    let columns = memo(move || mode_of(&for_columns.get()).0.columns(width));
 
     let selected = signal(0usize);
     // Which row is armed, by key. A dangerous action needs a second Enter, and arming in place costs no extra
@@ -307,18 +417,21 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let list_height = (config.height as f32 - field_height - 38.0).max(80.0);
     let list = result_list(
         shown.clone(),
+        columns.clone(),
         selected.read_only(),
         armed.read_only(),
         list_height,
         theme,
     )?;
     let keys_shown = shown.clone();
+    let keys_columns = columns;
     // The shared list bindings, so the launcher and every other list surface agree on what a key means.
     let nav = keynav::KeyNav::from_config(
         &crate::core::shell::config()
             .map(|c| c.keynav)
             .unwrap_or_default(),
     );
+    let grid_nav = nav.grid();
     let keys_selected = selected;
     let keys_armed = armed;
 
@@ -340,7 +453,11 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     // for exactly as long as the panel it is attached to.
     .on_key(move |key| {
         let _ = &follow_query;
-        let Some(movement) = nav.interpret(key) else {
+        // Which bindings apply is a property of the shape the results are in, and that changes as the query does:
+        // a grid answers to both pairs of arrows, a list only to one.
+        let columns = keys_columns.with(|columns| *columns);
+        let reading = if columns > 1 { grid_nav } else { nav };
+        let Some(movement) = reading.interpret(key) else {
             return;
         };
         match movement {
@@ -366,11 +483,53 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
             }
             movement => {
                 let count = keys_shown.with(|list| list.len());
-                keys_selected.set(keynav::apply(keys_selected.peek(), count, movement));
+                keys_selected.set(keynav::apply_grid(
+                    keys_selected.peek(),
+                    count,
+                    columns,
+                    movement,
+                ));
             }
         }
     });
     Ok(Box::new(panel))
+}
+
+/// The rows to show, re-derived whenever the query or the library changes.
+///
+/// Every cell is read *out* before `entries` runs, and it has to be: `entries` calls `t!` for the scheme rows and
+/// asks the qalc loader for a signal for the `=` rows, and either one inside a `with` panics on the runtime's
+/// borrow. That panic is invisible until the closure actually runs, which is why this is a function a test can
+/// drive rather than a closure buried in `panel`.
+fn results_memo(
+    installed: Vec<App>,
+    library: rsx::ReadSignal<Vec<wallpaper::Entry>>,
+    query: rsx::ReadSignal<String>,
+    config: LauncherConfig,
+) -> rsx::Memo<Vec<Entry>> {
+    memo(move || {
+        let images = library.get();
+        let text = query.get();
+        entries(installed.clone(), images, &text, &config)
+    })
+}
+
+/// The wallpaper library as this surface sees it, staying current for as long as the launcher is up.
+///
+/// Subscribed rather than read once: the store answers with its current contents immediately, so the grid is
+/// populated on the frame it opens, and a folder that grows behind the launcher fills in without a reopen. A shell
+/// with `[wallpaper] enabled` off subscribes to nothing, so it never starts the scanner it has no use for.
+fn library() -> rsx::ReadSignal<Vec<wallpaper::Entry>> {
+    let images = signal(Vec::new());
+    let enabled = shell::config()
+        .map(|config| config.wallpaper.enabled)
+        .unwrap_or(false);
+    if !enabled {
+        return images.read_only();
+    }
+    let sink = images.clone();
+    platform_layershell::watch(wallpaper::subscribe_library, move |entries| sink.set(entries));
+    images.read_only()
 }
 
 fn search_field(
@@ -399,11 +558,48 @@ fn search_field(
     Ok(Box::new(boxed))
 }
 
+/// One laid-out line of results: a full-width row, or a row of tiles in a grid mode.
+///
+/// The reactive list is one list either way. Switching between a list of applications and a grid of wallpapers is
+/// a keystroke in the search field, so it has to be a change of *content* rather than of which widget is on
+/// screen — the alternative is tearing the scroll area down and rebuilding it mid-typing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Line {
+    Row(Entry),
+    Tiles(Vec<Entry>),
+}
+
+impl Line {
+    /// The identity the reactive list reconciles on. A grid line's own key is its tiles', because that is what it
+    /// draws: a row of four pictures that becomes a row of four *different* pictures is a different line.
+    fn key(&self) -> String {
+        match self {
+            Line::Row(entry) => entry.key(),
+            Line::Tiles(entries) => {
+                let keys: Vec<String> = entries.iter().map(Entry::key).collect();
+                format!("tiles:{}", keys.join("|"))
+            }
+        }
+    }
+}
+
+/// Breaks `entries` into the lines that draw them: one row each, or `columns` tiles per line in a grid mode.
+fn lines(entries: Vec<Entry>, columns: usize) -> Vec<Line> {
+    if columns <= 1 {
+        return entries.into_iter().map(Line::Row).collect();
+    }
+    entries
+        .chunks(columns)
+        .map(|chunk| Line::Tiles(chunk.to_vec()))
+        .collect()
+}
+
 fn result_list(
     matches: rsx::Memo<Vec<Entry>>,
+    columns: rsx::Memo<usize>,
     selected: rsx::ReadSignal<usize>,
     armed: rsx::ReadSignal<String>,
-    max_height: f32,
+    height: f32,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // Built through `new_with` so the rows can reach the viewport: moving the selection has to scroll the list
@@ -412,44 +608,226 @@ fn result_list(
         LayoutStyle::new()
             .flex_column()
             .width(SizeDimension::Percent(1.0))
-            // A definite bound, not `flex_grow`: inside a content-sized column there is no free space to grow
-            // into, which collapsed the list to less than one row.
-            .max_height(max_height),
+            // A *definite* height, and it has to be: a scroll area is a layout leaf whose content is laid out as
+            // its own root, so nothing inside it contributes to its size. With `max_height` alone — which is what
+            // this was — the leaf measured 612×0 and the whole result list drew nothing. It is also why the panel
+            // is the size `[launcher] height` declares rather than shrinking to a one-row answer.
+            .height(height),
         move |viewport| {
             let for_source = matches.clone();
-            let source = move || for_source.get();
-            let key = |entry: &Entry| entry.key();
+            let for_columns = columns.clone();
+            // Both read *out* of their cells before either is used: a nested signal read holds the runtime's
+            // borrow and panics at build time.
+            let source = move || {
+                let across = for_columns.get();
+                lines(for_source.get(), across)
+            };
+            let key = |line: &Line| line.key();
+            let tile_columns = columns.clone();
             // Cloned per row rather than moved: `ReactiveList` needs an `Fn`, so the builder may run many times.
-            let build = move |entry: Entry| -> Result<Box<dyn LayoutItem>, LayoutError> {
-                // A row highlights when it *is* the selection, resolved by key rather than by position, so the
-                // reactive list can reorder rows without the highlight following the wrong one.
-                let key = entry.key();
-                let armed_key = key.clone();
-                let list = matches.clone();
-                let at = selected.clone();
-                let armed = armed.clone();
-                let is_selected =
-                    move || list.with(|l| l.get(at.get()).is_some_and(|e| e.key() == key));
-                let is_armed = move || armed.get() == armed_key;
-                let row = row(entry, theme, is_selected.clone(), is_armed)?;
+            let build = move |line: Line| -> Result<Box<dyn LayoutItem>, LayoutError> {
+                let keys = match &line {
+                    Line::Row(entry) => vec![entry.key()],
+                    Line::Tiles(entries) => entries.iter().map(Entry::key).collect(),
+                };
+                let item = match line {
+                    Line::Row(entry) => {
+                        // A row highlights when it *is* the selection, resolved by key rather than by position, so
+                        // the reactive list can reorder rows without the highlight following the wrong one.
+                        let is_selected = selection_is(matches.clone(), selected.clone(), keys.clone());
+                        let armed_key = entry.key();
+                        let armed = armed.clone();
+                        let is_armed = move || armed.get() == armed_key;
+                        row(entry, theme, is_selected, is_armed)?
+                    }
+                    Line::Tiles(entries) => tile_row(
+                        entries,
+                        matches.clone(),
+                        selected.clone(),
+                        tile_columns.with(|across| *across),
+                        theme,
+                    )?,
+                };
 
-                // Follow the selection: when this row becomes the selected one, ask the viewport to bring it
-                // into view. Already-visible rows are left alone, so arrowing within the visible window doesn't
-                // yank the list. The subscription is tied to the row, since the list rebuilds its rows and an
+                // Follow the selection: when this line holds the selected entry, ask the viewport to bring it
+                // into view. Already-visible lines are left alone, so arrowing within the visible window doesn't
+                // yank the list. The subscription is tied to the line, since the list rebuilds them and an
                 // effect that outlived one would keep revealing a node that is gone.
-                let node = row.layout_node();
+                let node = item.layout_node();
                 let viewport = viewport.clone();
+                let holds_selection = selection_is(matches.clone(), selected.clone(), keys);
                 let follow_selection = rsx::effect(move || {
-                    if is_selected() {
+                    if holds_selection() {
                         viewport.reveal(node, 4.0);
                     }
                 });
-                reactive::keeping(row, follow_selection)
+                reactive::keeping(item, follow_selection)
             };
-            Ok(Box::new(rsx::ReactiveList::new(source, key, build)?) as Box<dyn LayoutItem>)
+            // `with_style` rather than `new`: the convenience constructors carry no width, so a grid line asking
+            // for `100%` inside one resolves against nothing and lays its tiles out at their intrinsic size.
+            Ok(Box::new(rsx::ReactiveList::with_style(
+                LayoutStyle::new()
+                    .flex_column()
+                    .width(SizeDimension::Percent(1.0)),
+                source,
+                key,
+                build,
+            )?) as Box<dyn LayoutItem>)
         },
     )?;
     Ok(Box::new(scroll))
+}
+
+/// Whether the selected entry is one of `keys`.
+///
+/// By key rather than by index, so the reactive list can reorder or re-chunk without the highlight following the
+/// wrong tile — and one predicate serves a row (one key) and a grid line (its whole row of them). The index is read
+/// out of its cell before the list is borrowed: a signal read nested inside another's `with` panics.
+fn selection_is(
+    matches: rsx::Memo<Vec<Entry>>,
+    selected: rsx::ReadSignal<usize>,
+    keys: Vec<String>,
+) -> impl Fn() -> bool + Clone + 'static {
+    move || {
+        let at = selected.get();
+        matches.with(|list| {
+            list.get(at)
+                .is_some_and(|entry| keys.contains(&entry.key()))
+        })
+    }
+}
+
+/// One row of a grid: `columns` tiles wide, laid out along the bar of the panel rather than down it.
+///
+/// The row is padded to a full `columns` regardless of how many tiles it holds, so the last row of a library that
+/// does not divide evenly keeps its pictures the same size as every other row's rather than stretching them.
+fn tile_row(
+    entries: Vec<Entry>,
+    matches: rsx::Memo<Vec<Entry>>,
+    selected: rsx::ReadSignal<usize>,
+    columns: usize,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let columns = columns.max(1);
+    let panel_width = shell::config()
+        .map(|config| config.launcher.width as f32)
+        .unwrap_or(DEFAULT_PANEL_WIDTH);
+    let mut children: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let is_selected = selection_is(matches.clone(), selected.clone(), vec![entry.key()]);
+        children.push(tile(entry, columns, theme, is_selected)?);
+    }
+    let row = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .gap(TILE_GAP)
+            .width(SizeDimension::Percent(1.0))
+            .height(tile_row_height(columns, panel_width, theme))
+            .padding_vertical(TILE_GAP / 2.0),
+        children,
+    )?;
+    Ok(Box::new(row))
+}
+
+/// The width one tile gets when `columns` of them share the panel, gaps included.
+fn tile_width(columns: usize, panel_width: f32) -> f32 {
+    let columns = columns.max(1);
+    let inner = (panel_width - PANEL_PADDING * 2.0).max(TILE_WIDTH);
+    ((inner - TILE_GAP * (columns - 1) as f32) / columns as f32).max(48.0)
+}
+
+/// The picture and the caption a tile of `width` is made of, and the height the two of them need together.
+///
+/// Stated rather than left to the content, because a row's own auto height came back 18px shorter than the tiles
+/// in it — enough to draw each row's captions under the row below. A grid of identical tiles has one right answer
+/// for this, so computing it once here is also what makes every row exactly as tall as the last.
+fn tile_metrics(width: f32, theme: NordTheme) -> (f32, f32, f32) {
+    let picture_width = width - TILE_GAP;
+    let picture_height = (picture_width * TILE_ASPECT).round();
+    let caption_height = (theme.font(FontRole::Caption) * 1.6).round();
+    let height = TILE_GAP + picture_height + TILE_GAP / 2.0 + caption_height;
+    (picture_height, caption_height, height)
+}
+
+/// How tall one line of the grid is: a tile plus the row's own breathing space.
+fn tile_row_height(columns: usize, panel_width: f32, theme: NordTheme) -> f32 {
+    let (_, _, tile) = tile_metrics(tile_width(columns, panel_width), theme);
+    tile + TILE_GAP
+}
+
+/// One wallpaper as a picture with its name under it.
+///
+/// The thumbnail is asked for rather than read: a library of two hundred images would otherwise decode two hundred
+/// photographs before the grid drew its first frame. `shared::thumbnail` hands back a glyph until each one lands.
+fn tile(
+    entry: Entry,
+    columns: usize,
+    theme: NordTheme,
+    is_selected: impl Fn() -> bool + Clone + 'static,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (name, _) = row_text(&entry);
+    let panel_width = shell::config()
+        .map(|config| config.launcher.width as f32)
+        .unwrap_or(DEFAULT_PANEL_WIDTH);
+    let width = tile_width(columns, panel_width);
+    let (picture_height, caption_height, height) = tile_metrics(width, theme);
+    let source = match &entry {
+        Entry::Wallpaper(wall) => wall.path.clone(),
+        _ => std::path::PathBuf::new(),
+    };
+    let picture = thumbnail::view(
+        source,
+        width - TILE_GAP,
+        picture_height,
+        6.0,
+        "image",
+        theme,
+    )?;
+
+    let selected_label = is_selected.clone();
+    let label = Text::auto(
+        move || name.clone(),
+        LayoutStyle::new()
+            .width(SizeDimension::Percent(1.0))
+            .height(caption_height),
+        move || {
+            let colour = if selected_label() {
+                theme.text
+            } else {
+                theme.subtle
+            };
+            theme
+                .text_style(FontRole::Caption, colour)
+                .with_max_lines(1)
+                .with_ellipsis(true)
+        },
+    )?;
+
+    let chosen = Rc::new(entry);
+    let tile = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .align_items(AlignItems::CENTER)
+            .gap(TILE_GAP / 2.0)
+            .padding_all(TILE_GAP / 2.0)
+            .width(width)
+            .height(height),
+        move |_| {
+            let fill = if is_selected() {
+                theme.overlay
+            } else {
+                rsx::Color::TRANSPARENT
+            };
+            RectStyle::filled(fill, 8.0)
+        },
+        vec![picture, box_item(label)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || {
+        choose(&chosen);
+        shell::close(ID);
+    });
+    Ok(Box::new(tile))
 }
 
 /// The title, subtitle and icon a row shows. Resolving them per kind here keeps `row` itself one layout.
@@ -473,6 +851,7 @@ fn row_text(entry: &Entry) -> (String, String) {
                 (name, kind)
             }
         },
+        Entry::Wallpaper(entry) => (entry.name.clone(), entry.folder.clone()),
     }
 }
 
@@ -496,6 +875,9 @@ fn row_icon(entry: &Entry, theme: NordTheme) -> Result<Option<Box<dyn LayoutItem
                 scheme::Choice::Variant => "droplet",
             };
             crate::icon_view(move || glyph.to_string(), move || theme.accent, SIZE).map(Some)
+        }
+        Entry::Wallpaper(_) => {
+            crate::icon_view(|| "image".to_string(), move || theme.accent, SIZE).map(Some)
         }
     }
 }
@@ -728,6 +1110,23 @@ mod tests {
                 Entry::Action(a) => a.name.clone(),
                 Entry::Calculation { result, .. } => result.clone(),
                 Entry::Scheme { value, .. } => value.clone(),
+                Entry::Wallpaper(entry) => entry.name.clone(),
+            })
+            .collect()
+    }
+
+    fn library() -> Vec<wallpaper::Entry> {
+        ["sunset", "forest", "city"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| wallpaper::Entry {
+                path: std::path::PathBuf::from(format!("/pictures/{name}.png")),
+                name: name.to_string(),
+                folder: if index == 0 {
+                    String::new()
+                } else {
+                    "nature".to_string()
+                },
             })
             .collect()
     }
@@ -747,7 +1146,7 @@ mod tests {
 
     #[test]
     fn the_calculator_answers_above_the_apps_without_hiding_them() {
-        let found = entries(catalog(), "2+2", &LauncherConfig::default());
+        let found = entries(catalog(), Vec::new(), "2+2", &LauncherConfig::default());
         assert!(
             matches!(found.first(), Some(Entry::Calculation { result, .. }) if result == "4"),
             "the answer leads: {:?}",
@@ -755,14 +1154,14 @@ mod tests {
         );
 
         // A query that happens to parse as arithmetic must not hide the app search underneath it.
-        let mixed = entries(catalog(), "2+2", &LauncherConfig::default());
+        let mixed = entries(catalog(), Vec::new(), "2+2", &LauncherConfig::default());
         assert!(
             mixed.len() > 1 || mixed.iter().all(|e| matches!(e, Entry::Calculation { .. })),
             "app matches still follow when there are any"
         );
 
         // And a plain name never grows a calculation row.
-        let plain = entries(catalog(), "firefox", &LauncherConfig::default());
+        let plain = entries(catalog(), Vec::new(), "firefox", &LauncherConfig::default());
         assert!(!plain.iter().any(|e| matches!(e, Entry::Calculation { .. })));
     }
 
@@ -770,8 +1169,8 @@ mod tests {
     fn the_calc_prefix_forces_a_result_where_auto_detection_declines() {
         let config = LauncherConfig::default();
         // A bare number is treated as the start of a name, not a sum — unless asked explicitly.
-        assert!(!entries(catalog(), "2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
-        assert_eq!(names(&entries(catalog(), "=2", &config)), vec!["2".to_string()]);
+        assert!(!entries(catalog(), Vec::new(), "2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
+        assert_eq!(names(&entries(catalog(), Vec::new(), "=2", &config)), vec!["2".to_string()]);
     }
 
     #[test]
@@ -784,7 +1183,7 @@ mod tests {
             max_results: 200,
             ..LauncherConfig::default()
         };
-        let all = entries(catalog(), "#", &uncapped);
+        let all = entries(catalog(), Vec::new(), "#", &uncapped);
         assert!(
             all.iter().all(|e| matches!(e, Entry::Scheme { .. })),
             "the mode is exclusive: apps do not leak into it"
@@ -799,14 +1198,14 @@ mod tests {
         assert_eq!(kinds(scheme::Choice::Variant), scheme::Variant::ALL.len());
 
         // The palette's own name, not just its config spelling — `catppuccin-latte` is not what anyone types.
-        let found = entries(catalog(), "#latte", &config);
+        let found = entries(catalog(), Vec::new(), "#latte", &config);
         assert!(
             matches!(found.first(), Some(Entry::Scheme { value, .. }) if value == "catppuccin-latte"),
             "'#latte' finds Catppuccin Latte: {:?}",
             names(&found)
         );
         assert!(
-            entries(catalog(), "#dynamic", &config)
+            entries(catalog(), Vec::new(), "#dynamic", &config)
                 .iter()
                 .any(|e| matches!(e, Entry::Scheme { value, .. } if value == scheme::DYNAMIC)),
             "the wallpaper-derived palette is pickable too"
@@ -830,13 +1229,56 @@ mod tests {
     }
 
     #[test]
+    fn a_unit_conversion_answers_like_any_other_calculation() {
+        let config = LauncherConfig::default();
+        let found = entries(catalog(), Vec::new(), "3 km in mi", &config);
+        assert!(
+            matches!(found.first(), Some(Entry::Calculation { result, .. }) if result == "1.8641135767 mi"),
+            "the conversion leads, unit and all: {:?}",
+            names(&found)
+        );
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), "=100 c in f", &config)),
+            vec!["212 °F".to_string()],
+            "the explicit prefix works the same way"
+        );
+
+        // And the switch that turns the calculator off turns conversions off with it — they are the same feature.
+        let off = LauncherConfig {
+            calculator: false,
+            ..LauncherConfig::default()
+        };
+        assert!(
+            !entries(catalog(), Vec::new(), "3 km in mi", &off)
+                .iter()
+                .any(|e| matches!(e, Entry::Calculation { .. }))
+        );
+    }
+
+    /// Headless there is no worker, so this is what the guard is really about: an app search must not reach for a
+    /// subprocess, and the launcher must build a result list either way.
+    #[test]
+    fn only_an_explicit_calculation_falls_back_to_qalc() {
+        let config = LauncherConfig::default();
+        assert!(config.qalc, "the fallback is on by default");
+        // A question the built-in evaluator has no answer for: no row, and no process, until qalc answers.
+        assert!(entries(catalog(), Vec::new(), "=1 usd in eur", &config).is_empty());
+        // The same text without the prefix is an app search and never asks anything.
+        assert!(
+            entries(catalog(), Vec::new(), "1 usd in eur", &config)
+                .iter()
+                .all(|e| matches!(e, Entry::App(_)))
+        );
+    }
+
+    #[test]
     fn the_calculator_can_be_switched_off_entirely() {
         let config = LauncherConfig {
             calculator: false,
             ..LauncherConfig::default()
         };
-        assert!(!entries(catalog(), "2+2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
-        assert!(entries(catalog(), "=2+2", &config).is_empty());
+        assert!(!entries(catalog(), Vec::new(), "2+2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
+        assert!(entries(catalog(), Vec::new(), "=2+2", &config).is_empty());
     }
 
     #[test]
@@ -845,15 +1287,15 @@ mod tests {
             actions: vec![action("lock", false), action("logout", false)],
             ..LauncherConfig::default()
         };
-        assert_eq!(names(&entries(catalog(), ">", &config)).len(), 2);
-        assert_eq!(names(&entries(catalog(), ">lo", &config)).len(), 2);
+        assert_eq!(names(&entries(catalog(), Vec::new(), ">", &config)).len(), 2);
+        assert_eq!(names(&entries(catalog(), Vec::new(), ">lo", &config)).len(), 2);
         assert_eq!(
-            names(&entries(catalog(), ">lock", &config)),
+            names(&entries(catalog(), Vec::new(), ">lock", &config)),
             vec!["lock".to_string()]
         );
         // Action mode is exclusive: apps do not leak into it.
         assert!(
-            entries(catalog(), ">", &config)
+            entries(catalog(), Vec::new(), ">", &config)
                 .iter()
                 .all(|e| matches!(e, Entry::Action(_)))
         );
@@ -866,13 +1308,13 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert_eq!(
-            names(&entries(catalog(), ">", &config)),
+            names(&entries(catalog(), Vec::new(), ">", &config)),
             vec!["lock".to_string()],
             "a dangerous action is not even listed without the opt-in"
         );
 
         config.enable_dangerous_actions = true;
-        let listed = entries(catalog(), ">", &config);
+        let listed = entries(catalog(), Vec::new(), ">", &config);
         assert_eq!(names(&listed).len(), 2);
         assert!(
             listed.iter().any(|e| e.is_dangerous()),
@@ -900,7 +1342,339 @@ mod tests {
             ],
             ..LauncherConfig::default()
         };
-        assert_eq!(names(&entries(catalog(), ">", &config)), vec!["good".to_string()]);
+        assert_eq!(names(&entries(catalog(), Vec::new(), ">", &config)), vec!["good".to_string()]);
+    }
+
+    #[test]
+    fn the_wallpaper_mode_browses_the_library_and_finds_a_folder_by_name() {
+        let config = LauncherConfig::default();
+        assert_eq!(mode_of("@sun"), (QueryMode::Wallpapers, "sun"));
+
+        let all = entries(catalog(), library(), "@", &config);
+        assert_eq!(all.len(), 3, "a bare prefix browses the whole library");
+        assert!(
+            all.iter().all(|e| matches!(e, Entry::Wallpaper(_))),
+            "the mode is exclusive: apps do not leak into it"
+        );
+
+        assert_eq!(
+            names(&entries(catalog(), library(), "@sunset", &config)),
+            vec!["sunset".to_string()]
+        );
+        // The folder is searchable, so a whole collection is reachable without remembering one file's name.
+        let folder = names(&entries(catalog(), library(), "@nature", &config));
+        assert_eq!(folder.len(), 2, "both images filed under nature: {folder:?}");
+
+        // An empty library is the case where the folder is missing or `[wallpaper] enabled` is off. It shows
+        // nothing rather than falling back to the app list, which would be a different answer to what was asked.
+        assert!(entries(catalog(), Vec::new(), "@", &config).is_empty());
+    }
+
+    /// The row cap is a *list* bound. A grid four across would show three rows of a library and stop, which reads
+    /// as the library being that small.
+    #[test]
+    fn the_wallpaper_grid_is_not_cut_off_by_the_row_cap() {
+        let config = LauncherConfig {
+            max_results: 2,
+            ..LauncherConfig::default()
+        };
+        assert_eq!(entries(catalog(), library(), "@", &config).len(), 3);
+        assert_eq!(
+            entries(catalog(), Vec::new(), "", &config).len(),
+            2,
+            "while a list mode still honours it"
+        );
+
+        // It has a bound of its own, and it is the reactive list that needs it: every tile is a widget built up
+        // front, so a picture archive would spend the UI thread before the panel appeared.
+        let archive: Vec<wallpaper::Entry> = (0..GRID_CAP + 40)
+            .map(|index| wallpaper::Entry {
+                path: std::path::PathBuf::from(format!("/pictures/{index}.png")),
+                name: format!("image {index}"),
+                folder: String::new(),
+            })
+            .collect();
+        assert_eq!(
+            entries(catalog(), archive, "@", &config).len(),
+            GRID_CAP,
+            "the grid draws a bounded number of tiles however big the library is"
+        );
+    }
+
+    #[test]
+    fn only_a_grid_mode_has_columns_and_it_fits_them_to_the_panel() {
+        assert_eq!(QueryMode::Apps.columns(640.0), 1);
+        assert_eq!(QueryMode::Actions.columns(640.0), 1);
+        assert_eq!(
+            QueryMode::Wallpapers.columns(640.0),
+            3,
+            "the default panel holds three 150px tiles once its padding is taken off"
+        );
+        assert!(
+            QueryMode::Wallpapers.columns(1200.0) > QueryMode::Wallpapers.columns(640.0),
+            "a wider panel shows more per row rather than bigger pictures"
+        );
+        // A panel narrower than one tile still has to lay out: a column count of zero divides by zero downstream.
+        assert_eq!(QueryMode::Wallpapers.columns(80.0), 2);
+        assert!(tile_width(QueryMode::Wallpapers.columns(80.0), 80.0) >= 48.0);
+    }
+
+    #[test]
+    fn a_grid_line_is_a_row_of_tiles_and_a_list_line_is_one_row() {
+        let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
+        let rows = lines(images.clone(), 1);
+        assert_eq!(rows.len(), 3, "one column is a list");
+        assert!(rows.iter().all(|line| matches!(line, Line::Row(_))));
+
+        let grid = lines(images.clone(), 2);
+        assert_eq!(grid.len(), 2, "three tiles two across is two lines");
+        assert!(matches!(&grid[1], Line::Tiles(tiles) if tiles.len() == 1), "a short last row is still a row");
+
+        // The line's identity is what it draws: re-chunking must not let a stale row keep its pictures.
+        assert_ne!(grid[0].key(), grid[1].key());
+        assert_ne!(
+            lines(images.clone(), 2)[0].key(),
+            lines(images, 3)[0].key(),
+            "the same first tile in a wider row is a different line"
+        );
+        assert!(lines(Vec::new(), 4).is_empty());
+    }
+
+    /// The reactive rules only bite when the closures actually run, and nothing but a build runs them: a signal
+    /// read nested inside another's `with` panics here and nowhere else.
+    /// The regression this exists for: `entries` ran *inside* `query.with(...)`, and two of its modes read a second
+    /// signal — the scheme rows call `t!`, the `=` rows ask the qalc loader for one. Both panicked with "RefCell
+    /// already borrowed" the moment the user typed `#` or `=`, and nothing but running the closure finds it.
+    #[test]
+    fn typing_any_mode_into_the_results_memo_never_double_borrows_the_runtime() {
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let query = signal(String::new());
+        let library = signal(library());
+        let shown = results_memo(
+            catalog(),
+            library.read_only(),
+            query.read_only(),
+            LauncherConfig::default(),
+        );
+
+        for text in [
+            "",
+            "fire",
+            ">",
+            "#",
+            "#latte",
+            "#dynamic",
+            "=2+2",
+            "=3 km in mi",
+            "=12 in in cm",
+            "=1 usd in eur",
+            "@",
+            "@nature",
+        ] {
+            query.set(text.to_string());
+            // `get` is what runs the closure; a nested read panics here and nowhere else.
+            let rows = shown.get();
+            assert!(
+                rows.len() <= GRID_CAP,
+                "'{text}' produced {} rows",
+                rows.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_row_of_tiles_builds_and_knows_which_one_is_selected() {
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
+        let source = signal(images.clone());
+        let read = source.read_only();
+        let shown = memo(move || read.get());
+        let selected = signal(1usize);
+
+        assert!(
+            tile_row(
+                images.clone(),
+                shown.clone(),
+                selected.read_only(),
+                3,
+                NordTheme::new(),
+            )
+            .is_ok(),
+            "a row of tiles builds"
+        );
+
+        // By key, so the selection survives the list being re-chunked under it by a change of column count.
+        let holds = selection_is(shown.clone(), selected.read_only(), vec![images[1].key()]);
+        assert!(holds(), "the tile holding the selected entry knows it does");
+        let elsewhere = selection_is(shown, selected.read_only(), vec![images[0].key()]);
+        assert!(!elsewhere());
+    }
+
+    /// The regression this exists for: a scroll area is a layout *leaf* — its content is laid out as its own root,
+    /// so nothing inside it contributes to its size. Styled with `max_height` and no height, the list measured
+    /// 612×0 and every result was clipped out of existence. Building proves none of that; only measuring does.
+    #[test]
+    fn the_result_list_has_the_height_it_was_given() {
+        use rsx::{AvailableSpace, JustifyContent, compute_layout, new_container, track_layout};
+
+        rsx::reset_layout_runtime();
+        rsx::set_theme(NordTheme::new());
+        let rows: Vec<Entry> = catalog().into_iter().map(Entry::App).collect();
+        let source = signal(rows);
+        let read = source.read_only();
+        let shown = memo(move || read.get());
+        let columns = memo(|| 1usize);
+        let selected = signal(0usize);
+        let armed = signal(String::new());
+        let list = result_list(
+            shown,
+            columns,
+            selected.read_only(),
+            armed.read_only(),
+            260.0,
+            NordTheme::new(),
+        )
+        .expect("the list builds");
+        let rect = track_layout(list.layout_node()).expect("the list registers its rect");
+
+        // The panel and the scaffold that centres it: a content-sized column inside a full-screen flex, which is
+        // where a launcher list has no free space to grow into and has to carry its own height.
+        let panel = new_container(
+            LayoutStyle::new()
+                .flex_column()
+                .gap(10.0)
+                .padding_all(PANEL_PADDING)
+                .width(640.0),
+            &[list.layout_node()],
+        )
+        .expect("panel");
+        let root = new_container(
+            LayoutStyle::new()
+                .flex_column()
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::CENTER)
+                .width(1920.0)
+                .height(1080.0),
+            &[panel],
+        )
+        .expect("scaffold");
+        compute_layout(
+            root,
+            AvailableSpace::Definite(1920.0),
+            AvailableSpace::Definite(1080.0),
+        )
+        .expect("layout");
+
+        let rect = rect.get();
+        assert_eq!(
+            (rect.width, rect.height),
+            (612.0, 260.0),
+            "the list measured {}x{} — a zero-height viewport clips every result",
+            rect.width,
+            rect.height
+        );
+    }
+
+    /// The reactive rules only bite when the closures actually run, and nothing but a build runs them: a signal
+    /// read nested inside another's `with` panics here and nowhere else.
+    #[test]
+    fn the_result_list_builds_as_a_list_and_as_a_grid() {
+        let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
+        for across in [1usize, 3] {
+            rsx::reset_layout_runtime();
+            rsx::set_theme(NordTheme::new());
+            let source = signal(images.clone());
+            let read = source.read_only();
+            let shown = memo(move || read.get());
+            let columns = memo(move || across);
+            let selected = signal(0usize);
+            let armed = signal(String::new());
+            assert!(
+                result_list(
+                    shown,
+                    columns,
+                    selected.read_only(),
+                    armed.read_only(),
+                    300.0,
+                    NordTheme::new(),
+                )
+                .is_ok(),
+                "{across} column(s) builds"
+            );
+        }
+    }
+
+    /// Renders the wallpaper grid. `RSX_VISUAL_LAUNCHER_OUT=/tmp/l.png cargo test -p hyprshell --lib visual_launcher -- --nocapture`.
+    /// Headless there are no thumbnails, so what this shows is the tile layout and its glyph fallback — which is
+    /// also what a first open of a cold cache looks like.
+    #[test]
+    fn visual_launcher_grid_png() {
+        let Ok(out) = std::env::var("RSX_VISUAL_LAUNCHER_OUT") else {
+            eprintln!("set RSX_VISUAL_LAUNCHER_OUT to render the wallpaper grid; skipping");
+            return;
+        };
+        crate::test_support::render_png(GridPreviewApp, 640, 320, &out);
+    }
+
+    struct GridPreviewApp;
+
+    impl rsx::App for GridPreviewApp {
+        fn root(&self) -> Box<dyn rsx::Component> {
+            rsx::reset_layout_runtime();
+            let theme = NordTheme::new();
+            rsx::set_theme(theme);
+            let images: Vec<Entry> = library()
+                .into_iter()
+                .cycle()
+                .take(7)
+                .enumerate()
+                .map(|(index, mut entry)| {
+                    entry.name = format!("{} {index}", entry.name);
+                    entry.path = std::path::PathBuf::from(format!("/pictures/{index}.png"));
+                    Entry::Wallpaper(entry)
+                })
+                .collect();
+            let source = signal(images);
+            let read = source.read_only();
+            let shown = memo(move || read.get());
+            let columns = memo(|| QueryMode::Wallpapers.columns(640.0));
+            let selected = signal(1usize);
+            let armed = signal(String::new());
+            let list = result_list(
+                shown,
+                columns,
+                selected.read_only(),
+                armed.read_only(),
+                260.0,
+                theme,
+            )
+            .expect("grid build failed");
+            let panel = StyledContainer::new(
+                LayoutStyle::new()
+                    .flex_column()
+                    .padding_all(PANEL_PADDING)
+                    .width(SizeDimension::Percent(1.0)),
+                move |_| RectStyle::filled(theme.surface, 14.0),
+                vec![list],
+            )
+            .expect("panel frame");
+            Box::new(
+                crate::core::app::SurfaceRoot::new(Box::new(panel)).expect("launcher surface root"),
+            )
+        }
+
+        fn clear_color(&self) -> Option<rsx::Color> {
+            None
+        }
+
+        fn window_config(&self) -> Option<rsx::WindowConfig> {
+            Some(rsx::WindowConfig {
+                is_transparent: true,
+                ..rsx::WindowConfig::default()
+            })
+        }
     }
 
     #[test]
