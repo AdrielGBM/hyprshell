@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use platform_layershell::{EventSender, timeout, watch};
-use rsx::{
+use telar::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
     ReadSignal, RectStyle, RwSignal, SpinnerProps, StyledContainer, Svg, SvgData, signal, spinner,
     use_theme,
@@ -55,10 +55,10 @@ pub fn app_icon_view_tinted(
             move || tint,
             || ObjectFit::Contain,
         )?),
-        AppIcon::Raster(data) => Box::new(rsx::Image::new(
+        AppIcon::Raster(data) => Box::new(telar::Image::new(
             style,
             move || data.clone(),
-            || rsx::ImageFilter::Linear,
+            || telar::ImageFilter::Linear,
             || ObjectFit::Contain,
         )?),
     };

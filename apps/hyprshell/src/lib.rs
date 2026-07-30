@@ -1,4 +1,4 @@
-rsx::rsx_modules!(crate::shared::theme::NordTheme);
+telar::rsx_modules!(crate::shared::theme::NordTheme);
 
 /// Renders a hyprshell `App` headless and writes a PNG for eyeballing; inlined here (not a `src/*.rs` file) so the auto-module scan doesn't pull its dev-only deps (`platform-headless`, `image`) into non-test builds.
 #[cfg(test)]
@@ -6,7 +6,7 @@ mod test_support {
     use std::sync::{Arc, Mutex};
 
     use platform_headless::{FrameSink, HeadlessPlatform};
-    use rsx::{App, AppConfig, AppPathsProvider, run_with_platform};
+    use telar::{App, AppConfig, AppPathsProvider, run_with_platform};
 
     pub(crate) struct NullPaths;
 
@@ -86,7 +86,7 @@ use std::time::{Duration, SystemTime};
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, LayerShellPlatform, SurfaceHandle,
 };
-use rsx::{App, AppPathsProvider, run_multi_with_platform};
+use telar::{App, AppPathsProvider, run_multi_with_platform};
 
 struct NullPaths;
 impl AppPathsProvider for NullPaths {
@@ -242,7 +242,7 @@ pub fn run() {
     crate::shared::services::locale::init(initial.language());
     // Process-wide so every surface — bars, drawers, popups, OSD — renders in the theme's font family.
     // `run_once` re-applies (and warns) on every reload, so the popup host spawned here also gets it.
-    rsx::set_default_font_family(initial.theme.font_family.clone());
+    telar::set_default_font_family(initial.theme.font_family.clone());
     crate::shared::services::notifications::init(notification_policy(&initial));
 
     // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
@@ -386,7 +386,7 @@ fn setup_shell(config_path: PathBuf) {
 fn apply_config(config: &Arc<Config>) {
     crate::shared::services::locale::init(config.language());
     warn_if_font_missing(config.theme.font_family.as_deref());
-    rsx::set_default_font_family(config.theme.font_family.clone());
+    telar::set_default_font_family(config.theme.font_family.clone());
     crate::core::shell::set_config(Arc::clone(config));
     crate::shared::icon::init_store(&config.icons);
     // After `set_config`: deriving a palette needs to know which wallpaper is up, and that answer comes from the
@@ -423,7 +423,7 @@ fn report_config_error(error: &crate::core::config::LoadError) {
     tracing::warn!("{message}; keeping the last working config");
     crate::shared::services::notifications::notify_local(
         "hyprshell",
-        &rsx::t!("config.error_title"),
+        &telar::t!("config.error_title"),
         &message,
     );
 }
@@ -675,13 +675,13 @@ mod i18n_tests {
     // reactive `t!` calls back every migrated label, so a live locale switch re-renders them.
     #[test]
     fn catalog_translates_and_switches() {
-        rsx::set_locale("en");
-        assert_eq!(rsx::t!("settings.title"), "Settings");
-        assert_eq!(rsx::t!("common.on"), "On");
-        assert_eq!(rsx::t!("battery.remaining", time = "5m"), "5m remaining");
-        rsx::set_locale("es");
-        assert_eq!(rsx::t!("settings.title"), "Ajustes");
-        assert_eq!(rsx::t!("common.on"), "Sí");
-        assert_eq!(rsx::t!("battery.remaining", time = "5m"), "5m restante");
+        telar::set_locale("en");
+        assert_eq!(telar::t!("settings.title"), "Settings");
+        assert_eq!(telar::t!("common.on"), "On");
+        assert_eq!(telar::t!("battery.remaining", time = "5m"), "5m remaining");
+        telar::set_locale("es");
+        assert_eq!(telar::t!("settings.title"), "Ajustes");
+        assert_eq!(telar::t!("common.on"), "Sí");
+        assert_eq!(telar::t!("battery.remaining", time = "5m"), "5m restante");
     }
 }

@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn warning_text_falls_back_to_the_translated_default() {
-        rsx::set_locale("en");
+        telar::set_locale("en");
         let default = BatteryWarning::default();
         assert!(default.title(17).contains("battery") || default.title(17).contains("Battery"));
         assert!(

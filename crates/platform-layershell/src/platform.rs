@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use rsx::{
+use telar::{
     App, Color, Component, Event, EventHandler, Key, KeyboardMode, ModifiersState,
     MultiSurfacePlatform, NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta,
     SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
@@ -836,7 +836,7 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
 /// sorted so a reordered read isn't mistaken for a change). An empty set yields an empty region, i.e. fully
 /// click-through, so an overlay with no interactive content never blocks the windows beneath.
 ///
-/// The rects come from the handler rather than from the global `rsx::interactive_rects`, and that is the whole
+/// The rects come from the handler rather than from the global `telar::interactive_rects`, and that is the whole
 /// correctness of this function: the registry is one of the handler's *per-surface* worlds, live only inside
 /// its own calls. Read from out here — after the handler has returned — the ambient world answers, and it is
 /// always empty, so every surface using this was click-through everywhere.
@@ -844,7 +844,7 @@ fn update_input_region(
     compositor: &CompositorState,
     surface: &wl_surface::WlSurface,
     namespace: &str,
-    rects: Vec<rsx::Rect>,
+    rects: Vec<telar::Rect>,
     last: &mut Vec<(i32, i32, i32, i32)>,
 ) {
     let mut rects: Vec<(i32, i32, i32, i32)> = rects
@@ -878,7 +878,7 @@ fn update_input_region(
 }
 
 pub(crate) struct NoPaths;
-impl rsx::AppPathsProvider for NoPaths {
+impl telar::AppPathsProvider for NoPaths {
     fn config_dir(&self) -> Option<std::path::PathBuf> {
         None
     }
@@ -1077,7 +1077,7 @@ impl App for HostedSurfaceApp {
     }
 }
 
-/// Installed once so the shell's rsx world can open drawers/OSDs/popups via `rsx::open_surface`.
+/// Installed once so the shell's rsx world can open drawers/OSDs/popups via `telar::open_surface`.
 struct LayerShellSurfaceHost;
 
 impl SurfaceHost for LayerShellSurfaceHost {
@@ -1407,7 +1407,7 @@ impl PointerHandler for Driver {
         for event in events {
             let id = event.surface.id();
             let (x, y) = event.position;
-            let rsx_event = match event.kind {
+            let telar_event = match event.kind {
                 // An enter carries the pointer's position and a widget resolves its hover from a move, so delivering it as bare "the cursor is over this surface" leaves a pointer that arrives and stops hovering nothing. `CursorEntered` is still emitted first, for whatever tracks the surface rather than the widget.
                 PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
                     Event::PointerMoved {
@@ -1462,7 +1462,7 @@ impl PointerHandler for Driver {
                 if matches!(event.kind, PointerEventKind::Enter { .. }) {
                     entry.events.push(Event::CursorEntered);
                 }
-                entry.events.push(rsx_event);
+                entry.events.push(telar_event);
             }
         }
     }

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, request_close,
 };
-use rsx::{
+use telar::{
     AlignItems, App, Canvas, Color, Component, Container, Image, ImageData, ImageFilter,
     JustifyContent, Key, LayoutError, LayoutItem, LayoutStyle, NamedKey, ObjectFit, PathData,
     PathStyle, Point, Rect, RectStyle, RenderNode, RwSignal, ShapeStyle, SizeDimension, Stroke,
@@ -342,7 +342,7 @@ fn still_image(
 /// has no way to subtract a shape from a fill, and dimming the selection too would defeat the point of showing
 /// the user what they are about to capture.
 fn wash(
-    selection: rsx::ReadSignal<Option<Area>>,
+    selection: telar::ReadSignal<Option<Area>>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let canvas = Canvas::new(LayoutStyle::new().absolute_fill(), move |rect: Rect| {
@@ -387,13 +387,13 @@ fn box_path(x: f32, y: f32, width: f32, height: f32) -> PathData {
 /// The size readout, pinned to the top of the screen rather than following the pointer: a label chasing the
 /// cursor is the one thing guaranteed to be under whatever the user is trying to look at.
 fn readout(
-    selection: rsx::ReadSignal<Option<Area>>,
+    selection: telar::ReadSignal<Option<Area>>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = Text::auto(
         move || match selection.get().filter(|area| !area.is_empty()) {
             Some(area) => format!("{} × {}", area.width, area.height),
-            None => rsx::t!("capture.pick_hint"),
+            None => telar::t!("capture.pick_hint"),
         },
         LayoutStyle::new(),
         move || {
@@ -611,16 +611,16 @@ mod tests {
 
     #[test]
     fn the_overlay_builds_with_and_without_a_still() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let nothing: Rc<RefCell<Option<screenshot::Image>>> = Rc::new(RefCell::new(None));
         assert!(
             overlay(NordTheme::new(), test_screen(), nothing, Rc::new(|_| {})).is_ok(),
             "no freeze: the overlay is a dim over the live screen"
         );
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let still = Rc::new(RefCell::new(Some(screenshot::Image {
             width: 2,
             height: 2,

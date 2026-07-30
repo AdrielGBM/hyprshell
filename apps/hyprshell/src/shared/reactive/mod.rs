@@ -8,13 +8,13 @@
 //! and it does not fire until the surface is built. Reading the locale still happens inside `map`, which is
 //! what makes a derived label re-render on a live language switch.
 //!
-//! **A derivation is a [`Memo`], never a signal written by an effect.** `rsx::effect` hands back a handle whose
+//! **A derivation is a [`Memo`], never a signal written by an effect.** `telar::effect` hands back a handle whose
 //! `Drop` deregisters the effect, so `let _ = effect(…)` runs exactly once and then stops — the derived value is
 //! seeded correctly and never moves again, which looks like a working card until you watch it. A `Memo` is
 //! `Rc`-backed and lives as long as the closure reading it, so the widget that draws the value is what keeps
 //! the derivation alive, with nothing for a caller to remember.
 
-use rsx::{
+use telar::{
     Effect, LayoutError, LayoutItem, LayoutStyle, Memo, ReadSignal, RectStyle, RwSignal,
     SizeDimension, StyledContainer, memo,
 };
@@ -110,11 +110,11 @@ pub fn keeping(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsx::signal;
+    use telar::signal;
 
     #[test]
     fn a_derived_value_follows_its_source() {
-        rsx::reset_runtime();
+        telar::reset_runtime();
         let source = signal(2i32);
         let doubled = derive(source.clone(), |n| n * 2);
         assert_eq!(
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn a_pair_recomputes_when_either_half_moves() {
-        rsx::reset_runtime();
+        telar::reset_runtime();
         let level = signal(10i32);
         let charging = signal(false);
         let label = derive_pair(
@@ -147,7 +147,7 @@ mod tests {
     /// and then goes dead the moment the handle drops, which is what every hover popout used to do.
     #[test]
     fn a_derivation_outlives_the_call_that_made_it() {
-        rsx::reset_runtime();
+        telar::reset_runtime();
         let source = signal(1i32);
         let derived = derive(source.clone(), |n| n * 10);
         // Whatever a widget would do: hold the handle in a closure and read it later.
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn a_fixed_value_reads_back_unchanged() {
-        rsx::reset_runtime();
+        telar::reset_runtime();
         assert_eq!(fixed_text("Tctl").get(), "Tctl");
         assert_eq!(fixed(42u32).get(), 42);
     }

@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rsx::{
+use telar::{
     LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize,
     SurfaceToken, open_surface, set_theme,
 };
@@ -48,14 +48,14 @@ struct OsdCtx {
 
 /// The kind the OSD being built reflects; read by `osd.rsx`.
 pub fn current_osd_kind() -> OsdKind {
-    rsx::try_inject::<OsdCtx>()
+    telar::try_inject::<OsdCtx>()
         .map(|ctx| ctx.kind)
         .unwrap_or(OsdKind::Volume)
 }
 
 /// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
 pub fn current_osd_radius() -> f32 {
-    rsx::try_inject::<OsdCtx>()
+    telar::try_inject::<OsdCtx>()
         .map(|ctx| ctx.radius)
         .unwrap_or(16.0)
 }
@@ -63,7 +63,7 @@ pub fn current_osd_radius() -> f32 {
 /// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
 pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
     set_theme(theme);
-    let _ = rsx::provide(OsdCtx { kind, radius });
+    let _ = telar::provide(OsdCtx { kind, radius });
     crate::osd().expect("osd content build failed")
 }
 
@@ -186,7 +186,7 @@ mod tests {
     use super::{OsdKind, osd_content};
     use crate::shared::theme::NordTheme;
     use crate::test_support::render_png;
-    use rsx::{App, Color, Component, SurfaceRoot, WindowConfig, reset_layout_runtime};
+    use telar::{App, Color, Component, SurfaceRoot, WindowConfig, reset_layout_runtime};
 
     /// The OSD content wrapped in a full-surface root — the same tree the surface host mounts, without a compositor.
     struct OsdPreviewApp {
@@ -223,8 +223,8 @@ mod tests {
     /// Renders the OSD surface. Gated on its own env var; `HYPRSHELL_VISUAL_OSD_KIND=brightness` for the sun.
     #[test]
     fn visual_osd_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_OSD_OUT") else {
-            eprintln!("set RSX_VISUAL_OSD_OUT to render the OSD; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_OSD_OUT") else {
+            eprintln!("set TELAR_VISUAL_OSD_OUT to render the OSD; skipping");
             return;
         };
         let kind = match std::env::var("HYPRSHELL_VISUAL_OSD_KIND").as_deref() {

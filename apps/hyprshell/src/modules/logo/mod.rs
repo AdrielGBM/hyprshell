@@ -1,6 +1,6 @@
 //! The distribution mark that opens the shell's own menu.
 
-use rsx::{LayoutError, LayoutItem};
+use telar::{LayoutError, LayoutItem};
 
 const OS_RELEASE: &str = "/etc/os-release";
 

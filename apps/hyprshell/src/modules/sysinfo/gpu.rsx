@@ -18,7 +18,7 @@ fn load_color(percent: Option<f32>, fg: Color) -> Color {
 fn load_text(percent: Option<f32>) -> String {
     match percent {
         Some(p) => format!("{p:.0}%"),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 

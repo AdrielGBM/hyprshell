@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     App, AvailableSpace, Color, Component, Event, EventResult, LayoutError, LayoutItem,
     LayoutStyle, NodeId, RenderNode, SizeDimension, WindowConfig, compute_layout, mark_dirty,
     new_container, reset_layout_runtime, set_theme,

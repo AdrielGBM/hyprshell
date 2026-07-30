@@ -7,7 +7,7 @@ use raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
     RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle, WindowHandle,
 };
-use rsx::Window;
+use telar::Window;
 
 #[derive(Clone)]
 pub struct LayerWindow {

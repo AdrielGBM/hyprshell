@@ -18,7 +18,7 @@ use std::sync::Arc;
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, open_surface, timeout,
 };
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, Rect, SizeDimension, SurfaceToken, WindowConfig, reset_layout_runtime, set_theme,
 };
@@ -365,7 +365,7 @@ mod tests {
         let theme = config.resolve_theme();
         for id in content::WITH_POPOUT {
             for edge in Edge::ALL {
-                rsx::reset_layout_runtime();
+                telar::reset_layout_runtime();
                 set_theme(theme);
                 assert!(
                     popout_content(id, &config, edge, theme).is_ok(),
@@ -387,8 +387,8 @@ mod tests {
     /// gated on its own env var like every other visual test.
     #[test]
     fn visual_popout_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_POPOUT_OUT") else {
-            eprintln!("set RSX_VISUAL_POPOUT_OUT to render a popout; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_POPOUT_OUT") else {
+            eprintln!("set TELAR_VISUAL_POPOUT_OUT to render a popout; skipping");
             return;
         };
         let module =

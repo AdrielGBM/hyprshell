@@ -31,17 +31,17 @@ fn duration_text(secs: i64) -> String {
 fn status_text(d: &BatteryDetails) -> String {
     match d.state {
         ChargeState::Charging => match duration_text(d.time_to_full).as_str() {
-            "" => rsx::t!("battery.charging"),
-            t => rsx::t!("battery.until_full", time = t),
+            "" => telar::t!("battery.charging"),
+            t => telar::t!("battery.until_full", time = t),
         },
         ChargeState::Discharging => match duration_text(d.time_to_empty).as_str() {
-            "" => rsx::t!("battery.on_battery"),
-            t => rsx::t!("battery.remaining", time = t),
+            "" => telar::t!("battery.on_battery"),
+            t => telar::t!("battery.remaining", time = t),
         },
-        ChargeState::Full => rsx::t!("battery.full"),
-        ChargeState::Empty => rsx::t!("battery.empty"),
-        ChargeState::Pending => rsx::t!("battery.pending"),
-        ChargeState::Unknown => rsx::t!("battery.unknown"),
+        ChargeState::Full => telar::t!("battery.full"),
+        ChargeState::Empty => telar::t!("battery.empty"),
+        ChargeState::Pending => telar::t!("battery.pending"),
+        ChargeState::Unknown => telar::t!("battery.unknown"),
     }
 }
 
@@ -58,7 +58,7 @@ let init = battery::details();
 
 let level = signal(init.map(|d| d.level).unwrap_or(0));
 let charging = signal(init.map(|d| d.state.is_charging()).unwrap_or(false));
-let status = signal(init.map(|d| status_text(&d)).unwrap_or_else(|| rsx::t!("battery.none")));
+let status = signal(init.map(|d| status_text(&d)).unwrap_or_else(|| telar::t!("battery.none")));
 let rate = signal(init.map(|d| rate_text(&d)).unwrap_or_default());
 
 let level_pct = level.read_only();

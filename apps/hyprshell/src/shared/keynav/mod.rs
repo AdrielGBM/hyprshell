@@ -9,7 +9,7 @@
 //! over N rows, and the two compose: the launcher's search field keeps focus while these keys drive the list
 //! underneath it.
 
-use rsx::{Key, NamedKey};
+use telar::{Key, NamedKey};
 
 use crate::core::config::KeyNavConfig;
 

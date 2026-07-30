@@ -1,6 +1,6 @@
 //! The power chip and the menu it opens.
 
-use rsx::{
+use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
@@ -27,7 +27,7 @@ pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let actions = session::available();
 
     let title = Text::auto(
-        || rsx::t!("session.title"),
+        || telar::t!("session.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -118,18 +118,18 @@ fn is_offered(action: Action) -> bool {
 
 fn label_for(action: Action) -> String {
     match action {
-        Action::Lock => rsx::t!("session.lock"),
-        Action::Logout => rsx::t!("session.logout"),
-        Action::Suspend => rsx::t!("session.suspend"),
-        Action::Hibernate => rsx::t!("session.hibernate"),
-        Action::Reboot => rsx::t!("session.reboot"),
-        Action::Shutdown => rsx::t!("session.shutdown"),
+        Action::Lock => telar::t!("session.lock"),
+        Action::Logout => telar::t!("session.logout"),
+        Action::Suspend => telar::t!("session.suspend"),
+        Action::Hibernate => telar::t!("session.hibernate"),
+        Action::Reboot => telar::t!("session.reboot"),
+        Action::Shutdown => telar::t!("session.shutdown"),
     }
 }
 
 /// Runs `action`, arming it first when it is destructive and not already armed. The one path both the pointer
 /// and the keyboard take, so a tile cannot end the session in fewer presses from one than from the other.
-fn press(action: Action, armed: &rsx::RwSignal<String>) {
+fn press(action: Action, armed: &telar::RwSignal<String>) {
     let id = action.id();
     if !is_destructive(action) || armed.peek() == id {
         // Lock goes to the lock service rather than to logind, so it works on a machine with no system bus —
@@ -152,9 +152,9 @@ fn press(action: Action, armed: &rsx::RwSignal<String>) {
 
 fn tile(
     action: Action,
-    armed: rsx::RwSignal<String>,
+    armed: telar::RwSignal<String>,
     theme: NordTheme,
-    selected: rsx::ReadSignal<Option<usize>>,
+    selected: telar::ReadSignal<Option<usize>>,
     index: usize,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let id = action.id();
@@ -187,9 +187,9 @@ fn tile(
             if !offered {
                 // Says *why* rather than greying a tile out silently: a Lock that does nothing on press is
                 // indistinguishable from a broken shell.
-                rsx::t!("lock.unsupported")
+                telar::t!("lock.unsupported")
             } else if armed_caption.get() == id {
-                rsx::t!("session.confirm")
+                telar::t!("session.confirm")
             } else {
                 label_for(action)
             }
@@ -249,7 +249,7 @@ mod tests {
     /// The keyboard must not be a shortcut past the confirmation the pointer has to give.
     #[test]
     fn the_session_menu_reads_the_row_arrows_and_disarms_when_the_cursor_moves() {
-        use rsx::{Key, NamedKey};
+        use telar::{Key, NamedKey};
 
         let nav = navigation();
         assert_eq!(

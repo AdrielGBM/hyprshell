@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use rsx::{
+use telar::{
     AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text, box_item, memo,
     open_surface, set_theme, signal,
@@ -282,11 +282,11 @@ fn scheme_text(entry: &Entry) -> (String, String) {
     match choice {
         scheme::Choice::Palette if value != scheme::DYNAMIC => (
             format!("{} {value}", NordTheme::meta(value).name),
-            rsx::t!("launcher.scheme.palette"),
+            telar::t!("launcher.scheme.palette"),
         ),
-        scheme::Choice::Palette => (value.clone(), rsx::t!("launcher.scheme.palette")),
-        scheme::Choice::Mode => (value.clone(), rsx::t!("launcher.scheme.mode")),
-        scheme::Choice::Variant => (value.clone(), rsx::t!("launcher.scheme.variant")),
+        scheme::Choice::Palette => (value.clone(), telar::t!("launcher.scheme.palette")),
+        scheme::Choice::Mode => (value.clone(), telar::t!("launcher.scheme.mode")),
+        scheme::Choice::Variant => (value.clone(), telar::t!("launcher.scheme.variant")),
     }
 }
 
@@ -413,7 +413,7 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let reset_on_query = selected.clone();
     let disarm_on_query = armed.clone();
     let query_watch = query.read_only();
-    let follow_query = rsx::effect(move || {
+    let follow_query = telar::effect(move || {
         query_watch.get();
         reset_on_query.set(0);
         disarm_on_query.set(String::new());
@@ -512,10 +512,10 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
 /// drive rather than a closure buried in `panel`.
 fn results_memo(
     installed: Vec<App>,
-    library: rsx::ReadSignal<Vec<wallpaper::Entry>>,
-    query: rsx::ReadSignal<String>,
+    library: telar::ReadSignal<Vec<wallpaper::Entry>>,
+    query: telar::ReadSignal<String>,
     config: LauncherConfig,
-) -> rsx::Memo<Vec<Entry>> {
+) -> telar::Memo<Vec<Entry>> {
     memo(move || {
         let images = library.get();
         let text = query.get();
@@ -528,7 +528,7 @@ fn results_memo(
 /// Subscribed rather than read once: the store answers with its current contents immediately, so the grid is
 /// populated on the frame it opens, and a folder that grows behind the launcher fills in without a reopen. A shell
 /// with `[wallpaper] enabled` off subscribes to nothing, so it never starts the scanner it has no use for.
-fn library() -> rsx::ReadSignal<Vec<wallpaper::Entry>> {
+fn library() -> telar::ReadSignal<Vec<wallpaper::Entry>> {
     let images = signal(Vec::new());
     let enabled = shell::config()
         .map(|config| config.wallpaper.enabled)
@@ -544,7 +544,7 @@ fn library() -> rsx::ReadSignal<Vec<wallpaper::Entry>> {
 }
 
 fn search_field(
-    query: rsx::RwSignal<String>,
+    query: telar::RwSignal<String>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let input = Input::new(
@@ -554,7 +554,7 @@ fn search_field(
             .height(theme.font(FontRole::Title) * 1.8),
         move || theme.text_style(FontRole::Title, theme.text),
     )?
-    .placeholder(rsx::t!("launcher.placeholder"));
+    .placeholder(telar::t!("launcher.placeholder"));
 
     let boxed = StyledContainer::new(
         LayoutStyle::new()
@@ -606,16 +606,16 @@ fn lines(entries: Vec<Entry>, columns: usize) -> Vec<Line> {
 }
 
 fn result_list(
-    matches: rsx::Memo<Vec<Entry>>,
-    columns: rsx::Memo<usize>,
-    selected: rsx::ReadSignal<usize>,
-    armed: rsx::ReadSignal<String>,
+    matches: telar::Memo<Vec<Entry>>,
+    columns: telar::Memo<usize>,
+    selected: telar::ReadSignal<usize>,
+    armed: telar::ReadSignal<String>,
     height: f32,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // Built through `new_with` so the rows can reach the viewport: moving the selection has to scroll the list
     // to follow it, and only the viewport can do that.
-    let scroll = rsx::LayoutScrollArea::new_with(
+    let scroll = telar::LayoutScrollArea::new_with(
         LayoutStyle::new()
             .flex_column()
             .width(SizeDimension::Percent(1.0))
@@ -668,7 +668,7 @@ fn result_list(
                 let node = item.layout_node();
                 let viewport = viewport.clone();
                 let holds_selection = selection_is(matches.clone(), selected.clone(), keys);
-                let follow_selection = rsx::effect(move || {
+                let follow_selection = telar::effect(move || {
                     if holds_selection() {
                         viewport.reveal(node, 4.0);
                     }
@@ -677,7 +677,7 @@ fn result_list(
             };
             // `with_style` rather than `new`: the convenience constructors carry no width, so a grid line asking
             // for `100%` inside one resolves against nothing and lays its tiles out at their intrinsic size.
-            Ok(Box::new(rsx::ReactiveList::with_style(
+            Ok(Box::new(telar::ReactiveList::with_style(
                 LayoutStyle::new()
                     .flex_column()
                     .width(SizeDimension::Percent(1.0)),
@@ -696,8 +696,8 @@ fn result_list(
 /// wrong tile — and one predicate serves a row (one key) and a grid line (its whole row of them). The index is read
 /// out of its cell before the list is borrowed: a signal read nested inside another's `with` panics.
 fn selection_is(
-    matches: rsx::Memo<Vec<Entry>>,
-    selected: rsx::ReadSignal<usize>,
+    matches: telar::Memo<Vec<Entry>>,
+    selected: telar::ReadSignal<usize>,
     keys: Vec<String>,
 ) -> impl Fn() -> bool + Clone + 'static {
     move || {
@@ -715,8 +715,8 @@ fn selection_is(
 /// does not divide evenly keeps its pictures the same size as every other row's rather than stretching them.
 fn tile_row(
     entries: Vec<Entry>,
-    matches: rsx::Memo<Vec<Entry>>,
-    selected: rsx::ReadSignal<usize>,
+    matches: telar::Memo<Vec<Entry>>,
+    selected: telar::ReadSignal<usize>,
     columns: usize,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -828,7 +828,7 @@ fn tile(
             let fill = if is_selected() {
                 theme.overlay
             } else {
-                rsx::Color::TRANSPARENT
+                telar::Color::TRANSPARENT
             };
             RectStyle::filled(fill, 8.0)
         },
@@ -928,7 +928,7 @@ fn row(
         let subtitle = Text::auto(
             move || {
                 if armed_caption() {
-                    rsx::t!("launcher.confirm")
+                    telar::t!("launcher.confirm")
                 } else {
                     description.clone()
                 }
@@ -977,7 +977,7 @@ fn row(
             } else if is_selected() {
                 theme.overlay
             } else {
-                rsx::Color::TRANSPARENT
+                telar::Color::TRANSPARENT
             };
             RectStyle::filled(fill, 8.0)
         },
@@ -1508,8 +1508,8 @@ mod tests {
     /// already borrowed" the moment the user typed `#` or `=`, and nothing but running the closure finds it.
     #[test]
     fn typing_any_mode_into_the_results_memo_never_double_borrows_the_runtime() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let query = signal(String::new());
         let library = signal(library());
         let shown = results_memo(
@@ -1546,8 +1546,8 @@ mod tests {
 
     #[test]
     fn a_row_of_tiles_builds_and_knows_which_one_is_selected() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
         let source = signal(images.clone());
         let read = source.read_only();
@@ -1578,10 +1578,10 @@ mod tests {
     /// 612×0 and every result was clipped out of existence. Building proves none of that; only measuring does.
     #[test]
     fn the_result_list_has_the_height_it_was_given() {
-        use rsx::{AvailableSpace, JustifyContent, compute_layout, new_container, track_layout};
+        use telar::{AvailableSpace, JustifyContent, compute_layout, new_container, track_layout};
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let rows: Vec<Entry> = catalog().into_iter().map(Entry::App).collect();
         let source = signal(rows);
         let read = source.read_only();
@@ -1644,8 +1644,8 @@ mod tests {
     fn the_result_list_builds_as_a_list_and_as_a_grid() {
         let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
         for across in [1usize, 3] {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             let source = signal(images.clone());
             let read = source.read_only();
             let shown = memo(move || read.get());
@@ -1667,13 +1667,13 @@ mod tests {
         }
     }
 
-    /// Renders the wallpaper grid. `RSX_VISUAL_LAUNCHER_OUT=/tmp/l.png cargo test -p hyprshell --lib visual_launcher -- --nocapture`.
+    /// Renders the wallpaper grid. `TELAR_VISUAL_LAUNCHER_OUT=/tmp/l.png cargo test -p hyprshell --lib visual_launcher -- --nocapture`.
     /// Headless there are no thumbnails, so what this shows is the tile layout and its glyph fallback — which is
     /// also what a first open of a cold cache looks like.
     #[test]
     fn visual_launcher_grid_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_LAUNCHER_OUT") else {
-            eprintln!("set RSX_VISUAL_LAUNCHER_OUT to render the wallpaper grid; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_LAUNCHER_OUT") else {
+            eprintln!("set TELAR_VISUAL_LAUNCHER_OUT to render the wallpaper grid; skipping");
             return;
         };
         crate::test_support::render_png(GridPreviewApp, 640, 320, &out);
@@ -1681,11 +1681,11 @@ mod tests {
 
     struct GridPreviewApp;
 
-    impl rsx::App for GridPreviewApp {
-        fn root(&self) -> Box<dyn rsx::Component> {
-            rsx::reset_layout_runtime();
+    impl telar::App for GridPreviewApp {
+        fn root(&self) -> Box<dyn telar::Component> {
+            telar::reset_layout_runtime();
             let theme = NordTheme::new();
-            rsx::set_theme(theme);
+            telar::set_theme(theme);
             let images: Vec<Entry> = library()
                 .into_iter()
                 .cycle()
@@ -1726,14 +1726,14 @@ mod tests {
             )
         }
 
-        fn clear_color(&self) -> Option<rsx::Color> {
+        fn clear_color(&self) -> Option<telar::Color> {
             None
         }
 
-        fn window_config(&self) -> Option<rsx::WindowConfig> {
-            Some(rsx::WindowConfig {
+        fn window_config(&self) -> Option<telar::WindowConfig> {
+            Some(telar::WindowConfig {
                 is_transparent: true,
-                ..rsx::WindowConfig::default()
+                ..telar::WindowConfig::default()
             })
         }
     }
@@ -1754,7 +1754,7 @@ mod tests {
     #[test]
     fn typing_reaches_the_search_field_while_the_arrows_drive_the_list() {
         use crate::shared::keynav::{KeyNav, Move};
-        use rsx::{Key, NamedKey};
+        use telar::{Key, NamedKey};
 
         let nav = KeyNav::from_config(&crate::core::config::KeyNavConfig::default());
         for letter in ['j', 'k', 'g', 'G', 'q'] {

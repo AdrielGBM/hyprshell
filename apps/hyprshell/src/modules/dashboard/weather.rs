@@ -6,7 +6,7 @@
 //! and `[temperature] unit` stays what the bar and the OSD follow.
 
 use chrono::NaiveDate;
-use rsx::{
+use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item,
     signal,
@@ -28,7 +28,7 @@ pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
     if !config.weather.enabled {
         return card::page(vec![card::frame(
             vec![card::detail(
-                fixed_text(rsx::t!("dashboard.weather_off")),
+                fixed_text(telar::t!("dashboard.weather_off")),
                 theme,
             )?],
             theme,
@@ -67,7 +67,7 @@ fn current_card(
     let place = derive(state.clone(), |w| {
         let place = w.place.trim();
         if place.is_empty() {
-            rsx::t!("sysinfo.no_reading")
+            telar::t!("sysinfo.no_reading")
         } else {
             place.to_string()
         }
@@ -98,7 +98,7 @@ fn current_card(
     let caption = theme.font(FontRole::Caption);
     let rows: Vec<Box<dyn LayoutItem>> = vec![
         widget::label_value(
-            fixed_text(rsx::t!("dashboard.feels_like")),
+            fixed_text(telar::t!("dashboard.feels_like")),
             derive_pair(state.read_only(), unit.read_only(), |w, unit| {
                 unit.format(w.feels_like)
             }),
@@ -107,14 +107,14 @@ fn current_card(
             theme.text,
         )?,
         widget::label_value(
-            fixed_text(rsx::t!("dashboard.humidity")),
+            fixed_text(telar::t!("dashboard.humidity")),
             derive(state.clone(), |w| format!("{}%", w.humidity)),
             caption,
             theme.muted,
             theme.text,
         )?,
         widget::label_value(
-            fixed_text(rsx::t!("dashboard.wind")),
+            fixed_text(telar::t!("dashboard.wind")),
             derive(state.clone(), |w| format!("{:.0} km/h", w.wind)),
             caption,
             theme.muted,
@@ -188,13 +188,13 @@ fn forecast_card(
 
     let empty = derive(state, |w| {
         if w.days.is_empty() {
-            rsx::t!("dashboard.no_forecast")
+            telar::t!("dashboard.no_forecast")
         } else {
             String::new()
         }
     });
 
-    Card::titled(rsx::t!("dashboard.forecast"))
+    Card::titled(telar::t!("dashboard.forecast"))
         .icon("calendar-days")
         .child(Box::new(days))
         .child(card::detail(empty, theme)?)
@@ -270,11 +270,11 @@ mod tests {
 
     #[test]
     fn a_forecast_date_reads_as_its_weekday_and_a_broken_one_reads_as_itself() {
-        rsx::set_locale("en");
+        telar::set_locale("en");
         // 2026-07-27 is a Monday.
         assert_eq!(
             weekday_label("2026-07-27"),
-            rsx::t!("dashboard.weekday.mon")
+            telar::t!("dashboard.weekday.mon")
         );
         assert_eq!(
             weekday_label("not-a-date"),

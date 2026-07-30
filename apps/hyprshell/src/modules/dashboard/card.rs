@@ -8,7 +8,7 @@
 //! guarantees is distinct in both directions: an inset well on a dark palette, a raised one on a light palette,
 //! never a card that vanishes into its panel.
 
-use rsx::{
+use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
     StyledContainer, Text, box_item,
 };

@@ -97,19 +97,19 @@ impl Condition {
     /// the macro checks its key against the catalogs at compile time, and a computed key would opt out of that.
     pub fn label(self) -> String {
         match self {
-            Self::Clear => rsx::t!("weather.clear"),
-            Self::MostlyClear => rsx::t!("weather.mostly_clear"),
-            Self::Cloudy => rsx::t!("weather.cloudy"),
-            Self::Overcast => rsx::t!("weather.overcast"),
-            Self::Fog => rsx::t!("weather.fog"),
-            Self::Drizzle => rsx::t!("weather.drizzle"),
-            Self::Rain => rsx::t!("weather.rain"),
-            Self::FreezingRain => rsx::t!("weather.freezing_rain"),
-            Self::Snow => rsx::t!("weather.snow"),
-            Self::Showers => rsx::t!("weather.showers"),
-            Self::SnowShowers => rsx::t!("weather.snow_showers"),
-            Self::Thunderstorm => rsx::t!("weather.thunderstorm"),
-            Self::Unknown => rsx::t!("weather.unknown"),
+            Self::Clear => telar::t!("weather.clear"),
+            Self::MostlyClear => telar::t!("weather.mostly_clear"),
+            Self::Cloudy => telar::t!("weather.cloudy"),
+            Self::Overcast => telar::t!("weather.overcast"),
+            Self::Fog => telar::t!("weather.fog"),
+            Self::Drizzle => telar::t!("weather.drizzle"),
+            Self::Rain => telar::t!("weather.rain"),
+            Self::FreezingRain => telar::t!("weather.freezing_rain"),
+            Self::Snow => telar::t!("weather.snow"),
+            Self::Showers => telar::t!("weather.showers"),
+            Self::SnowShowers => telar::t!("weather.snow_showers"),
+            Self::Thunderstorm => telar::t!("weather.thunderstorm"),
+            Self::Unknown => telar::t!("weather.unknown"),
         }
     }
 }

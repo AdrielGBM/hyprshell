@@ -573,17 +573,17 @@ fn announce(outcome: &Result<Shot, String>, config: &ScreenshotConfig) {
 fn message(outcome: &Result<Shot, String>) -> (String, String) {
     match outcome {
         Ok(shot) => (
-            rsx::t!("screenshot.saved_title"),
+            telar::t!("screenshot.saved_title"),
             match (&shot.path, shot.copied) {
                 (Some(path), true) => {
-                    rsx::t!("screenshot.saved_and_copied", file = file_label(path))
+                    telar::t!("screenshot.saved_and_copied", file = file_label(path))
                 }
-                (Some(path), false) => rsx::t!("screenshot.saved", file = file_label(path)),
-                (None, true) => rsx::t!("screenshot.copied"),
-                (None, false) => rsx::t!("screenshot.taken"),
+                (Some(path), false) => telar::t!("screenshot.saved", file = file_label(path)),
+                (None, true) => telar::t!("screenshot.copied"),
+                (None, false) => telar::t!("screenshot.taken"),
             },
         ),
-        Err(reason) => (rsx::t!("screenshot.failed_title"), reason.clone()),
+        Err(reason) => (telar::t!("screenshot.failed_title"), reason.clone()),
     }
 }
 

@@ -16,7 +16,7 @@ use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use platform_layershell::{EventSender, watch};
-use rsx::{ReadSignal, RwSignal, signal};
+use telar::{ReadSignal, RwSignal, signal};
 
 /// Where one request has got to.
 #[derive(Clone, Debug, PartialEq, Eq)]

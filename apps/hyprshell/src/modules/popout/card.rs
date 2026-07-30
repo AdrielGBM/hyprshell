@@ -4,7 +4,7 @@
 //! that once — as data a module fills in rather than a tree each module builds — is what keeps twelve of them
 //! looking like one shell instead of twelve small designs.
 
-use rsx::{
+use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
     StyledContainer, Text, box_item,
 };

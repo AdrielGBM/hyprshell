@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, Input, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, RectStyle, SizeDimension, StyledContainer, Text, WindowConfig, box_item,
     reset_layout_runtime, set_theme, signal, use_theme,
@@ -188,7 +188,7 @@ fn user_name(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 /// The password field. Masked, submits on Enter, and inert while a check is in flight or a lockout is running
 /// — a field that keeps taking keystrokes it will throw away reads as a frozen screen.
 fn field(
-    state: rsx::ReadSignal<LockState>,
+    state: telar::ReadSignal<LockState>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let password = signal(String::new());
@@ -216,7 +216,7 @@ fn field(
     // The one surface where focus-on-tap is not good enough: a lock screen that needs a click before it takes
     // a password reads as a frozen machine.
     .autofocus()
-    .placeholder(rsx::t!("lock.password"))
+    .placeholder(telar::t!("lock.password"))
     .on_submit(submit);
 
     let outline = state.clone();
@@ -246,7 +246,7 @@ fn field(
 /// Read out of the state *before* any branch, so the paint registers its dependency on the frame that draws
 /// nothing too — a message that only appears after an unrelated re-render is the failure this avoids.
 fn status_line(
-    state: rsx::ReadSignal<LockState>,
+    state: telar::ReadSignal<LockState>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let text = state.clone();
@@ -257,7 +257,7 @@ fn status_line(
         move || {
             let state = text.get();
             if state.is_locked_out() {
-                return rsx::t!(
+                return telar::t!(
                     "lock.locked_out",
                     seconds = state.lockout_remaining().to_string()
                 );
@@ -290,17 +290,17 @@ fn status_line(
 /// to a generic failure rather than printing the key at the user.
 fn translate(key: &str) -> String {
     match key {
-        "lock.checking" => rsx::t!("lock.checking"),
-        "lock.touch_sensor" => rsx::t!("lock.touch_sensor"),
-        "lock.looking" => rsx::t!("lock.looking"),
-        "lock.wrong_password" => rsx::t!("lock.wrong_password"),
-        "lock.too_many_tries" => rsx::t!("lock.too_many_tries"),
-        "lock.account_unavailable" => rsx::t!("lock.account_unavailable"),
-        "lock.no_authentication" => rsx::t!("lock.no_authentication"),
-        "lock.empty_password" => rsx::t!("lock.empty_password"),
+        "lock.checking" => telar::t!("lock.checking"),
+        "lock.touch_sensor" => telar::t!("lock.touch_sensor"),
+        "lock.looking" => telar::t!("lock.looking"),
+        "lock.wrong_password" => telar::t!("lock.wrong_password"),
+        "lock.too_many_tries" => telar::t!("lock.too_many_tries"),
+        "lock.account_unavailable" => telar::t!("lock.account_unavailable"),
+        "lock.no_authentication" => telar::t!("lock.no_authentication"),
+        "lock.empty_password" => telar::t!("lock.empty_password"),
         other => {
             tracing::warn!("lock screen: no message for '{other}'");
-            rsx::t!("lock.wrong_password")
+            telar::t!("lock.wrong_password")
         }
     }
 }
@@ -328,8 +328,8 @@ mod tests {
     fn a_password_is_never_left_in_the_field_after_it_is_submitted() {
         // The field's own copy is cleared before the secret is handed on, so a shoulder-surfer reading a
         // screen that is still up after a failed attempt learns the length of nothing.
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let state = signal(LockState {
             wanted: true,
             ..LockState::default()
@@ -339,8 +339,8 @@ mod tests {
 
     #[test]
     fn the_screen_builds_on_a_default_config() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(screen(&Arc::new(Config::default())).is_ok());
     }
 
@@ -354,11 +354,11 @@ mod tests {
     }
 
     /// Renders the lock screen at a plausible output size. Gated on its own env var like every other visual
-    /// test here; `RSX_VISUAL_LOCK_OUT=/tmp/lock.png cargo test visual_lock_png`.
+    /// test here; `TELAR_VISUAL_LOCK_OUT=/tmp/lock.png cargo test visual_lock_png`.
     #[test]
     fn visual_lock_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_LOCK_OUT") else {
-            eprintln!("set RSX_VISUAL_LOCK_OUT to render the lock screen; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_LOCK_OUT") else {
+            eprintln!("set TELAR_VISUAL_LOCK_OUT to render the lock screen; skipping");
             return;
         };
         crate::test_support::render_png(

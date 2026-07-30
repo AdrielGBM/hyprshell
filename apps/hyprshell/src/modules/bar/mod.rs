@@ -1,4 +1,4 @@
-use rsx::{
+use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, track_layout,
 };
@@ -343,12 +343,12 @@ fn build_items(
 mod tests {
     use super::*;
     use crate::shared::module::ModuleDef;
-    use rsx::{AvailableSpace, compute_layout, reset_layout_runtime, set_theme};
+    use telar::{AvailableSpace, compute_layout, reset_layout_runtime, set_theme};
 
     fn dummy(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
         Ok(Box::new(StyledContainer::new(
             LayoutStyle::new().width(20.0).height(20.0),
-            |_r| RectStyle::filled(rsx::Color::from_rgb_u8(255, 255, 255), 0.0),
+            |_r| RectStyle::filled(telar::Color::from_rgb_u8(255, 255, 255), 0.0),
             vec![],
         )?))
     }
@@ -365,7 +365,7 @@ mod tests {
     /// click while still opening its card on hover.
     #[test]
     fn a_popout_wrapper_lets_a_click_through_to_the_chip() {
-        use rsx::{AvailableSpace, Event, PointerButton, PointerSource, compute_layout};
+        use telar::{AvailableSpace, Event, PointerButton, PointerSource, compute_layout};
         use std::cell::Cell;
         use std::rc::Rc;
 
@@ -613,11 +613,11 @@ end = ["clock"]
         }
     }
 
-    /// Renders a bar surface for eyeballing. Env: `HYPRSHELL_VISUAL_CONFIG` (a config.toml, else a demo), `HYPRSHELL_VISUAL_EDGE` (top|bottom|left|right), `HYPRSHELL_VISUAL_SIZE` (WxH). Gated on `RSX_VISUAL_OUT`.
+    /// Renders a bar surface for eyeballing. Env: `HYPRSHELL_VISUAL_CONFIG` (a config.toml, else a demo), `HYPRSHELL_VISUAL_EDGE` (top|bottom|left|right), `HYPRSHELL_VISUAL_SIZE` (WxH). Gated on `TELAR_VISUAL_OUT`.
     #[test]
     fn visual_bar_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_OUT") else {
-            eprintln!("set RSX_VISUAL_OUT to write a PNG; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_OUT") else {
+            eprintln!("set TELAR_VISUAL_OUT to write a PNG; skipping");
             return;
         };
         let toml = std::env::var("HYPRSHELL_VISUAL_CONFIG")

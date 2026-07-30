@@ -5,7 +5,7 @@
 //! [`bluetooth`](crate::shared::services::bluetooth) service, so the chip, the cluster icon, the popout card
 //! and this panel are four views of one subscription rather than four readers of the bus.
 
-use rsx::{
+use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
     RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
@@ -90,7 +90,7 @@ fn header(
     let scan_active = state.read_only();
 
     let title = Text::auto(
-        || rsx::t!("bluetooth.title"),
+        || telar::t!("bluetooth.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -113,9 +113,9 @@ fn header(
     let power = pill(
         move || {
             if power_label.get().powered {
-                rsx::t!("bluetooth.on")
+                telar::t!("bluetooth.on")
             } else {
-                rsx::t!("bluetooth.off")
+                telar::t!("bluetooth.off")
             }
         },
         move || power_active.get().powered,
@@ -125,9 +125,9 @@ fn header(
     let scan = pill(
         move || {
             if scan_label.get().discovering {
-                rsx::t!("bluetooth.stop")
+                telar::t!("bluetooth.stop")
             } else {
-                rsx::t!("bluetooth.scan")
+                telar::t!("bluetooth.scan")
             }
         },
         move || scan_active.get().discovering,
@@ -149,18 +149,18 @@ fn header(
 /// connected — the three facts that decide what the list below means.
 fn adapter_line(bt: &Bluetooth) -> String {
     if !bt.available {
-        return rsx::t!("bluetooth.no_adapter");
+        return telar::t!("bluetooth.no_adapter");
     }
     if !bt.powered {
-        return rsx::t!("bluetooth.off");
+        return telar::t!("bluetooth.off");
     }
     let connected = bt.connected_count();
     if bt.discovering {
-        rsx::t!("bluetooth.scanning")
+        telar::t!("bluetooth.scanning")
     } else if connected > 0 {
-        rsx::t!("bluetooth.connected_count", count = connected.to_string())
+        telar::t!("bluetooth.connected_count", count = connected.to_string())
     } else if bt.adapter.trim().is_empty() {
-        rsx::t!("bluetooth.on")
+        telar::t!("bluetooth.on")
     } else {
         bt.adapter.clone()
     }
@@ -227,11 +227,11 @@ fn row_key(d: &Device) -> String {
 /// The line under an empty list — never blank, so the panel always says why there is nothing to choose from.
 fn empty_line(bt: &Bluetooth, config: BluetoothConfig) -> String {
     if !bt.available {
-        rsx::t!("bluetooth.no_adapter")
+        telar::t!("bluetooth.no_adapter")
     } else if !bt.powered {
-        rsx::t!("bluetooth.turn_on")
+        telar::t!("bluetooth.turn_on")
     } else if listed(bt, config).is_empty() {
-        rsx::t!("bluetooth.no_devices")
+        telar::t!("bluetooth.no_devices")
     } else {
         String::new()
     }
@@ -257,7 +257,7 @@ fn row(
     let armed_hover = armed.read_only();
     let is_armed = {
         let path = path.clone();
-        move |signal: &rsx::ReadSignal<String>| signal.get() == path
+        move |signal: &telar::ReadSignal<String>| signal.get() == path
     };
 
     let icon = icon_view(
@@ -280,7 +280,7 @@ fn row(
             let is_armed = is_armed.clone();
             move || {
                 if is_armed(&armed_text) {
-                    rsx::t!("bluetooth.forget_confirm")
+                    telar::t!("bluetooth.forget_confirm")
                 } else {
                     status_line(&device)
                 }
@@ -376,11 +376,11 @@ fn row(
 /// The device's own state, most useful fact first: what it is doing now, then what it is to this machine.
 fn status_line(device: &Device) -> String {
     if device.connected {
-        rsx::t!("bluetooth.connected")
+        telar::t!("bluetooth.connected")
     } else if device.paired {
-        rsx::t!("bluetooth.paired")
+        telar::t!("bluetooth.paired")
     } else {
-        rsx::t!("bluetooth.available")
+        telar::t!("bluetooth.available")
     }
 }
 
@@ -512,12 +512,12 @@ mod tests {
     /// actually run, which is here.
     #[test]
     fn the_chip_and_the_panel_build_without_a_re_entrant_borrow() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(chip().is_ok(), "the bar chip builds");
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(bluetooth_panel().is_ok(), "the device panel builds");
     }
 

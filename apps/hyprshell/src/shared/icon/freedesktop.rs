@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rsx::{ImageData, SvgData};
+use telar::{ImageData, SvgData};
 
 use crate::shared::module::surface_env;
 

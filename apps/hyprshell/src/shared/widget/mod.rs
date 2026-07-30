@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, Canvas, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     LineCap, LineJoin, PathData, PathStyle, Point, Rect, RectStyle, RenderNode, ShapeStyle,
     SizeDimension, Stroke, StyledContainer, Text, TextStyle, Transform, box_item,
@@ -316,7 +316,7 @@ fn close_to_baseline(line: &PathData, rect: Rect) -> PathData {
 mod tests {
     use super::*;
     use crate::core::config::Edge;
-    use rsx::PathVerb;
+    use telar::PathVerb;
 
     fn rect() -> Rect {
         Rect {
@@ -495,18 +495,18 @@ mod tests {
 
     /// Draws both spectrum forms over a synthetic sweep, which is the only way to see that the ring's spokes
     /// mirror rather than wrap and that the row's caps are the radius asked for:
-    /// `RSX_VISUAL_SPECTRUM_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture`
+    /// `TELAR_VISUAL_SPECTRUM_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture`
     #[test]
     fn visual_spectrum_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_SPECTRUM_OUT") else {
-            eprintln!("set RSX_VISUAL_SPECTRUM_OUT to render the spectrum; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_SPECTRUM_OUT") else {
+            eprintln!("set TELAR_VISUAL_SPECTRUM_OUT to render the spectrum; skipping");
             return;
         };
 
         struct Sweep;
-        impl rsx::App for Sweep {
-            fn root(&self) -> Box<dyn rsx::Component> {
-                rsx::reset_layout_runtime();
+        impl telar::App for Sweep {
+            fn root(&self) -> Box<dyn telar::Component> {
+                telar::reset_layout_runtime();
                 let theme = crate::core::config::Config::starter().resolve_theme();
                 // A hump rather than a ramp, so a band drawn in the wrong slot is obvious rather than plausible.
                 let bands: Arc<[f32]> = (0..48)

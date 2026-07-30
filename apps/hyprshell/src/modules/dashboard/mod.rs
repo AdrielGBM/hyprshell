@@ -18,7 +18,7 @@ mod weather;
 use std::sync::Arc;
 
 use platform_layershell::EventSender;
-use rsx::{
+use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
@@ -128,7 +128,7 @@ fn live_config() -> Arc<Config> {
 
 fn strip(
     tabs: &[DashboardTab],
-    active: rsx::RwSignal<DashboardTab>,
+    active: telar::RwSignal<DashboardTab>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let mut pills: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(tabs.len());
@@ -146,7 +146,7 @@ fn strip(
 
 fn pill(
     tab: DashboardTab,
-    active: rsx::RwSignal<DashboardTab>,
+    active: telar::RwSignal<DashboardTab>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let selected_ink = theme.accent.most_readable(&[theme.text, theme.base]);
@@ -206,10 +206,10 @@ fn pill(
 
 fn tab_label(tab: DashboardTab) -> String {
     match tab {
-        DashboardTab::Dash => rsx::t!("dashboard.tab.dash"),
-        DashboardTab::Media => rsx::t!("dashboard.tab.media"),
-        DashboardTab::Performance => rsx::t!("dashboard.tab.performance"),
-        DashboardTab::Weather => rsx::t!("dashboard.tab.weather"),
+        DashboardTab::Dash => telar::t!("dashboard.tab.dash"),
+        DashboardTab::Media => telar::t!("dashboard.tab.media"),
+        DashboardTab::Performance => telar::t!("dashboard.tab.performance"),
+        DashboardTab::Weather => telar::t!("dashboard.tab.weather"),
     }
 }
 
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn every_tab_has_a_label_a_glyph_and_a_stable_id() {
-        rsx::set_locale("en");
+        telar::set_locale("en");
         for tab in DashboardTab::ALL {
             assert!(!tab_label(tab).is_empty(), "{tab:?} has no label");
             assert!(!tab.icon().is_empty(), "{tab:?} has no glyph");
@@ -284,21 +284,21 @@ mod tests {
     /// which is the shape that panics on a re-entrant borrow, and none of it fires until something builds.
     #[test]
     fn the_chip_and_every_page_build() {
-        rsx::set_locale("en");
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::set_locale("en");
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(dashboard_chip().is_ok(), "the bar chip builds");
 
         let config = Config::default();
         let theme = NordTheme::new();
         for tab in DashboardTab::ALL {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(theme);
+            telar::reset_layout_runtime();
+            telar::set_theme(theme);
             assert!(page(tab, &config, theme).is_ok(), "the {tab:?} page builds");
         }
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(theme);
+        telar::reset_layout_runtime();
+        telar::set_theme(theme);
         assert!(dashboard_panel().is_ok(), "the panel builds around them");
     }
 
@@ -306,10 +306,10 @@ mod tests {
     /// the page has to say so rather than subscribe to a producer that was switched off.
     #[test]
     fn the_weather_page_builds_with_the_service_switched_off() {
-        rsx::set_locale("en");
-        rsx::reset_layout_runtime();
+        telar::set_locale("en");
+        telar::reset_layout_runtime();
         let theme = NordTheme::new();
-        rsx::set_theme(theme);
+        telar::set_theme(theme);
         let mut config = Config::default();
         config.weather.enabled = false;
         assert!(page(DashboardTab::Weather, &config, theme).is_ok());

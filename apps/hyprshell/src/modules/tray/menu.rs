@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use rsx::{
+use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, Rect, RectStyle,
     SizeDimension, StyledContainer, Text, box_item, open_surface, set_theme,
 };
@@ -150,7 +150,7 @@ fn separator_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let holder = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .justify_content(rsx::JustifyContent::CENTER)
+            .justify_content(telar::JustifyContent::CENTER)
             .width(SizeDimension::Percent(1.0))
             .height(SEPARATOR_HEIGHT),
         vec![box_item(line)],

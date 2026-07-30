@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use platform_layershell::request_close;
-use rsx::{
+use telar::{
     SurfaceFrameStyle, SurfacePlacement, SurfaceSize, SurfaceToken, open_surface, set_theme,
     surface_frame,
 };
@@ -46,7 +46,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
 mod tests {
     use crate::shared::theme::{FontRole, NordTheme};
     use crate::test_support::{render_png, render_png_frames};
-    use rsx::{
+    use telar::{
         App, Color, Component, LayoutStyle, RectStyle, StyledContainer, SurfaceFrameStyle,
         SurfaceRoot, WindowConfig, box_item, reset_layout_runtime, surface_frame,
     };
@@ -99,8 +99,8 @@ mod tests {
     /// Renders a floating window's frame (§5), settled. Gated on its own env var.
     #[test]
     fn visual_float_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_FLOAT_OUT") else {
-            eprintln!("set RSX_VISUAL_FLOAT_OUT to render the float; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_FLOAT_OUT") else {
+            eprintln!("set TELAR_VISUAL_FLOAT_OUT to render the float; skipping");
             return;
         };
         render_png(FloatPreviewApp { animate: false }, 360, 240, &out);
@@ -109,8 +109,8 @@ mod tests {
     /// Renders the float with its enter animation, driving enough frames to settle — a guard that the animated path lands fully visible, not stuck transparent. Gated on its own env var.
     #[test]
     fn visual_float_anim_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_FLOAT_ANIM_OUT") else {
-            eprintln!("set RSX_VISUAL_FLOAT_ANIM_OUT to render the animated float; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_FLOAT_ANIM_OUT") else {
+            eprintln!("set TELAR_VISUAL_FLOAT_ANIM_OUT to render the animated float; skipping");
             return;
         };
         let frames = std::env::var("HYPRSHELL_VISUAL_FRAMES")

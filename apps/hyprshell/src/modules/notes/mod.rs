@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use platform_layershell::timeout;
-use rsx::{
+use telar::{
     AlignItems, Container, Effect, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     NodeId, ReactiveList, ReadSignal, Rect, RectStyle, RwSignal, SizeDimension, StyledContainer,
     Text, TextArea, box_item, effect, signal, track_layout, use_theme,
@@ -64,7 +64,7 @@ pub fn notes_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
 
 fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || rsx::t!("notes.title"),
+        || telar::t!("notes.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -73,7 +73,7 @@ fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, L
         },
     )?;
     let add_state = state.clone();
-    let add = pill_button(|| rsx::t!("notes.new"), move || add_note(&add_state), theme)?;
+    let add = pill_button(|| telar::t!("notes.new"), move || add_note(&add_state), theme)?;
     let header = Container::new(
         LayoutStyle::new()
             .flex_row()
@@ -153,7 +153,7 @@ fn note_card(
                 .with_weight(700)
         },
     )?
-    .placeholder(rsx::t!("notes.title_placeholder"));
+    .placeholder(telar::t!("notes.title_placeholder"));
 
     let delete_state = state.clone();
     let delete = StyledContainer::new(
@@ -182,7 +182,7 @@ fn note_card(
         LayoutStyle::new().width(SizeDimension::Percent(1.0)),
         move || theme.text_style(FontRole::Body, theme.subtle),
     )?
-    .placeholder(rsx::t!("notes.body_placeholder"));
+    .placeholder(telar::t!("notes.body_placeholder"));
 
     let card = StyledContainer::new(
         LayoutStyle::new()

@@ -1,5 +1,5 @@
-use rsx::motion::Animated;
-use rsx::{
+use telar::motion::Animated;
+use telar::{
     LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceAlign,
     SurfaceAnchor, SurfacePlacement, SurfaceToken, open_surface, set_theme,
 };
@@ -74,7 +74,7 @@ struct DrawerCtx {
 }
 
 pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
-    let _ = rsx::provide(DrawerCtx {
+    let _ = telar::provide(DrawerCtx {
         module,
         config: drawer,
         radius,
@@ -128,30 +128,30 @@ pub fn enter_transition(
 
 /// The background a panel paints, at `[panels] opacity`. Read from the surface's own config so a per-monitor
 /// override reaches it, falling back to the solid theme token outside a surface (a test, a preview render).
-pub fn panel_fill() -> rsx::Color {
+pub fn panel_fill() -> telar::Color {
     match crate::shared::module::surface_env() {
         Some(env) => env.config.panel_fill(),
-        None => rsx::use_theme::<crate::shared::theme::NordTheme>().surface,
+        None => telar::use_theme::<crate::shared::theme::NordTheme>().surface,
     }
 }
 
 /// The module whose panel the drawer being built shows; read by `drawer_panel.rsx`.
 pub fn current_drawer_module() -> String {
-    rsx::try_inject::<DrawerCtx>()
+    telar::try_inject::<DrawerCtx>()
         .map(|ctx| ctx.module)
         .unwrap_or_default()
 }
 
 /// The drawer size (width / max height) for the drawer being built; read by `drawer_panel.rsx`.
 pub fn current_drawer_config() -> DrawerConfig {
-    rsx::try_inject::<DrawerCtx>()
+    telar::try_inject::<DrawerCtx>()
         .map(|ctx| ctx.config)
         .unwrap_or_default()
 }
 
 /// The bar-matching corner radius of the panel currently being built (drawer or float); read by `drawer_panel.rsx` and by the notification history it hosts, so content rounds its corners like the bar regardless of which panel presents it.
 pub fn content_radius() -> f32 {
-    rsx::try_inject::<DrawerCtx>()
+    telar::try_inject::<DrawerCtx>()
         .map(|ctx| ctx.radius)
         .unwrap_or(0.0)
 }
@@ -159,7 +159,7 @@ pub fn content_radius() -> f32 {
 /// Provides a panel context carrying just the content radius (module/config defaulted) — used by a float
 /// presenting the same panel content as a drawer, so its cards carry the bar radius too.
 pub fn set_content_radius(radius: f32) {
-    let _ = rsx::provide(DrawerCtx {
+    let _ = telar::provide(DrawerCtx {
         module: String::new(),
         config: DrawerConfig::default(),
         radius,
@@ -196,14 +196,14 @@ mod transition_tests {
     use crate::shared::theme::NordTheme;
 
     fn content() -> Box<dyn LayoutItem> {
-        rsx::box_item(rsx::Container::new(LayoutStyle::new(), vec![]).unwrap())
+        telar::box_item(telar::Container::new(LayoutStyle::new(), vec![]).unwrap())
     }
 
     #[test]
     fn a_panel_enters_on_every_edge_and_skips_the_wrapper_when_animation_is_off() {
         for edge in Edge::ALL {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             assert!(
                 enter_transition(content(), edge, &AnimationConfig::default()).is_ok(),
                 "the enter transition builds on {edge:?}"
@@ -211,8 +211,8 @@ mod transition_tests {
         }
 
         // Switched off, the panel is handed back untouched rather than wrapped in a box that animates nothing — an extra container around every panel is a layout change nobody asked for.
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let off = AnimationConfig {
             enabled: false,
             ..AnimationConfig::default()
@@ -258,7 +258,7 @@ mod tests {
     use crate::core::config::DrawerConfig;
     use crate::shared::theme::NordTheme;
     use crate::test_support::render_png;
-    use rsx::{
+    use telar::{
         App, Color, Component, SurfaceAnchor, SurfacePlacement, SurfaceScaffold, WindowConfig,
         reset_layout_runtime, set_theme,
     };
@@ -289,8 +289,8 @@ mod tests {
     /// Renders a drawer (§4): scrimmed scaffold + fixed-width scrollable panel. Gated on its own env var.
     #[test]
     fn visual_drawer_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_DRAWER_OUT") else {
-            eprintln!("set RSX_VISUAL_DRAWER_OUT to render the drawer; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_DRAWER_OUT") else {
+            eprintln!("set TELAR_VISUAL_DRAWER_OUT to render the drawer; skipping");
             return;
         };
         render_png(DrawerPreviewApp, 520, 420, &out);

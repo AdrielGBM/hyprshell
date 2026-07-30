@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     App, Canvas, Color, Component, FillRule, LayoutStyle, PathStyle, RenderNode, ShapeStyle,
     SizeDimension, WindowConfig, reset_layout_runtime, set_theme,
 };

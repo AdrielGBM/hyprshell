@@ -20,7 +20,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use rsx::{App, build_surface_handler};
+use telar::{App, build_surface_handler};
 use smithay_client_toolkit::compositor::CompositorState;
 use smithay_client_toolkit::reexports::calloop::LoopHandle;
 use smithay_client_toolkit::reexports::protocols::ext::session_lock::v1::client::{

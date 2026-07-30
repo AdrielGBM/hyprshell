@@ -8,7 +8,7 @@ version = "0.1.0"
 
 [workspace.dependencies]
 platform-layershell = { path = "crates/platform-layershell" }
-rsx = { path = "../rsx/crates/rsx", default-features = false, features = [
+telar = { path = "../telar/crates/telar", default-features = false, features = [
     "runtime",
     "components",
 ] }

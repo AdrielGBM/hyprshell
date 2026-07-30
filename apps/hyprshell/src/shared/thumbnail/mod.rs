@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, Image, ImageFilter, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ObjectFit, ReactiveList, ReadSignal, RectStyle, StyledContainer, signal,
 };

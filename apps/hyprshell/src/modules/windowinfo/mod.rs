@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
-use rsx::{
+use telar::{
     AlignItems, Container, Image, ImageData, ImageFilter, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, ObjectFit, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
@@ -70,7 +70,7 @@ pub fn window_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
             let source = focused.read_only();
             move || match source.get() {
                 Some(client) => client.title.clone(),
-                None => rsx::t!("window.none"),
+                None => telar::t!("window.none"),
             }
         },
         LayoutStyle::new(),
@@ -193,7 +193,7 @@ fn window_frame() -> Option<Arc<ImageData>> {
 /// Each row names its own key literally: `t!` resolves at compile time — which is what lets the analyzer catch a
 /// missing translation — so a loop over a list of key *strings* would not compile.
 fn details(
-    focused: rsx::ReadSignal<Option<Client>>,
+    focused: telar::ReadSignal<Option<Client>>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let size = theme.font(FontRole::Caption);
@@ -209,10 +209,10 @@ fn details(
         )
     };
     let children: Vec<Box<dyn LayoutItem>> = vec![
-        row(|| rsx::t!("window.class"), |client| client.class.clone())?,
-        row(|| rsx::t!("window.pid"), |client| client.pid.to_string())?,
+        row(|| telar::t!("window.class"), |client| client.class.clone())?,
+        row(|| telar::t!("window.pid"), |client| client.pid.to_string())?,
         row(
-            || rsx::t!("window.workspace"),
+            || telar::t!("window.workspace"),
             |client| {
                 if client.workspace_name.is_empty() {
                     client.workspace.to_string()
@@ -222,7 +222,7 @@ fn details(
             },
         )?,
         row(
-            || rsx::t!("window.geometry"),
+            || telar::t!("window.geometry"),
             |client| {
                 format!(
                     "{}×{} at {},{}",
@@ -231,10 +231,10 @@ fn details(
             },
         )?,
         row(
-            || rsx::t!("window.address"),
+            || telar::t!("window.address"),
             |client| client.address.clone(),
         )?,
-        row(|| rsx::t!("window.state"), state_line)?,
+        row(|| telar::t!("window.state"), state_line)?,
     ];
     Ok(Box::new(Container::new(
         LayoutStyle::new()
@@ -250,26 +250,26 @@ fn details(
 fn state_line(client: &Client) -> String {
     let mut states = Vec::new();
     if client.floating {
-        states.push(rsx::t!("window.floating"));
+        states.push(telar::t!("window.floating"));
     }
     if client.fullscreen {
-        states.push(rsx::t!("window.fullscreen"));
+        states.push(telar::t!("window.fullscreen"));
     }
     if client.pinned {
-        states.push(rsx::t!("window.pinned"));
+        states.push(telar::t!("window.pinned"));
     }
     if client.xwayland {
         states.push("XWayland".to_string());
     }
     if states.is_empty() {
-        rsx::t!("window.tiled")
+        telar::t!("window.tiled")
     } else {
         states.join(", ")
     }
 }
 
 fn actions(
-    focused: rsx::ReadSignal<Option<Client>>,
+    focused: telar::ReadSignal<Option<Client>>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let float = focused.clone();
@@ -277,7 +277,7 @@ fn actions(
     let close = focused.clone();
     let children = vec![
         pill(
-            || rsx::t!("window.float"),
+            || telar::t!("window.float"),
             "move",
             move || {
                 if let Some(client) = float.peek() {
@@ -289,7 +289,7 @@ fn actions(
             theme,
         )?,
         pill(
-            || rsx::t!("window.fullscreen"),
+            || telar::t!("window.fullscreen"),
             "maximize",
             move || {
                 if let Some(client) = fullscreen.peek() {
@@ -301,7 +301,7 @@ fn actions(
             theme,
         )?,
         pill(
-            || rsx::t!("window.close"),
+            || telar::t!("window.close"),
             "x",
             move || {
                 if let Some(client) = close.peek() {
@@ -325,7 +325,7 @@ fn actions(
 /// The existing workspaces rather than a fixed 1–10: a dispatcher can create a workspace on demand, but a row of
 /// ten numbers on a session that uses three is a row of buttons that mean nothing.
 fn workspace_row(
-    focused: rsx::ReadSignal<Option<Client>>,
+    focused: telar::ReadSignal<Option<Client>>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let workspaces: Vec<i32> = hyprland::current_workspaces()
@@ -343,7 +343,7 @@ fn workspace_row(
     }
 
     let label = Text::auto(
-        || rsx::t!("window.move_to"),
+        || telar::t!("window.move_to"),
         LayoutStyle::new().flex_shrink(0.0),
         move || theme.text_style(FontRole::Caption, theme.subtle),
     )?;
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn the_state_row_always_says_something() {
-        assert_eq!(state_line(&client()), rsx::t!("window.tiled"));
+        assert_eq!(state_line(&client()), telar::t!("window.tiled"));
 
         let floating = Client {
             floating: true,
@@ -451,21 +451,21 @@ mod tests {
             ..client()
         };
         let line = state_line(&floating);
-        assert!(line.contains(&rsx::t!("window.floating")), "{line}");
+        assert!(line.contains(&telar::t!("window.floating")), "{line}");
         assert!(line.contains("XWayland"), "{line}");
     }
 
     #[test]
     fn the_panel_builds_with_a_window_and_with_none() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(
             window_panel().is_ok(),
             "no compositor: the panel still builds"
         );
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let focused = signal(Some(client()));
         assert!(details(focused.read_only(), NordTheme::new()).is_ok());
         assert!(actions(focused.read_only(), NordTheme::new()).is_ok());

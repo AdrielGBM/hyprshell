@@ -10,7 +10,7 @@ name = "hyprshell"
 path = "src/main.rs"
 
 [dependencies]
-rsx = { workspace = true, features = ["dynamic-svg", "async-assets"] }
+telar = { workspace = true, features = ["dynamic-svg", "async-assets"] }
 platform-layershell = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 toml = "1"
@@ -30,4 +30,4 @@ libc = "0.2.189"
 rustfft = "6.4.1"
 
 [dev-dependencies]
-platform-headless = { path = "../../../rsx/crates/platform/platform-headless" }
+platform-headless = { path = "../../../telar/crates/platform/platform-headless" }

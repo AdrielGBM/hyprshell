@@ -1,6 +1,6 @@
 //! The Caps- and Num-Lock indicators.
 
-use rsx::{Color, LayoutError, LayoutItem, ReadSignal};
+use telar::{Color, LayoutError, LayoutItem, ReadSignal};
 
 use crate::core::config::LockStatusConfig;
 use crate::shared::services::lockkeys::LockKeys;

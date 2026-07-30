@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, Container, LayoutError, LayoutItem, LayoutStyle, SizeDimension, Text, box_item,
     signal,
 };
@@ -72,7 +72,7 @@ fn now_playing(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     caption(
         move || match read.get() {
             Some(player) if !player.is_empty() => player.summary(),
-            _ => rsx::t!("lock.nothing_playing"),
+            _ => telar::t!("lock.nothing_playing"),
         },
         theme,
     )
@@ -132,14 +132,14 @@ fn notifications(hide: bool, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
     caption(
         move || {
             let Some(snapshot) = read.get() else {
-                return rsx::t!("lock.no_notifications");
+                return telar::t!("lock.no_notifications");
             };
             let count = snapshot.active.len();
             if count == 0 {
-                return rsx::t!("lock.no_notifications");
+                return telar::t!("lock.no_notifications");
             }
             if hide {
-                return rsx::t!("lock.notifications", count = count.to_string());
+                return telar::t!("lock.notifications", count = count.to_string());
             }
             let mut apps: Vec<&str> = snapshot
                 .active
@@ -149,7 +149,7 @@ fn notifications(hide: bool, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
             apps.dedup();
             format!(
                 "{} · {}",
-                rsx::t!("lock.notifications", count = count.to_string()),
+                telar::t!("lock.notifications", count = count.to_string()),
                 apps.join(", ")
             )
         },
@@ -164,8 +164,8 @@ mod tests {
 
     #[test]
     fn a_default_lock_screen_shows_what_is_playing_and_what_is_waiting() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let config = Arc::new(Config::default());
         let rows = extras(&config, NordTheme::new()).expect("builds");
         assert_eq!(rows.len(), 1, "the enabled rows are grouped into one block");
@@ -173,8 +173,8 @@ mod tests {
 
     #[test]
     fn nothing_extra_is_drawn_when_every_row_is_off() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let config = Arc::new(Config {
             lock: LockConfig {
                 show_media: false,

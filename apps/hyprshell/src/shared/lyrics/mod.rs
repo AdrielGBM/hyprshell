@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rsx::ReadSignal;
+use telar::ReadSignal;
 
 use crate::core::config::LyricsConfig;
 use crate::shared::asset::{Load, Loader};
@@ -211,13 +211,13 @@ thread_local! {
 pub fn of(player: &Player) -> ReadSignal<Load<Vec<Line>>> {
     let track = Track::of(player);
     if !track.is_searchable() || !settings().enabled {
-        return rsx::signal(Load::Missing).read_only();
+        return telar::signal(Load::Missing).read_only();
     }
     ensure_store();
     LYRICS.with(|store| {
         let borrow = store.borrow();
         let Some(store) = borrow.as_ref() else {
-            return rsx::signal(Load::Missing).read_only();
+            return telar::signal(Load::Missing).read_only();
         };
         // `at_hand` is deliberately nothing: even the local path involves reading a directory, and a track change
         // must not do that on the frame that draws it.

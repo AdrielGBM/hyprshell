@@ -10,7 +10,7 @@
 use std::cell::RefCell;
 use std::time::Duration;
 
-use rsx::ReadSignal;
+use telar::ReadSignal;
 
 use crate::shared::asset::{Load, Loader};
 use crate::shared::process;
@@ -46,7 +46,7 @@ fn state(query: &str) -> ReadSignal<Load<String>> {
     ANSWERS.with(|store| {
         let borrow = store.borrow();
         let Some(store) = borrow.as_ref() else {
-            return rsx::signal(Load::Missing).read_only();
+            return telar::signal(Load::Missing).read_only();
         };
         store.get(query.to_string(), |_| None)
     })

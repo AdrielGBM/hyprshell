@@ -172,7 +172,7 @@ pub fn start(scope: Scope) {
         .map(|c| c.recordings_dir())
         .unwrap_or_else(|| crate::shared::paths::data_dir().join("recordings"));
     let Some(backend) = backend(&config) else {
-        fail(rsx::t!("recorder.no_backend"));
+        fail(telar::t!("recorder.no_backend"));
         return;
     };
     crate::shared::paths::ensure_dir(dir.clone());
@@ -203,8 +203,8 @@ pub fn start(scope: Scope) {
             ..Recording::default()
         };
     });
-    let started = rsx::t!("recorder.started_title");
-    let where_to = rsx::t!("recorder.started", file = file_label(&path));
+    let started = telar::t!("recorder.started_title");
+    let where_to = telar::t!("recorder.started", file = file_label(&path));
     toast(&started, &where_to);
     if config.notify {
         crate::shared::services::notifications::notify_local("hyprshell", &started, &where_to);
@@ -240,12 +240,12 @@ fn reap(mut child: Child, notify: bool) {
                     .filter(|e| !e.is_empty());
             });
             let (title, body) = match (&finished.error, &finished.path) {
-                (Some(error), _) => (rsx::t!("recorder.failed_title"), error.clone()),
+                (Some(error), _) => (telar::t!("recorder.failed_title"), error.clone()),
                 (None, Some(path)) => (
-                    rsx::t!("recorder.saved_title"),
-                    rsx::t!("recorder.saved", file = file_label(path)),
+                    telar::t!("recorder.saved_title"),
+                    telar::t!("recorder.saved", file = file_label(path)),
                 ),
-                (None, None) => (rsx::t!("recorder.saved_title"), String::new()),
+                (None, None) => (telar::t!("recorder.saved_title"), String::new()),
             };
             toast(&title, &body);
             if notify {
@@ -273,20 +273,20 @@ pub fn toggle(scope: Scope) {
 pub fn toggle_pause() -> Result<bool, String> {
     let state = STATE.get();
     if !state.active {
-        return Err(rsx::t!("recorder.not_recording"));
+        return Err(telar::t!("recorder.not_recording"));
     }
     let backend = state
         .backend
-        .ok_or_else(|| rsx::t!("recorder.not_recording"))?;
+        .ok_or_else(|| telar::t!("recorder.not_recording"))?;
     if !backend.can_pause() {
-        return Err(rsx::t!(
+        return Err(telar::t!(
             "recorder.no_pause",
             backend = backend.program().to_string()
         ));
     }
     let pid = PID.load(Ordering::Relaxed);
     if pid == 0 {
-        return Err(rsx::t!("recorder.not_recording"));
+        return Err(telar::t!("recorder.not_recording"));
     }
     signal(pid, libc::SIGUSR2);
     let paused = !state.paused;
@@ -327,7 +327,7 @@ fn fail(reason: String) {
     });
     crate::shared::services::notifications::notify_local(
         "hyprshell",
-        &rsx::t!("recorder.failed_title"),
+        &telar::t!("recorder.failed_title"),
         &reason,
     );
 }

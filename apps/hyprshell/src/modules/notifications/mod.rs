@@ -9,7 +9,7 @@ use std::rc::Rc;
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, watch,
 };
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
     RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, WindowConfig, box_item,
@@ -763,7 +763,7 @@ fn panel_header(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || rsx::t!("notifications.title"),
+        || telar::t!("notifications.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -776,16 +776,16 @@ fn panel_header(
     let dnd = pill_button(
         move || {
             if dnd_label.get().dnd {
-                rsx::t!("notifications.dnd_on")
+                telar::t!("notifications.dnd_on")
             } else {
-                rsx::t!("notifications.dnd_off")
+                telar::t!("notifications.dnd_off")
             }
         },
         move || notifications::set_dnd(!dnd_toggle.peek().dnd),
         theme,
     )?;
     let clear = pill_button(
-        || rsx::t!("notifications.clear_all"),
+        || telar::t!("notifications.clear_all"),
         notifications::clear_all,
         theme,
     )?;
@@ -993,7 +993,7 @@ fn group_header(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let name = if app.trim().is_empty() {
-        rsx::t!("notifications.unknown_app")
+        telar::t!("notifications.unknown_app")
     } else {
         app.clone()
     };
@@ -1061,9 +1061,9 @@ fn expander_row(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let label = move || {
         if expanded {
-            rsx::t!("notifications.show_less")
+            telar::t!("notifications.show_less")
         } else {
-            rsx::t!("notifications.show_more", count = hidden.to_string())
+            telar::t!("notifications.show_more", count = hidden.to_string())
         }
     };
     let text = Text::auto(label, LayoutStyle::new(), move || {
@@ -1393,8 +1393,8 @@ mod tests {
         }));
         for group_by_app in [true, false] {
             for open in [BTreeSet::new(), BTreeSet::from(["Slack".to_string()])] {
-                rsx::reset_layout_runtime();
-                rsx::set_theme(NordTheme::new());
+                telar::reset_layout_runtime();
+                telar::set_theme(NordTheme::new());
                 let cfg = NotificationsConfig {
                     group_by_app,
                     group_preview_num: 1,
@@ -1560,11 +1560,11 @@ mod tests {
         ])
     }
 
-    /// Renders the history panel. `RSX_VISUAL_PANEL_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_panel -- --nocapture`.
+    /// Renders the history panel. `TELAR_VISUAL_PANEL_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_panel -- --nocapture`.
     #[test]
     fn visual_panel_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_PANEL_OUT") else {
-            eprintln!("set RSX_VISUAL_PANEL_OUT to render the panel; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_PANEL_OUT") else {
+            eprintln!("set TELAR_VISUAL_PANEL_OUT to render the panel; skipping");
             return;
         };
         crate::test_support::render_png(
@@ -1578,11 +1578,11 @@ mod tests {
         );
     }
 
-    /// Renders the popup stack for eyeballing. `RSX_VISUAL_NOTIF_OUT=/tmp/n.png cargo test -p hyprshell --lib visual_notifications -- --nocapture`.
+    /// Renders the popup stack for eyeballing. `TELAR_VISUAL_NOTIF_OUT=/tmp/n.png cargo test -p hyprshell --lib visual_notifications -- --nocapture`.
     #[test]
     fn visual_notifications_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_NOTIF_OUT") else {
-            eprintln!("set RSX_VISUAL_NOTIF_OUT to render notifications; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_NOTIF_OUT") else {
+            eprintln!("set TELAR_VISUAL_NOTIF_OUT to render notifications; skipping");
             return;
         };
         let mk = |id: u32, app: &str, summary: &str, body: &str, urgency: Urgency| Notification {

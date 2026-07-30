@@ -1,7 +1,7 @@
-[rsx]
+[telar]
 backend = "software"
 auto_modules = true
 
-[rsx.i18n]
+[telar.i18n]
 scan = "i18n"
 default = "en"

@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use rsx::{
+use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item,
     signal, track_layout,
@@ -118,7 +118,7 @@ fn lyrics_card(
     position: RwSignal<i64>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let scroll = rsx::LayoutScrollArea::new_with(
+    let scroll = telar::LayoutScrollArea::new_with(
         LayoutStyle::new()
             .flex_column()
             .width(SizeDimension::Percent(1.0))
@@ -142,9 +142,9 @@ fn lyrics_card(
                 match line {
                     LyricLine::Absent { searching } => {
                         let message = if searching {
-                            rsx::t!("dashboard.lyrics_searching")
+                            telar::t!("dashboard.lyrics_searching")
                         } else {
-                            rsx::t!("dashboard.lyrics_none")
+                            telar::t!("dashboard.lyrics_none")
                         };
                         Ok(box_item(Text::auto(
                             move || message.clone(),
@@ -166,7 +166,7 @@ fn lyrics_card(
                         // since the list rebuilds these on every track change.
                         let node = row.layout_node();
                         let viewport = viewport.clone();
-                        let follow = rsx::effect(move || {
+                        let follow = telar::effect(move || {
                             if is_current() {
                                 viewport.reveal(node, LYRIC_REVEAL_MARGIN);
                             }
@@ -187,7 +187,7 @@ fn lyrics_card(
         },
     )?;
 
-    Card::titled(rsx::t!("dashboard.lyrics"))
+    Card::titled(telar::t!("dashboard.lyrics"))
         .icon("mic-vocal")
         .child(Box::new(scroll))
         .build(theme)
@@ -246,7 +246,7 @@ fn now_playing(
     let title = derive(player.clone(), |p| {
         let title = p.title.trim();
         if title.is_empty() {
-            rsx::t!("popout.nothing_playing")
+            telar::t!("popout.nothing_playing")
         } else {
             title.to_string()
         }
@@ -274,7 +274,7 @@ fn now_playing(
         ],
     )?;
 
-    let card = Card::new(fixed_text(rsx::t!("dashboard.now_playing")))
+    let card = Card::new(fixed_text(telar::t!("dashboard.now_playing")))
         .icon("disc-3")
         .trailing(identity)
         .child(Box::new(heading))
@@ -575,7 +575,7 @@ fn text(
 fn non_empty(text: &str) -> String {
     let text = text.trim();
     if text.is_empty() {
-        rsx::t!("sysinfo.no_reading")
+        telar::t!("sysinfo.no_reading")
     } else {
         text.to_string()
     }
@@ -669,10 +669,10 @@ mod tests {
     /// its content, so a viewport with no height of its own clips every line away (see the launcher's list).
     #[test]
     fn the_lyrics_card_builds_with_a_viewport_that_has_a_size() {
-        use rsx::{AvailableSpace, compute_layout, new_container};
+        use telar::{AvailableSpace, compute_layout, new_container};
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let player = signal(Player {
             title: "So What".to_string(),
             artist: "Miles Davis".to_string(),
@@ -705,11 +705,11 @@ mod tests {
     /// the bars are simply clipped away by a box that never grew. Measured, not built, for that reason.
     #[test]
     fn the_cover_grows_by_the_ring_only_when_the_ring_is_on() {
-        use rsx::{AvailableSpace, compute_layout, new_container};
+        use telar::{AvailableSpace, compute_layout, new_container};
 
         let measured = |visualiser: bool| {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             let mut config = Config::starter();
             config.media.visualiser = visualiser;
             let cover = cover(signal(Player::default()), &config, NordTheme::new())

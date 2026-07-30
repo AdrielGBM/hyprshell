@@ -1,7 +1,7 @@
 # hyprshell
 
 A Wayland desktop shell in Rust — bars, panels, launcher, dashboard, lock screen, notifications, capture and
-dynamic theming — built on [`rsx`](../rsx) and `wlr-layer-shell`, configured in TOML.
+dynamic theming — built on [`telar`](../telar) and `wlr-layer-shell`, configured in TOML.
 
 It targets Hyprland but prefers Wayland protocols to compositor IPC wherever both exist, so most of it works
 anywhere `wlr-layer-shell`, `ext-session-lock` and `ext-idle-notify` do.
@@ -31,13 +31,13 @@ pass over the result.
 cargo build --release        # target/release/hyprshell
 ```
 
-hyprshell builds against a sibling checkout of the [`rsx`](../rsx) UI framework, by path — the two are
+hyprshell builds against a sibling checkout of the [`telar`](../telar) UI framework, by path — the two are
 developed together, and a fix that is agnostic to this shell belongs upstream. Lay the two out side by side:
 
 ```
 somewhere/
 ├── hyprshell/
-└── rsx/
+└── telar/
 ```
 
 Start it from your compositor:
@@ -146,18 +146,18 @@ expansion time, and rustfmt walks the module tree from the crate root — so it 
 `cargo fmt --check` passes while formatting one file. This is the honest form:
 
 ```sh
-cargo fmt --check -- $(find apps crates -name '*.rs' -not -path '*/target/*' -not -path '*/.rsx/*')
+cargo fmt --check -- $(find apps crates -name '*.rs' -not -path '*/target/*' -not -path '*/.telar/*')
 ```
 
-(`.rsx/build` is the transpiler's own output, not source.)
+(`.telar/build` is the transpiler's own output, not source.)
 
 Anything with a look has a PNG test behind an env var:
 
 ```sh
-RSX_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture
-RSX_VISUAL_SPECTRUM_OUT=/tmp/v.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture
-RSX_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture
-RSX_PERF=1 hyprshell                 # per-phase frame timing
+TELAR_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture
+TELAR_VISUAL_SPECTRUM_OUT=/tmp/v.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture
+TELAR_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture
+TELAR_PERF=1 hyprshell                 # per-phase frame timing
 ```
 
 ## Licence

@@ -11,7 +11,7 @@
 
 mod capture;
 
-use rsx::{
+use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
@@ -80,16 +80,16 @@ impl Quick {
 
     fn label(self) -> String {
         match self {
-            Quick::Wifi => rsx::t!("utilities.wifi"),
-            Quick::Bluetooth => rsx::t!("utilities.bluetooth"),
-            Quick::Mic => rsx::t!("utilities.mic"),
-            Quick::Dnd => rsx::t!("utilities.dnd"),
-            Quick::GameMode => rsx::t!("utilities.game_mode"),
-            Quick::Vpn => rsx::t!("utilities.vpn"),
-            Quick::IdleInhibit => rsx::t!("utilities.idle_inhibit"),
-            Quick::Screenshot => rsx::t!("utilities.screenshot"),
-            Quick::Record => rsx::t!("utilities.record"),
-            Quick::Settings => rsx::t!("utilities.settings"),
+            Quick::Wifi => telar::t!("utilities.wifi"),
+            Quick::Bluetooth => telar::t!("utilities.bluetooth"),
+            Quick::Mic => telar::t!("utilities.mic"),
+            Quick::Dnd => telar::t!("utilities.dnd"),
+            Quick::GameMode => telar::t!("utilities.game_mode"),
+            Quick::Vpn => telar::t!("utilities.vpn"),
+            Quick::IdleInhibit => telar::t!("utilities.idle_inhibit"),
+            Quick::Screenshot => telar::t!("utilities.screenshot"),
+            Quick::Record => telar::t!("utilities.record"),
+            Quick::Settings => telar::t!("utilities.settings"),
         }
     }
 
@@ -213,7 +213,7 @@ pub fn utilities_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     }
 
     let title = Text::auto(
-        || rsx::t!("utilities.title"),
+        || telar::t!("utilities.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -567,8 +567,8 @@ mod tests {
     #[test]
     fn the_panel_and_its_tiles_build() {
         for quick in Quick::ALL {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             assert!(
                 tile(quick, NordTheme::new()).is_ok(),
                 "{} builds",
@@ -576,8 +576,8 @@ mod tests {
             );
         }
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(utilities_panel().is_ok());
     }
 
@@ -585,8 +585,8 @@ mod tests {
     /// env var; on a machine with no recordings the list draws its empty line, which is part of what to look at.
     #[test]
     fn visual_utilities_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_UTILITIES_OUT") else {
-            eprintln!("set RSX_VISUAL_UTILITIES_OUT to render the utilities panel; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_UTILITIES_OUT") else {
+            eprintln!("set TELAR_VISUAL_UTILITIES_OUT to render the utilities panel; skipping");
             return;
         };
         crate::test_support::render_png(UtilitiesPreviewApp, 420, 520, &out);
@@ -594,10 +594,10 @@ mod tests {
 
     struct UtilitiesPreviewApp;
 
-    impl rsx::App for UtilitiesPreviewApp {
-        fn root(&self) -> Box<dyn rsx::Component> {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+    impl telar::App for UtilitiesPreviewApp {
+        fn root(&self) -> Box<dyn telar::Component> {
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             let panel = utilities_panel().expect("utilities panel build failed");
             let padded = StyledContainer::new(
                 LayoutStyle::new()
@@ -614,22 +614,22 @@ mod tests {
             )
         }
 
-        fn clear_color(&self) -> Option<rsx::Color> {
+        fn clear_color(&self) -> Option<telar::Color> {
             None
         }
 
-        fn window_config(&self) -> Option<rsx::WindowConfig> {
-            Some(rsx::WindowConfig {
+        fn window_config(&self) -> Option<telar::WindowConfig> {
+            Some(telar::WindowConfig {
                 is_transparent: true,
-                ..rsx::WindowConfig::default()
+                ..telar::WindowConfig::default()
             })
         }
     }
 
     #[test]
     fn the_grid_pads_its_last_row_to_the_configured_width() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         // Five toggles over four columns: the second row must still lay its one tile out at a quarter width,
         // which is what the padding cells are for.
         let config = UtilitiesConfig {

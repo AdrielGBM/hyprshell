@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rsx::Color;
+use telar::Color;
 use serde::{Deserialize, Serialize};
 use toml_edit::{DocumentMut, Item};
 
@@ -1489,7 +1489,7 @@ impl BatteryWarning {
     pub fn title(&self, level: i32) -> String {
         let configured = self.title.trim();
         if configured.is_empty() {
-            rsx::t!("battery.warning.title")
+            telar::t!("battery.warning.title")
         } else {
             configured.replace("{level}", &level.to_string())
         }
@@ -1498,7 +1498,7 @@ impl BatteryWarning {
     pub fn message(&self, level: i32) -> String {
         let configured = self.message.trim();
         if configured.is_empty() {
-            rsx::t!("battery.warning.body", level = level.to_string())
+            telar::t!("battery.warning.body", level = level.to_string())
         } else {
             configured.replace("{level}", &level.to_string())
         }
@@ -2788,7 +2788,7 @@ impl TokenOverrides {
 /// theme derives for it.
 ///
 /// No `family`: rsx's `TextStyle` carries no font family — the family is process-wide, applied through
-/// `rsx::set_default_font_family` from `[theme] font_family`. Per-role families need `TextStyle` to carry one
+/// `telar::set_default_font_family` from `[theme] font_family`. Per-role families need `TextStyle` to carry one
 /// and the renderer to select on it, which is an upstream change rather than a config key.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq)]
 #[serde(default)]
@@ -2886,33 +2886,33 @@ impl AnimationConfig {
     }
 
     /// The spring every chase-a-moving-target animation uses.
-    pub fn spring(&self) -> rsx::motion::Spring {
+    pub fn spring(&self) -> telar::motion::Spring {
         match self.curve.trim().to_ascii_lowercase().as_str() {
-            "snappy" => rsx::motion::Spring::snappy(),
-            "bouncy" => rsx::motion::Spring::bouncy(),
-            _ => rsx::motion::Spring::gentle(),
+            "snappy" => telar::motion::Spring::snappy(),
+            "bouncy" => telar::motion::Spring::bouncy(),
+            _ => telar::motion::Spring::gentle(),
         }
     }
 
     /// The timing function every duration-based transition uses.
-    pub fn easing(&self) -> rsx::motion::Easing {
+    pub fn easing(&self) -> telar::motion::Easing {
         match self.easing.trim().to_ascii_lowercase().as_str() {
-            "linear" => rsx::motion::Easing::Linear,
-            "ease-in" | "ease_in" => rsx::motion::Easing::EaseIn,
-            "ease-in-out" | "ease_in_out" => rsx::motion::Easing::EaseInOut,
-            _ => rsx::motion::Easing::EaseOut,
+            "linear" => telar::motion::Easing::Linear,
+            "ease-in" | "ease_in" => telar::motion::Easing::EaseIn,
+            "ease-in-out" | "ease_in_out" => telar::motion::Easing::EaseInOut,
+            _ => telar::motion::Easing::EaseOut,
         }
     }
 
     /// A panel's enter/exit transition, ready to hand to `Animated`.
-    pub fn panel_tween(&self) -> rsx::motion::Tween {
+    pub fn panel_tween(&self) -> telar::motion::Tween {
         self.tween_ms(self.panel_duration_ms, 2_000)
     }
 
     /// A tween of `base_ms`, scaled and eased by `[animation]`, and bounded by `max_ms` so a mistyped duration
     /// is a slow transition rather than one that never ends. The general form `panel_tween` is a preset of.
-    pub fn tween_ms(&self, base_ms: u64, max_ms: u64) -> rsx::motion::Tween {
-        rsx::motion::tween(
+    pub fn tween_ms(&self, base_ms: u64, max_ms: u64) -> telar::motion::Tween {
+        telar::motion::tween(
             self.duration(Duration::from_millis(base_ms.clamp(0, max_ms))),
             self.easing(),
         )
@@ -2987,7 +2987,7 @@ pub struct ThemeConfig {
     pub spacing: Option<u32>,
     pub font_size: Option<f32>,
     pub icon_size: Option<f32>,
-    /// Font family the whole shell renders in (must be installed). Unset keeps the renderer's default. Applied process-wide via [`rsx::set_default_font_family`], not carried in the (`Copy`) theme struct.
+    /// Font family the whole shell renders in (must be installed). Unset keeps the renderer's default. Applied process-wide via [`telar::set_default_font_family`], not carried in the (`Copy`) theme struct.
     pub font_family: Option<String>,
     /// Stroke width forced on stroke-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
     pub icon_stroke: Option<f32>,
@@ -3229,13 +3229,13 @@ impl Config {
     }
 
     /// The effective UI language (BCP-47 tag): the `[general] language` override, else the OS locale, else
-    /// English. Each surface applies it via `rsx::set_locale` when it builds.
+    /// English. Each surface applies it via `telar::set_locale` when it builds.
     pub fn language(&self) -> String {
         let configured = self.general.language.trim();
         if !configured.is_empty() {
             return configured.to_string();
         }
-        rsx::detect_system_locale().unwrap_or_else(|| "en".to_string())
+        telar::detect_system_locale().unwrap_or_else(|| "en".to_string())
     }
 
     /// The container variant for a module id, `Default` when it has no `[modules.<id>]` override.
@@ -4822,19 +4822,19 @@ accent = "orange"
             easing: easing.to_string(),
             ..AnimationConfig::default()
         };
-        assert_eq!(with("snappy", "").spring(), rsx::motion::Spring::snappy());
-        assert_eq!(with("BOUNCY", "").spring(), rsx::motion::Spring::bouncy());
+        assert_eq!(with("snappy", "").spring(), telar::motion::Spring::snappy());
+        assert_eq!(with("BOUNCY", "").spring(), telar::motion::Spring::bouncy());
         assert_eq!(
             with("nonsense", "").spring(),
-            rsx::motion::Spring::gentle(),
+            telar::motion::Spring::gentle(),
             "an unknown name is the default, not a panic"
         );
-        assert_eq!(with("", "linear").easing(), rsx::motion::Easing::Linear);
+        assert_eq!(with("", "linear").easing(), telar::motion::Easing::Linear);
         assert_eq!(
             with("", "ease_in_out").easing(),
-            rsx::motion::Easing::EaseInOut
+            telar::motion::Easing::EaseInOut
         );
-        assert_eq!(with("", "nonsense").easing(), rsx::motion::Easing::EaseOut);
+        assert_eq!(with("", "nonsense").easing(), telar::motion::Easing::EaseOut);
     }
 
     #[test]

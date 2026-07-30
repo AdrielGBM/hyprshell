@@ -19,7 +19,7 @@ use crate::core::schema;
 /// of a table. The check is moved rather than lost: `every_label_has_a_translation` asks the catalogue for all
 /// of them, and a missing one fails the suite instead of showing a user a raw key.
 pub fn label(prefix: &str, name: &str) -> String {
-    rsx::i18n::translate(
+    telar::i18n::translate(
         &crate::__rsx_i18n::CATALOG,
         &format!("{prefix}.{name}"),
         &[],
@@ -31,7 +31,7 @@ pub type Build = fn(
     &crate::core::config::Config,
     &std::path::Path,
     crate::shared::theme::NordTheme,
-) -> Result<Box<dyn rsx::LayoutItem>, rsx::LayoutError>;
+) -> Result<Box<dyn telar::LayoutItem>, telar::LayoutError>;
 
 /// One form on a page.
 pub struct Section {

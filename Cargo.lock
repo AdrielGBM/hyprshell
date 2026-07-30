@@ -1225,11 +1225,11 @@ dependencies = [
  "libloading 0.9.0",
  "platform-headless",
  "platform-layershell",
- "rsx",
  "rustfft",
  "rustix 1.1.4",
  "serde",
  "serde_json",
+ "telar",
  "toml",
  "toml_edit",
  "tracing",
@@ -2262,8 +2262,8 @@ name = "platform-layershell"
 version = "0.1.0"
 dependencies = [
  "raw-window-handle",
- "rsx",
  "smithay-client-toolkit 0.20.0",
+ "telar",
  "tracing",
  "wayland-client",
 ]
@@ -2696,63 +2696,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "rsx"
-version = "0.1.0"
-dependencies = [
- "devtools-core",
- "geometry-core",
- "i18n-core",
- "layout-core",
- "libc",
- "motion-core",
- "platform-android",
- "platform-core",
- "raw-window-handle",
- "reactive-core",
- "renderer-assets",
- "renderer-core",
- "renderer-hardware",
- "renderer-software",
- "renderer-text",
- "rsx-macros",
- "serde",
- "services-core",
- "theme-core",
- "toml",
- "tracing",
- "ui-components",
- "ui-core",
- "ui-tree",
-]
-
-[[package]]
-name = "rsx-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rsx-transpiler",
- "syn",
-]
-
-[[package]]
-name = "rsx-parser"
-version = "0.1.0"
-dependencies = [
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "rsx-transpiler"
-version = "0.1.0"
-dependencies = [
- "renderer-assets",
- "rsx-parser",
- "thiserror 2.0.18",
- "toml",
 ]
 
 [[package]]
@@ -3309,6 +3252,63 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "telar"
+version = "0.1.0"
+dependencies = [
+ "devtools-core",
+ "geometry-core",
+ "i18n-core",
+ "layout-core",
+ "libc",
+ "motion-core",
+ "platform-android",
+ "platform-core",
+ "raw-window-handle",
+ "reactive-core",
+ "renderer-assets",
+ "renderer-core",
+ "renderer-hardware",
+ "renderer-software",
+ "renderer-text",
+ "serde",
+ "services-core",
+ "telar-macros",
+ "theme-core",
+ "toml",
+ "tracing",
+ "ui-components",
+ "ui-core",
+ "ui-tree",
+]
+
+[[package]]
+name = "telar-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "telar-transpiler",
+]
+
+[[package]]
+name = "telar-parser"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "telar-transpiler"
+version = "0.1.0"
+dependencies = [
+ "renderer-assets",
+ "telar-parser",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]

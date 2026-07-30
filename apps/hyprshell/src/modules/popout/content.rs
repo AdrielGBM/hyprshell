@@ -5,7 +5,7 @@
 //! level it opened with would be worse than no card. Nothing polls: each `watch` is bound to the popout
 //! surface and dies with it.
 
-use rsx::{LayoutError, LayoutItem, RwSignal, signal};
+use telar::{LayoutError, LayoutItem, RwSignal, signal};
 
 use super::card::Card;
 use crate::core::config::Config;
@@ -107,8 +107,8 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
 
     let ceiling = config.audio.ceiling() as f32;
     let title = match side {
-        AudioSide::Output => rsx::t!("popout.volume"),
-        AudioSide::Input => rsx::t!("popout.microphone"),
+        AudioSide::Output => telar::t!("popout.volume"),
+        AudioSide::Input => telar::t!("popout.microphone"),
     };
     let glyph = derive(state.clone(), move |v| match side {
         AudioSide::Output => glyph::volume(v).to_string(),
@@ -129,7 +129,7 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.device")),
+            fixed_text(telar::t!("popout.device")),
             derive(graph.clone(), move |g| {
                 let device = match side {
                     AudioSide::Output => g.default_sink(),
@@ -137,19 +137,19 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
                 };
                 device
                     .map(|node| node.label())
-                    .unwrap_or_else(|| rsx::t!("sysinfo.no_reading"))
+                    .unwrap_or_else(|| telar::t!("sysinfo.no_reading"))
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.muted")),
+            fixed_text(telar::t!("popout.muted")),
             derive(state.clone(), |v| on_off(v.muted)),
         )
         .row(
             // Only the output side: an application recording is not something the shell can list without
             // claiming more than PipeWire tells it, and the row would read as "nothing" on every machine.
             fixed_text(match side {
-                AudioSide::Output => rsx::t!("popout.playing"),
-                AudioSide::Input => rsx::t!("popout.step"),
+                AudioSide::Output => telar::t!("popout.playing"),
+                AudioSide::Input => telar::t!("popout.step"),
             }),
             match side {
                 AudioSide::Output => derive(graph, |g| playing_label(&g)),
@@ -167,9 +167,9 @@ fn playing_label(graph: &pipewire::Graph) -> String {
         .map(|node| node.label())
         .collect();
     match names.len() {
-        0 => rsx::t!("popout.nothing_playing"),
+        0 => telar::t!("popout.nothing_playing"),
         1 | 2 => names.join(", "),
-        n => rsx::t!("popout.app_count", count = n.to_string()),
+        n => telar::t!("popout.app_count", count = n.to_string()),
     }
 }
 
@@ -185,7 +185,7 @@ fn brightness_card(theme: NordTheme) -> Card {
         },
     );
 
-    Card::titled(rsx::t!("popout.brightness"))
+    Card::titled(telar::t!("popout.brightness"))
         .icon(fixed_text(glyph::brightness()))
         .subtitle(derive(level.clone(), |v| format!("{v}%")))
         .meter(
@@ -193,7 +193,7 @@ fn brightness_card(theme: NordTheme) -> Card {
             fixed(theme.accent),
         )
         .row(
-            fixed_text(rsx::t!("popout.step")),
+            fixed_text(telar::t!("popout.step")),
             fixed_text(format!(
                 "{}%",
                 crate::shared::services::brightness::settings().step()
@@ -216,7 +216,7 @@ fn battery_card(theme: NordTheme) -> Card {
     let charging_tint = charging.clone();
     let level_tint = level.clone();
 
-    Card::titled(rsx::t!("popout.battery"))
+    Card::titled(telar::t!("popout.battery"))
         .icon(derive(charging_glyph, |c| glyph::battery(c).to_string()))
         .icon_tint(derive_pair(
             level_tint,
@@ -229,17 +229,17 @@ fn battery_card(theme: NordTheme) -> Card {
             fixed(theme.accent),
         )
         .row(
-            fixed_text(rsx::t!("popout.status")),
+            fixed_text(telar::t!("popout.status")),
             derive(details.clone(), |d| match d {
                 Some(d) => battery_status(d),
-                None => rsx::t!("battery.none"),
+                None => telar::t!("battery.none"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.rate")),
+            fixed_text(telar::t!("popout.rate")),
             derive(details.clone(), |d| match d {
                 Some(d) if d.energy_rate > 0.0 => format!("{:.1} W", d.energy_rate),
-                _ => rsx::t!("sysinfo.no_reading"),
+                _ => telar::t!("sysinfo.no_reading"),
             }),
         )
 }
@@ -248,17 +248,17 @@ fn battery_status(d: battery::BatteryDetails) -> String {
     use battery::ChargeState;
     match d.state {
         ChargeState::Charging => match duration_text(d.time_to_full) {
-            Some(t) => rsx::t!("battery.until_full", time = t),
-            None => rsx::t!("battery.charging"),
+            Some(t) => telar::t!("battery.until_full", time = t),
+            None => telar::t!("battery.charging"),
         },
         ChargeState::Discharging => match duration_text(d.time_to_empty) {
-            Some(t) => rsx::t!("battery.remaining", time = t),
-            None => rsx::t!("battery.on_battery"),
+            Some(t) => telar::t!("battery.remaining", time = t),
+            None => telar::t!("battery.on_battery"),
         },
-        ChargeState::Full => rsx::t!("battery.full"),
-        ChargeState::Empty => rsx::t!("battery.empty"),
-        ChargeState::Pending => rsx::t!("battery.pending"),
-        ChargeState::Unknown => rsx::t!("battery.unknown"),
+        ChargeState::Full => telar::t!("battery.full"),
+        ChargeState::Empty => telar::t!("battery.empty"),
+        ChargeState::Pending => telar::t!("battery.pending"),
+        ChargeState::Unknown => telar::t!("battery.unknown"),
     }
 }
 
@@ -286,43 +286,43 @@ fn network_card() -> Card {
     let wifi_sink = wifi.clone();
     platform_layershell::watch(network::subscribe_wifi, move |w| wifi_sink.set(w));
 
-    Card::titled(rsx::t!("popout.network"))
+    Card::titled(telar::t!("popout.network"))
         .icon(derive(state.clone(), |net| glyph::network(net).to_string()))
         .subtitle(derive(wifi.clone(), |w| match w.active() {
             Some(point) => point.ssid.clone(),
             None => kind_label(network::read().kind),
         }))
         .row(
-            fixed_text(rsx::t!("popout.signal")),
+            fixed_text(telar::t!("popout.signal")),
             derive(state.clone(), |net| match net.kind {
                 network::NetworkKind::Wifi => format!("{}%", net.signal),
-                _ => rsx::t!("sysinfo.no_reading"),
+                _ => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.security")),
+            fixed_text(telar::t!("popout.security")),
             derive(wifi.clone(), |w| match w.active() {
                 Some(point) if point.security == network::Security::Open => {
-                    rsx::t!("network.open")
+                    telar::t!("network.open")
                 }
                 Some(point) => point.security.id().to_uppercase(),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.band")),
+            fixed_text(telar::t!("popout.band")),
             derive(wifi.clone(), |w| match w.active() {
                 Some(point) if !point.band().is_empty() => point.band().to_string(),
-                _ => rsx::t!("sysinfo.no_reading"),
+                _ => telar::t!("sysinfo.no_reading"),
             }),
         )
 }
 
 fn kind_label(kind: network::NetworkKind) -> String {
     match kind {
-        network::NetworkKind::Ethernet => rsx::t!("popout.ethernet"),
-        network::NetworkKind::Wifi => rsx::t!("popout.wifi"),
-        network::NetworkKind::Disconnected => rsx::t!("popout.offline"),
+        network::NetworkKind::Ethernet => telar::t!("popout.ethernet"),
+        network::NetworkKind::Wifi => telar::t!("popout.wifi"),
+        network::NetworkKind::Disconnected => telar::t!("popout.offline"),
     }
 }
 
@@ -333,7 +333,7 @@ fn bluetooth_card(theme: NordTheme) -> Card {
     let sink = state.clone();
     platform_layershell::watch(bluetooth::subscribe, move |bt| sink.set(bt));
 
-    Card::titled(rsx::t!("bluetooth.title"))
+    Card::titled(telar::t!("bluetooth.title"))
         .icon(derive(state.clone(), |bt| {
             glyph::bluetooth(bt.status()).to_string()
         }))
@@ -342,43 +342,43 @@ fn bluetooth_card(theme: NordTheme) -> Card {
         }))
         .subtitle(derive(state.clone(), |bt| {
             if !bt.available {
-                rsx::t!("bluetooth.no_adapter")
+                telar::t!("bluetooth.no_adapter")
             } else if !bt.powered {
-                rsx::t!("bluetooth.off")
+                telar::t!("bluetooth.off")
             } else if bt.discovering {
-                rsx::t!("bluetooth.scanning")
+                telar::t!("bluetooth.scanning")
             } else {
-                rsx::t!(
+                telar::t!(
                     "bluetooth.connected_count",
                     count = bt.connected_count().to_string()
                 )
             }
         }))
         .row(
-            fixed_text(rsx::t!("popout.status")),
+            fixed_text(telar::t!("popout.status")),
             derive(state.clone(), |bt| {
                 if !bt.available {
-                    rsx::t!("bluetooth.no_adapter")
+                    telar::t!("bluetooth.no_adapter")
                 } else if bt.powered {
-                    rsx::t!("bluetooth.on")
+                    telar::t!("bluetooth.on")
                 } else {
-                    rsx::t!("bluetooth.off")
+                    telar::t!("bluetooth.off")
                 }
             }),
         )
         .row(
-            fixed_text(rsx::t!("bluetooth.connected")),
+            fixed_text(telar::t!("bluetooth.connected")),
             derive(state.clone(), |bt| match bt.primary() {
                 Some(device) => device.label(),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.battery")),
+            fixed_text(telar::t!("popout.battery")),
             derive(state.clone(), |bt| {
                 match bt.primary().and_then(|d| d.battery) {
                     Some(level) => format!("{level}%"),
-                    None => rsx::t!("sysinfo.no_reading"),
+                    None => telar::t!("sysinfo.no_reading"),
                 }
             }),
         )
@@ -393,12 +393,12 @@ fn keyboard_card() -> Card {
     let sink = layout.clone();
     platform_layershell::watch(hyprland::subscribe_keyboard, move |l| sink.set(l));
 
-    Card::titled(rsx::t!("popout.keyboard"))
+    Card::titled(telar::t!("popout.keyboard"))
         .icon(fixed_text("keyboard"))
         .subtitle(derive(layout.clone(), |l| {
             let name = l.name.trim();
             if name.is_empty() {
-                rsx::t!("sysinfo.no_reading")
+                telar::t!("sysinfo.no_reading")
             } else {
                 name.to_string()
             }
@@ -410,16 +410,16 @@ fn lock_card() -> Card {
     let sink = keys.clone();
     platform_layershell::watch(lockkeys::subscribe, move |k| sink.set(k));
 
-    Card::titled(rsx::t!("popout.lock_keys"))
+    Card::titled(telar::t!("popout.lock_keys"))
         .icon(derive(keys.clone(), |k| {
             if k.caps { "lock" } else { "lock-open" }.to_string()
         }))
         .row(
-            fixed_text(rsx::t!("popout.caps_lock")),
+            fixed_text(telar::t!("popout.caps_lock")),
             derive(keys.clone(), |k| on_off(k.caps)),
         )
         .row(
-            fixed_text(rsx::t!("popout.num_lock")),
+            fixed_text(telar::t!("popout.num_lock")),
             derive(keys.clone(), |k| on_off(k.num)),
         )
 }
@@ -437,7 +437,7 @@ fn window_card() -> Card {
     Card::new(derive(window.clone(), |w| {
         let title = w.title.trim();
         if title.is_empty() {
-            rsx::t!("activewindow.none")
+            telar::t!("activewindow.none")
         } else {
             title.to_string()
         }
@@ -454,7 +454,7 @@ fn media_card() -> Card {
     Card::new(derive(player.clone(), |p| {
         let title = p.title.trim();
         if title.is_empty() {
-            rsx::t!("popout.nothing_playing")
+            telar::t!("popout.nothing_playing")
         } else {
             title.to_string()
         }
@@ -464,18 +464,18 @@ fn media_card() -> Card {
     }))
     .subtitle(derive(player.clone(), |p| p.artist.clone()))
     .row(
-        fixed_text(rsx::t!("popout.album")),
+        fixed_text(telar::t!("popout.album")),
         derive(player.clone(), |p| non_empty(&p.album)),
     )
     .row(
-        fixed_text(rsx::t!("popout.player")),
+        fixed_text(telar::t!("popout.player")),
         derive(player.clone(), |p| non_empty(&p.identity)),
     )
 }
 
 fn cpu_card(theme: NordTheme) -> Card {
     let state = resource_signal();
-    Card::titled(rsx::t!("sysinfo.cpu"))
+    Card::titled(telar::t!("sysinfo.cpu"))
         .icon(fixed_text("cpu"))
         .subtitle(derive(state.clone(), |r| {
             // The model is what identifies the machine, and the popout is the only surface with room for it.
@@ -491,24 +491,24 @@ fn cpu_card(theme: NordTheme) -> Card {
             fixed(theme.accent),
         )
         .row(
-            fixed_text(rsx::t!("popout.cores")),
+            fixed_text(telar::t!("popout.cores")),
             derive(state.clone(), |r| match r {
                 Some(r) => r.cores.len().to_string(),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.peak")),
+            fixed_text(telar::t!("popout.peak")),
             derive(state.clone(), |r| {
                 percent(r.as_ref().map(|r| r.cpu_history.peak()))
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.frequency")),
+            fixed_text(telar::t!("popout.frequency")),
             derive(state.clone(), |r| match r.and_then(|r| r.cpu_mhz) {
                 Some(mhz) if mhz >= 1000.0 => format!("{:.2} GHz", mhz / 1000.0),
                 Some(mhz) => format!("{mhz:.0} MHz"),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
 }
@@ -520,12 +520,12 @@ fn gpu_card(theme: NordTheme) -> Card {
     let sink = state.clone();
     platform_layershell::watch(gpu::subscribe, move |g| sink.set(g));
 
-    Card::titled(rsx::t!("sysinfo.gpu"))
+    Card::titled(telar::t!("sysinfo.gpu"))
         .icon(fixed_text(glyph::gpu()))
         .subtitle(derive(state.clone(), |g| {
             let name = g.name.trim().to_string();
             if name.is_empty() {
-                rsx::t!("sysinfo.no_reading")
+                telar::t!("sysinfo.no_reading")
             } else {
                 name
             }
@@ -535,32 +535,32 @@ fn gpu_card(theme: NordTheme) -> Card {
             fixed(theme.accent),
         )
         .row(
-            fixed_text(rsx::t!("popout.usage")),
+            fixed_text(telar::t!("popout.usage")),
             derive(state.clone(), |g| percent(g.usage)),
         )
         .row(
-            fixed_text(rsx::t!("popout.sensor")),
+            fixed_text(telar::t!("popout.sensor")),
             derive(state.clone(), |g| match g.temperature {
                 Some(c) => format!("{c:.0} °C"),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.vram")),
+            fixed_text(telar::t!("popout.vram")),
             derive(state.clone(), |g| match (g.vram_used, g.vram_total) {
                 (Some(used), Some(total)) if total > 0 => format!(
                     "{} / {}",
                     resources::format_bytes(used),
                     resources::format_bytes(total)
                 ),
-                _ => rsx::t!("sysinfo.no_reading"),
+                _ => telar::t!("sysinfo.no_reading"),
             }),
         )
 }
 
 fn memory_card(theme: NordTheme) -> Card {
     let state = resource_signal();
-    Card::titled(rsx::t!("sysinfo.memory"))
+    Card::titled(telar::t!("sysinfo.memory"))
         .icon(fixed_text("memory-stick"))
         .subtitle(derive(state.clone(), |r| {
             percent(r.as_ref().map(|r| r.memory.used_percent()))
@@ -574,28 +574,28 @@ fn memory_card(theme: NordTheme) -> Card {
             fixed(theme.accent),
         )
         .row(
-            fixed_text(rsx::t!("popout.used")),
+            fixed_text(telar::t!("popout.used")),
             derive(state.clone(), |r| match r {
                 Some(r) => format!(
                     "{} / {}",
                     resources::format_bytes(r.memory.used),
                     resources::format_bytes(r.memory.total)
                 ),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.swap")),
+            fixed_text(telar::t!("popout.swap")),
             derive(state.clone(), |r| match r {
                 Some(r) if r.memory.swap_total > 0 => format!(
                     "{} / {}",
                     resources::format_bytes(r.memory.swap_used),
                     resources::format_bytes(r.memory.swap_total)
                 ),
-                _ => rsx::t!("sysinfo.no_reading"),
+                _ => telar::t!("sysinfo.no_reading"),
             }),
         )
-        .row(fixed_text(rsx::t!("popout.disk_io")), disk_row(state))
+        .row(fixed_text(telar::t!("popout.disk_io")), disk_row(state))
 }
 
 /// Names the sensor the reading came from, which is the one thing `[temperature] sensor` cannot be configured
@@ -615,11 +615,11 @@ fn temperature_card(config: &Config, theme: NordTheme) -> Card {
     let meter = celsius.clone();
     let value = celsius.clone();
 
-    Card::titled(rsx::t!("sysinfo.temperature"))
+    Card::titled(telar::t!("sysinfo.temperature"))
         .icon(fixed_text("thermometer"))
         .subtitle(derive(value, move |c| match c {
             Some(c) => unit.format(c),
-            None => rsx::t!("sysinfo.no_reading"),
+            None => telar::t!("sysinfo.no_reading"),
         }))
         .meter(
             derive(meter, move |c| {
@@ -632,11 +632,11 @@ fn temperature_card(config: &Config, theme: NordTheme) -> Card {
             }),
         )
         .row(
-            fixed_text(rsx::t!("popout.sensor")),
+            fixed_text(telar::t!("popout.sensor")),
             derive(state.clone(), move |r| sensor_label(r.as_ref(), &for_label)),
         )
         .row(
-            fixed_text(rsx::t!("popout.critical")),
+            fixed_text(telar::t!("popout.critical")),
             fixed_text(unit.format(critical)),
         )
 }
@@ -655,14 +655,14 @@ fn sensor_label(resources: Option<&resources::Resources>, wanted: &str) -> Strin
         return wanted.trim().to_string();
     }
     let Some(resources) = resources else {
-        return rsx::t!("sysinfo.no_reading");
+        return telar::t!("sysinfo.no_reading");
     };
     resources
         .sensors
         .iter()
         .max_by(|a, b| a.celsius.total_cmp(&b.celsius))
         .map(|s| format!("{} {}", s.chip, s.label).trim().to_string())
-        .unwrap_or_else(|| rsx::t!("sysinfo.no_reading"))
+        .unwrap_or_else(|| telar::t!("sysinfo.no_reading"))
 }
 
 fn netspeed_card() -> Card {
@@ -670,25 +670,25 @@ fn netspeed_card() -> Card {
     let sink = state.clone();
     platform_layershell::watch(netspeed::subscribe, move |s| sink.set(Some(s)));
 
-    Card::titled(rsx::t!("popout.throughput"))
+    Card::titled(telar::t!("popout.throughput"))
         .icon(fixed_text("arrow-down-up"))
         .row(
-            fixed_text(rsx::t!("popout.down")),
+            fixed_text(telar::t!("popout.down")),
             derive(state.clone(), |s| rate(s.as_ref().map(|s| s.down))),
         )
         .row(
-            fixed_text(rsx::t!("popout.up")),
+            fixed_text(telar::t!("popout.up")),
             derive(state.clone(), |s| rate(s.as_ref().map(|s| s.up))),
         )
         .row(
-            fixed_text(rsx::t!("popout.total")),
+            fixed_text(telar::t!("popout.total")),
             derive(state.clone(), |s| match s {
                 Some(s) => format!(
                     "{} / {}",
                     resources::format_bytes(s.total_down),
                     resources::format_bytes(s.total_up)
                 ),
-                None => rsx::t!("sysinfo.no_reading"),
+                None => telar::t!("sysinfo.no_reading"),
             }),
         )
 }
@@ -702,7 +702,7 @@ fn disk_row(state: RwSignal<Option<resources::Resources>>) -> Live<String> {
             netspeed::format_rate(r.disk_read),
             netspeed::format_rate(r.disk_write)
         ),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     })
 }
 
@@ -717,16 +717,16 @@ fn resource_signal() -> RwSignal<Option<resources::Resources>> {
 
 fn on_off(value: bool) -> String {
     if value {
-        rsx::t!("common.on")
+        telar::t!("common.on")
     } else {
-        rsx::t!("common.off")
+        telar::t!("common.off")
     }
 }
 
 fn non_empty(text: &str) -> String {
     let text = text.trim();
     if text.is_empty() {
-        rsx::t!("sysinfo.no_reading")
+        telar::t!("sysinfo.no_reading")
     } else {
         text.to_string()
     }
@@ -735,14 +735,14 @@ fn non_empty(text: &str) -> String {
 fn percent(value: Option<f32>) -> String {
     match value {
         Some(v) => format!("{v:.0}%"),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 
 fn rate(value: Option<f64>) -> String {
     match value {
         Some(v) => netspeed::format_rate(v),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 

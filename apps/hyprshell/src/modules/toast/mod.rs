@@ -18,7 +18,7 @@ use std::rc::Rc;
 use platform_layershell::{
     Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, watch,
 };
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, WindowConfig, box_item,
     reset_layout_runtime, set_theme, signal, use_theme,
@@ -168,7 +168,7 @@ fn stack(config: ToastsConfig, radius: f32) -> Result<Box<dyn LayoutItem>, Layou
 /// The stack over a given source. Split out from the subscription so a test — and the visual render — can drive it
 /// with a fixed list instead of a live queue, which on a headless run is always empty.
 fn stack_of(
-    source: rsx::ReadSignal<Vec<Toast>>,
+    source: telar::ReadSignal<Vec<Toast>>,
     config: ToastsConfig,
     radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -301,30 +301,30 @@ mod tests {
 
     #[test]
     fn a_card_and_the_stack_both_build() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let toast = Toast::sample(toaster::Event::Dnd, "bell-off", "Do Not Disturb", "On");
         assert!(card(&toast, NordTheme::new(), 12.0).is_ok());
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(stack(ToastsConfig::default(), 12.0).is_ok());
     }
 
     #[test]
     fn a_bottom_anchored_stack_puts_the_newest_toast_nearest_the_edge() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let toasts = vec![
             Toast::sample(toaster::Event::Vpn, "shield-check", "VPN", "On"),
             Toast::sample(toaster::Event::Dnd, "bell-off", "Do Not Disturb", "On"),
         ];
-        let source = rsx::signal(toasts);
+        let source = telar::signal(toasts);
         // Both directions build; the order itself is asserted by the reverse below rather than by measuring, since
         // what matters is which end of the list the newest card is at.
         for edge in [Edge::Bottom, Edge::Top] {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             let config = ToastsConfig {
                 edge,
                 ..ToastsConfig::default()
@@ -339,8 +339,8 @@ mod tests {
     /// Renders the toast stack for eyeballing. Gated on its own env var, like every other visual test here.
     #[test]
     fn visual_toasts_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_TOASTS_OUT") else {
-            eprintln!("set RSX_VISUAL_TOASTS_OUT to render the toast stack; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_TOASTS_OUT") else {
+            eprintln!("set TELAR_VISUAL_TOASTS_OUT to render the toast stack; skipping");
             return;
         };
         crate::test_support::render_png(ToastPreviewApp, 300, 200, &out);
@@ -352,7 +352,7 @@ mod tests {
         fn root(&self) -> Box<dyn Component> {
             reset_layout_runtime();
             set_theme(NordTheme::new());
-            let source = rsx::signal(vec![
+            let source = telar::signal(vec![
                 Toast::sample(
                     toaster::Event::Charging,
                     "battery-charging",

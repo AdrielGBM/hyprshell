@@ -5,7 +5,7 @@
 //! chip and the OSD carried separate copies of the same three-way glyph, and the battery was tinted by three
 //! different rules depending on which surface you looked at.
 
-use rsx::Color;
+use telar::Color;
 
 use crate::shared::services::bluetooth::Status;
 use crate::shared::services::network::{Network, NetworkKind, WifiStatus};

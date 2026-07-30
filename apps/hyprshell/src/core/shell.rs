@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rsx::SurfaceToken;
+use telar::SurfaceToken;
 
 use crate::core::config::{Config, Edge};
 use crate::shared::module::SurfaceEnv;

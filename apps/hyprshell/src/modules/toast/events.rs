@@ -87,9 +87,9 @@ fn charging() {
                 return;
             }
             let title = if current.charging {
-                rsx::t!("toast.charging")
+                telar::t!("toast.charging")
             } else {
-                rsx::t!("toast.on_battery")
+                telar::t!("toast.on_battery")
             };
             toaster::post(
                 Event::Charging,
@@ -112,7 +112,7 @@ fn game_mode() {
             toaster::post(
                 Event::GameMode,
                 glyph::game_mode(current.active),
-                rsx::t!("toast.game_mode"),
+                telar::t!("toast.game_mode"),
                 on_off(current.active),
             );
         },
@@ -131,7 +131,7 @@ fn dnd() {
         toaster::post(
             Event::Dnd,
             glyph::dnd(snapshot.dnd),
-            rsx::t!("toast.dnd"),
+            telar::t!("toast.dnd"),
             on_off(snapshot.dnd),
         );
     });
@@ -166,7 +166,7 @@ fn audio() {
             toaster::post(
                 Event::AudioOutput,
                 "volume-2",
-                rsx::t!("toast.audio_output"),
+                telar::t!("toast.audio_output"),
                 devices.0.clone(),
             );
         }
@@ -174,7 +174,7 @@ fn audio() {
             toaster::post(
                 Event::AudioInput,
                 "mic",
-                rsx::t!("toast.audio_input"),
+                telar::t!("toast.audio_input"),
                 devices.1.clone(),
             );
         }
@@ -190,7 +190,7 @@ fn lock_keys() {
                 toaster::post(
                     Event::LockKeys,
                     glyph::caps_lock(),
-                    rsx::t!("toast.caps_lock"),
+                    telar::t!("toast.caps_lock"),
                     on_off(current.caps),
                 );
             }
@@ -198,7 +198,7 @@ fn lock_keys() {
                 toaster::post(
                     Event::LockKeys,
                     glyph::num_lock(),
-                    rsx::t!("toast.num_lock"),
+                    telar::t!("toast.num_lock"),
                     on_off(current.num),
                 );
             }
@@ -214,7 +214,7 @@ fn keyboard_layout() {
             toaster::post(
                 Event::KbLayout,
                 glyph::keyboard_layout(),
-                rsx::t!("toast.kb_layout"),
+                telar::t!("toast.kb_layout"),
                 current.name.clone(),
             );
         },
@@ -234,7 +234,7 @@ fn vpn() {
         toaster::post(
             Event::Vpn,
             glyph::vpn(current.is_connected()),
-            rsx::t!("toast.vpn"),
+            telar::t!("toast.vpn"),
             body,
         );
     });
@@ -268,15 +268,15 @@ pub fn config_reloaded() {
     toaster::post(
         Event::ConfigLoaded,
         "refresh-cw",
-        rsx::t!("toast.config_loaded"),
+        telar::t!("toast.config_loaded"),
         String::new(),
     );
 }
 
 fn on_off(value: bool) -> String {
     if value {
-        rsx::t!("common.on")
+        telar::t!("common.on")
     } else {
-        rsx::t!("common.off")
+        telar::t!("common.off")
     }
 }

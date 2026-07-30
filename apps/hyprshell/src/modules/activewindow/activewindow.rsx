@@ -11,7 +11,7 @@ let config = env
 
 fn text_for(window: &ActiveWindow, config: &crate::core::config::ActiveWindowConfig) -> String {
     if window.is_empty() {
-        return rsx::t!("activewindow.none");
+        return telar::t!("activewindow.none");
     }
     if config.compact {
         compact_label(window, config)

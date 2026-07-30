@@ -41,11 +41,11 @@ fn truncate(text: &str, max: usize) -> String {
 /// A function rather than a bound widget because the view places it on one of two sides depending on
 /// `inverted`, and a `widget` binding is a *value* — placeable once. Each `build` site calls this and gets its
 /// own node, which is the rule the view DSL documents.
-pub fn icon_slot(class: &str, size: f32) -> Result<Box<dyn rsx::LayoutItem>, rsx::LayoutError> {
+pub fn icon_slot(class: &str, size: f32) -> Result<Box<dyn telar::LayoutItem>, telar::LayoutError> {
     match crate::shared::icon::app_icon_view(class, size)? {
         Some(icon) => Ok(icon),
-        None => Ok(rsx::box_item(rsx::Container::new(
-            rsx::LayoutStyle::new(),
+        None => Ok(telar::box_item(telar::Container::new(
+            telar::LayoutStyle::new(),
             vec![],
         )?)),
     }

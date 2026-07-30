@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use rsx::motion::{Animated, Spring};
-use rsx::{
+use telar::motion::{Animated, Spring};
+use telar::{
     AlignItems, Canvas, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text,
     box_item, signal, track_layout,
@@ -175,7 +175,7 @@ fn tracked_pill_view(
     // its own lifetime — the span wanted, since the list rebuilds its rows and an effect outliving one would
     // keep reporting a rect for a workspace that is no longer active. Not `reactive::keeping`: that wraps the
     // item in a full-width in-flow box, which around a bar chip is a pill as wide as the whole row.
-    let held: Rc<RefCell<Vec<rsx::Effect>>> = Rc::new(RefCell::new(Vec::new()));
+    let held: Rc<RefCell<Vec<telar::Effect>>> = Rc::new(RefCell::new(Vec::new()));
     let kept = Rc::clone(&held);
     let container = StyledContainer::new(
         inner,
@@ -191,7 +191,7 @@ fn tracked_pill_view(
     if let Some(slot) = active_rect.filter(|_| pill.active)
         && let Some(rect) = track_layout(container.layout_node())
     {
-        held.borrow_mut().push(rsx::effect(move || {
+        held.borrow_mut().push(telar::effect(move || {
             let rect = rect.get();
             // A rebuilt pill's node is laid out at zero before its first pass; reporting that would send the
             // indicator to the corner and back on every workspace change.
@@ -293,7 +293,7 @@ fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutIte
     let follow = {
         let motion = Rc::clone(&motion);
         let source = slot.read_only();
-        rsx::effect(move || {
+        telar::effect(move || {
             let wanted = source.get();
             if wanted.width <= 0.0 || wanted.height <= 0.0 {
                 return;
@@ -334,7 +334,7 @@ fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutIte
     // Effects the canvas has to outlive, parked where it can reach them: a handle that drops deregisters its
     // effect, and neither of these belongs to a widget `reactive::keeping` could wrap — that helper adds an
     // in-flow box, and this one has to stay `absolute_fill` over the row.
-    let held: Rc<RefCell<Vec<rsx::Effect>>> = Rc::new(RefCell::new(vec![follow]));
+    let held: Rc<RefCell<Vec<telar::Effect>>> = Rc::new(RefCell::new(vec![follow]));
     let kept = Rc::clone(&held);
 
     let accent = style.theme.accent;
@@ -380,7 +380,7 @@ fn indicator(slot: RwSignal<Rect>, style: PillStyle) -> Result<Box<dyn LayoutIte
 
     if let Some(rect) = track_layout(canvas.layout_node()) {
         held.borrow_mut()
-            .push(rsx::effect(move || origin.set(rect.get())));
+            .push(telar::effect(move || origin.set(rect.get())));
     }
     Ok(Box::new(canvas))
 }
@@ -784,8 +784,8 @@ mod tests {
         };
         for vertical in [false, true] {
             for pill in [bare.clone(), with_icons.clone(), special.clone()] {
-                rsx::reset_layout_runtime();
-                rsx::set_theme(NordTheme::new());
+                telar::reset_layout_runtime();
+                telar::set_theme(NordTheme::new());
                 assert!(pill_view(pill, style(vertical), |_| {}).is_ok());
             }
         }
@@ -798,7 +798,7 @@ mod tests {
     /// successfully proves none of that — only laying it out does.
     #[test]
     fn the_pills_run_along_the_bar_on_every_edge() {
-        use rsx::{AvailableSpace, compute_layout, new_container, track_layout};
+        use telar::{AvailableSpace, compute_layout, new_container, track_layout};
 
         let side = 32.0;
         let rows = vec![
@@ -824,9 +824,9 @@ mod tests {
         let along = side * 2.0 + PILL_GAP;
 
         for vertical in [false, true] {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
-            let items = rsx::signal(rows.clone()).read_only();
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
+            let items = telar::signal(rows.clone()).read_only();
             let style = PillStyle {
                 theme: NordTheme::new(),
                 radius: 8.0,
@@ -896,9 +896,9 @@ mod tests {
         ];
         for vertical in [false, true] {
             for indicator in [false, true] {
-                rsx::reset_layout_runtime();
-                rsx::set_theme(NordTheme::new());
-                let items = rsx::signal(rows.clone()).read_only();
+                telar::reset_layout_runtime();
+                telar::set_theme(NordTheme::new());
+                let items = telar::signal(rows.clone()).read_only();
                 let style = PillStyle {
                     theme: NordTheme::new(),
                     radius: 8.0,
@@ -1044,11 +1044,11 @@ mod tests {
 
     #[test]
     fn the_indicator_paints_without_a_pointer_event() {
-        use rsx::{AvailableSpace, ComponentList, DrawCommand, compute_layout, new_container};
+        use telar::{AvailableSpace, ComponentList, DrawCommand, compute_layout, new_container};
 
-        rsx::reset_layout_runtime();
+        telar::reset_layout_runtime();
         let theme = NordTheme::new();
-        rsx::set_theme(theme);
+        telar::set_theme(theme);
         let side = 32.0;
         let rows = vec![
             Pill {
@@ -1070,7 +1070,7 @@ mod tests {
                 icon: None,
             },
         ];
-        let items = rsx::signal(rows).read_only();
+        let items = telar::signal(rows).read_only();
         let style = PillStyle {
             theme,
             radius: 8.0,
@@ -1104,7 +1104,7 @@ mod tests {
         let painted = |tree: &ComponentList| {
             tree.commands().iter().any(|cmd| match cmd {
                 DrawCommand::Rect { rect, style } => {
-                    style.fill == Some(rsx::Paint::Solid(accent))
+                    style.fill == Some(telar::Paint::Solid(accent))
                         && rect.width > 0.0
                         && rect.height > 0.0
                 }
@@ -1120,10 +1120,10 @@ mod tests {
         )
         .expect("layout");
         let _ = tree.commands();
-        rsx::relayout_if_dirty();
+        telar::relayout_if_dirty();
         let start = std::time::Instant::now();
         for frame in 1..=30 {
-            rsx::motion::tick(start + std::time::Duration::from_millis(16 * frame));
+            telar::motion::tick(start + std::time::Duration::from_millis(16 * frame));
             if painted(&tree) {
                 return;
             }

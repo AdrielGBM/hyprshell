@@ -63,11 +63,11 @@ pub fn set(lang: impl Into<String>) {
 /// top of a surface builder (after loading config): the initial `set_locale` avoids a first-frame flash, and
 /// the one-time `watch` keeps it live when another surface calls [`set`].
 pub fn attach(fallback: String) {
-    rsx::set_locale(current_or(fallback));
+    telar::set_locale(current_or(fallback));
     SUBSCRIBED.with(|done| {
         if !done.get() {
             done.set(true);
-            platform_layershell::watch(subscribe, rsx::set_locale);
+            platform_layershell::watch(subscribe, telar::set_locale);
         }
     });
 }

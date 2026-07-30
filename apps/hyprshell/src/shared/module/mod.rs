@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, Color, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReadSignal, RectStyle,
     StyledContainer, signal,
 };
@@ -28,11 +28,11 @@ pub fn set_surface_env(env: SurfaceEnv) {
     // `surface_env()` — including from an effect — gets THIS bar's env even though all surfaces share one UI
     // thread under M3 (the reactive flush re-enters the surface). Provided once per surface build; a fresh
     // surface per config reload means no duplicate registration.
-    let _ = rsx::provide(env);
+    let _ = telar::provide(env);
 }
 
 pub fn surface_env() -> Option<SurfaceEnv> {
-    rsx::try_inject::<SurfaceEnv>()
+    telar::try_inject::<SurfaceEnv>()
 }
 
 pub fn bar_edge() -> Edge {

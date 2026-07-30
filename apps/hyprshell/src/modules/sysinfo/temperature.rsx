@@ -17,7 +17,7 @@ fn heat_color(celsius: Option<f32>, config: &TemperatureConfig, fg: Color) -> Co
 fn heat_text(celsius: Option<f32>, config: &TemperatureConfig) -> String {
     match celsius {
         Some(c) => config.unit.format(c),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 

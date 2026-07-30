@@ -5,7 +5,7 @@
 //! the surface sits along the bar, and the bar's edge decides which side it hangs off. No platform capability
 //! beyond an anchor and a margin is involved, which is why both work on all four edges unchanged.
 
-use rsx::{Rect, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize};
+use telar::{Rect, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize};
 
 use crate::core::config::Edge;
 use crate::shared::module::SurfaceEnv;

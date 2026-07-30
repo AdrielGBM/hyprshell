@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use chrono::{Datelike, Days, Local, Months, NaiveDate, Weekday};
-use rsx::{
+use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
 };
@@ -284,8 +284,8 @@ fn user_card(
     let sink = now.clone();
     platform_layershell::watch(clock::subscribe, move |t| sink.set(t));
     let uptime = derive(now, |_| match read_uptime() {
-        Some(seconds) => rsx::t!("dashboard.uptime", time = duration_label(seconds)),
-        None => rsx::t!("sysinfo.no_reading"),
+        Some(seconds) => telar::t!("dashboard.uptime", time = duration_label(seconds)),
+        None => telar::t!("sysinfo.no_reading"),
     });
     let uptime_text = Text::auto(
         move || uptime.get(),
@@ -335,7 +335,7 @@ pub fn avatar_path(config: &DashboardConfig) -> Option<PathBuf> {
 fn username() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("LOGNAME"))
-        .unwrap_or_else(|_| rsx::t!("sysinfo.no_reading"))
+        .unwrap_or_else(|_| telar::t!("sysinfo.no_reading"))
 }
 
 fn hostname() -> String {
@@ -343,7 +343,7 @@ fn hostname() -> String {
         .ok()
         .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| rsx::t!("sysinfo.no_reading"))
+        .unwrap_or_else(|| telar::t!("sysinfo.no_reading"))
 }
 
 /// Seconds since boot, from `/proc/uptime`'s first field.
@@ -404,30 +404,30 @@ fn shift_weekday(first: Weekday, offset: u32) -> Weekday {
 /// compile time, and a computed key would opt out of that.
 pub(super) fn weekday_label(day: Weekday) -> String {
     match day {
-        Weekday::Mon => rsx::t!("dashboard.weekday.mon"),
-        Weekday::Tue => rsx::t!("dashboard.weekday.tue"),
-        Weekday::Wed => rsx::t!("dashboard.weekday.wed"),
-        Weekday::Thu => rsx::t!("dashboard.weekday.thu"),
-        Weekday::Fri => rsx::t!("dashboard.weekday.fri"),
-        Weekday::Sat => rsx::t!("dashboard.weekday.sat"),
-        Weekday::Sun => rsx::t!("dashboard.weekday.sun"),
+        Weekday::Mon => telar::t!("dashboard.weekday.mon"),
+        Weekday::Tue => telar::t!("dashboard.weekday.tue"),
+        Weekday::Wed => telar::t!("dashboard.weekday.wed"),
+        Weekday::Thu => telar::t!("dashboard.weekday.thu"),
+        Weekday::Fri => telar::t!("dashboard.weekday.fri"),
+        Weekday::Sat => telar::t!("dashboard.weekday.sat"),
+        Weekday::Sun => telar::t!("dashboard.weekday.sun"),
     }
 }
 
 fn month_label(month: u32) -> String {
     match month {
-        1 => rsx::t!("dashboard.month.january"),
-        2 => rsx::t!("dashboard.month.february"),
-        3 => rsx::t!("dashboard.month.march"),
-        4 => rsx::t!("dashboard.month.april"),
-        5 => rsx::t!("dashboard.month.may"),
-        6 => rsx::t!("dashboard.month.june"),
-        7 => rsx::t!("dashboard.month.july"),
-        8 => rsx::t!("dashboard.month.august"),
-        9 => rsx::t!("dashboard.month.september"),
-        10 => rsx::t!("dashboard.month.october"),
-        11 => rsx::t!("dashboard.month.november"),
-        _ => rsx::t!("dashboard.month.december"),
+        1 => telar::t!("dashboard.month.january"),
+        2 => telar::t!("dashboard.month.february"),
+        3 => telar::t!("dashboard.month.march"),
+        4 => telar::t!("dashboard.month.april"),
+        5 => telar::t!("dashboard.month.may"),
+        6 => telar::t!("dashboard.month.june"),
+        7 => telar::t!("dashboard.month.july"),
+        8 => telar::t!("dashboard.month.august"),
+        9 => telar::t!("dashboard.month.september"),
+        10 => telar::t!("dashboard.month.october"),
+        11 => telar::t!("dashboard.month.november"),
+        _ => telar::t!("dashboard.month.december"),
     }
 }
 

@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use platform_layershell::{Anchor, KeyboardInteractivity, Layer, LayerConfig, open_surface};
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutScrollArea, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceToken, Text,
     WindowConfig, box_item, reset_layout_runtime, set_theme, use_theme,
@@ -46,7 +46,7 @@ pub fn is_open() -> bool {
 fn open_sidebar() -> SurfaceToken {
     let config = crate::core::shell::config().unwrap_or_else(|| Arc::new(Config::default()));
     let output = crate::core::shell::focused_output();
-    // `open_surface` on the platform crate rather than `rsx::open_surface`: this is a full-height docked surface
+    // `open_surface` on the platform crate rather than `telar::open_surface`: this is a full-height docked surface
     // with its own layer and anchor, not one of the placements the surface host describes.
     let handle = open_surface(
         layer_config(&config, output.clone()),
@@ -173,7 +173,7 @@ fn body(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
 /// IPC command that opened it, which is not a way a user has.
 fn header(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || rsx::t!("sidebar.title"),
+        || telar::t!("sidebar.title"),
         LayoutStyle::new().flex_grow(1.0),
         move || {
             theme
@@ -254,8 +254,8 @@ mod tests {
     /// out a user has, and it must be in the tree.
     #[test]
     fn the_header_carries_the_only_way_out() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(header(NordTheme::new()).is_ok());
 
         let layer = layer_config(&config(Edge::Right), None);
@@ -269,8 +269,8 @@ mod tests {
     #[test]
     fn the_body_builds_with_the_toggles_the_history_and_neither() {
         for (toggles, history) in [(true, true), (true, false), (false, false)] {
-            rsx::reset_layout_runtime();
-            rsx::set_theme(NordTheme::new());
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
             let config = Config {
                 sidebar: crate::core::config::SidebarConfig {
                     show_toggles: toggles,

@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use platform_layershell::EventSender;
-use rsx::Color;
+use telar::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::core::config::{Config, SchemeExportConfig};

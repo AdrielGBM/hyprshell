@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use platform_layershell::timeout;
-use rsx::{
+use telar::{
     AlignItems, Component, Container, Effect, Event, EventResult, Input, JustifyContent,
     LayoutError, LayoutItem, LayoutScrollArea, LayoutStyle, NodeId, Overlay, ReactiveList,
     ReadSignal, Rect, RectStyle, RenderNode, RwSignal, ScrollViewport, SizeDimension,
@@ -184,9 +184,9 @@ fn results_view(
         move || vec![view_kind(&source_collection, &source_filtered)],
         |k: &u8| *k,
         move |kind| match kind {
-            0 => message(|| rsx::t!("icon_picker.loading"), theme),
-            1 => message(|| rsx::t!("icon_picker.load_error"), theme),
-            2 => message(|| rsx::t!("icon_picker.no_match"), theme),
+            0 => message(|| telar::t!("icon_picker.loading"), theme),
+            1 => message(|| telar::t!("icon_picker.load_error"), theme),
+            2 => message(|| telar::t!("icon_picker.no_match"), theme),
             _ => grid(vp.clone(), build_filtered.clone(), theme, pick.clone()),
         },
     )?;
@@ -332,7 +332,7 @@ fn search_box(
             .height(theme.font(FontRole::Body) * 1.4),
         move || theme.text_style(FontRole::Body, theme.text),
     )?
-    .placeholder(rsx::t!("icon_picker.filter_placeholder"));
+    .placeholder(telar::t!("icon_picker.filter_placeholder"));
     let boxed = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
@@ -395,7 +395,7 @@ impl Component for WithEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsx::{
+    use telar::{
         App, Color, Component, SurfaceRoot, WindowConfig, reset_layout_runtime, set_theme,
         track_layout,
     };
@@ -485,7 +485,7 @@ mod tests {
     // otherwise it stays stuck on the placeholder dot (the "never loads" bug).
     #[test]
     fn cell_built_after_layout_becomes_visible_and_requests_its_icon() {
-        use rsx::{AvailableSpace, compute_layout, relayout_if_dirty};
+        use telar::{AvailableSpace, compute_layout, relayout_if_dirty};
 
         reset_layout_runtime();
         let theme = NordTheme::new();
@@ -568,7 +568,7 @@ mod tests {
     // flush), render, then tear down. Catches the reactive re-entry / overlay-host panics seen in the shell.
     #[test]
     fn overlay_inside_scroll_reconcile_and_teardown_does_not_panic() {
-        use rsx::ComponentList;
+        use telar::ComponentList;
 
         reset_layout_runtime();
         let theme = NordTheme::new();
@@ -623,7 +623,7 @@ mod tests {
     // then closed and torn down. Exercises overlay attach/detach against a moving host and a big reconcile.
     #[test]
     fn overlay_grid_fills_relayouts_and_closes_without_panic() {
-        use rsx::{ComponentList, relayout_if_dirty};
+        use telar::{ComponentList, relayout_if_dirty};
 
         reset_layout_runtime();
         let theme = NordTheme::new();
@@ -702,11 +702,11 @@ mod tests {
     }
 
     /// Renders the picker grid (cells show spinners/placeholders — headless has no network) so cell centring
-    /// and the wrapping layout can be eyeballed. `RSX_VISUAL_PICKER_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_picker -- --nocapture`.
+    /// and the wrapping layout can be eyeballed. `TELAR_VISUAL_PICKER_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_picker -- --nocapture`.
     #[test]
     fn visual_picker_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_PICKER_OUT") else {
-            eprintln!("set RSX_VISUAL_PICKER_OUT to render the picker; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_PICKER_OUT") else {
+            eprintln!("set TELAR_VISUAL_PICKER_OUT to render the picker; skipping");
             return;
         };
         let ids: Vec<String> = [

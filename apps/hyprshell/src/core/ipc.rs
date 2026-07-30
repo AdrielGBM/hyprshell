@@ -1931,7 +1931,7 @@ fn refresh_scheme() {
 
 /// The palette as one `name<TAB>#rrggbb` row per token, which is what a script recolouring something else needs.
 fn palette_rows(theme: &crate::NordTheme) -> String {
-    let hex = |color: rsx::Color| {
+    let hex = |color: telar::Color| {
         let [r, g, b, _] = color.to_rgba8();
         format!("#{r:02x}{g:02x}{b:02x}")
     };

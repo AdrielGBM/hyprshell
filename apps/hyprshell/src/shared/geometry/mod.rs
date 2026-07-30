@@ -1,6 +1,6 @@
 //! Pure geometry for L and ring paths, kept free of rsx/layout wiring for independent unit testing.
 
-use rsx::{PathData, Point};
+use telar::{PathData, Point};
 
 use crate::core::config::Corner;
 
@@ -151,7 +151,7 @@ pub fn frame_path(size: (f32, f32), inner: InnerEdges, inner_radius: f32) -> Pat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rsx::PathVerb;
+    use telar::PathVerb;
 
     fn bounds(p: &PathData) -> (f32, f32, f32, f32) {
         let b = p.bounds().expect("path has geometry");

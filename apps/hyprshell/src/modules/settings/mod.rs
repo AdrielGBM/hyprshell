@@ -3,7 +3,7 @@ mod pages;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use rsx::{
+use telar::{
     AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
@@ -120,7 +120,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
 /// The title and the search box, which is the one control that reaches every page.
 fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
-        || rsx::t!("settings.title"),
+        || telar::t!("settings.title"),
         LayoutStyle::new().flex_grow(1.0),
         move || {
             theme
@@ -136,7 +136,7 @@ fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutIte
             .height(theme.font(FontRole::Body) * 1.6),
         move || theme.text_style(FontRole::Body, theme.text),
     )?
-    .placeholder(rsx::t!("settings.search"));
+    .placeholder(telar::t!("settings.search"));
     let boxed = StyledContainer::new(
         LayoutStyle::new()
             .width(SEARCH_WIDTH)
@@ -159,7 +159,7 @@ fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutIte
 /// The nav: one row per page, the selected one filled, the ones a search excludes dimmed.
 fn nav_pane(
     selected: RwSignal<usize>,
-    query: rsx::ReadSignal<String>,
+    query: telar::ReadSignal<String>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(pages::PAGES.len());
@@ -186,7 +186,7 @@ fn nav_row(
     index: usize,
     page: &'static pages::Page,
     selected: RwSignal<usize>,
-    query: rsx::ReadSignal<String>,
+    query: telar::ReadSignal<String>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let on_fg = theme.accent.most_readable(&[theme.text, theme.base]);
@@ -245,8 +245,8 @@ fn nav_row(
 /// A keyed list rather than a rebuilt column: the key is the page *and* the query, because narrowing a page
 /// changes which forms are on it, and a list keyed on the page alone would keep showing the ones it had.
 fn page_stack(
-    selected: rsx::ReadSignal<usize>,
-    query: rsx::ReadSignal<String>,
+    selected: telar::ReadSignal<usize>,
+    query: telar::ReadSignal<String>,
     config: Arc<Config>,
     path: Arc<PathBuf>,
     theme: NordTheme,
@@ -254,7 +254,7 @@ fn page_stack(
     let height = config.settings_page_height();
     // The nav is outside this scroll area on purpose: a nav pane that scrolls away with the page it selects is
     // a list of links you have to scroll back up to use.
-    let scroll = rsx::LayoutScrollArea::new_with(
+    let scroll = telar::LayoutScrollArea::new_with(
         LayoutStyle::new()
             .flex_column()
             .flex_grow(1.0)
@@ -303,7 +303,7 @@ fn general_section(
     path: &Path,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let lang = signal(rsx::current_locale().unwrap_or_else(|| config.language()));
+    let lang = signal(telar::current_locale().unwrap_or_else(|| config.language()));
     let over_fullscreen = signal(config.general.show_over_fullscreen);
     let logo = signal(config.general.logo.clone());
     let apps = config.general.apps.clone();
@@ -321,50 +321,50 @@ fn general_section(
     let editor = signal(apps.editor.clone());
 
     let rows = vec![
-        language_field(|| rsx::t!("settings.field.language"), lang.clone(), theme)?,
+        language_field(|| telar::t!("settings.field.language"), lang.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.show_over_fullscreen"),
+            || telar::t!("settings.field.show_over_fullscreen"),
             over_fullscreen.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.logo"),
+            || telar::t!("settings.field.logo"),
             logo.clone(),
             "auto",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.terminal"),
+            || telar::t!("settings.field.terminal"),
             terminal.clone(),
             "xterm",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.file_manager"),
+            || telar::t!("settings.field.file_manager"),
             file_manager.clone(),
             "xdg-open",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.audio_mixer"),
+            || telar::t!("settings.field.audio_mixer"),
             audio_mixer.clone(),
             "pavucontrol",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.media_player"),
+            || telar::t!("settings.field.media_player"),
             media_player.clone(),
             "xdg-open",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.browser"),
+            || telar::t!("settings.field.browser"),
             browser.clone(),
             "xdg-open",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.editor"),
+            || telar::t!("settings.field.editor"),
             editor.clone(),
             "xdg-open",
             theme,
@@ -374,7 +374,7 @@ fn general_section(
     let path = path.to_path_buf();
     let legacy_terminal = config.general.terminal.clone();
     let save = save_button(
-        || rsx::t!("settings.save.general"),
+        || telar::t!("settings.save.general"),
         theme,
         move || {
             persist(
@@ -397,7 +397,7 @@ fn general_section(
             );
         },
     )?;
-    section(|| rsx::t!("settings.section.general"), rows, save, theme)
+    section(|| telar::t!("settings.section.general"), rows, save, theme)
 }
 
 /// A cycle control over UI languages: shows the current one's native name; each press advances to the next code
@@ -464,91 +464,91 @@ fn theme_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.name"),
+            || telar::t!("settings.field.name"),
             name.clone(),
             theme_options(),
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.color_mode"),
+            || telar::t!("settings.field.color_mode"),
             mode.clone(),
             MODES,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.variant"),
+            || telar::t!("settings.field.variant"),
             variant.clone(),
             VARIANTS,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.fallback"),
+            || telar::t!("settings.field.fallback"),
             fallback.clone(),
             BUILT_IN_THEMES,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.accent"),
+            || telar::t!("settings.field.accent"),
             accent.clone(),
             "cyan",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.font_family"),
+            || telar::t!("settings.field.font_family"),
             font_family.clone(),
             "(default)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.radius"),
+            || telar::t!("settings.field.radius"),
             radius.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.spacing"),
+            || telar::t!("settings.field.spacing"),
             spacing.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.font_size"),
+            || telar::t!("settings.field.font_size"),
             font_size.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.icon_size"),
+            || telar::t!("settings.field.icon_size"),
             icon_size.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.icon_stroke"),
+            || telar::t!("settings.field.icon_stroke"),
             icon_stroke.clone(),
             "(glyph)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.scale_rounding"),
+            || telar::t!("settings.field.scale_rounding"),
             scale_rounding.clone(),
             "1",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.scale_spacing"),
+            || telar::t!("settings.field.scale_spacing"),
             scale_spacing.clone(),
             "1",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.scale_font"),
+            || telar::t!("settings.field.scale_font"),
             scale_font.clone(),
             "1",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.scale_icon"),
+            || telar::t!("settings.field.scale_icon"),
             scale_icon.clone(),
             "1",
             theme,
@@ -558,7 +558,7 @@ fn theme_section(
     let base = t.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.theme"),
+        || telar::t!("settings.save.theme"),
         theme,
         move || {
             let value = ThemeConfig {
@@ -587,7 +587,7 @@ fn theme_section(
             persist(&path, "theme", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.theme"), rows, save, theme)
+    section(|| telar::t!("settings.section.theme"), rows, save, theme)
 }
 
 fn shape_section(
@@ -605,31 +605,31 @@ fn shape_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.mode"),
+            || telar::t!("settings.field.mode"),
             mode.clone(),
             SHAPES,
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.frame_ring"),
+            || telar::t!("settings.field.frame_ring"),
             frame.clone(),
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "0", theme)?,
+        text_field(|| telar::t!("settings.field.gap"), gap.clone(), "0", theme)?,
         text_field(
-            || rsx::t!("settings.field.spacing"),
+            || telar::t!("settings.field.spacing"),
             spacing.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.radius"),
+            || telar::t!("settings.field.radius"),
             radius.clone(),
             "(theme)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.inactive_size"),
+            || telar::t!("settings.field.inactive_size"),
             inactive.clone(),
             "6",
             theme,
@@ -639,7 +639,7 @@ fn shape_section(
     let base = s.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.shape"),
+        || telar::t!("settings.save.shape"),
         theme,
         move || {
             let value = ShapeConfig {
@@ -653,7 +653,7 @@ fn shape_section(
             persist(&path, "shape", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.shape"), rows, save, theme)
+    section(|| telar::t!("settings.section.shape"), rows, save, theme)
 }
 
 #[derive(Clone)]
@@ -681,25 +681,25 @@ fn bar_rows(
     Ok(vec![
         subheader(label, theme)?,
         text_field(
-            || rsx::t!("settings.field.size"),
+            || telar::t!("settings.field.size"),
             s.size.clone(),
             "34",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.start"),
+            || telar::t!("settings.field.start"),
             s.start.clone(),
             "module ids",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.center"),
+            || telar::t!("settings.field.center"),
             s.center.clone(),
             "module ids",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.end"),
+            || telar::t!("settings.field.end"),
             s.end.clone(),
             "module ids",
             theme,
@@ -762,19 +762,19 @@ fn bars_section(
     let right = bar_signals(&bars.right);
 
     let mut rows = Vec::new();
-    rows.extend(bar_rows(|| rsx::t!("settings.subheader.top"), &top, theme)?);
+    rows.extend(bar_rows(|| telar::t!("settings.subheader.top"), &top, theme)?);
     rows.extend(bar_rows(
-        || rsx::t!("settings.subheader.bottom"),
+        || telar::t!("settings.subheader.bottom"),
         &bottom,
         theme,
     )?);
     rows.extend(bar_rows(
-        || rsx::t!("settings.subheader.left"),
+        || telar::t!("settings.subheader.left"),
         &left,
         theme,
     )?);
     rows.extend(bar_rows(
-        || rsx::t!("settings.subheader.right"),
+        || telar::t!("settings.subheader.right"),
         &right,
         theme,
     )?);
@@ -782,7 +782,7 @@ fn bars_section(
     let base = bars.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.bars"),
+        || telar::t!("settings.save.bars"),
         theme,
         move || {
             let value = BarsConfig {
@@ -796,7 +796,7 @@ fn bars_section(
             persist(&path, "bars", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.bars"), rows, save, theme)
+    section(|| telar::t!("settings.section.bars"), rows, save, theme)
 }
 
 fn panels_section(
@@ -815,43 +815,43 @@ fn panels_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.gap"),
+            || telar::t!("settings.field.gap"),
             gap.clone(),
             "(auto)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.drawer_width"),
+            || telar::t!("settings.field.drawer_width"),
             drawer_w.clone(),
             "320",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.drawer_max_height"),
+            || telar::t!("settings.field.drawer_max_height"),
             drawer_h.clone(),
             "280",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.float_width"),
+            || telar::t!("settings.field.float_width"),
             float_w.clone(),
             "360",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.float_height"),
+            || telar::t!("settings.field.float_height"),
             float_h.clone(),
             "240",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.drag_threshold"),
+            || telar::t!("settings.field.drag_threshold"),
             drag_threshold.clone(),
             "48",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.opacity"),
+            || telar::t!("settings.field.opacity"),
             opacity.clone(),
             "1",
             theme,
@@ -861,7 +861,7 @@ fn panels_section(
     let base = *p;
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.panels"),
+        || telar::t!("settings.save.panels"),
         theme,
         move || {
             let value = PanelsConfig {
@@ -880,7 +880,7 @@ fn panels_section(
             persist(&path, "panels", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.panels"), rows, save, theme)
+    section(|| telar::t!("settings.section.panels"), rows, save, theme)
 }
 
 fn popouts_section(
@@ -896,27 +896,27 @@ fn popouts_section(
     let max_height = signal(p.max_height.to_string());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.open_delay"),
+            || telar::t!("settings.field.open_delay"),
             open_delay.clone(),
             "280",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.close_delay"),
+            || telar::t!("settings.field.close_delay"),
             close_delay.clone(),
             "200",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.width"),
+            || telar::t!("settings.field.width"),
             width.clone(),
             "264",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_height"),
+            || telar::t!("settings.field.max_height"),
             max_height.clone(),
             "300",
             theme,
@@ -925,7 +925,7 @@ fn popouts_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.popouts"),
+        || telar::t!("settings.save.popouts"),
         theme,
         move || {
             let value = PopoutsConfig {
@@ -938,7 +938,7 @@ fn popouts_section(
             persist(&path, "popouts", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.popouts"), rows, save, theme)
+    section(|| telar::t!("settings.section.popouts"), rows, save, theme)
 }
 
 fn osd_section(
@@ -953,19 +953,19 @@ fn osd_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.edge"),
+            || telar::t!("settings.field.edge"),
             edge.clone(),
             EDGES,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.align"),
+            || telar::t!("settings.field.align"),
             align.clone(),
             ALIGNS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.timeout_ms"),
+            || telar::t!("settings.field.timeout_ms"),
             timeout.clone(),
             "1200",
             theme,
@@ -975,7 +975,7 @@ fn osd_section(
     let base = *o;
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.osd"),
+        || telar::t!("settings.save.osd"),
         theme,
         move || {
             let value = OsdConfig {
@@ -986,7 +986,7 @@ fn osd_section(
             persist(&path, "osd", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.osd"), rows, save, theme)
+    section(|| telar::t!("settings.section.osd"), rows, save, theme)
 }
 
 fn icons_section(
@@ -1001,19 +1001,19 @@ fn icons_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.provider"),
+            || telar::t!("settings.field.provider"),
             provider.clone(),
             "https://api.iconify.design",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.default_set"),
+            || telar::t!("settings.field.default_set"),
             default_set.clone(),
             "lucide",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.app_icon_theme"),
+            || telar::t!("settings.field.app_icon_theme"),
             app_icon_theme.clone(),
             "auto",
             theme,
@@ -1022,7 +1022,7 @@ fn icons_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.icons"),
+        || telar::t!("settings.save.icons"),
         theme,
         move || {
             let value = IconsConfig {
@@ -1033,7 +1033,7 @@ fn icons_section(
             persist(&path, "icons", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.icons"), rows, save, theme)
+    section(|| telar::t!("settings.section.icons"), rows, save, theme)
 }
 
 fn clock_section(
@@ -1051,23 +1051,23 @@ fn clock_section(
 
     let rows = vec![
         toggle_field(
-            || rsx::t!("settings.field.twelve_hour"),
+            || telar::t!("settings.field.twelve_hour"),
             twelve_hour.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.time_format"),
+            || telar::t!("settings.field.time_format"),
             format.clone(),
             "%H:%M:%S",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_date"),
+            || telar::t!("settings.field.show_date"),
             show_date.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.date_format"),
+            || telar::t!("settings.field.date_format"),
             date_format.clone(),
             "%a %d %b",
             theme,
@@ -1077,7 +1077,7 @@ fn clock_section(
     let base = c.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.clock"),
+        || telar::t!("settings.save.clock"),
         theme,
         move || {
             let typed = format.peek();
@@ -1097,7 +1097,7 @@ fn clock_section(
             persist(&path, "clock", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.clock"), rows, save, theme)
+    section(|| telar::t!("settings.section.clock"), rows, save, theme)
 }
 
 fn workspaces_section(
@@ -1122,69 +1122,69 @@ fn workspaces_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.shown"),
+            || telar::t!("settings.field.shown"),
             shown.clone(),
             "0",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.per_monitor"),
+            || telar::t!("settings.field.per_monitor"),
             per_monitor.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_special"),
+            || telar::t!("settings.field.show_special"),
             show_special.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.window_icons"),
+            || telar::t!("settings.field.window_icons"),
             window_icons.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_window_icons"),
+            || telar::t!("settings.field.max_window_icons"),
             max_icons.clone(),
             "4",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.occupied_background"),
+            || telar::t!("settings.field.occupied_background"),
             occupied.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.indicator"),
+            || telar::t!("settings.field.indicator"),
             indicator.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.indicator_trail"),
+            || telar::t!("settings.field.indicator_trail"),
             indicator_trail.clone(),
             "0.35",
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.scroll"), scroll.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.scroll"), scroll.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.label"),
+            || telar::t!("settings.field.label"),
             label.clone(),
             "{id}",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.occupied_label"),
+            || telar::t!("settings.field.occupied_label"),
             occupied_label.clone(),
             "(label)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.active_label"),
+            || telar::t!("settings.field.active_label"),
             active_label.clone(),
             "(label)",
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.capitalize"),
+            || telar::t!("settings.field.capitalize"),
             capitalize.clone(),
             CAPITALIZATIONS,
             theme,
@@ -1194,7 +1194,7 @@ fn workspaces_section(
     let base = w.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.workspaces"),
+        || telar::t!("settings.save.workspaces"),
         theme,
         move || {
             let typed = label.peek();
@@ -1224,7 +1224,7 @@ fn workspaces_section(
             persist(&path, "workspaces", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.workspaces"), rows, save, theme)
+    section(|| telar::t!("settings.section.workspaces"), rows, save, theme)
 }
 
 fn media_section(
@@ -1243,38 +1243,38 @@ fn media_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.preferred_player"),
+            || telar::t!("settings.field.preferred_player"),
             preferred.clone(),
             "auto",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_chars"),
+            || telar::t!("settings.field.max_chars"),
             max_chars.clone(),
             "40",
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.scroll"),
+            || telar::t!("settings.field.scroll"),
             scroll.clone(),
             MEDIA_SCROLLS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.seek_seconds"),
+            || telar::t!("settings.field.seek_seconds"),
             seek_seconds.clone(),
             "5",
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.marquee"), marquee.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.marquee"), marquee.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.marquee_speed_ms"),
+            || telar::t!("settings.field.marquee_speed_ms"),
             marquee_speed.clone(),
             "220",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.cover_visualiser"),
+            || telar::t!("settings.field.cover_visualiser"),
             visualiser.clone(),
             theme,
         )?,
@@ -1285,7 +1285,7 @@ fn media_section(
     let base = m.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.media"),
+        || telar::t!("settings.save.media"),
         theme,
         move || {
             let value = MediaConfig {
@@ -1301,7 +1301,7 @@ fn media_section(
             persist(&path, "media", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.media"), rows, save, theme)
+    section(|| telar::t!("settings.section.media"), rows, save, theme)
 }
 
 fn lyrics_section(
@@ -1315,9 +1315,9 @@ fn lyrics_section(
 
     // The folder is `[paths] lyrics`, edited with the other paths rather than duplicated here.
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.lyrics_online"),
+            || telar::t!("settings.field.lyrics_online"),
             online.clone(),
             theme,
         )?,
@@ -1325,7 +1325,7 @@ fn lyrics_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.lyrics"),
+        || telar::t!("settings.save.lyrics"),
         theme,
         move || {
             let value = LyricsConfig {
@@ -1335,7 +1335,7 @@ fn lyrics_section(
             persist(&path, "lyrics", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.lyrics"), rows, save, theme)
+    section(|| telar::t!("settings.section.lyrics"), rows, save, theme)
 }
 
 fn audio_section(
@@ -1349,13 +1349,13 @@ fn audio_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.increment"),
+            || telar::t!("settings.field.increment"),
             increment.clone(),
             "5",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_volume"),
+            || telar::t!("settings.field.max_volume"),
             max_volume.clone(),
             "150",
             theme,
@@ -1364,7 +1364,7 @@ fn audio_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.audio"),
+        || telar::t!("settings.save.audio"),
         theme,
         move || {
             let value = AudioConfig {
@@ -1374,7 +1374,7 @@ fn audio_section(
             persist(&path, "audio", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.audio"), rows, save, theme)
+    section(|| telar::t!("settings.section.audio"), rows, save, theme)
 }
 
 fn visualiser_section(
@@ -1392,32 +1392,32 @@ fn visualiser_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.visualiser_bars"),
+            || telar::t!("settings.field.visualiser_bars"),
             bars.clone(),
             "48",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.smoothing"),
+            || telar::t!("settings.field.smoothing"),
             smoothing.clone(),
             "0.6",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.floor_db"),
+            || telar::t!("settings.field.floor_db"),
             floor_db.clone(),
             "-60",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.gain"), gain.clone(), "1", theme)?,
+        text_field(|| telar::t!("settings.field.gain"), gain.clone(), "1", theme)?,
         text_field(
-            || rsx::t!("settings.field.beat_sensitivity"),
+            || telar::t!("settings.field.beat_sensitivity"),
             beat.clone(),
             "1.35",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.frame_rate"),
+            || telar::t!("settings.field.frame_rate"),
             frame_rate.clone(),
             "60",
             theme,
@@ -1426,7 +1426,7 @@ fn visualiser_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.visualiser"),
+        || telar::t!("settings.save.visualiser"),
         theme,
         move || {
             let value = VisualiserConfig {
@@ -1440,7 +1440,7 @@ fn visualiser_section(
             persist(&path, "visualiser", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.visualiser"), rows, save, theme)
+    section(|| telar::t!("settings.section.visualiser"), rows, save, theme)
 }
 
 fn background_visualiser_section(
@@ -1460,50 +1460,50 @@ fn background_visualiser_section(
     let margin = signal(v.margin.to_string());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         enum_field(
-            || rsx::t!("settings.field.edge"),
+            || telar::t!("settings.field.edge"),
             edge.clone(),
             EDGES,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.reach"),
+            || telar::t!("settings.field.reach"),
             reach.clone(),
             "140",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "3", theme)?,
+        text_field(|| telar::t!("settings.field.gap"), gap.clone(), "3", theme)?,
         text_field(
-            || rsx::t!("settings.field.radius"),
+            || telar::t!("settings.field.radius"),
             radius.clone(),
             "3",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.bar_opacity"),
+            || telar::t!("settings.field.bar_opacity"),
             opacity.clone(),
             "0.75",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.margin"),
+            || telar::t!("settings.field.margin"),
             margin.clone(),
             "0",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.hide_when_silent"),
+            || telar::t!("settings.field.hide_when_silent"),
             hide.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.accent"), accent.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.accent"), accent.clone(), theme)?,
     ];
 
     let base = config.background.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.background_visualiser"),
+        || telar::t!("settings.save.background_visualiser"),
         theme,
         move || {
             let visualiser = BackgroundVisualiserConfig {
@@ -1528,7 +1528,7 @@ fn background_visualiser_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.background_visualiser"),
+        || telar::t!("settings.section.background_visualiser"),
         rows,
         save,
         theme,
@@ -1546,13 +1546,13 @@ fn brightness_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.increment"),
+            || telar::t!("settings.field.increment"),
             increment.clone(),
             "5",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.external_monitors"),
+            || telar::t!("settings.field.external_monitors"),
             external.clone(),
             theme,
         )?,
@@ -1560,7 +1560,7 @@ fn brightness_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.brightness"),
+        || telar::t!("settings.save.brightness"),
         theme,
         move || {
             let value = BrightnessConfig {
@@ -1570,7 +1570,7 @@ fn brightness_section(
             persist(&path, "brightness", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.brightness"), rows, save, theme)
+    section(|| telar::t!("settings.section.brightness"), rows, save, theme)
 }
 
 fn temperature_section(
@@ -1586,20 +1586,20 @@ fn temperature_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.unit"),
+            || telar::t!("settings.field.unit"),
             unit.clone(),
             TEMPERATURE_UNITS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.sensor"),
+            || telar::t!("settings.field.sensor"),
             sensor.clone(),
             "(hottest)",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.warn"), warn.clone(), "70", theme)?,
+        text_field(|| telar::t!("settings.field.warn"), warn.clone(), "70", theme)?,
         text_field(
-            || rsx::t!("settings.field.critical"),
+            || telar::t!("settings.field.critical"),
             critical.clone(),
             "85",
             theme,
@@ -1609,7 +1609,7 @@ fn temperature_section(
     let base = t.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.temperature"),
+        || telar::t!("settings.save.temperature"),
         theme,
         move || {
             let value = TemperatureConfig {
@@ -1622,7 +1622,7 @@ fn temperature_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.temperature"),
+        || telar::t!("settings.section.temperature"),
         rows,
         save,
         theme,
@@ -1647,43 +1647,43 @@ fn launcher_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.width"),
+            || telar::t!("settings.field.width"),
             width.clone(),
             "640",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.height"),
+            || telar::t!("settings.field.height"),
             height.clone(),
             "420",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_results"),
+            || telar::t!("settings.field.max_results"),
             max_results.clone(),
             "12",
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.fuzzy"), fuzzy.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.fuzzy"), fuzzy.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.calculator"),
+            || telar::t!("settings.field.calculator"),
             calculator.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.qalc"), qalc.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.qalc"), qalc.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.enable_dangerous_actions"),
+            || telar::t!("settings.field.enable_dangerous_actions"),
             dangerous.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.favourites"),
+            || telar::t!("settings.field.favourites"),
             favourites.clone(),
             "desktop ids",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.hidden"),
+            || telar::t!("settings.field.hidden"),
             hidden.clone(),
             "desktop ids",
             theme,
@@ -1693,7 +1693,7 @@ fn launcher_section(
     let base = l.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.launcher"),
+        || telar::t!("settings.save.launcher"),
         theme,
         move || {
             let value = LauncherConfig {
@@ -1714,7 +1714,7 @@ fn launcher_section(
             persist(&path, "launcher", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.launcher"), rows, save, theme)
+    section(|| telar::t!("settings.section.launcher"), rows, save, theme)
 }
 
 fn battery_section(
@@ -1728,15 +1728,15 @@ fn battery_section(
     let critical_action = signal(b.critical_action.clone());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.critical_level"),
+            || telar::t!("settings.field.critical_level"),
             critical_level.clone(),
             "0",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.critical_action"),
+            || telar::t!("settings.field.critical_action"),
             critical_action.clone(),
             "suspend",
             theme,
@@ -1748,7 +1748,7 @@ fn battery_section(
     let base = b.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.battery"),
+        || telar::t!("settings.save.battery"),
         theme,
         move || {
             let value = BatteryConfig {
@@ -1760,7 +1760,7 @@ fn battery_section(
             persist(&path, "battery", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.battery"), rows, save, theme)
+    section(|| telar::t!("settings.section.battery"), rows, save, theme)
 }
 
 fn lock_status_section(
@@ -1774,10 +1774,10 @@ fn lock_status_section(
     let hide_inactive = signal(l.hide_inactive);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.caps"), caps.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.num"), num.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.caps"), caps.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.num"), num.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.hide_inactive"),
+            || telar::t!("settings.field.hide_inactive"),
             hide_inactive.clone(),
             theme,
         )?,
@@ -1785,7 +1785,7 @@ fn lock_status_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.lock_status"),
+        || telar::t!("settings.save.lock_status"),
         theme,
         move || {
             let value = LockStatusConfig {
@@ -1797,7 +1797,7 @@ fn lock_status_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.lock_status"),
+        || telar::t!("settings.section.lock_status"),
         rows,
         save,
         theme,
@@ -1823,56 +1823,56 @@ fn lock_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.pam_service"),
+            || telar::t!("settings.field.pam_service"),
             pam_service.clone(),
             "login",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_tries"),
+            || telar::t!("settings.field.max_tries"),
             max_tries.clone(),
             "5",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.lockout_seconds"),
+            || telar::t!("settings.field.lockout_seconds"),
             lockout_seconds.clone(),
             "30",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.lock_before_sleep"),
+            || telar::t!("settings.field.lock_before_sleep"),
             lock_before_sleep.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.fingerprint"),
+            || telar::t!("settings.field.fingerprint"),
             fingerprint.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.howdy_command"),
+            || telar::t!("settings.field.howdy_command"),
             howdy_command.clone(),
             "howdy compare",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_avatar"),
+            || telar::t!("settings.field.show_avatar"),
             show_avatar.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_media"),
+            || telar::t!("settings.field.show_media"),
             show_media.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_notifications"),
+            || telar::t!("settings.field.show_notifications"),
             show_notifications.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.hide_notifs"),
+            || telar::t!("settings.field.hide_notifs"),
             hide_notifs.clone(),
             theme,
         )?,
@@ -1883,7 +1883,7 @@ fn lock_section(
     let base = l.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.lock"),
+        || telar::t!("settings.save.lock"),
         theme,
         move || {
             let value = crate::core::config::LockConfig {
@@ -1903,7 +1903,7 @@ fn lock_section(
             persist(&path, "lock", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.lock"), rows, save, theme)
+    section(|| telar::t!("settings.section.lock"), rows, save, theme)
 }
 
 fn idle_section(
@@ -1918,19 +1918,19 @@ fn idle_section(
     let respect_inhibitors = signal(i.respect_inhibitors);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.inhibit_when_audio"),
+            || telar::t!("settings.field.inhibit_when_audio"),
             inhibit_when_audio.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.inhibit_when_charging"),
+            || telar::t!("settings.field.inhibit_when_charging"),
             inhibit_when_charging.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.respect_inhibitors"),
+            || telar::t!("settings.field.respect_inhibitors"),
             respect_inhibitors.clone(),
             theme,
         )?,
@@ -1941,7 +1941,7 @@ fn idle_section(
     let base = i.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.idle"),
+        || telar::t!("settings.save.idle"),
         theme,
         move || {
             let value = crate::core::config::IdleConfig {
@@ -1954,7 +1954,7 @@ fn idle_section(
             persist(&path, "idle", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.idle"), rows, save, theme)
+    section(|| telar::t!("settings.section.idle"), rows, save, theme)
 }
 
 fn gpu_section(
@@ -1968,15 +1968,15 @@ fn gpu_section(
     let card = signal(g.card.clone());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.backend"),
+            || telar::t!("settings.field.backend"),
             backend.clone(),
             "auto",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.card"),
+            || telar::t!("settings.field.card"),
             card.clone(),
             "card1",
             theme,
@@ -1985,7 +1985,7 @@ fn gpu_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.gpu"),
+        || telar::t!("settings.save.gpu"),
         theme,
         move || {
             let value = GpuConfig {
@@ -1996,7 +1996,7 @@ fn gpu_section(
             persist(&path, "gpu", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.gpu"), rows, save, theme)
+    section(|| telar::t!("settings.section.gpu"), rows, save, theme)
 }
 
 fn weather_section(
@@ -2013,33 +2013,33 @@ fn weather_section(
     let days = signal(w.forecast_days.to_string());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.location"),
+            || telar::t!("settings.field.location"),
             location.clone(),
             "Madrid",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.latitude"),
+            || telar::t!("settings.field.latitude"),
             latitude.clone(),
             "40.4168",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.longitude"),
+            || telar::t!("settings.field.longitude"),
             longitude.clone(),
             "-3.7038",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.refresh_minutes"),
+            || telar::t!("settings.field.refresh_minutes"),
             refresh.clone(),
             "15",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.forecast_days"),
+            || telar::t!("settings.field.forecast_days"),
             days.clone(),
             "7",
             theme,
@@ -2049,7 +2049,7 @@ fn weather_section(
     let base = w.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.weather"),
+        || telar::t!("settings.save.weather"),
         theme,
         move || {
             // A blank coordinate is "not set", not zero: a stray empty field must fall back to the place name
@@ -2066,7 +2066,7 @@ fn weather_section(
             persist(&path, "weather", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.weather"), rows, save, theme)
+    section(|| telar::t!("settings.section.weather"), rows, save, theme)
 }
 
 fn dashboard_section(
@@ -2083,31 +2083,31 @@ fn dashboard_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.tabs"),
+            || telar::t!("settings.field.tabs"),
             tabs.clone(),
             "dash, media, performance, weather",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.media_update_interval"),
+            || telar::t!("settings.field.media_update_interval"),
             media.clone(),
             "500",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.resource_update_interval"),
+            || telar::t!("settings.field.resource_update_interval"),
             resources.clone(),
             "1000",
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.first_day_of_week"),
+            || telar::t!("settings.field.first_day_of_week"),
             first_day.clone(),
             WEEKDAYS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.avatar"),
+            || telar::t!("settings.field.avatar"),
             avatar.clone(),
             "~/.face",
             theme,
@@ -2117,7 +2117,7 @@ fn dashboard_section(
     let base = d.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.dashboard"),
+        || telar::t!("settings.save.dashboard"),
         theme,
         move || {
             let value = DashboardConfig {
@@ -2133,7 +2133,7 @@ fn dashboard_section(
             persist(&path, "dashboard", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.dashboard"), rows, save, theme)
+    section(|| telar::t!("settings.section.dashboard"), rows, save, theme)
 }
 
 fn paths_section(
@@ -2153,31 +2153,31 @@ fn paths_section(
     let show = |dir: PathBuf| dir.to_string_lossy().into_owned();
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.wallpapers"),
+            || telar::t!("settings.field.wallpapers"),
             wallpapers.clone(),
             &show(config.wallpaper_dir()),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.lyrics"),
+            || telar::t!("settings.field.lyrics"),
             lyrics.clone(),
             &show(config.lyrics_dir()),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.recordings"),
+            || telar::t!("settings.field.recordings"),
             recordings.clone(),
             &show(config.recordings_dir()),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.screenshots"),
+            || telar::t!("settings.field.screenshots"),
             screenshots.clone(),
             &show(config.screenshot_dir()),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.assets"),
+            || telar::t!("settings.field.assets"),
             assets.clone(),
             "",
             theme,
@@ -2186,7 +2186,7 @@ fn paths_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.paths"),
+        || telar::t!("settings.save.paths"),
         theme,
         move || {
             let value = PathsConfig {
@@ -2199,7 +2199,7 @@ fn paths_section(
             persist(&path, "paths", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.paths"), rows, save, theme)
+    section(|| telar::t!("settings.section.paths"), rows, save, theme)
 }
 
 fn network_section(
@@ -2214,21 +2214,21 @@ fn network_section(
     let show_hidden = signal(n.show_hidden);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.rescan_seconds"),
+            || telar::t!("settings.field.rescan_seconds"),
             rescan.clone(),
             "300",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_networks"),
+            || telar::t!("settings.field.max_networks"),
             max_networks.clone(),
             "20",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_hidden"),
+            || telar::t!("settings.field.show_hidden"),
             show_hidden.clone(),
             theme,
         )?,
@@ -2236,7 +2236,7 @@ fn network_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.network"),
+        || telar::t!("settings.save.network"),
         theme,
         move || {
             let value = NetworkConfig {
@@ -2248,7 +2248,7 @@ fn network_section(
             persist(&path, "network", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.network"), rows, save, theme)
+    section(|| telar::t!("settings.section.network"), rows, save, theme)
 }
 
 fn bluetooth_section(
@@ -2263,20 +2263,20 @@ fn bluetooth_section(
     let show_unnamed = signal(b.show_unnamed);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.scan_on_open"),
+            || telar::t!("settings.field.scan_on_open"),
             scan_on_open.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_devices"),
+            || telar::t!("settings.field.max_devices"),
             max_devices.clone(),
             "12",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_unnamed"),
+            || telar::t!("settings.field.show_unnamed"),
             show_unnamed.clone(),
             theme,
         )?,
@@ -2284,7 +2284,7 @@ fn bluetooth_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.bluetooth"),
+        || telar::t!("settings.save.bluetooth"),
         theme,
         move || {
             let value = BluetoothConfig {
@@ -2296,7 +2296,7 @@ fn bluetooth_section(
             persist(&path, "bluetooth", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.bluetooth"), rows, save, theme)
+    section(|| telar::t!("settings.section.bluetooth"), rows, save, theme)
 }
 
 fn status_icons_section(
@@ -2310,13 +2310,13 @@ fn status_icons_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.icons"),
+            || telar::t!("settings.field.icons"),
             icons.clone(),
             "volume, mic, network, battery",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.spacing"),
+            || telar::t!("settings.field.spacing"),
             spacing.clone(),
             "0.35",
             theme,
@@ -2326,7 +2326,7 @@ fn status_icons_section(
     let base = s.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.status_icons"),
+        || telar::t!("settings.save.status_icons"),
         theme,
         move || {
             let value = StatusIconsConfig {
@@ -2337,7 +2337,7 @@ fn status_icons_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.status_icons"),
+        || telar::t!("settings.section.status_icons"),
         rows,
         save,
         theme,
@@ -2357,20 +2357,20 @@ fn tray_section(
     let hidden = signal(t.hidden.join(", "));
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.compact"), compact.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.recolour"),
+            || telar::t!("settings.field.recolour"),
             recolour.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.background"),
+            || telar::t!("settings.field.background"),
             background.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.hidden"),
+            || telar::t!("settings.field.hidden"),
             hidden.clone(),
             "steam_app_*",
             theme,
@@ -2380,7 +2380,7 @@ fn tray_section(
     let base = t.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.tray"),
+        || telar::t!("settings.save.tray"),
         theme,
         move || {
             let value = TrayConfig {
@@ -2401,7 +2401,7 @@ fn tray_section(
             persist(&path, "tray", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.tray"), rows, save, theme)
+    section(|| telar::t!("settings.section.tray"), rows, save, theme)
 }
 
 fn media_scroll_str(scroll: MediaScroll) -> &'static str {
@@ -2434,19 +2434,19 @@ fn active_window_section(
     let max_chars = signal(w.max_chars.to_string());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.compact"), compact.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.show_icon"),
+            || telar::t!("settings.field.show_icon"),
             show_icon.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.inverted"),
+            || telar::t!("settings.field.inverted"),
             inverted.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_chars"),
+            || telar::t!("settings.field.max_chars"),
             max_chars.clone(),
             "300",
             theme,
@@ -2455,7 +2455,7 @@ fn active_window_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.active_window"),
+        || telar::t!("settings.save.active_window"),
         theme,
         move || {
             let value = ActiveWindowConfig {
@@ -2468,7 +2468,7 @@ fn active_window_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.active_window"),
+        || telar::t!("settings.section.active_window"),
         rows,
         save,
         theme,
@@ -2499,82 +2499,82 @@ fn notifications_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.edge"),
+            || telar::t!("settings.field.edge"),
             edge.clone(),
             EDGES,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.align"),
+            || telar::t!("settings.field.align"),
             align.clone(),
             ALIGNS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_visible"),
+            || telar::t!("settings.field.max_visible"),
             max_visible.clone(),
             "4",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.timeout_ms"),
+            || telar::t!("settings.field.timeout_ms"),
             timeout.clone(),
             "5000",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.critical_sticky"),
+            || telar::t!("settings.field.critical_sticky"),
             critical.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.width"),
+            || telar::t!("settings.field.width"),
             width.clone(),
             "380",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "10", theme)?,
+        text_field(|| telar::t!("settings.field.gap"), gap.clone(), "10", theme)?,
         enum_field(
-            || rsx::t!("settings.field.fullscreen_popups"),
+            || telar::t!("settings.field.fullscreen_popups"),
             fullscreen.clone(),
             FULLSCREEN_POPUPS,
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.group_by_app"),
+            || telar::t!("settings.field.group_by_app"),
             group_by_app.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.group_preview_num"),
+            || telar::t!("settings.field.group_preview_num"),
             group_preview.clone(),
             "3",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.action_on_click"),
+            || telar::t!("settings.field.action_on_click"),
             action_on_click.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.body_lines"),
+            || telar::t!("settings.field.body_lines"),
             body_lines.clone(),
             "4",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.open_expanded"),
+            || telar::t!("settings.field.open_expanded"),
             open_expanded.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.sound"),
+            || telar::t!("settings.field.sound"),
             sound.clone(),
             "canberra-gtk-play -i message",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.clear_threshold"),
+            || telar::t!("settings.field.clear_threshold"),
             clear_threshold.clone(),
             "0.35",
             theme,
@@ -2584,7 +2584,7 @@ fn notifications_section(
     let base = n.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.notifications"),
+        || telar::t!("settings.save.notifications"),
         theme,
         move || {
             let value = NotificationsConfig {
@@ -2608,7 +2608,7 @@ fn notifications_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.notifications"),
+        || telar::t!("settings.section.notifications"),
         rows,
         save,
         theme,
@@ -2649,88 +2649,88 @@ fn toasts_section(
     let recording = signal(events.recording);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         enum_field(
-            || rsx::t!("settings.field.edge"),
+            || telar::t!("settings.field.edge"),
             edge.clone(),
             EDGES,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.align"),
+            || telar::t!("settings.field.align"),
             align.clone(),
             ALIGNS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_toasts"),
+            || telar::t!("settings.field.max_toasts"),
             max_toasts.clone(),
             "3",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.timeout_ms"),
+            || telar::t!("settings.field.timeout_ms"),
             timeout.clone(),
             "2500",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.width"),
+            || telar::t!("settings.field.width"),
             width.clone(),
             "300",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "8", theme)?,
-        subheader(|| rsx::t!("settings.subheader.events"), theme)?,
+        text_field(|| telar::t!("settings.field.gap"), gap.clone(), "8", theme)?,
+        subheader(|| telar::t!("settings.subheader.events"), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.event_config_loaded"),
+            || telar::t!("settings.field.event_config_loaded"),
             config_loaded.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_charging"),
+            || telar::t!("settings.field.event_charging"),
             charging.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_game_mode"),
+            || telar::t!("settings.field.event_game_mode"),
             game_mode.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.event_dnd"), dnd.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.event_dnd"), dnd.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.event_audio_output"),
+            || telar::t!("settings.field.event_audio_output"),
             audio_output.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_audio_input"),
+            || telar::t!("settings.field.event_audio_input"),
             audio_input.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_lock_keys"),
+            || telar::t!("settings.field.event_lock_keys"),
             lock_keys.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_kb_layout"),
+            || telar::t!("settings.field.event_kb_layout"),
             kb_layout.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.event_vpn"), vpn.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.event_vpn"), vpn.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.event_now_playing"),
+            || telar::t!("settings.field.event_now_playing"),
             now_playing.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_screenshot"),
+            || telar::t!("settings.field.event_screenshot"),
             screenshot.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.event_recording"),
+            || telar::t!("settings.field.event_recording"),
             recording.clone(),
             theme,
         )?,
@@ -2739,7 +2739,7 @@ fn toasts_section(
     let base = t.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.toasts"),
+        || telar::t!("settings.save.toasts"),
         theme,
         move || {
             let value = ToastsConfig {
@@ -2768,7 +2768,7 @@ fn toasts_section(
             persist(&path, "toasts", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.toasts"), rows, save, theme)
+    section(|| telar::t!("settings.section.toasts"), rows, save, theme)
 }
 
 fn screenshot_section(
@@ -2787,33 +2787,33 @@ fn screenshot_section(
     let annotator = signal(s.annotator.clone());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.copy"), copy.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.copy"), copy.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.save"),
+            || telar::t!("settings.field.save"),
             save_to_disk.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.include_cursor"),
+            || telar::t!("settings.field.include_cursor"),
             cursor.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.freeze"), freeze.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.notify"), notify.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.freeze"), freeze.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.notify"), notify.clone(), theme)?,
         enum_field(
-            || rsx::t!("settings.field.backend"),
+            || telar::t!("settings.field.backend"),
             backend.clone(),
             SHOT_BACKENDS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.file_name"),
+            || telar::t!("settings.field.file_name"),
             file_name.clone(),
             "screenshot_%Y-%m-%d_%H-%M-%S",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.annotator"),
+            || telar::t!("settings.field.annotator"),
             annotator.clone(),
             "satty --filename {file}",
             theme,
@@ -2822,7 +2822,7 @@ fn screenshot_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.screenshot"),
+        || telar::t!("settings.save.screenshot"),
         theme,
         move || {
             let value = ScreenshotConfig {
@@ -2838,7 +2838,7 @@ fn screenshot_section(
             persist(&path, "screenshot", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.screenshot"), rows, save, theme)
+    section(|| telar::t!("settings.section.screenshot"), rows, save, theme)
 }
 
 fn recorder_section(
@@ -2857,28 +2857,28 @@ fn recorder_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.backend"),
+            || telar::t!("settings.field.backend"),
             backend.clone(),
             RECORDER_BACKENDS,
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.audio"), audio.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.audio"), audio.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.audio_device"),
+            || telar::t!("settings.field.audio_device"),
             device.clone(),
             "default_output",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.fps"), fps.clone(), "60", theme)?,
+        text_field(|| telar::t!("settings.field.fps"), fps.clone(), "60", theme)?,
         text_field(
-            || rsx::t!("settings.field.file_name"),
+            || telar::t!("settings.field.file_name"),
             file_name.clone(),
             "recording_%Y-%m-%d_%H-%M-%S",
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.notify"), notify.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.notify"), notify.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.max_entries"),
+            || telar::t!("settings.field.max_entries"),
             max_entries.clone(),
             "12",
             theme,
@@ -2888,7 +2888,7 @@ fn recorder_section(
     let base = r.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.recorder"),
+        || telar::t!("settings.save.recorder"),
         theme,
         move || {
             let value = RecorderConfig {
@@ -2903,7 +2903,7 @@ fn recorder_section(
             persist(&path, "recorder", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.recorder"), rows, save, theme)
+    section(|| telar::t!("settings.section.recorder"), rows, save, theme)
 }
 
 fn utilities_section(
@@ -2920,29 +2920,29 @@ fn utilities_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.toggles"),
+            || telar::t!("settings.field.toggles"),
             toggles.clone(),
             "wifi, bluetooth, mic, dnd",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_capture"),
+            || telar::t!("settings.field.show_capture"),
             show_capture.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_recordings"),
+            || telar::t!("settings.field.show_recordings"),
             show_recordings.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.columns"),
+            || telar::t!("settings.field.columns"),
             columns.clone(),
             "4",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.window_preview_ms"),
+            || telar::t!("settings.field.window_preview_ms"),
             preview.clone(),
             "1000",
             theme,
@@ -2952,7 +2952,7 @@ fn utilities_section(
     let base = u.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.utilities"),
+        || telar::t!("settings.save.utilities"),
         theme,
         move || {
             let value = UtilitiesConfig {
@@ -2965,7 +2965,7 @@ fn utilities_section(
             persist(&path, "utilities", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.utilities"), rows, save, theme)
+    section(|| telar::t!("settings.section.utilities"), rows, save, theme)
 }
 
 fn sidebar_section(
@@ -2981,24 +2981,24 @@ fn sidebar_section(
 
     let rows = vec![
         enum_field(
-            || rsx::t!("settings.field.edge"),
+            || telar::t!("settings.field.edge"),
             edge.clone(),
             EDGES,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.size"),
+            || telar::t!("settings.field.size"),
             size.clone(),
             "400",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_toggles"),
+            || telar::t!("settings.field.show_toggles"),
             show_toggles.clone(),
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.show_history"),
+            || telar::t!("settings.field.show_history"),
             show_history.clone(),
             theme,
         )?,
@@ -3007,7 +3007,7 @@ fn sidebar_section(
     let base = s.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.sidebar"),
+        || telar::t!("settings.save.sidebar"),
         theme,
         move || {
             let value = SidebarConfig {
@@ -3019,7 +3019,7 @@ fn sidebar_section(
             persist(&path, "sidebar", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.sidebar"), rows, save, theme)
+    section(|| telar::t!("settings.section.sidebar"), rows, save, theme)
 }
 
 fn keynav_section(
@@ -3029,19 +3029,19 @@ fn keynav_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let vim = signal(config.keynav.vim);
     let rows = vec![toggle_field(
-        || rsx::t!("settings.field.vim"),
+        || telar::t!("settings.field.vim"),
         vim.clone(),
         theme,
     )?];
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.keynav"),
+        || telar::t!("settings.save.keynav"),
         theme,
         move || {
             persist(&path, "keynav", &KeyNavConfig { vim: vim.peek() });
         },
     )?;
-    section(|| rsx::t!("settings.section.keynav"), rows, save, theme)
+    section(|| telar::t!("settings.section.keynav"), rows, save, theme)
 }
 
 /// Every screen a `[background.monitors]` row should exist for: the ones plugged in now, plus any the config
@@ -3081,21 +3081,21 @@ fn background_section(
     let transition_ms = signal(b.transition_ms.to_string());
 
     let mut rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.image"),
+            || telar::t!("settings.field.image"),
             image.clone(),
             "~/wall.png",
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.transition"),
+            || telar::t!("settings.field.transition"),
             transition.clone(),
             TRANSITIONS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.transition_ms"),
+            || telar::t!("settings.field.transition_ms"),
             transition_ms.clone(),
             "600",
             theme,
@@ -3107,7 +3107,7 @@ fn background_section(
     let names = monitor_keys(&b.monitors);
     let mut monitors: Vec<(String, RwSignal<String>)> = Vec::new();
     if !names.is_empty() {
-        rows.push(subheader(|| rsx::t!("settings.subheader.monitors"), theme)?);
+        rows.push(subheader(|| telar::t!("settings.subheader.monitors"), theme)?);
     }
     for name in names {
         let value = signal(
@@ -3129,7 +3129,7 @@ fn background_section(
     let base = b.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.background"),
+        || telar::t!("settings.save.background"),
         theme,
         move || {
             let monitors = monitors
@@ -3150,7 +3150,7 @@ fn background_section(
             persist(&path, "background", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.background"), rows, save, theme)
+    section(|| telar::t!("settings.section.background"), rows, save, theme)
 }
 
 fn wallpaper_section(
@@ -3166,26 +3166,26 @@ fn wallpaper_section(
     let extensions = signal(join_csv(&w.extensions));
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.recursive"),
+            || telar::t!("settings.field.recursive"),
             recursive.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.max_entries"),
+            || telar::t!("settings.field.max_entries"),
             max_entries.clone(),
             "2000",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.thumbnail_size"),
+            || telar::t!("settings.field.thumbnail_size"),
             thumbnail_size.clone(),
             "320",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.extensions"),
+            || telar::t!("settings.field.extensions"),
             extensions.clone(),
             "png, jpg",
             theme,
@@ -3195,7 +3195,7 @@ fn wallpaper_section(
     let base = w.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.wallpaper"),
+        || telar::t!("settings.save.wallpaper"),
         theme,
         move || {
             let value = WallpaperConfig {
@@ -3208,7 +3208,7 @@ fn wallpaper_section(
             persist(&path, "wallpaper", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.wallpaper"), rows, save, theme)
+    section(|| telar::t!("settings.section.wallpaper"), rows, save, theme)
 }
 
 /// The clock drawn on the wallpaper. Its own section rather than rows inside `[background]`: it is a nested
@@ -3233,62 +3233,62 @@ fn desktop_clock_section(
     let shadow = signal(c.shadow);
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         enum_field(
-            || rsx::t!("settings.field.position"),
+            || telar::t!("settings.field.position"),
             position.clone(),
             PLACEMENTS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.scale"),
+            || telar::t!("settings.field.scale"),
             scale.clone(),
             "3",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.margin"),
+            || telar::t!("settings.field.margin"),
             margin.clone(),
             "48",
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.invert"), invert.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.invert"), invert.clone(), theme)?,
         toggle_field(
-            || rsx::t!("settings.field.show_date"),
+            || telar::t!("settings.field.show_date"),
             show_date.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.time_format"),
+            || telar::t!("settings.field.time_format"),
             format.clone(),
             "(clock)",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.date_format"),
+            || telar::t!("settings.field.date_format"),
             date_format.clone(),
             "(clock)",
             theme,
         )?,
         toggle_field(
-            || rsx::t!("settings.field.plate"),
+            || telar::t!("settings.field.plate"),
             background.clone(),
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.plate_opacity"),
+            || telar::t!("settings.field.plate_opacity"),
             opacity.clone(),
             "0.35",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.blur"), blur.clone(), "0", theme)?,
-        toggle_field(|| rsx::t!("settings.field.shadow"), shadow.clone(), theme)?,
+        text_field(|| telar::t!("settings.field.blur"), blur.clone(), "0", theme)?,
+        toggle_field(|| telar::t!("settings.field.shadow"), shadow.clone(), theme)?,
     ];
 
     let base = config.background.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.desktop_clock"),
+        || telar::t!("settings.save.desktop_clock"),
         theme,
         move || {
             let clock = DesktopClockConfig {
@@ -3316,7 +3316,7 @@ fn desktop_clock_section(
         },
     )?;
     section(
-        || rsx::t!("settings.section.desktop_clock"),
+        || telar::t!("settings.section.desktop_clock"),
         rows,
         save,
         theme,
@@ -3336,27 +3336,27 @@ fn animation_section(
     let panel_ms = signal(a.panel_duration_ms.to_string());
 
     let rows = vec![
-        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
         text_field(
-            || rsx::t!("settings.field.duration_scale"),
+            || telar::t!("settings.field.duration_scale"),
             scale.clone(),
             "1",
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.curve"),
+            || telar::t!("settings.field.curve"),
             curve.clone(),
             CURVES,
             theme,
         )?,
         enum_field(
-            || rsx::t!("settings.field.easing"),
+            || telar::t!("settings.field.easing"),
             easing.clone(),
             EASINGS,
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.panel_duration_ms"),
+            || telar::t!("settings.field.panel_duration_ms"),
             panel_ms.clone(),
             "180",
             theme,
@@ -3366,7 +3366,7 @@ fn animation_section(
     let base = a.clone();
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.animation"),
+        || telar::t!("settings.save.animation"),
         theme,
         move || {
             let value = AnimationConfig {
@@ -3379,7 +3379,7 @@ fn animation_section(
             persist(&path, "animation", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.animation"), rows, save, theme)
+    section(|| telar::t!("settings.section.animation"), rows, save, theme)
 }
 
 /// K12: what this shell is and what it found to talk to.
@@ -3393,25 +3393,25 @@ fn about_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let rows = vec![
         reading_row(
-            || rsx::t!("settings.field.version"),
+            || telar::t!("settings.field.version"),
             env!("CARGO_PKG_VERSION"),
             theme,
         )?,
         reading_row(
-            || rsx::t!("settings.field.compositor"),
+            || telar::t!("settings.field.compositor"),
             &env_or_unknown("HYPRLAND_INSTANCE_SIGNATURE").map_or_else(
-                || rsx::t!("settings.about.not_hyprland"),
+                || telar::t!("settings.about.not_hyprland"),
                 |_| "Hyprland".to_string(),
             ),
             theme,
         )?,
         reading_row(
-            || rsx::t!("settings.field.session"),
-            &env_or_unknown("XDG_SESSION_TYPE").unwrap_or_else(|| rsx::t!("common.unknown")),
+            || telar::t!("settings.field.session"),
+            &env_or_unknown("XDG_SESSION_TYPE").unwrap_or_else(|| telar::t!("common.unknown")),
             theme,
         )?,
         reading_row(
-            || rsx::t!("settings.field.config_file"),
+            || telar::t!("settings.field.config_file"),
             &Config::default_path().display().to_string(),
             theme,
         )?,
@@ -3421,7 +3421,7 @@ fn about_section(
             .flex_column()
             .gap(8.0)
             .width(SizeDimension::Percent(1.0)),
-        std::iter::once(section_label(|| rsx::t!("settings.section.about"), theme)?)
+        std::iter::once(section_label(|| telar::t!("settings.section.about"), theme)?)
             .chain(rows)
             .collect(),
     )?;
@@ -3463,25 +3463,25 @@ fn corners_section(
 
     let rows = vec![
         text_field(
-            || rsx::t!("settings.field.top_left"),
+            || telar::t!("settings.field.top_left"),
             tl.clone(),
             "module id",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.top_right"),
+            || telar::t!("settings.field.top_right"),
             tr.clone(),
             "module id",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.bottom_left"),
+            || telar::t!("settings.field.bottom_left"),
             bl.clone(),
             "module id",
             theme,
         )?,
         text_field(
-            || rsx::t!("settings.field.bottom_right"),
+            || telar::t!("settings.field.bottom_right"),
             br.clone(),
             "module id",
             theme,
@@ -3490,7 +3490,7 @@ fn corners_section(
 
     let path = path.to_path_buf();
     let save = save_button(
-        || rsx::t!("settings.save.corners"),
+        || telar::t!("settings.save.corners"),
         theme,
         move || {
             let value = CornersConfig {
@@ -3502,7 +3502,7 @@ fn corners_section(
             persist(&path, "corners", &value);
         },
     )?;
-    section(|| rsx::t!("settings.section.corners"), rows, save, theme)
+    section(|| telar::t!("settings.section.corners"), rows, save, theme)
 }
 
 fn persist<T: Serialize>(path: &Path, name: &str, value: &T) {
@@ -3610,9 +3610,9 @@ fn toggle_field(
     let text = Text::auto(
         move || {
             if value_text.get() {
-                rsx::t!("common.on")
+                telar::t!("common.on")
             } else {
-                rsx::t!("common.off")
+                telar::t!("common.off")
             }
         },
         LayoutStyle::new(),
@@ -3835,13 +3835,13 @@ fn parse_temperature_unit(s: &str) -> TemperatureUnit {
 mod tests {
     use super::*;
     use crate::core::app::SurfaceRoot;
-    use rsx::{App, Color, Component, WindowConfig, reset_layout_runtime, set_theme};
+    use telar::{App, Color, Component, WindowConfig, reset_layout_runtime, set_theme};
 
     // Switching the locale after the panel is built re-renders its labels live: the section titles are
     // reactive `t!` closures, so the rendered text changes from English to Spanish without a rebuild.
     #[test]
     fn labels_live_switch_locale() {
-        use rsx::{ComponentList, DrawCommand, Event};
+        use telar::{ComponentList, DrawCommand, Event};
 
         fn has_text(tree: &ComponentList, needle: &str) -> bool {
             tree.commands()
@@ -3860,11 +3860,11 @@ mod tests {
 
         // Force the locale after building so the assertion is independent of the machine's system locale; the
         // labels are reactive `t!` closures, so `commands()` re-renders in whatever locale is active now.
-        rsx::set_locale("en");
+        telar::set_locale("en");
         assert!(has_text(&tree, "Settings"), "English title before switch");
         assert!(!has_text(&tree, "Ajustes"));
 
-        rsx::set_locale("es");
+        telar::set_locale("es");
         assert!(
             has_text(&tree, "Ajustes"),
             "Spanish title after live switch"
@@ -3961,11 +3961,11 @@ mod tests {
     }
 
     /// Renders the settings panel end-to-end. Point config at a scratch dir so it never touches the real file:
-    /// `XDG_CONFIG_HOME=/tmp/x RSX_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture`.
+    /// `XDG_CONFIG_HOME=/tmp/x TELAR_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture`.
     #[test]
     fn visual_settings_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_SETTINGS_OUT") else {
-            eprintln!("set RSX_VISUAL_SETTINGS_OUT to render the settings panel; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_SETTINGS_OUT") else {
+            eprintln!("set TELAR_VISUAL_SETTINGS_OUT to render the settings panel; skipping");
             return;
         };
         crate::test_support::render_png(SettingsPreview, 920, 680, &out);

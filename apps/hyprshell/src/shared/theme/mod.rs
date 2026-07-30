@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use rsx::{Color, TextStyle, Theme, ThemeTokens};
+use telar::{Color, TextStyle, Theme, ThemeTokens};
 
 use crate::core::config::{FontSpec, FontsConfig};
 
@@ -663,7 +663,7 @@ impl NordTheme {
     /// that remembered to ask. A call site that chains `.with_weight(…)` afterwards still wins, which is what
     /// keeps a deliberately bold heading bold when the body weight is lowered: that is emphasis relative to the
     /// role, not the role itself.
-    pub fn text_style(&self, role: FontRole, paint: impl Into<rsx::Paint>) -> TextStyle {
+    pub fn text_style(&self, role: FontRole, paint: impl Into<telar::Paint>) -> TextStyle {
         let spec = self.font_spec(role);
         let mut style = TextStyle::new(self.font(role), paint);
         if let Some(weight) = spec.weight {

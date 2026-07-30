@@ -4,7 +4,7 @@
 //! NetworkManager view layered on top. So a machine without NM keeps a working chip and gets a panel that says
 //! why it is empty, rather than the chip going blank because the panel's dependency is missing.
 
-use rsx::{
+use telar::{
     AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
@@ -83,7 +83,7 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let scan_active = state.read_only();
 
     let title = Text::auto(
-        || rsx::t!("network.title"),
+        || telar::t!("network.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -106,9 +106,9 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let radio = pill(
         move || {
             if radio_label.get().enabled {
-                rsx::t!("network.on")
+                telar::t!("network.on")
             } else {
-                rsx::t!("network.off")
+                telar::t!("network.off")
             }
         },
         move || radio_active.get().enabled,
@@ -118,9 +118,9 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let scan = pill(
         move || {
             if scan_label.get().scanning {
-                rsx::t!("network.scanning_short")
+                telar::t!("network.scanning_short")
             } else {
-                rsx::t!("network.scan")
+                telar::t!("network.scan")
             }
         },
         move || scan_active.get().scanning,
@@ -141,18 +141,18 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
 /// What the radio is doing, under the title.
 fn status_line(wifi: &Wifi) -> String {
     if !wifi.available {
-        return rsx::t!("network.unavailable");
+        return telar::t!("network.unavailable");
     }
     if !wifi.enabled {
-        return rsx::t!("network.off");
+        return telar::t!("network.off");
     }
     if let Some(active) = wifi.active() {
         return active.ssid.clone();
     }
     if wifi.scanning {
-        return rsx::t!("network.scanning");
+        return telar::t!("network.scanning");
     }
-    rsx::t!("network.not_connected")
+    telar::t!("network.not_connected")
 }
 
 /// The networks worth listing: one row per name, hidden ones dropped unless asked for, capped.
@@ -222,11 +222,11 @@ fn list(
 /// The line under an empty list — never blank, so the panel always says why there is nothing to pick.
 fn empty_line(wifi: &Wifi, config: NetworkConfig) -> String {
     if !wifi.available {
-        rsx::t!("network.unavailable")
+        telar::t!("network.unavailable")
     } else if !wifi.enabled {
-        rsx::t!("network.turn_on")
+        telar::t!("network.turn_on")
     } else if listed(wifi, config).is_empty() {
-        rsx::t!("network.no_networks")
+        telar::t!("network.no_networks")
     } else {
         String::new()
     }
@@ -252,7 +252,7 @@ fn network_row(
     let armed_hover = armed.read_only();
     let is_armed = {
         let ssid = ssid.clone();
-        move |signal: &rsx::ReadSignal<String>| signal.get() == ssid
+        move |signal: &telar::ReadSignal<String>| signal.get() == ssid
     };
 
     // The strength is read from the live state rather than baked into the row, so a scan repaints the arc
@@ -293,7 +293,7 @@ fn network_row(
             let is_armed = is_armed.clone();
             move || {
                 if is_armed(&armed_text) {
-                    rsx::t!("network.forget_confirm")
+                    telar::t!("network.forget_confirm")
                 } else {
                     detail_line(&point)
                 }
@@ -442,7 +442,7 @@ fn prompt(
         move || theme.text_style(FontRole::Body, theme.text),
     )?
     .secret()
-    .placeholder(rsx::t!("network.password"))
+    .placeholder(telar::t!("network.password"))
     .on_submit(on_enter);
 
     let boxed = StyledContainer::new(
@@ -454,9 +454,9 @@ fn prompt(
         vec![box_item(field)],
     )?;
 
-    let join_button = pill(|| rsx::t!("network.join"), || false, submit, theme)?;
+    let join_button = pill(|| telar::t!("network.join"), || false, submit, theme)?;
     let cancel = pill(
-        || rsx::t!("network.cancel"),
+        || telar::t!("network.cancel"),
         || false,
         move || asking.set(String::new()),
         theme,
@@ -487,11 +487,11 @@ fn join(ssid: &str, password: Option<String>) {
 /// What a row says about itself: its state where it has one, else how it is secured and on which band.
 fn detail_line(point: &AccessPoint) -> String {
     if point.active {
-        return rsx::t!("network.connected");
+        return telar::t!("network.connected");
     }
     let security = match point.security {
-        Security::Open => rsx::t!("network.open"),
-        Security::Enterprise => rsx::t!("network.enterprise"),
+        Security::Open => telar::t!("network.open"),
+        Security::Enterprise => telar::t!("network.enterprise"),
         other => other.id().to_uppercase(),
     };
     let band = point.band();
@@ -501,7 +501,7 @@ fn detail_line(point: &AccessPoint) -> String {
         format!("{security} · {band}")
     };
     if point.saved {
-        detail = format!("{detail} · {}", rsx::t!("network.saved"));
+        detail = format!("{detail} · {}", telar::t!("network.saved"));
     }
     detail
 }
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn a_row_says_how_it_is_secured_and_where() {
-        rsx::set_locale("en");
+        telar::set_locale("en");
         let saved = detail_line(&point("home", Security::Wpa3, true));
         assert!(saved.contains("WPA3") && saved.contains("5 GHz") && saved.contains("Saved"));
 
@@ -669,8 +669,8 @@ mod tests {
     /// at build time and nowhere else.
     #[test]
     fn the_panel_builds_without_a_re_entrant_borrow() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(network_panel().is_ok());
     }
 }

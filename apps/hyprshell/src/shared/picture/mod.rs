@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     Image, ImageData, ImageFilter, LayoutError, LayoutItem, LayoutStyle, ObjectFit, SizeDimension,
 };
 

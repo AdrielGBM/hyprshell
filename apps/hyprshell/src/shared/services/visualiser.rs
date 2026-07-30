@@ -533,11 +533,11 @@ mod live {
     /// Captures whatever the speakers are playing and prints the bars, to check the one thing a unit test
     /// cannot: that `stream.capture.sink` really turns the stream around onto the sink's monitor rather than
     /// onto a microphone. Play something, then:
-    /// `RSX_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture`
+    /// `TELAR_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture`
     #[test]
     fn live_capture() {
-        if std::env::var("RSX_LIVE_VISUALISER").is_err() {
-            eprintln!("set RSX_LIVE_VISUALISER to capture real audio; skipping");
+        if std::env::var("TELAR_LIVE_VISUALISER").is_err() {
+            eprintln!("set TELAR_LIVE_VISUALISER to capture real audio; skipping");
             return;
         }
         let config = VisualiserConfig::default();

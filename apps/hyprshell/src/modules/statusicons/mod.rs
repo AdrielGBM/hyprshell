@@ -7,7 +7,7 @@
 //! Ordered by config rather than by a fixed list, because the order icons sit in is the whole point of a
 //! cluster: a user who reads left-to-right wants their own priority, not the shell's.
 
-use rsx::{
+use telar::{
     AlignItems, Color, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReadSignal, signal,
 };
 
@@ -204,7 +204,7 @@ pub fn cluster() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let config = crate::surface_env()
         .map(|env| env.config.status_icons.clone())
         .unwrap_or_default();
-    let theme = rsx::use_theme::<NordTheme>();
+    let theme = telar::use_theme::<NordTheme>();
     let fg = crate::module_fg();
     let size = crate::icon_px();
     let vertical = crate::bar_is_vertical();
@@ -219,7 +219,7 @@ pub fn cluster() -> Result<Box<dyn LayoutItem>, LayoutError> {
     } else {
         LayoutStyle::new().flex_row()
     };
-    Ok(Box::new(rsx::Container::new(
+    Ok(Box::new(telar::Container::new(
         style
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER)
@@ -284,8 +284,8 @@ mod tests {
     /// re-entrant borrow of the reactive runtime, which panics at build time and nowhere else.
     #[test]
     fn every_icon_the_cluster_offers_builds() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         let fg = signal(NordTheme::new().text).read_only();
         for which in [
             StatusIcon::Volume,

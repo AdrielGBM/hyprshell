@@ -17,7 +17,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use platform_layershell::{EventSender, watch};
-use rsx::{ReadSignal, RwSignal, signal};
+use telar::{ReadSignal, RwSignal, signal};
 
 use crate::shared::paths;
 

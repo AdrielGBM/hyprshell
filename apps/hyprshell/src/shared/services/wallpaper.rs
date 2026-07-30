@@ -295,7 +295,7 @@ fn publish() {
 #[derive(Clone)]
 pub struct Frame {
     pub path: PathBuf,
-    pub image: std::sync::Arc<rsx::ImageData>,
+    pub image: std::sync::Arc<telar::ImageData>,
 }
 
 /// How often a parked producer checks that the surface it feeds is still there.

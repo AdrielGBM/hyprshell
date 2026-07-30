@@ -14,7 +14,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use rsx::{
+use telar::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, ObjectFit, RectStyle, Shadow, SizeDimension,
     StyledContainer, Text, WindowConfig, box_item, motion::Animated, reset_layout_runtime,
@@ -199,7 +199,7 @@ fn fill() -> LayoutStyle {
 /// so the layer is one node for the life of the surface and swapping the picture is a signal write, not a
 /// re-layout.
 fn image_layer(
-    slot: rsx::ReadSignal<Option<Arc<ImageData>>>,
+    slot: telar::ReadSignal<Option<Arc<ImageData>>>,
     fade: Rc<dyn Fn() -> f32>,
     visible_at: f32,
     transition: WallpaperTransition,
@@ -462,7 +462,7 @@ fn thickness(edge: crate::core::config::Edge, reach: f32) -> LayoutStyle {
 ///
 /// The same two shapes `fade_control` has, and for the same reason — with animation off, an `Animated` would be
 /// a tween with no duration to divide by.
-fn visualiser_fade(config: &Config, silent: rsx::ReadSignal<bool>) -> Box<dyn Fn() -> f32> {
+fn visualiser_fade(config: &Config, silent: telar::ReadSignal<bool>) -> Box<dyn Fn() -> f32> {
     if !config.background.visualiser.hide_when_silent {
         return Box::new(|| 1.0);
     }
@@ -647,20 +647,20 @@ mod tests {
     }
 
     /// Renders the wallpaper surface end-to-end (real decode + cover-crop). Point it at an image to eyeball the crop:
-    /// `RSX_VISUAL_WALLPAPER_OUT=/tmp/w.png RSX_VISUAL_WALLPAPER_IMG=/path/to/wall.png cargo test -p hyprshell --lib visual_wallpaper -- --nocapture`.
-    /// Set `RSX_VISUAL_WALLPAPER_CLOCK=1` to draw the desktop clock over it.
+    /// `TELAR_VISUAL_WALLPAPER_OUT=/tmp/w.png TELAR_VISUAL_WALLPAPER_IMG=/path/to/wall.png cargo test -p hyprshell --lib visual_wallpaper -- --nocapture`.
+    /// Set `TELAR_VISUAL_WALLPAPER_CLOCK=1` to draw the desktop clock over it.
     #[test]
     fn visual_wallpaper_png() {
-        let Ok(out) = std::env::var("RSX_VISUAL_WALLPAPER_OUT") else {
-            eprintln!("set RSX_VISUAL_WALLPAPER_OUT to render the wallpaper; skipping");
+        let Ok(out) = std::env::var("TELAR_VISUAL_WALLPAPER_OUT") else {
+            eprintln!("set TELAR_VISUAL_WALLPAPER_OUT to render the wallpaper; skipping");
             return;
         };
         let mut config = Config::starter();
         config.background.enabled = true;
-        config.background.image = std::env::var("RSX_VISUAL_WALLPAPER_IMG")
+        config.background.image = std::env::var("TELAR_VISUAL_WALLPAPER_IMG")
             .ok()
             .map(PathBuf::from);
-        if std::env::var("RSX_VISUAL_WALLPAPER_CLOCK").is_ok() {
+        if std::env::var("TELAR_VISUAL_WALLPAPER_CLOCK").is_ok() {
             config.background.clock.enabled = true;
             config.background.clock.background = true;
         }

@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use rsx::{
+use telar::{
     Container, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RwSignal, SizeDimension, signal,
 };
 
@@ -66,16 +66,16 @@ fn cpu_card(
     });
     let detail = derive(machine.clone(), move |r| {
         let Some(r) = r else {
-            return rsx::t!("sysinfo.no_reading");
+            return telar::t!("sysinfo.no_reading");
         };
         let temperature = r
             .temperature_of(&sensor)
             .map(|c| unit.format(c))
-            .unwrap_or_else(|| rsx::t!("sysinfo.no_reading"));
+            .unwrap_or_else(|| telar::t!("sysinfo.no_reading"));
         let clock = match r.cpu_mhz {
             Some(mhz) if mhz >= 1000.0 => format!("{:.2} GHz", mhz / 1000.0),
             Some(mhz) => format!("{mhz:.0} MHz"),
-            None => rsx::t!("sysinfo.no_reading"),
+            None => telar::t!("sysinfo.no_reading"),
         };
         format!(
             "{} · {} · {}",
@@ -85,7 +85,7 @@ fn cpu_card(
         )
     });
 
-    Card::titled(rsx::t!("sysinfo.cpu"))
+    Card::titled(telar::t!("sysinfo.cpu"))
         .icon("cpu")
         .trailing(derive(machine, |r| percent(r.map(|r| r.cpu))))
         .child(widget::sparkline(
@@ -110,7 +110,7 @@ fn gpu_card(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
     let detail = derive(state.clone(), move |g| {
         let name = g.name.trim();
         let name = if name.is_empty() {
-            rsx::t!("sysinfo.gpu")
+            telar::t!("sysinfo.gpu")
         } else {
             name.to_string()
         };
@@ -121,7 +121,7 @@ fn gpu_card(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
         )
     });
 
-    Card::titled(rsx::t!("sysinfo.gpu"))
+    Card::titled(telar::t!("sysinfo.gpu"))
         .icon(glyph::gpu())
         .trailing(derive(state.clone(), |g| percent(g.usage)))
         .child(widget::sparkline(
@@ -143,7 +143,7 @@ fn memory_card(
     });
     let detail = derive(machine.clone(), |r| {
         let Some(r) = r else {
-            return rsx::t!("sysinfo.no_reading");
+            return telar::t!("sysinfo.no_reading");
         };
         let used = format!(
             "{} / {}",
@@ -155,13 +155,13 @@ fn memory_card(
         }
         format!(
             "{used} · {} {} / {}",
-            rsx::t!("popout.swap"),
+            telar::t!("popout.swap"),
             resources::format_bytes(r.memory.swap_used),
             resources::format_bytes(r.memory.swap_total)
         )
     });
 
-    Card::titled(rsx::t!("sysinfo.memory"))
+    Card::titled(telar::t!("sysinfo.memory"))
         .icon("memory-stick")
         .trailing(derive(machine, |r| {
             percent(r.map(|r| r.memory.used_percent()))
@@ -194,15 +194,15 @@ fn storage_card(
     let io = derive(machine, |r| match r {
         Some(r) => format!(
             "{} {} · {} {}",
-            rsx::t!("popout.down"),
+            telar::t!("popout.down"),
             netspeed::format_rate(r.disk_read),
-            rsx::t!("popout.up"),
+            telar::t!("popout.up"),
             netspeed::format_rate(r.disk_write)
         ),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     });
 
-    Card::titled(rsx::t!("dashboard.storage"))
+    Card::titled(telar::t!("dashboard.storage"))
         .icon("hard-drive")
         .child(Box::new(bars))
         .child(card::detail(io, theme)?)
@@ -259,13 +259,13 @@ fn network_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
             "↓ {} · ↑ {} · {} {} / {}",
             netspeed::format_rate(s.down),
             netspeed::format_rate(s.up),
-            rsx::t!("popout.total"),
+            telar::t!("popout.total"),
             resources::format_bytes(s.total_down),
             resources::format_bytes(s.total_up)
         )
     });
 
-    Card::titled(rsx::t!("dashboard.network"))
+    Card::titled(telar::t!("dashboard.network"))
         .icon("arrow-down-up")
         .trailing(derive(state, |s| netspeed::format_rate(s.down)))
         .child(widget::sparkline(
@@ -294,10 +294,10 @@ fn battery_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     });
     let detail = derive(state.clone(), |d| match d {
         Some(d) => battery_detail(&d),
-        None => rsx::t!("battery.none"),
+        None => telar::t!("battery.none"),
     });
 
-    Card::titled(rsx::t!("dashboard.battery"))
+    Card::titled(telar::t!("dashboard.battery"))
         .live_icon(derive(state.clone(), |d| {
             glyph::battery(d.is_some_and(|d| d.state.is_charging())).to_string()
         }))
@@ -307,7 +307,7 @@ fn battery_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
         }))
         .trailing(derive(state, |d| match d {
             Some(d) => format!("{}%", d.level),
-            None => rsx::t!("sysinfo.no_reading"),
+            None => telar::t!("sysinfo.no_reading"),
         }))
         .child(widget::meter(fraction, tint, theme.overlay, METER_HEIGHT)?)
         .child(card::detail(detail, theme)?)
@@ -318,17 +318,17 @@ fn battery_detail(details: &battery::BatteryDetails) -> String {
     use battery::ChargeState;
     let status = match details.state {
         ChargeState::Charging => match remaining_label(details.time_to_full) {
-            Some(time) => rsx::t!("battery.until_full", time = time),
-            None => rsx::t!("battery.charging"),
+            Some(time) => telar::t!("battery.until_full", time = time),
+            None => telar::t!("battery.charging"),
         },
         ChargeState::Discharging => match remaining_label(details.time_to_empty) {
-            Some(time) => rsx::t!("battery.remaining", time = time),
-            None => rsx::t!("battery.on_battery"),
+            Some(time) => telar::t!("battery.remaining", time = time),
+            None => telar::t!("battery.on_battery"),
         },
-        ChargeState::Full => rsx::t!("battery.full"),
-        ChargeState::Empty => rsx::t!("battery.empty"),
-        ChargeState::Pending => rsx::t!("battery.pending"),
-        ChargeState::Unknown => rsx::t!("battery.unknown"),
+        ChargeState::Full => telar::t!("battery.full"),
+        ChargeState::Empty => telar::t!("battery.empty"),
+        ChargeState::Pending => telar::t!("battery.pending"),
+        ChargeState::Unknown => telar::t!("battery.unknown"),
     };
     if details.energy_rate > 0.0 {
         format!("{status} · {:.1} W", details.energy_rate)
@@ -350,13 +350,13 @@ fn remaining_label(seconds: i64) -> Option<String> {
 }
 
 fn cores_label(count: usize) -> String {
-    format!("{count} {}", rsx::t!("popout.cores"))
+    format!("{count} {}", telar::t!("popout.cores"))
 }
 
 fn temperature_label(celsius: Option<f32>, unit: TemperatureUnit) -> String {
     match celsius {
         Some(c) => unit.format(c),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 
@@ -367,14 +367,14 @@ fn vram_label(card: &gpu::Gpu) -> String {
             resources::format_bytes(used),
             resources::format_bytes(total)
         ),
-        _ => rsx::t!("sysinfo.no_reading"),
+        _ => telar::t!("sysinfo.no_reading"),
     }
 }
 
 fn percent(value: Option<f32>) -> String {
     match value {
         Some(v) => format!("{v:.0}%"),
-        None => rsx::t!("sysinfo.no_reading"),
+        None => telar::t!("sysinfo.no_reading"),
     }
 }
 
@@ -384,17 +384,17 @@ mod tests {
 
     #[test]
     fn a_reading_a_driver_does_not_publish_reads_as_unknown_not_zero() {
-        assert_eq!(percent(None), rsx::t!("sysinfo.no_reading"));
+        assert_eq!(percent(None), telar::t!("sysinfo.no_reading"));
         assert_eq!(
             percent(Some(0.0)),
             "0%",
             "a measured zero is still a measurement"
         );
         let blind = gpu::Gpu::default();
-        assert_eq!(vram_label(&blind), rsx::t!("sysinfo.no_reading"));
+        assert_eq!(vram_label(&blind), telar::t!("sysinfo.no_reading"));
         assert_eq!(
             temperature_label(None, TemperatureUnit::Celsius),
-            rsx::t!("sysinfo.no_reading")
+            telar::t!("sysinfo.no_reading")
         );
     }
 
@@ -407,7 +407,7 @@ mod tests {
             time_to_empty: 0,
             energy_rate: 0.0,
         };
-        assert_eq!(battery_detail(&charging), rsx::t!("battery.charging"));
+        assert_eq!(battery_detail(&charging), telar::t!("battery.charging"));
         let estimated = battery::BatteryDetails {
             time_to_full: 5_400,
             energy_rate: 21.5,

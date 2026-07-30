@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rsx::{
+use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
     RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
 };
@@ -23,7 +23,7 @@ const ROW_ICON: f32 = 20.0;
 /// The screenshot buttons, the recorder's own control, and a line about the last capture.
 pub fn capture_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let heading = Text::auto(
-        || rsx::t!("capture.title"),
+        || telar::t!("capture.title"),
         LayoutStyle::new(),
         move || {
             theme
@@ -39,21 +39,21 @@ pub fn capture_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError
             .width(SizeDimension::Percent(1.0)),
         vec![
             pill(
-                || rsx::t!("capture.screen"),
+                || telar::t!("capture.screen"),
                 glyph::screenshot(),
                 true,
                 || crate::modules::capture::screenshot(Target::Screen),
                 theme,
             )?,
             pill(
-                || rsx::t!("capture.output"),
+                || telar::t!("capture.output"),
                 glyph::screenshot(),
                 true,
                 crate::modules::capture::screenshot_output,
                 theme,
             )?,
             pill(
-                || rsx::t!("capture.region"),
+                || telar::t!("capture.region"),
                 glyph::area_select(),
                 true,
                 crate::modules::capture::screenshot_region,
@@ -97,9 +97,9 @@ fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let start = pill_live(
         move || {
             if start_state.get().active {
-                rsx::t!("capture.stop")
+                telar::t!("capture.stop")
             } else {
-                rsx::t!("capture.record")
+                telar::t!("capture.record")
             }
         },
         {
@@ -122,9 +122,9 @@ fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
         children.push(pill_live(
             move || {
                 if pause_state.get().paused {
-                    rsx::t!("capture.resume")
+                    telar::t!("capture.resume")
                 } else {
-                    rsx::t!("capture.pause")
+                    telar::t!("capture.pause")
                 }
             },
             || "pause".to_string(),
@@ -150,7 +150,7 @@ fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
             if state.active {
                 recorder::format_elapsed(state.elapsed())
             } else if backend.is_none() {
-                rsx::t!("capture.no_recorder")
+                telar::t!("capture.no_recorder")
             } else {
                 String::new()
             }
@@ -206,8 +206,8 @@ fn shot_line(shot: &Shot) -> String {
             .file_name()
             .map(|name| name.to_string_lossy().to_string())
             .unwrap_or_else(|| path.display().to_string()),
-        None if shot.copied => rsx::t!("capture.copied"),
-        None => rsx::t!("capture.screenshot"),
+        None if shot.copied => telar::t!("capture.copied"),
+        None => telar::t!("capture.screenshot"),
     }
 }
 
@@ -231,7 +231,7 @@ pub fn recordings_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
     });
 
     let heading = Text::auto(
-        || rsx::t!("capture.recordings"),
+        || telar::t!("capture.recordings"),
         LayoutStyle::new(),
         move || {
             theme
@@ -267,7 +267,7 @@ pub fn recordings_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
     let empty = Text::auto(
         move || {
             if empty_state.get().is_empty() {
-                rsx::t!("capture.no_recordings")
+                telar::t!("capture.no_recordings")
             } else {
                 String::new()
             }
@@ -315,7 +315,7 @@ fn row(
     let armed_hover = armed.read_only();
     let is_armed = {
         let key = key.clone();
-        move |signal: &rsx::ReadSignal<String>| signal.get() == key
+        move |signal: &telar::ReadSignal<String>| signal.get() == key
     };
 
     let icon = icon_view(|| "film".to_string(), move || theme.text, ROW_ICON)?;
@@ -339,7 +339,7 @@ fn row(
             let is_armed = is_armed.clone();
             move || {
                 if is_armed(&armed_text) {
-                    rsx::t!("capture.delete_confirm")
+                    telar::t!("capture.delete_confirm")
                 } else {
                     size.clone()
                 }
@@ -355,7 +355,7 @@ fn row(
 
     let reveal_dir = dir.clone();
     let reveal = pill(
-        || rsx::t!("capture.reveal"),
+        || telar::t!("capture.reveal"),
         "folder-open",
         true,
         move || reveal_in_files(&reveal_dir),
@@ -551,12 +551,12 @@ mod tests {
 
     #[test]
     fn both_cards_build() {
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(capture_card(NordTheme::new()).is_ok());
 
-        rsx::reset_layout_runtime();
-        rsx::set_theme(NordTheme::new());
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
         assert!(recordings_card(NordTheme::new()).is_ok());
     }
 
