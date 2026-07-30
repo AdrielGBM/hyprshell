@@ -1,0 +1,165 @@
+# hyprshell
+
+A Wayland desktop shell in Rust — bars, panels, launcher, dashboard, lock screen, notifications, capture and
+dynamic theming — built on [`rsx`](../rsx) and `wlr-layer-shell`, configured in TOML.
+
+It targets Hyprland but prefers Wayland protocols to compositor IPC wherever both exist, so most of it works
+anywhere `wlr-layer-shell`, `ext-session-lock` and `ext-idle-notify` do.
+
+## What it does
+
+**Bars.** One per screen edge, all four at once if you like, on every monitor. Three shapes — a single `bar`,
+grouped `sections`, or individual `chips` — with per-monitor overrides.
+
+**Modules.** `activewindow` `battery` `bluetooth` `brightness` `clock` `cpu` `dashboard` `gpu` `kblayout`
+`launcher` `lockstatus` `logo` `media` `memory` `mic` `netspeed` `network` `notes` `notifications` `session`
+`settings` `spacer` `statusicons` `temperature` `tray` `utilities` `volume` `windowinfo` `workspaces`.
+
+**Surfaces.** Drawers and floats anchored to the chip that opened them, hover popouts, OSDs, a full-screen
+launcher, a notification centre, a session-lock screen, a per-monitor wallpaper layer, and in-shell toasts.
+
+**Services.** Audio (PipeWire), network (NetworkManager), Bluetooth (BlueZ), battery (UPower), notifications
+(the freedesktop spec), tray (StatusNotifierItem), MPRIS, weather, GPU, brightness (sysfs and DDC/CI), idle and
+lock. Each is one producer for the whole process, however many surfaces subscribe.
+
+**Theming.** Built-in palettes, or a scheme derived from the current wallpaper in OkLCH with a WCAG-AA contrast
+pass over the result.
+
+## Install
+
+```sh
+cargo build --release        # target/release/hyprshell
+```
+
+hyprshell builds against a sibling checkout of the [`rsx`](../rsx) UI framework, by path — the two are
+developed together, and a fix that is agnostic to this shell belongs upstream. Lay the two out side by side:
+
+```
+somewhere/
+├── hyprshell/
+└── rsx/
+```
+
+Start it from your compositor:
+
+```ini
+# ~/.config/hypr/hyprland.conf
+exec-once = hyprshell
+```
+
+The first run writes an annotated `~/.config/hyprshell/config.toml`.
+
+## Configuring
+
+Two commands answer everything, from the build you are running rather than from a document that can drift:
+
+```sh
+hyprshell config schema          # every section and key, annotated from the source's own doc comments
+hyprshell config schema <name>   # just one section
+hyprshell --list                 # every command, target and argument
+```
+
+`config schema` prints a complete, valid `config.toml`, so `hyprshell config schema > config.toml` is also how
+you get a file with every key in it to edit down.
+
+Config lives in `~/.config/hyprshell/`:
+
+| File | What it is |
+| --- | --- |
+| `config.toml` | everything; hot-reloaded, non-destructively, on save |
+| `tokens.toml` | design-token overrides. Deliberately unstable — `[theme]` is the supported surface |
+| `monitors/<output>/config.toml` | per-monitor overrides, same shape as the global file |
+| `state.json` | runtime state the shell owns (the current wallpaper), not settings |
+
+Or press the gear: the settings module is a full settings application — a nav pane, twelve pages and a search
+box over every key, including the ones no form displays.
+
+## Controlling it
+
+Every action is an IPC command, so a keybind is a shell command:
+
+```sh
+hyprshell volume up
+hyprshell launcher toggle
+hyprshell screenshot region
+hyprshell brightness up DP-2
+hyprshell lock on
+```
+
+26 targets: `shell` `lock` `idle` `panel` `launcher` `audio` `dashboard` `apps` `notifs` `screenshot` `record`
+`toast` `volume` `mic` `weather` `gamemode` `wifi` `vpn` `bluetooth` `media` `session` `keyboard` `brightness`
+`wallpaper` `scheme` `config`. Run `hyprshell --list` for the arguments.
+
+The shell also registers its actions as XDG global shortcuts, so they can be bound from the portal instead —
+`hyprctl globalshortcuts` prints the names. See [`docs/keybinds.md`](docs/keybinds.md).
+
+## Dependencies
+
+Nothing below is required to start the shell. Each one is missing gracefully: the module that needs it reports
+unknown rather than zero, or does not appear at all.
+
+### Required
+
+| | |
+| --- | --- |
+| Wayland compositor | with `wlr-layer-shell` |
+| `fontconfig` | font discovery |
+
+### Optional, per feature
+
+| Feature | Needs | Without it |
+| --- | --- | --- |
+| Audio, mic, per-app volume | PipeWire (`pw-dump`, `wpctl`) | the audio modules stay empty |
+| Audio visualiser | PipeWire (`pw-cat`) | the bars stay silent |
+| Network | NetworkManager (D-Bus) | the network module reports no connection |
+| VPN | NetworkManager | the VPN list is empty |
+| Bluetooth | BlueZ (D-Bus) | the Bluetooth module is hidden |
+| Battery | UPower (D-Bus), or `/sys/class/power_supply` | the battery chip is hidden |
+| Backlight | `/sys/class/backlight` | internal brightness is unavailable |
+| External monitor brightness | `ddcutil` | only internal panels are dimmable |
+| Notifications | none — hyprshell *is* the daemon | — |
+| Tray | apps speaking StatusNotifierItem | the tray is empty |
+| Media | any MPRIS player | the media chip is hidden |
+| Screenshot | `wlr-screencopy` (`grim` as a fallback) | capture is unavailable |
+| Screen recording | `wf-recorder` or `gpu-screen-recorder` | recording is unavailable |
+| Clipboard | `wl-copy` | `[screenshot] copy` does nothing |
+| Session lock | `ext-session-lock` + PAM | `lock status` says the session cannot be locked |
+| Face unlock | `howdy` | password only |
+| Fingerprint unlock | `fprintd` (D-Bus) | password only |
+| Idle actions | `ext-idle-notify` | idle timers do not arm |
+| Global shortcuts | `xdg-desktop-portal` with GlobalShortcuts | bind the IPC commands directly instead |
+| Game mode | `gamemoded` (D-Bus) | the toggle is greyed out |
+| GPU readings | `nvidia-smi`, or `/sys/class/drm` (AMD/Intel) | GPU fields read unknown |
+| Launcher calculator | `qalc` | a built-in evaluator handles the common cases |
+| Weather | network access | the weather card says so |
+| Workspaces, window info | Hyprland IPC | those modules are hidden |
+
+## Development
+
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+**`cargo fmt` needs the file list handed to it.** `rsx_modules!` generates the crate's `mod` declarations at
+expansion time, and rustfmt walks the module tree from the crate root — so it reaches almost nothing here and
+`cargo fmt --check` passes while formatting one file. This is the honest form:
+
+```sh
+cargo fmt --check -- $(find apps crates -name '*.rs' -not -path '*/target/*' -not -path '*/.rsx/*')
+```
+
+(`.rsx/build` is the transpiler's own output, not source.)
+
+Anything with a look has a PNG test behind an env var:
+
+```sh
+RSX_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture
+RSX_VISUAL_SPECTRUM_OUT=/tmp/v.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture
+RSX_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture
+RSX_PERF=1 hyprshell                 # per-phase frame timing
+```
+
+## Licence
+
+See the repository root.
