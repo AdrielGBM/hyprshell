@@ -21,10 +21,17 @@ use crate::shared::icon::icon_view;
 use crate::shared::lyrics;
 use crate::shared::reactive::{Live, derive, fixed, fixed_text};
 use crate::shared::services::mpris::{self, LoopStatus, Playback, Player};
+use crate::shared::services::visualiser;
 use crate::shared::theme::{FontRole, NordTheme};
 use crate::shared::{picture, widget};
 
 const COVER: f32 = 96.0;
+
+/// Clearance between the art's edge and the innermost bar of the visualiser ring, and how far the bars reach
+/// past it. Together they are how much wider the heading's first column gets when the ring is switched on.
+const RING_GAP: f32 = 6.0;
+const RING_REACH: f32 = 22.0;
+
 const TRANSPORT_ICON: f32 = 22.0;
 const PRIMARY_ICON: f32 = 30.0;
 
@@ -47,7 +54,7 @@ pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
         move |micros| ticker.set(micros),
     );
 
-    let mut cards = vec![now_playing(player.clone(), position.clone(), theme)?];
+    let mut cards = vec![now_playing(player.clone(), position.clone(), config, theme)?];
     if config.lyrics.enabled {
         cards.push(lyrics_card(player, position, theme)?);
     }
@@ -225,6 +232,7 @@ fn poll_position(tx: platform_layershell::EventSender<i64>, interval: Duration) 
 fn now_playing(
     player: RwSignal<Player>,
     position: RwSignal<i64>,
+    config: &Config,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = derive(player.clone(), |p| {
@@ -246,7 +254,7 @@ fn now_playing(
             .gap(14.0)
             .width(SizeDimension::Percent(1.0)),
         vec![
-            cover(player.clone(), theme)?,
+            cover(player.clone(), config, theme)?,
             Box::new(Container::new(
                 LayoutStyle::new().flex_column().flex_grow(1.0).gap(4.0),
                 vec![
@@ -267,10 +275,59 @@ fn now_playing(
     card.build(theme)
 }
 
-/// The cover, or a placeholder while there is nothing to show. A keyed list over the resolved file rather than
-/// a plain image, so the art is decoded once per picture instead of once per repaint, and so the placeholder is
-/// swapped for the real thing when the download lands.
-fn cover(player: RwSignal<Player>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+/// The cover, ringed by the visualiser when `[media] visualiser` asks for it.
+///
+/// The ring is drawn *behind* the art in a box the art is centred in, so switching it on does not move the
+/// title beside it by a different amount than it moves the picture. Nothing subscribes to the spectrum unless
+/// the key is on, which is what keeps a media page from opening an audio capture nobody asked for.
+fn cover(
+    player: RwSignal<Player>,
+    config: &Config,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let art = cover_art(player, theme)?;
+    if !config.media.visualiser {
+        return Ok(art);
+    }
+
+    let bands = signal(visualiser::Spectrum::quiet(config.visualiser.band_count()).bars);
+    let sink = bands.clone();
+    platform_layershell::watch(visualiser::subscribe, move |spectrum: visualiser::Spectrum| {
+        sink.set(spectrum.bars)
+    });
+
+    // No fade and no floor: a silent spectrum is every bar at zero length, which draws nothing. The ring
+    // hides itself by being made of the readings rather than by a rule about them.
+    let ring = widget::spectrum_ring(
+        derive(bands.read_only(), |bars| bars),
+        fixed(theme.accent),
+        COVER / 2.0 + RING_GAP,
+        RING_REACH,
+        widget::SpectrumStyle {
+            gap: 1.5,
+            radius: 1.5,
+            floor: 0.0,
+        },
+        LayoutStyle::new().absolute_fill(),
+    )?;
+
+    let size = COVER + (RING_GAP + RING_REACH) * 2.0;
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .width(size)
+            .height(size)
+            .flex_shrink(0.0)
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::CENTER),
+        vec![ring, art],
+    )?))
+}
+
+/// The art itself, or a placeholder while there is nothing to show. A keyed list over the resolved file rather
+/// than a plain image, so the art is decoded once per picture instead of once per repaint, and so the
+/// placeholder is swapped for the real thing when the download lands.
+fn cover_art(player: RwSignal<Player>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let source = derive(player, |p| p.art_url.clone());
     let rows = ReactiveList::with_gap(
         move || vec![art_file(&source.get())],
@@ -627,5 +684,41 @@ mod tests {
             rect.height
         );
         assert!(rect.width > 0.0);
+    }
+
+    /// The ring is drawn *behind* the art, so the thing that can go wrong is silent: the art keeps its size and
+    /// the bars are simply clipped away by a box that never grew. Measured, not built, for that reason.
+    #[test]
+    fn the_cover_grows_by_the_ring_only_when_the_ring_is_on() {
+        use rsx::{AvailableSpace, compute_layout, new_container};
+
+        let measured = |visualiser: bool| {
+            rsx::reset_layout_runtime();
+            rsx::set_theme(NordTheme::new());
+            let mut config = Config::starter();
+            config.media.visualiser = visualiser;
+            let cover = cover(signal(Player::default()), &config, NordTheme::new())
+                .expect("the cover builds");
+            let rect = track_layout(cover.layout_node()).expect("the cover registers its rect");
+            let root = new_container(
+                LayoutStyle::new().flex_row().width(420.0).height(400.0),
+                &[cover.layout_node()],
+            )
+            .expect("root");
+            compute_layout(
+                root,
+                AvailableSpace::Definite(420.0),
+                AvailableSpace::Definite(400.0),
+            )
+            .expect("layout");
+            rect.get()
+        };
+
+        assert_eq!(measured(false).width, COVER, "off, the art is the whole column");
+        assert_eq!(
+            measured(true).width,
+            COVER + (RING_GAP + RING_REACH) * 2.0,
+            "on, the column has to hold the bars as well as the picture"
+        );
     }
 }

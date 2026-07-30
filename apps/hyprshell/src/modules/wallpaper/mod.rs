@@ -23,7 +23,8 @@ use rsx::{
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, WallpaperTransition};
-use crate::shared::services::{clock, wallpaper};
+use crate::shared::reactive::{derive, fixed};
+use crate::shared::services::{clock, visualiser, wallpaper};
 use crate::shared::theme::FontRole;
 
 /// How far a wipe travels when the compositor has not said how wide this screen is. Only reached before the
@@ -72,6 +73,12 @@ impl WallpaperApp {
             match clock_face(&self.config) {
                 Ok(face) => layers.push(face),
                 Err(e) => tracing::warn!("desktop clock: {e}"),
+            }
+        }
+        if self.config.background.visualiser.enabled {
+            match visualiser_row(&self.config) {
+                Ok(row) => layers.push(row),
+                Err(e) => tracing::warn!("background visualiser: {e}"),
             }
         }
         Container::new(fill(), layers)
@@ -355,6 +362,102 @@ fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(placed))
 }
 
+/// The audio visualiser drawn on the wallpaper (`[background.visualiser]`).
+///
+/// It is a layer over the images rather than a widget inside them for the same reason the clock is: the two
+/// image slots ping-pong, and anything laid out among them would move with a cross-fade.
+///
+/// **The row hides itself by opacity, never by leaving the tree.** Rebuilding a surface's children on a value
+/// that changes with the music is a re-layout per frame; and the spectrum service stops publishing entirely
+/// once the sound does, so the last frame it sends is the all-zero one that starts the fade — the row costs
+/// exactly one animation after the music stops and nothing at all thereafter.
+fn visualiser_row(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let settings = config.background.visualiser;
+    let theme = config.resolve_theme();
+    let tint = if settings.accent { theme.accent } else { theme.text };
+
+    let start = visualiser::Spectrum::quiet(config.visualiser.band_count());
+    let bands = signal(start.bars.clone());
+    let silent = signal(start.silent);
+    let (next_bands, next_silent) = (bands.clone(), silent.clone());
+    platform_layershell::watch(
+        visualiser::subscribe,
+        move |spectrum: visualiser::Spectrum| {
+            next_bands.set(spectrum.bars);
+            next_silent.set(spectrum.silent);
+        },
+    );
+
+    let row = crate::shared::widget::spectrum(
+        derive(bands.read_only(), |bars| bars),
+        fixed(tint.with_alpha(settings.alpha())),
+        settings.edge,
+        crate::shared::widget::SpectrumStyle {
+            gap: settings.gap_px(),
+            radius: settings.radius_px(),
+            floor: 0.0,
+        },
+        thickness(settings.edge, settings.reach_px()),
+    )?;
+
+    let fade = visualiser_fade(config, silent.read_only());
+    let layer = StyledContainer::new(
+        fill()
+            .absolute_fill()
+            .flex_row()
+            .padding_all(settings.margin as f32)
+            .align_items(align_items(match settings.edge {
+                crate::core::config::Edge::Top => Align::Start,
+                crate::core::config::Edge::Bottom => Align::End,
+                _ => Align::Center,
+            }))
+            .justify_content(justify(match settings.edge {
+                crate::core::config::Edge::Left => Align::Start,
+                crate::core::config::Edge::Right => Align::End,
+                _ => Align::Center,
+            })),
+        |_| RectStyle::default(),
+        vec![row],
+    )?
+    .with_opacity(fade);
+    Ok(Box::new(layer))
+}
+
+/// The row's own box: as long as the edge it stands on, as deep as its reach.
+fn thickness(edge: crate::core::config::Edge, reach: f32) -> LayoutStyle {
+    if edge.is_horizontal() {
+        LayoutStyle::new()
+            .width(SizeDimension::Percent(1.0))
+            .height(reach)
+    } else {
+        LayoutStyle::new()
+            .width(reach)
+            .height(SizeDimension::Percent(1.0))
+    }
+}
+
+/// How opaque the row is: one when there is sound, zero when `hide_when_silent` and there is not.
+///
+/// The same two shapes `fade_control` has, and for the same reason — with animation off, an `Animated` would be
+/// a tween with no duration to divide by.
+fn visualiser_fade(config: &Config, silent: rsx::ReadSignal<bool>) -> Box<dyn Fn() -> f32> {
+    if !config.background.visualiser.hide_when_silent {
+        return Box::new(|| 1.0);
+    }
+    if !config.animation.enabled {
+        return Box::new(move || if silent.get() { 0.0 } else { 1.0 });
+    }
+    let fade = Animated::new(0.0f32, config.animation.tween_ms(400, 5_000));
+    let target = fade.clone();
+    Box::new(move || {
+        // Read out first: the retarget is what makes the row appear, and it has to be registered as a
+        // dependency on the frame that draws nothing too.
+        let quiet = silent.get();
+        target.retarget(if quiet { 0.0 } else { 1.0 });
+        fade.get()
+    })
+}
+
 fn align_items(align: Align) -> AlignItems {
     match align {
         Align::Start => AlignItems::FLEX_START,
@@ -418,6 +521,37 @@ mod tests {
             };
             let _ = built(config);
         }
+    }
+
+    #[test]
+    fn the_visualiser_builds_on_every_edge_and_with_the_fade_both_ways() {
+        // The build is what runs the closures: the opacity closure retargets an animation, and the row's own
+        // box swaps its axis per edge, neither of which any other test reaches.
+        for edge in crate::core::config::Edge::ALL {
+            for hide in [true, false] {
+                for animated in [true, false] {
+                    let mut config = Config::starter();
+                    config.background.visualiser = crate::core::config::BackgroundVisualiserConfig {
+                        enabled: true,
+                        edge,
+                        hide_when_silent: hide,
+                        ..crate::core::config::BackgroundVisualiserConfig::default()
+                    };
+                    config.animation.enabled = animated;
+                    let _ = built(config);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn switching_the_visualiser_on_is_enough_to_open_the_surface() {
+        // Every other way of putting something on the wallpaper implies the surface; a visualiser that needed
+        // `enabled = true` beside it would read as a setting that does nothing.
+        let mut config = Config::starter();
+        assert!(!config.background.is_enabled());
+        config.background.visualiser.enabled = true;
+        assert!(config.background.is_enabled());
     }
 
     #[test]
