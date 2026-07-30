@@ -12,7 +12,7 @@ use crate::core::config::{
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
     CornersConfig, DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig,
     FullscreenPopups, GeneralConfig, GpuConfig,
-    IconsConfig, LauncherConfig, LockStatusConfig, MediaConfig, MediaScroll, ModuleEntry,
+    IconsConfig, LauncherConfig, LockStatusConfig, LyricsConfig, MediaConfig, MediaScroll, ModuleEntry,
     KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, Placement, PopoutsConfig,
     RecorderConfig, ScaleConfig, ScreenshotConfig, Shape,
     ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
@@ -95,6 +95,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         clock_section(&config, &path, theme)?,
         active_window_section(&config, &path, theme)?,
         media_section(&config, &path, theme)?,
+        lyrics_section(&config, &path, theme)?,
         workspaces_section(&config, &path, theme)?,
         audio_section(&config, &path, theme)?,
         brightness_section(&config, &path, theme)?,
@@ -1035,6 +1036,36 @@ fn media_section(
     section(|| rsx::t!("settings.section.media"), rows, save, theme)
 }
 
+fn lyrics_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let l = &config.lyrics;
+    let enabled = signal(l.enabled);
+    let online = signal(l.online);
+
+    // The folder is `[paths] lyrics`, edited with the other paths rather than duplicated here.
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.lyrics_online"),
+            online.clone(),
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.lyrics"), theme, move || {
+        let value = LyricsConfig {
+            enabled: enabled.peek(),
+            online: online.peek(),
+        };
+        persist(&path, "lyrics", &value);
+    })?;
+    section(|| rsx::t!("settings.section.lyrics"), rows, save, theme)
+}
+
 fn audio_section(
     config: &Config,
     path: &Path,
@@ -1077,18 +1108,27 @@ fn brightness_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let b = config.brightness;
     let increment = signal(b.increment.to_string());
+    let external = signal(b.external);
 
-    let rows = vec![text_field(
-        || rsx::t!("settings.field.increment"),
-        increment.clone(),
-        "5",
-        theme,
-    )?];
+    let rows = vec![
+        text_field(
+            || rsx::t!("settings.field.increment"),
+            increment.clone(),
+            "5",
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.external_monitors"),
+            external.clone(),
+            theme,
+        )?,
+    ];
 
     let path = path.to_path_buf();
     let save = save_button(|| rsx::t!("settings.save.brightness"), theme, move || {
         let value = BrightnessConfig {
             increment: parse_i32(&increment.peek(), b.increment),
+            external: external.peek(),
         };
         persist(&path, "brightness", &value);
     })?;
@@ -1153,6 +1193,7 @@ fn launcher_section(
     let max_results = signal(l.max_results.to_string());
     let fuzzy = signal(l.fuzzy);
     let calculator = signal(l.calculator);
+    let qalc = signal(l.qalc);
     let dangerous = signal(l.enable_dangerous_actions);
     let favourites = signal(join_csv(&l.favourites));
     let hidden = signal(join_csv(&l.hidden));
@@ -1177,6 +1218,7 @@ fn launcher_section(
             calculator.clone(),
             theme,
         )?,
+        toggle_field(|| rsx::t!("settings.field.qalc"), qalc.clone(), theme)?,
         toggle_field(
             || rsx::t!("settings.field.enable_dangerous_actions"),
             dangerous.clone(),
@@ -1206,6 +1248,7 @@ fn launcher_section(
             max_results: parse_u32(&max_results.peek(), base.max_results),
             fuzzy: fuzzy.peek(),
             calculator: calculator.peek(),
+            qalc: qalc.peek(),
             favourites: split_csv(&favourites.peek()),
             hidden: split_csv(&hidden.peek()),
             // A list of tables, so it stays hand-edited in the TOML; carrying it through means saving here

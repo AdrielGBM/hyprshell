@@ -1174,11 +1174,16 @@ impl AudioConfig {
 #[serde(default)]
 pub struct BrightnessConfig {
     pub increment: i32,
+    /// Control external monitors over DDC/CI with `ddcutil`, so a desktop with no backlight is dimmable at all. Costs one detection (a few seconds, on the service's own thread) at startup; does nothing when ddcutil is not installed.
+    pub external: bool,
 }
 
 impl Default for BrightnessConfig {
     fn default() -> Self {
-        Self { increment: 5 }
+        Self {
+            increment: 5,
+            external: true,
+        }
     }
 }
 
@@ -1531,6 +1536,29 @@ impl NetworkConfig {
 
     pub fn network_limit(&self) -> usize {
         self.max_networks.max(1) as usize
+    }
+}
+
+/// Timed lyrics (`[lyrics]`).
+///
+/// Where hand-kept `.lrc` files live is `[paths] lyrics`, with every other folder the shell owns — a file sitting
+/// next to the audio track is found without either. `online` is the only part of the feature that asks a third party
+/// anything (it sends the artist, title, album and length of what is playing to LRCLIB), so it is a switch of its
+/// own rather than part of `enabled`.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(default)]
+pub struct LyricsConfig {
+    pub enabled: bool,
+    /// Look the words up on LRCLIB when there is no local file. Sends the track's tags to that service.
+    pub online: bool,
+}
+
+impl Default for LyricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            online: true,
+        }
     }
 }
 
@@ -1915,8 +1943,10 @@ pub struct LauncherConfig {
     pub radius: f32,
     pub max_results: u32,
     pub fuzzy: bool,
-    /// Show the calculator's answer above the app matches when the query reads as arithmetic.
+    /// Show the calculator's answer above the app matches when the query reads as arithmetic. Unit conversions (`3 km in mi`) count as arithmetic.
     pub calculator: bool,
+    /// Fall back to `qalc` (Qalculate) for an explicit `=` query the built-in evaluator cannot answer — currencies, constants, dates. Silently does nothing when qalc is not installed.
+    pub qalc: bool,
     pub favourites: Vec<String>,
     pub hidden: Vec<String>,
     pub actions: Vec<LauncherAction>,
@@ -1934,6 +1964,7 @@ impl Default for LauncherConfig {
             max_results: 12,
             fuzzy: true,
             calculator: true,
+            qalc: true,
             favourites: Vec::new(),
             hidden: Vec::new(),
             actions: Vec::new(),
@@ -2376,6 +2407,7 @@ pub struct Config {
     pub active_window: ActiveWindowConfig,
     pub clock: ClockConfig,
     pub media: MediaConfig,
+    pub lyrics: LyricsConfig,
     pub workspaces: WorkspacesConfig,
     pub launcher: LauncherConfig,
     pub audio: AudioConfig,
@@ -2900,6 +2932,7 @@ impl Config {
             active_window: ActiveWindowConfig::default(),
             clock: ClockConfig::default(),
             media: MediaConfig::default(),
+            lyrics: LyricsConfig::default(),
             workspaces: WorkspacesConfig::default(),
             launcher: LauncherConfig::default(),
             audio: AudioConfig::default(),

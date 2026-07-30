@@ -37,6 +37,7 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("active_window", "ActiveWindowConfig"),
         ("clock", "ClockConfig"),
         ("media", "MediaConfig"),
+        ("lyrics", "LyricsConfig"),
         ("workspaces", "WorkspacesConfig"),
         ("launcher", "LauncherConfig"),
         ("audio", "AudioConfig"),
