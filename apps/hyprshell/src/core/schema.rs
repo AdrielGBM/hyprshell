@@ -41,6 +41,7 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("workspaces", "WorkspacesConfig"),
         ("launcher", "LauncherConfig"),
         ("audio", "AudioConfig"),
+        ("visualiser", "VisualiserConfig"),
         ("brightness", "BrightnessConfig"),
         ("temperature", "TemperatureConfig"),
         ("battery", "BatteryConfig"),
@@ -165,7 +166,7 @@ fn render_section(section: &str, value: &toml::Value, structure: &str) -> String
         }
         let rendered = toml::to_string(&toml::map::Map::from_iter([(
             key.clone(),
-            entry.clone(),
+            narrow_float(entry),
         )]))
         .unwrap_or_default();
         out.push_str(&rendered);
@@ -210,8 +211,11 @@ fn render_nested(
             out.push_str(&comment(doc, ""));
         }
         out.push_str(
-            &toml::to_string(&toml::map::Map::from_iter([(key.clone(), entry.clone())]))
-                .unwrap_or_default(),
+            &toml::to_string(&toml::map::Map::from_iter([(
+                key.clone(),
+                narrow_float(entry),
+            )]))
+            .unwrap_or_default(),
         );
     }
     out.push_str(&render_unset(table, structure));
@@ -225,6 +229,48 @@ fn type_of(structure: &str, field: &str) -> Option<&'static str> {
         .iter()
         .find(|(owner, name, _)| *owner == structure && *name == field)
         .map(|(_, _, kind)| *kind)
+}
+
+/// The struct backing a section path — `background` or `background.clock` — by walking the field types.
+fn struct_for(path: &str) -> Option<&'static str> {
+    let mut parts = path.split('.');
+    let mut current = *section_structs().get(parts.next()?)?;
+    for part in parts {
+        current = type_of(current, part)?;
+    }
+    Some(current)
+}
+
+/// Whether the config section at `path` has a key — or a key's explanation — containing `needle`, which the
+/// caller has already lowercased.
+///
+/// This is what the settings search matches against. Every form's fields are keys on a struct and every key's
+/// prose is already lifted off the source for the reference, so a search built on it finds a setting by the
+/// words that *explain* it without any form having to register its rows a second time — and cannot go stale
+/// when a form gains one.
+pub fn section_mentions(path: &str, needle: &str) -> bool {
+    let Some(structure) = struct_for(path) else {
+        return false;
+    };
+    CONFIG_DOCS.iter().any(|(owner, field, doc)| {
+        *owner == structure
+            && (field.to_lowercase().contains(needle) || doc.to_lowercase().contains(needle))
+    })
+}
+
+/// An `f32` config value printed the way it was written rather than the way it widens.
+///
+/// Serde has one float type and it is `f64`, so `0.35f32` reaches the serializer as `0.3499999940395355` and
+/// the generated reference documents a default nobody typed. The test for "this came from an `f32`" is that
+/// narrowing round-trips exactly — true for every value an `f32` field can hold and false for a `f64` carrying
+/// more precision than one, which is left alone.
+fn narrow_float(entry: &toml::Value) -> toml::Value {
+    match entry.as_float() {
+        Some(value) if (value as f32) as f64 == value => {
+            toml::Value::Float((value as f32).to_string().parse().unwrap_or(value))
+        }
+        _ => entry.clone(),
+    }
 }
 
 /// `entry` as a non-empty array of tables, which is the one shape that needs its own header.
@@ -291,6 +337,25 @@ mod tests {
         // And it round-trips: what the reference prints is a config the shell would accept.
         let parsed: Config = toml::from_str(&text).expect("the printed schema parses");
         assert_eq!(parsed.notifications.max_visible, 4);
+    }
+
+    #[test]
+    fn an_f32_default_is_printed_as_it_was_written() {
+        // Serde has one float type, so every `f32` default reaches the printer widened: `0.35` came out as
+        // `0.3499999940395355`, and the reference documented a number nobody typed and no one would copy.
+        let text = render(None).expect("renders");
+        assert!(text.contains("background_opacity = 0.35"), "{text}");
+        assert!(text.contains("beat_sensitivity = 1.35"), "{text}");
+        assert!(
+            !text.contains("0.3499999"),
+            "a widened f32 is still being printed: {text}"
+        );
+        // And the shorter spelling still parses back to the same value the code holds.
+        let parsed: Config = toml::from_str(&text).expect("the printed schema parses");
+        assert_eq!(
+            parsed.background.clock.background_opacity,
+            Config::starter().background.clock.background_opacity
+        );
     }
 
     #[test]

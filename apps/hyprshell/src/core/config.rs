@@ -13,6 +13,26 @@ use crate::shared::theme::NordTheme;
 /// Fallback gap a panel keeps from a hugging bar (one with no outer gap of its own) and from the screen edges.
 pub const DEFAULT_PANEL_GAP: u32 = 8;
 
+/// What the settings application spends on its own title bar, search row and padding before any form is drawn.
+/// Subtracted from the surface height to size the scrolling page area — see [`Config::settings_page_height`].
+const SETTINGS_CHROME: f32 = 108.0;
+
+/// Modules whose panel is an *application* rather than a card, and the float each needs, as `(id, w, h)`.
+///
+/// The default open mode is a drawer because that is what a panel is: a card dropped under the chip you
+/// pressed. Settings is not that — it is a nav pane with a page beside it — and in a 320px drawer the nav
+/// leaves no room for a form at all. Putting the answer here rather than in [`Config::starter`] is what makes
+/// it true for the installs that already have a config file, which is all of them after the first run; an
+/// explicit `[modules.<id>]` still wins over it.
+const APPLICATION_PANELS: &[(&str, u32, u32)] = &[("settings", 920, 680)];
+
+fn application_panel(id: &str) -> Option<(u32, u32)> {
+    APPLICATION_PANELS
+        .iter()
+        .find(|(name, _, _)| *name == id)
+        .map(|(_, width, height)| (*width, *height))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Edge {
@@ -195,13 +215,17 @@ pub enum OpenMode {
     Float,
 }
 
-/// Per-module presentation override, keyed by module id under `[modules.<id>]`: container variant, an accent token that wins over the global `[theme] accent`, and how its panel opens.
+/// Per-module presentation override, keyed by module id under `[modules.<id>]`: container variant, an accent token that wins over the global `[theme] accent`, how its panel opens, and how large it opens.
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct ModuleOverride {
     pub variant: Variant,
     pub accent: Option<String>,
     pub open: OpenMode,
+    /// Overrides `[panels.float] width` for this module's float, in logical px. Unset follows the global size.
+    pub width: Option<u32>,
+    /// Overrides `[panels.float] height` for this module's float, in logical px.
+    pub height: Option<u32>,
 }
 
 /// Which bar zone a module sits in; a drawer derives its cross-axis alignment from this.
@@ -668,6 +692,7 @@ pub struct BackgroundConfig {
     /// How long that transition runs, before `[animation] duration_scale`. Ignored while `[animation] enabled` is off, which makes every change instant.
     pub transition_ms: u64,
     pub clock: DesktopClockConfig,
+    pub visualiser: BackgroundVisualiserConfig,
 }
 
 impl Default for BackgroundConfig {
@@ -679,6 +704,7 @@ impl Default for BackgroundConfig {
             transition: WallpaperTransition::default(),
             transition_ms: 600,
             clock: DesktopClockConfig::default(),
+            visualiser: BackgroundVisualiserConfig::default(),
         }
     }
 }
@@ -690,6 +716,7 @@ impl BackgroundConfig {
             || self.image.is_some()
             || !self.monitors.is_empty()
             || self.clock.enabled
+            || self.visualiser.enabled
     }
 
     /// The image `[background]` alone would paint on `output`: its per-monitor entry, else the global `image`.
@@ -765,6 +792,83 @@ impl Placement {
             _ => Align::End,
         };
         (vertical, horizontal)
+    }
+}
+
+/// The audio visualiser drawn on the wallpaper itself (`[background.visualiser]`), along one screen edge. Off
+/// by default, and it costs nothing while it is: nothing captures audio until a surface subscribes.
+///
+/// What the bars *are* — how many, how smooth, how loud — is `[visualiser]`, shared with every other consumer.
+/// This section is only the look, so turning the count up here would be turning it up on the media card too,
+/// which is why it is not a key here.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct BackgroundVisualiserConfig {
+    pub enabled: bool,
+    /// Which screen edge the bars stand on. They always grow away from it, so `left` gives a column up the side.
+    pub edge: Edge,
+    /// How far the tallest bar reaches from that edge, in px.
+    pub reach: u32,
+    /// The gap between two bars, in px.
+    pub gap: f32,
+    /// How round a bar's ends are, in px. `0` is square; half the bar's own width is a capsule.
+    pub radius: f32,
+    /// How opaque the bars are over the wallpaper, `0`–`1`.
+    pub opacity: f32,
+    /// Fade the bars out when nothing is playing, rather than leaving a flat line across the screen.
+    pub hide_when_silent: bool,
+    /// Draw the bars in the theme's accent colour rather than its text colour.
+    pub accent: bool,
+    /// How far the row is held off its edge, in px — for a screen whose bar already sits there.
+    pub margin: u32,
+}
+
+impl Default for BackgroundVisualiserConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            edge: Edge::Bottom,
+            reach: 140,
+            gap: 3.0,
+            radius: 3.0,
+            opacity: 0.75,
+            hide_when_silent: true,
+            accent: true,
+            margin: 0,
+        }
+    }
+}
+
+impl BackgroundVisualiserConfig {
+    /// How far the bars reach, bounded: a reach of zero is a row that cannot be seen, and one taller than any
+    /// screen is a wallpaper made of bars.
+    pub fn reach_px(&self) -> f32 {
+        self.reach.clamp(8, 2000) as f32
+    }
+
+    /// The bar opacity, never fully transparent — a visualiser switched on is one that can be seen.
+    pub fn alpha(&self) -> f32 {
+        if self.opacity.is_finite() {
+            self.opacity.clamp(0.05, 1.0)
+        } else {
+            0.75
+        }
+    }
+
+    pub fn gap_px(&self) -> f32 {
+        if self.gap.is_finite() {
+            self.gap.clamp(0.0, 40.0)
+        } else {
+            3.0
+        }
+    }
+
+    pub fn radius_px(&self) -> f32 {
+        if self.radius.is_finite() {
+            self.radius.clamp(0.0, 40.0)
+        } else {
+            3.0
+        }
     }
 }
 
@@ -1165,6 +1269,100 @@ impl AudioConfig {
     /// The sink ceiling, never under 100 % — a sink must at least reach its own nominal maximum.
     pub fn ceiling(&self) -> i32 {
         self.max_volume.clamp(100, 300)
+    }
+}
+
+/// The audio visualiser's *source* (`[visualiser]`): how the sound coming out of the speakers is turned into
+/// bars. Shared by everything that draws it — the desktop background, the media card — so the analysis is
+/// described once and the look belongs to each consumer's own section.
+///
+/// Nothing here starts a capture on its own: the service behind it runs only while something is subscribed, so
+/// a shell with no visualiser switched on never opens a stream.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct VisualiserConfig {
+    /// How many bands the spectrum is folded into — the number of bars every consumer draws.
+    pub bars: u32,
+    /// How much of the previous frame each bar keeps, 0–1. Higher is smoother and slower; `0` follows the transform exactly and shimmers.
+    pub smoothing: f32,
+    /// How quiet a band has to be to read as nothing, in decibels below full scale. Raise it towards `-40` to make quiet passages flatter, lower it towards `-80` to give them more life.
+    pub floor_db: f32,
+    /// A multiplier applied before the bars are normalised. Above `1` suits quiet sources; the bars clip at the top rather than distorting.
+    pub gain: f32,
+    /// How far above its recent average the bass has to jump to count as a beat. Around `1.1` finds a beat in almost anything; above `2` only the most obvious ones.
+    pub beat_sensitivity: f32,
+    /// Transforms per second. The upper bound on how often a visualiser surface repaints, so it is also the cost.
+    pub frame_rate: u32,
+}
+
+impl Default for VisualiserConfig {
+    fn default() -> Self {
+        Self {
+            bars: 48,
+            smoothing: 0.6,
+            floor_db: -60.0,
+            gain: 1.0,
+            beat_sensitivity: 1.35,
+            frame_rate: 60,
+        }
+    }
+}
+
+impl VisualiserConfig {
+    /// How many bands to compute. Never zero — a spectrum with no bands is a division by its own length — and
+    /// bounded above because past a couple of hundred a band is narrower than one FFT bin.
+    pub fn band_count(&self) -> usize {
+        self.bars.clamp(1, 256) as usize
+    }
+
+    pub fn rate(&self) -> u32 {
+        self.frame_rate.clamp(10, 144)
+    }
+
+    /// How fast a bar rises. Deliberately not the smoothing the user set: a bar that climbs as slowly as it
+    /// falls misses the attack of every note, which is the part a visualiser exists to show. So rising is
+    /// always most of the way there in one frame and only the *fall* is smoothed.
+    pub fn attack(&self) -> f32 {
+        (1.0 - self.smoothed() * 0.4).clamp(0.05, 1.0)
+    }
+
+    /// How fast a bar falls back.
+    pub fn decay(&self) -> f32 {
+        (1.0 - self.smoothed()).clamp(0.02, 1.0)
+    }
+
+    fn smoothed(&self) -> f32 {
+        if self.smoothing.is_finite() {
+            self.smoothing.clamp(0.0, 0.98)
+        } else {
+            0.6
+        }
+    }
+
+    /// The noise floor, always negative — a floor at or above full scale leaves every bar at zero.
+    pub fn floor_db(&self) -> f32 {
+        if self.floor_db.is_finite() {
+            self.floor_db.clamp(-100.0, -10.0)
+        } else {
+            -60.0
+        }
+    }
+
+    pub fn gain(&self) -> f32 {
+        if self.gain.is_finite() {
+            self.gain.clamp(0.1, 10.0)
+        } else {
+            1.0
+        }
+    }
+
+    /// The beat threshold, never at or below `1.0`: a ratio of one calls every frame a beat.
+    pub fn sensitivity(&self) -> f32 {
+        if self.beat_sensitivity.is_finite() {
+            self.beat_sensitivity.clamp(1.05, 5.0)
+        } else {
+            1.35
+        }
     }
 }
 
@@ -1992,6 +2190,8 @@ pub struct MediaConfig {
     pub marquee_speed_ms: u32,
     /// Seconds the wheel moves the playhead per notch, when `scroll = "seek"`.
     pub seek_seconds: u32,
+    /// Ring the dashboard's cover art with the audio visualiser. Costs an audio capture for as long as the media page is open — see `[visualiser]` for what the bars are made of.
+    pub visualiser: bool,
     pub aliases: HashMap<String, String>,
 }
 
@@ -2004,6 +2204,7 @@ impl Default for MediaConfig {
             marquee: false,
             marquee_speed_ms: 220,
             seek_seconds: 5,
+            visualiser: false,
             aliases: HashMap::new(),
         }
     }
@@ -2411,6 +2612,7 @@ pub struct Config {
     pub workspaces: WorkspacesConfig,
     pub launcher: LauncherConfig,
     pub audio: AudioConfig,
+    pub visualiser: VisualiserConfig,
     pub brightness: BrightnessConfig,
     pub temperature: TemperatureConfig,
     pub battery: BatteryConfig,
@@ -2936,6 +3138,7 @@ impl Config {
             workspaces: WorkspacesConfig::default(),
             launcher: LauncherConfig::default(),
             audio: AudioConfig::default(),
+            visualiser: VisualiserConfig::default(),
             brightness: BrightnessConfig::default(),
             temperature: TemperatureConfig::default(),
             battery: BatteryConfig::default(),
@@ -3042,9 +3245,44 @@ impl Config {
             .unwrap_or(&self.theme.accent)
     }
 
-    /// How a module's panel opens when clicked: its `[modules.<id>] open` override, else a drawer.
+    /// How a module's panel opens when clicked: its `[modules.<id>] open` override, else a drawer — except for
+    /// the application panels, which have no drawer-sized form (see [`APPLICATION_PANELS`]).
     pub fn open_mode_for(&self, id: &str) -> OpenMode {
-        self.modules.get(id).map(|m| m.open).unwrap_or_default()
+        match self.modules.get(id) {
+            Some(over) => over.open,
+            None if application_panel(id).is_some() => OpenMode::Float,
+            None => OpenMode::default(),
+        }
+    }
+
+    /// How big `id`'s float opens: its `[modules.<id>]` size override, else the global `[panels.float]`.
+    ///
+    /// Per-module rather than one number for every float because the panels are not one kind of thing. A media
+    /// float is a card; the settings float is an application with a nav pane down its left-hand side, and a
+    /// size that suits one makes the other either cramped or mostly empty. The fallback keeps `[panels.float]`
+    /// meaning what it always did — nothing has to be said per module for a module that does not care.
+    pub fn float_size_for(&self, id: &str) -> (u32, u32) {
+        let over = self.modules.get(id);
+        let (width, height) =
+            application_panel(id).unwrap_or((self.panels.float.width, self.panels.float.height));
+        (
+            over.and_then(|m| m.width).unwrap_or(width),
+            over.and_then(|m| m.height).unwrap_or(height),
+        )
+    }
+
+    /// How tall the settings application's page area is: the surface it opens in, less its header and chrome.
+    ///
+    /// It has to be a number rather than "the rest of the box" because a scroll area is a layout *leaf* — its
+    /// content is laid out as its own root, so nothing inside contributes to its height and a viewport with no
+    /// height of its own measures zero and clips every form away. The same rule the launcher's result list is
+    /// sized by.
+    pub fn settings_page_height(&self) -> f32 {
+        let surface = match self.open_mode_for("settings") {
+            OpenMode::Float => self.float_size_for("settings").1 as f32,
+            OpenMode::Drawer => self.panels.drawer.max_height,
+        };
+        (surface - SETTINGS_CHROME).max(160.0)
     }
 
     /// Which zone (start/center/end) a module occupies on `edge`, for deriving its drawer's alignment. A module

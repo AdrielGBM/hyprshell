@@ -1,14 +1,18 @@
+mod pages;
+
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rsx::{
-    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
+    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
+    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
+    use_theme,
 };
 use serde::Serialize;
 
 use crate::core::config::{
-    ActiveWindowConfig, Align, AppsConfig, AudioConfig, BackgroundConfig, BarConfig, BarsConfig,
+    ActiveWindowConfig, Align, AnimationConfig, AppsConfig, AudioConfig, BackgroundConfig,
+    BackgroundVisualiserConfig, BarConfig, BarsConfig,
     BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
     CornersConfig, DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig,
     FullscreenPopups, GeneralConfig, GpuConfig,
@@ -17,7 +21,7 @@ use crate::core::config::{
     RecorderConfig, ScaleConfig, ScreenshotConfig, Shape,
     ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
     ToastEvents, ToastsConfig, TrayConfig, UtilitiesConfig,
-    WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
+    VisualiserConfig, WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
@@ -37,6 +41,15 @@ const VARIANTS: &[&str] = &["vibrant", "content", "expressive", "fidelity", "mut
 const TRANSITIONS: &[&str] = &["fade", "wipe", "none"];
 const SHOT_BACKENDS: &[&str] = &["auto", "screencopy", "grim"];
 const RECORDER_BACKENDS: &[&str] = &["auto", "wf-recorder", "gpu-screen-recorder"];
+const CURVES: &[&str] = &["gentle", "snappy", "bouncy"];
+const EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out"];
+
+/// The nav pane's width, the gap to the forms beside it, and how wide the search box is. Wide enough for the
+/// longest page label in either catalogue without wrapping, which is what stops the nav reflowing as the
+/// language changes under it.
+const NAV_WIDTH: f32 = 190.0;
+const NAV_GAP: f32 = 24.0;
+const SEARCH_WIDTH: f32 = 220.0;
 const PLACEMENTS: &[&str] = &[
     "center",
     "top_left",
@@ -74,68 +87,209 @@ pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
 /// per-module overrides) stays hand-edited in the TOML for now.
 pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
-    let path = Config::default_path();
-    let config = Config::load_or_default(&path);
+    let path = Arc::new(Config::default_path());
+    let config = Arc::new(Config::load_or_default(&path));
     crate::shared::services::locale::attach(config.language());
 
-    let title = Text::auto(
-        || rsx::t!("settings.title"),
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
-    )?;
+    // The selection and the query are the whole state of the application. Both are plain signals on this
+    // surface: a settings window reopened from scratch should start on the first page, not on wherever the
+    // last one was left, which is a preference nobody asked to have remembered.
+    let selected = signal(0usize);
+    let query = signal(String::new());
 
-    let sections = vec![
-        Box::new(title) as Box<dyn LayoutItem>,
-        general_section(&config, &path, theme)?,
-        theme_section(&config, &path, theme)?,
-        shape_section(&config, &path, theme)?,
-        bars_section(&config, &path, theme)?,
-        panels_section(&config, &path, theme)?,
-        popouts_section(&config, &path, theme)?,
-        clock_section(&config, &path, theme)?,
-        active_window_section(&config, &path, theme)?,
-        media_section(&config, &path, theme)?,
-        lyrics_section(&config, &path, theme)?,
-        workspaces_section(&config, &path, theme)?,
-        audio_section(&config, &path, theme)?,
-        brightness_section(&config, &path, theme)?,
-        temperature_section(&config, &path, theme)?,
-        battery_section(&config, &path, theme)?,
-        lock_status_section(&config, &path, theme)?,
-        lock_section(&config, &path, theme)?,
-        idle_section(&config, &path, theme)?,
-        status_icons_section(&config, &path, theme)?,
-        network_section(&config, &path, theme)?,
-        bluetooth_section(&config, &path, theme)?,
-        gpu_section(&config, &path, theme)?,
-        weather_section(&config, &path, theme)?,
-        dashboard_section(&config, &path, theme)?,
-        paths_section(&config, &path, theme)?,
-        tray_section(&config, &path, theme)?,
-        launcher_section(&config, &path, theme)?,
-        keynav_section(&config, &path, theme)?,
-        osd_section(&config, &path, theme)?,
-        icons_section(&config, &path, theme)?,
-        notifications_section(&config, &path, theme)?,
-        toasts_section(&config, &path, theme)?,
-        screenshot_section(&config, &path, theme)?,
-        recorder_section(&config, &path, theme)?,
-        utilities_section(&config, &path, theme)?,
-        sidebar_section(&config, &path, theme)?,
-        background_section(&config, &path, theme)?,
-        wallpaper_section(&config, &path, theme)?,
-        desktop_clock_section(&config, &path, theme)?,
-        corners_section(&config, &path, theme)?,
-    ];
+    let body = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .gap(NAV_GAP)
+            .width(SizeDimension::Percent(1.0)),
+        vec![
+            nav_pane(selected.clone(), query.read_only(), theme)?,
+            page_stack(selected.read_only(), query.read_only(), config, path, theme)?,
+        ],
+    )?;
 
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(20.0)
+            .gap(16.0)
             .width(SizeDimension::Percent(1.0)),
-        sections,
+        vec![header(query, theme)?, Box::new(body)],
     )?;
     Ok(Box::new(panel))
+}
+
+/// The title and the search box, which is the one control that reaches every page.
+fn header(
+    query: RwSignal<String>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let title = Text::auto(
+        || rsx::t!("settings.title"),
+        LayoutStyle::new().flex_grow(1.0),
+        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+    )?;
+
+    let input = Input::new(
+        query,
+        LayoutStyle::new()
+            .flex_grow(1.0)
+            .height(theme.font(FontRole::Body) * 1.6),
+        move || theme.text_style(FontRole::Body, theme.text),
+    )?
+    .placeholder(rsx::t!("settings.search"));
+    let boxed = StyledContainer::new(
+        LayoutStyle::new()
+            .width(SEARCH_WIDTH)
+            .padding_horizontal(8.0)
+            .padding_vertical(4.0),
+        move |_| RectStyle::filled(theme.base, 8.0),
+        vec![box_item(input)],
+    )?;
+
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(12.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![Box::new(title), Box::new(boxed)],
+    )?))
+}
+
+/// The nav: one row per page, the selected one filled, the ones a search excludes dimmed.
+fn nav_pane(
+    selected: RwSignal<usize>,
+    query: rsx::ReadSignal<String>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(pages::PAGES.len());
+    for (index, page) in pages::PAGES.iter().enumerate() {
+        rows.push(nav_row(index, page, selected.clone(), query.clone(), theme)?);
+    }
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(2.0)
+            .width(NAV_WIDTH)
+            .flex_shrink(0.0),
+        rows,
+    )?))
+}
+
+fn nav_row(
+    index: usize,
+    page: &'static pages::Page,
+    selected: RwSignal<usize>,
+    query: rsx::ReadSignal<String>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let on_fg = theme.accent.most_readable(&[theme.text, theme.base]);
+    // Read out of the two signals in one place: a row's colour depends on both, and the ink has to match
+    // whatever fill the same frame drew.
+    let ink = {
+        let (selected, query) = (selected.read_only(), query.clone());
+        move || {
+            if selected.get() == index {
+                on_fg
+            } else if page.matches(&query.get()) {
+                theme.text
+            } else {
+                theme.muted
+            }
+        }
+    };
+    let label_ink = ink.clone();
+    let label = Text::auto(
+        move || pages::label("settings.page", page.label),
+        LayoutStyle::new().flex_grow(1.0),
+        move || theme.text_style(FontRole::Body, label_ink()),
+    )?;
+    let glyph = icon_view(
+        move || page.icon.to_string(),
+        ink,
+        theme.font(FontRole::Body) * 1.15,
+    )?;
+
+    let fill = selected.read_only();
+    let press = selected;
+    let row = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(10.0)
+            .padding_horizontal(10.0)
+            .padding_vertical(7.0)
+            .width(SizeDimension::Percent(1.0)),
+        move |_| {
+            if fill.get() == index {
+                RectStyle::filled(theme.accent, 8.0)
+            } else {
+                RectStyle::default()
+            }
+        },
+        vec![glyph, Box::new(label)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.surface, 8.0))
+    .on_press(move || press.set(index));
+    Ok(Box::new(row))
+}
+
+/// The forms for the selected page, narrowed by the search.
+///
+/// A keyed list rather than a rebuilt column: the key is the page *and* the query, because narrowing a page
+/// changes which forms are on it, and a list keyed on the page alone would keep showing the ones it had.
+fn page_stack(
+    selected: rsx::ReadSignal<usize>,
+    query: rsx::ReadSignal<String>,
+    config: Arc<Config>,
+    path: Arc<PathBuf>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let height = config.settings_page_height();
+    // The nav is outside this scroll area on purpose: a nav pane that scrolls away with the page it selects is
+    // a list of links you have to scroll back up to use.
+    let scroll = rsx::LayoutScrollArea::new_with(
+        LayoutStyle::new()
+            .flex_column()
+            .flex_grow(1.0)
+            // `min_width(0)` against flexbox's `auto` default: a form's rows are `width: 100%` of whatever they
+            // are given, and a flex item that may not shrink below its content asks for the widest row it has,
+            // which is how the page area ends up wider than the surface it is in.
+            .min_width(0.0)
+            .height(height),
+        move |_viewport| {
+            let (config, path) = (config.clone(), path.clone());
+            let source = move || {
+                // Both read out first: `visible` translates labels, which reads the locale signal, and a
+                // nested read inside another signal's borrow is the re-entrant panic that only fires when the
+                // widget is built.
+                let index = selected.get();
+                let text = query.get();
+                pages::visible(index, &text)
+                    .into_iter()
+                    .map(|section| (text.clone(), section))
+                    .collect()
+            };
+            let build = move |(_, section): (String, &'static pages::Section)| {
+                (section.build)(&config, &path, theme)
+            };
+            Ok(Box::new(ReactiveList::with_style(
+                LayoutStyle::new()
+                    .flex_column()
+                    .gap(20.0)
+                    .width(SizeDimension::Percent(1.0)),
+                source,
+                // Keyed on the query as well as the form, because narrowing changes which forms are here — and
+                // a form rebuilt is a form re-seeded from the file, which is what a user who has just saved
+                // another one expects to see.
+                |(query, section): &(String, &'static pages::Section)| {
+                    (query.clone(), section.label)
+                },
+                build,
+            )?) as Box<dyn LayoutItem>)
+        },
+    )?;
+    Ok(Box::new(scroll))
 }
 
 fn general_section(
@@ -982,6 +1136,7 @@ fn media_section(
     let marquee = signal(m.marquee);
     let marquee_speed = signal(m.marquee_speed_ms.to_string());
     let seek_seconds = signal(m.seek_seconds.to_string());
+    let visualiser = signal(m.visualiser);
 
     let rows = vec![
         text_field(
@@ -1015,6 +1170,11 @@ fn media_section(
             "220",
             theme,
         )?,
+        toggle_field(
+            || rsx::t!("settings.field.cover_visualiser"),
+            visualiser.clone(),
+            theme,
+        )?,
     ];
 
     // Aliases are map-valued, so they stay hand-edited in the TOML for now, like `theme.colors`; carrying the
@@ -1029,6 +1189,7 @@ fn media_section(
             marquee: marquee.peek(),
             marquee_speed_ms: parse_u32(&marquee_speed.peek(), base.marquee_speed_ms),
             seek_seconds: parse_u32(&seek_seconds.peek(), base.seek_seconds),
+            visualiser: visualiser.peek(),
             aliases: base.aliases.clone(),
         };
         persist(&path, "media", &value);
@@ -1099,6 +1260,135 @@ fn audio_section(
         persist(&path, "audio", &value);
     })?;
     section(|| rsx::t!("settings.section.audio"), rows, save, theme)
+}
+
+fn visualiser_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let v = config.visualiser;
+    let bars = signal(v.bars.to_string());
+    let smoothing = signal(v.smoothing.to_string());
+    let floor_db = signal(v.floor_db.to_string());
+    let gain = signal(v.gain.to_string());
+    let beat = signal(v.beat_sensitivity.to_string());
+    let frame_rate = signal(v.frame_rate.to_string());
+
+    let rows = vec![
+        text_field(|| rsx::t!("settings.field.visualiser_bars"), bars.clone(), "48", theme)?,
+        text_field(
+            || rsx::t!("settings.field.smoothing"),
+            smoothing.clone(),
+            "0.6",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.floor_db"),
+            floor_db.clone(),
+            "-60",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.gain"), gain.clone(), "1", theme)?,
+        text_field(
+            || rsx::t!("settings.field.beat_sensitivity"),
+            beat.clone(),
+            "1.35",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.frame_rate"),
+            frame_rate.clone(),
+            "60",
+            theme,
+        )?,
+    ];
+
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.visualiser"), theme, move || {
+        let value = VisualiserConfig {
+            bars: parse_u32(&bars.peek(), v.bars),
+            smoothing: parse_f32(&smoothing.peek(), v.smoothing),
+            floor_db: parse_f32(&floor_db.peek(), v.floor_db),
+            gain: parse_f32(&gain.peek(), v.gain),
+            beat_sensitivity: parse_f32(&beat.peek(), v.beat_sensitivity),
+            frame_rate: parse_u32(&frame_rate.peek(), v.frame_rate),
+        };
+        persist(&path, "visualiser", &value);
+    })?;
+    section(|| rsx::t!("settings.section.visualiser"), rows, save, theme)
+}
+
+fn background_visualiser_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let v = config.background.visualiser;
+    let enabled = signal(v.enabled);
+    let edge = signal(v.edge.as_str().to_string());
+    let reach = signal(v.reach.to_string());
+    let gap = signal(v.gap.to_string());
+    let radius = signal(v.radius.to_string());
+    let opacity = signal(v.opacity.to_string());
+    let hide = signal(v.hide_when_silent);
+    let accent = signal(v.accent);
+    let margin = signal(v.margin.to_string());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        text_field(|| rsx::t!("settings.field.reach"), reach.clone(), "140", theme)?,
+        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "3", theme)?,
+        text_field(|| rsx::t!("settings.field.radius"), radius.clone(), "3", theme)?,
+        text_field(
+            || rsx::t!("settings.field.bar_opacity"),
+            opacity.clone(),
+            "0.75",
+            theme,
+        )?,
+        text_field(|| rsx::t!("settings.field.margin"), margin.clone(), "0", theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.hide_when_silent"),
+            hide.clone(),
+            theme,
+        )?,
+        toggle_field(|| rsx::t!("settings.field.accent"), accent.clone(), theme)?,
+    ];
+
+    let base = config.background.clone();
+    let path = path.to_path_buf();
+    let save = save_button(
+        || rsx::t!("settings.save.background_visualiser"),
+        theme,
+        move || {
+            let visualiser = BackgroundVisualiserConfig {
+                enabled: enabled.peek(),
+                edge: parse_edge(&edge.peek()),
+                reach: parse_u32(&reach.peek(), base.visualiser.reach),
+                gap: parse_f32(&gap.peek(), base.visualiser.gap),
+                radius: parse_f32(&radius.peek(), base.visualiser.radius),
+                opacity: parse_f32(&opacity.peek(), base.visualiser.opacity),
+                hide_when_silent: hide.peek(),
+                accent: accent.peek(),
+                margin: parse_u32(&margin.peek(), base.visualiser.margin),
+            };
+            persist(
+                &path,
+                "background",
+                &BackgroundConfig {
+                    visualiser,
+                    ..base.clone()
+                },
+            );
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.background_visualiser"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn brightness_section(
@@ -2517,6 +2807,7 @@ fn background_section(
             transition: WallpaperTransition::from_id(&transition.peek()).unwrap_or_default(),
             transition_ms: parse_u64(&transition_ms.peek(), base.transition_ms),
             clock: base.clock.clone(),
+            visualiser: base.visualiser,
         };
         persist(&path, "background", &value);
     })?;
@@ -2664,6 +2955,118 @@ fn desktop_clock_section(
         );
     })?;
     section(|| rsx::t!("settings.section.desktop_clock"), rows, save, theme)
+}
+
+fn animation_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let a = &config.animation;
+    let enabled = signal(a.enabled);
+    let scale = signal(a.duration_scale.to_string());
+    let curve = signal(a.curve.clone());
+    let easing = signal(a.easing.clone());
+    let panel_ms = signal(a.panel_duration_ms.to_string());
+
+    let rows = vec![
+        toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        text_field(
+            || rsx::t!("settings.field.duration_scale"),
+            scale.clone(),
+            "1",
+            theme,
+        )?,
+        enum_field(|| rsx::t!("settings.field.curve"), curve.clone(), CURVES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.easing"),
+            easing.clone(),
+            EASINGS,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.panel_duration_ms"),
+            panel_ms.clone(),
+            "180",
+            theme,
+        )?,
+    ];
+
+    let base = a.clone();
+    let path = path.to_path_buf();
+    let save = save_button(|| rsx::t!("settings.save.animation"), theme, move || {
+        let value = AnimationConfig {
+            enabled: enabled.peek(),
+            duration_scale: parse_f32(&scale.peek(), base.duration_scale),
+            curve: curve.peek(),
+            easing: easing.peek(),
+            panel_duration_ms: parse_u64(&panel_ms.peek(), base.panel_duration_ms),
+        };
+        persist(&path, "animation", &value);
+    })?;
+    section(|| rsx::t!("settings.section.animation"), rows, save, theme)
+}
+
+/// K12: what this shell is and what it found to talk to.
+///
+/// Readings, not fields — so it has no Save. The compositor and session lines are what a bug report needs
+/// first and what a user otherwise has to leave the shell to find.
+fn about_section(
+    _config: &Config,
+    _path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let rows = vec![
+        reading_row(|| rsx::t!("settings.field.version"), env!("CARGO_PKG_VERSION"), theme)?,
+        reading_row(
+            || rsx::t!("settings.field.compositor"),
+            &env_or_unknown("HYPRLAND_INSTANCE_SIGNATURE").map_or_else(
+                || rsx::t!("settings.about.not_hyprland"),
+                |_| "Hyprland".to_string(),
+            ),
+            theme,
+        )?,
+        reading_row(
+            || rsx::t!("settings.field.session"),
+            &env_or_unknown("XDG_SESSION_TYPE").unwrap_or_else(|| rsx::t!("common.unknown")),
+            theme,
+        )?,
+        reading_row(
+            || rsx::t!("settings.field.config_file"),
+            &Config::default_path().display().to_string(),
+            theme,
+        )?,
+    ];
+    let column = Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(8.0)
+            .width(SizeDimension::Percent(1.0)),
+        std::iter::once(section_label(|| rsx::t!("settings.section.about"), theme)?)
+            .chain(rows)
+            .collect(),
+    )?;
+    Ok(Box::new(column))
+}
+
+/// A non-empty environment variable, which is the only kind worth reporting.
+fn env_or_unknown(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+}
+
+/// A label and a value the user cannot change — the About page's only row shape.
+fn reading_row(
+    label: impl Fn() -> String + 'static,
+    value: &str,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let value = value.to_string();
+    let text = Text::auto(
+        move || value.clone(),
+        LayoutStyle::new().flex_grow(1.0),
+        move || theme.text_style(FontRole::Body, theme.text),
+    )?;
+    labelled(label, Box::new(text), theme)
 }
 
 fn corners_section(
@@ -3159,6 +3562,5 @@ mod tests {
             eprintln!("set RSX_VISUAL_SETTINGS_OUT to render the settings panel; skipping");
             return;
         };
-        crate::test_support::render_png(SettingsPreview, 380, 900, &out);
-    }
-}
+        crate::test_support::render_png(SettingsPreview, 920, 680, &out);
+    }}

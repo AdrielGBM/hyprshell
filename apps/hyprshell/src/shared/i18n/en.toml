@@ -1,4 +1,5 @@
 [common]
+unknown = "Unknown"
 on = "On"
 off = "Off"
 

@@ -10,15 +10,15 @@ use crate::modules::drawer::{module_panel, panel_wants_keyboard};
 use crate::shared::module::SurfaceEnv;
 use crate::shared::theme::FontRole;
 
-/// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
+/// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per its `[modules.<id>]` override or `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let theme = env.config.resolve_theme();
     let title = module_id.to_string();
     let module = module_id.to_string();
-    let float = env.config.panels.float;
+    let (width, height) = env.config.float_size_for(module_id);
     let radius = env.config.panel_radius(env.edge);
     let placement = SurfacePlacement::float()
-        .size(SurfaceSize::Fixed(float.width, float.height))
+        .size(SurfaceSize::Fixed(width, height))
         .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     open_surface(
