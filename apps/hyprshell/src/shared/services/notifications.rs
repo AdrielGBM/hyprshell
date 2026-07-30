@@ -344,7 +344,13 @@ pub fn expire(id: u32) {
 /// invocation, per the spec). Wired to the history panel's action buttons.
 pub fn invoke_action(id: u32, key: &str) {
     if let Some(conn) = CONNECTION.get() {
-        let _ = conn.emit_signal(None::<&str>, OBJECT_PATH, BUS_NAME, "ActionInvoked", &(id, key));
+        let _ = conn.emit_signal(
+            None::<&str>,
+            OBJECT_PATH,
+            BUS_NAME,
+            "ActionInvoked",
+            &(id, key),
+        );
     }
     close(id);
 }
@@ -352,7 +358,13 @@ pub fn invoke_action(id: u32, key: &str) {
 /// Emits `NotificationClosed(id, reason)` (1 = expired, 2 = dismissed, 3 = app-requested) to any listeners.
 fn emit_closed(id: u32, reason: u32) {
     if let Some(conn) = CONNECTION.get() {
-        let _ = conn.emit_signal(None::<&str>, OBJECT_PATH, BUS_NAME, "NotificationClosed", &(id, reason));
+        let _ = conn.emit_signal(
+            None::<&str>,
+            OBJECT_PATH,
+            BUS_NAME,
+            "NotificationClosed",
+            &(id, reason),
+        );
     }
 }
 
@@ -450,7 +462,9 @@ fn load_history() -> Vec<Notification> {
     match toml::from_str::<HistoryFile>(&text) {
         Ok(file) => file.notifications,
         Err(e) => {
-            tracing::warn!("notification history parse error ({e}); starting with an empty history");
+            tracing::warn!(
+                "notification history parse error ({e}); starting with an empty history"
+            );
             Vec::new()
         }
     }
@@ -498,7 +512,9 @@ fn run_daemon(inner: Arc<Inner>) {
             }
         }
         Err(e) => {
-            tracing::warn!("notifications daemon not started ({e}); another daemon likely owns {BUS_NAME}");
+            tracing::warn!(
+                "notifications daemon not started ({e}); another daemon likely owns {BUS_NAME}"
+            );
         }
     }
 }
@@ -618,7 +634,13 @@ fn image_from_hint(value: &Value<'_>) -> Option<NotificationImage> {
 
 /// Repacks raw image bytes (3-channel RGB or 4-channel RGBA, laid out with `rowstride`-byte rows) into tight
 /// RGBA8. `None` if the channel count is unsupported or the data is short.
-fn to_rgba(width: u32, height: u32, rowstride: usize, channels: usize, data: &[u8]) -> Option<Vec<u8>> {
+fn to_rgba(
+    width: u32,
+    height: u32,
+    rowstride: usize,
+    channels: usize,
+    data: &[u8],
+) -> Option<Vec<u8>> {
     if channels != 3 && channels != 4 {
         return None;
     }
@@ -686,7 +708,11 @@ mod tests {
 
         inner.push(sample("b-edited"), second);
         let state = inner.state.lock().unwrap();
-        assert_eq!(state.active.len(), 2, "a replaces_id updates in place, no new entry");
+        assert_eq!(
+            state.active.len(),
+            2,
+            "a replaces_id updates in place, no new entry"
+        );
         assert_eq!(state.active[1].summary, "b-edited");
         assert_eq!(state.unread, 2, "a replacement does not bump unread");
         drop(state);
@@ -719,7 +745,10 @@ mod tests {
         assert_eq!(n.actions, vec!["default".to_string(), "Open".to_string()]);
         // `popup` is runtime-only: it is never written, and a restored notification comes back non-popping.
         assert!(!text.contains("popup"), "popup must not be persisted");
-        assert!(!n.popup, "restored notifications must not re-popup on startup");
+        assert!(
+            !n.popup,
+            "restored notifications must not re-popup on startup"
+        );
     }
 
     #[test]
@@ -771,7 +800,10 @@ mod tests {
 
         let state = inner.state.lock().unwrap();
         assert_eq!(state.active.len(), 2, "a mute silences, it does not drop");
-        assert!(!state.active[0].popup, "the muted sender never reaches the screen");
+        assert!(
+            !state.active[0].popup,
+            "the muted sender never reaches the screen"
+        );
         assert!(state.active[1].popup, "and nobody else is affected by it");
         assert_eq!(state.unread, 2, "a muted notification is still one to read");
     }
@@ -784,7 +816,11 @@ mod tests {
         inner.push(sample_from("Calendar", "standup"), 0);
 
         let closed = inner.clear_app("Slack");
-        assert_eq!(closed, vec![first, second], "every cleared id comes back to be closed on the bus");
+        assert_eq!(
+            closed,
+            vec![first, second],
+            "every cleared id comes back to be closed on the bus"
+        );
         let state = inner.state.lock().unwrap();
         assert_eq!(state.active.len(), 1);
         assert_eq!(state.active[0].app_name, "Calendar");

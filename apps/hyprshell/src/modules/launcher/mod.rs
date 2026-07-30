@@ -3,23 +3,23 @@
 use std::rc::Rc;
 
 use rsx::{
-    AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle,
-    RectStyle, SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text,
-    box_item, memo, open_surface, set_theme, signal,
+    AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
+    SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text, box_item, memo,
+    open_surface, set_theme, signal,
 };
 
 use crate::core::config::{LauncherAction, LauncherConfig};
 use crate::core::shell;
 use crate::shared::calc;
+use crate::shared::keynav::{self, Move};
 use crate::shared::reactive;
 use crate::shared::scheme;
 use crate::shared::search::{self, Mode};
 use crate::shared::services::apps::{self, App};
-use crate::shared::keynav::{self, Move};
 use crate::shared::services::state;
 use crate::shared::services::wallpaper;
-use crate::shared::thumbnail;
 use crate::shared::theme::{FontRole, NordTheme};
+use crate::shared::thumbnail;
 
 /// The id the surface registry keys the launcher on.
 pub const ID: &str = "launcher";
@@ -68,10 +68,16 @@ pub enum Entry {
     Action(LauncherAction),
     /// The calculator's answer. Selecting it copies the result rather than the whole sum, which is what you
     /// want to paste.
-    Calculation { expression: String, result: String },
+    Calculation {
+        expression: String,
+        result: String,
+    },
     /// A palette, a light/dark mode or a dynamic-scheme variant. Choosing one writes it to `[theme]`, which the
     /// config watcher then reloads — the same route the settings panel and `hyprshell scheme` take.
-    Scheme { choice: scheme::Choice, value: String },
+    Scheme {
+        choice: scheme::Choice,
+        value: String,
+    },
     /// An image from the wallpaper library. Drawn as a tile rather than a row, because a wallpaper is chosen by
     /// looking at it — a list of file names would be a worse version of `ls`.
     Wallpaper(wallpaper::Entry),
@@ -302,7 +308,10 @@ fn match_mode(config: &LauncherConfig) -> Mode {
 pub fn results(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<App> {
     let counts = state::get().launch_counts;
     let hidden = config.hidden.clone();
-    let visible: Vec<App> = apps.into_iter().filter(|a| !hidden.contains(&a.id)).collect();
+    let visible: Vec<App> = apps
+        .into_iter()
+        .filter(|a| !hidden.contains(&a.id))
+        .collect();
 
     let mut ranked = search::rank(
         visible,
@@ -528,7 +537,9 @@ fn library() -> rsx::ReadSignal<Vec<wallpaper::Entry>> {
         return images.read_only();
     }
     let sink = images.clone();
-    platform_layershell::watch(wallpaper::subscribe_library, move |entries| sink.set(entries));
+    platform_layershell::watch(wallpaper::subscribe_library, move |entries| {
+        sink.set(entries)
+    });
     images.read_only()
 }
 
@@ -634,7 +645,8 @@ fn result_list(
                     Line::Row(entry) => {
                         // A row highlights when it *is* the selection, resolved by key rather than by position, so
                         // the reactive list can reorder rows without the highlight following the wrong one.
-                        let is_selected = selection_is(matches.clone(), selected.clone(), keys.clone());
+                        let is_selected =
+                            selection_is(matches.clone(), selected.clone(), keys.clone());
                         let armed_key = entry.key();
                         let armed = armed.clone();
                         let is_armed = move || armed.get() == armed_key;
@@ -836,9 +848,7 @@ fn row_text(entry: &Entry) -> (String, String) {
         Entry::App(app) => (app.name.clone(), app.description.clone()),
         Entry::Action(action) => (action.name.clone(), action.description.clone()),
         // The answer is the headline and the sum the caption: what you are reading for is the number.
-        Entry::Calculation { expression, result } => {
-            (result.clone(), format!("{expression} ="))
-        }
+        Entry::Calculation { expression, result } => (result.clone(), format!("{expression} =")),
         // The palette's own name leads and the kind is the caption, so a list mixing all three reads as a list
         // of looks rather than as a list of settings keys.
         Entry::Scheme { choice, value } => match choice {
@@ -862,7 +872,11 @@ fn row_icon(entry: &Entry, theme: NordTheme) -> Result<Option<Box<dyn LayoutItem
         Entry::App(app) => crate::shared::icon::app_icon_view(&app.icon, SIZE),
         Entry::Action(action) => {
             let glyph = action.icon.clone();
-            let tint = if action.dangerous { theme.red } else { theme.text };
+            let tint = if action.dangerous {
+                theme.red
+            } else {
+                theme.text
+            };
             crate::icon_view(move || glyph.clone(), move || tint, SIZE).map(Some)
         }
         Entry::Calculation { .. } => {
@@ -900,7 +914,8 @@ fn row(
             // An armed row reads in the warning colour, so the state is visible and not only implied by the
             // caption underneath it.
             let colour = if armed_title() { theme.red } else { theme.text };
-            theme.text_style(FontRole::Body, colour)
+            theme
+                .text_style(FontRole::Body, colour)
                 .with_max_lines(1)
                 .with_ellipsis(true)
         },
@@ -925,7 +940,8 @@ fn row(
                 } else {
                     theme.muted
                 };
-                theme.text_style(FontRole::Caption, colour)
+                theme
+                    .text_style(FontRole::Caption, colour)
                     .with_max_lines(1)
                     .with_ellipsis(true)
             },
@@ -1022,7 +1038,11 @@ mod tests {
     fn a_query_narrows_to_matches_and_ranks_them() {
         let found = results(catalog(), "fire", &LauncherConfig::default());
         assert_eq!(found.first().map(|a| a.id.as_str()), Some("firefox"));
-        assert_eq!(found.len(), 1, "nothing else contains those letters in order");
+        assert_eq!(
+            found.len(),
+            1,
+            "nothing else contains those letters in order"
+        );
     }
 
     #[test]
@@ -1062,7 +1082,11 @@ mod tests {
             .into_iter()
             .map(|a| a.id)
             .collect();
-        assert_eq!(&ids[..2], &["files", "code"], "config order, not rank order");
+        assert_eq!(
+            &ids[..2],
+            &["files", "code"],
+            "config order, not rank order"
+        );
         assert!(ids.len() > 2, "the rest still follow");
     }
 
@@ -1169,8 +1193,15 @@ mod tests {
     fn the_calc_prefix_forces_a_result_where_auto_detection_declines() {
         let config = LauncherConfig::default();
         // A bare number is treated as the start of a name, not a sum — unless asked explicitly.
-        assert!(!entries(catalog(), Vec::new(), "2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
-        assert_eq!(names(&entries(catalog(), Vec::new(), "=2", &config)), vec!["2".to_string()]);
+        assert!(
+            !entries(catalog(), Vec::new(), "2", &config)
+                .iter()
+                .any(|e| matches!(e, Entry::Calculation { .. }))
+        );
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), "=2", &config)),
+            vec!["2".to_string()]
+        );
     }
 
     #[test]
@@ -1193,7 +1224,10 @@ mod tests {
                 .filter(|e| matches!(e, Entry::Scheme { choice: c, .. } if *c == choice))
                 .count()
         };
-        assert!(kinds(scheme::Choice::Palette) > 1, "every palette is offered");
+        assert!(
+            kinds(scheme::Choice::Palette) > 1,
+            "every palette is offered"
+        );
         assert!(kinds(scheme::Choice::Mode) >= 3, "auto, dark and light");
         assert_eq!(kinds(scheme::Choice::Variant), scheme::Variant::ALL.len());
 
@@ -1223,9 +1257,16 @@ mod tests {
             choice: scheme::Choice::Mode,
             value: "nord".to_string(),
         };
-        assert_ne!(palette.key(), mode.key(), "the kind is part of the identity");
+        assert_ne!(
+            palette.key(),
+            mode.key(),
+            "the kind is part of the identity"
+        );
         assert_ne!(palette.key(), Entry::App(app("nord", "nord", &[])).key());
-        assert!(!palette.is_dangerous(), "a palette is never a confirming choice");
+        assert!(
+            !palette.is_dangerous(),
+            "a palette is never a confirming choice"
+        );
     }
 
     #[test]
@@ -1277,7 +1318,11 @@ mod tests {
             calculator: false,
             ..LauncherConfig::default()
         };
-        assert!(!entries(catalog(), Vec::new(), "2+2", &config).iter().any(|e| matches!(e, Entry::Calculation { .. })));
+        assert!(
+            !entries(catalog(), Vec::new(), "2+2", &config)
+                .iter()
+                .any(|e| matches!(e, Entry::Calculation { .. }))
+        );
         assert!(entries(catalog(), Vec::new(), "=2+2", &config).is_empty());
     }
 
@@ -1287,8 +1332,14 @@ mod tests {
             actions: vec![action("lock", false), action("logout", false)],
             ..LauncherConfig::default()
         };
-        assert_eq!(names(&entries(catalog(), Vec::new(), ">", &config)).len(), 2);
-        assert_eq!(names(&entries(catalog(), Vec::new(), ">lo", &config)).len(), 2);
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), ">", &config)).len(),
+            2
+        );
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), ">lo", &config)).len(),
+            2
+        );
         assert_eq!(
             names(&entries(catalog(), Vec::new(), ">lock", &config)),
             vec!["lock".to_string()]
@@ -1342,7 +1393,10 @@ mod tests {
             ],
             ..LauncherConfig::default()
         };
-        assert_eq!(names(&entries(catalog(), Vec::new(), ">", &config)), vec!["good".to_string()]);
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), ">", &config)),
+            vec!["good".to_string()]
+        );
     }
 
     #[test]
@@ -1363,7 +1417,11 @@ mod tests {
         );
         // The folder is searchable, so a whole collection is reachable without remembering one file's name.
         let folder = names(&entries(catalog(), library(), "@nature", &config));
-        assert_eq!(folder.len(), 2, "both images filed under nature: {folder:?}");
+        assert_eq!(
+            folder.len(),
+            2,
+            "both images filed under nature: {folder:?}"
+        );
 
         // An empty library is the case where the folder is missing or `[wallpaper] enabled` is off. It shows
         // nothing rather than falling back to the app list, which would be a different answer to what was asked.
@@ -1428,7 +1486,10 @@ mod tests {
 
         let grid = lines(images.clone(), 2);
         assert_eq!(grid.len(), 2, "three tiles two across is two lines");
-        assert!(matches!(&grid[1], Line::Tiles(tiles) if tiles.len() == 1), "a short last row is still a row");
+        assert!(
+            matches!(&grid[1], Line::Tiles(tiles) if tiles.len() == 1),
+            "a short last row is still a row"
+        );
 
         // The line's identity is what it draws: re-chunking must not let a stale row keep its pictures.
         assert_ne!(grid[0].key(), grid[1].key());

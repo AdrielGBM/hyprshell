@@ -66,7 +66,11 @@ fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, L
     let title = Text::auto(
         || rsx::t!("notes.title"),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
     let add_state = state.clone();
     let add = pill_button(|| rsx::t!("notes.new"), move || add_note(&add_state), theme)?;
@@ -143,7 +147,11 @@ fn note_card(
         LayoutStyle::new()
             .flex_grow(1.0)
             .height(theme.font(FontRole::Body) * 1.4),
-        move || theme.text_style(FontRole::Body, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Body, theme.text)
+                .with_weight(700)
+        },
     )?
     .placeholder(rsx::t!("notes.title_placeholder"));
 
@@ -162,7 +170,11 @@ fn note_card(
             .align_items(AlignItems::CENTER)
             .gap(8.0)
             .width(SizeDimension::Percent(1.0)),
-        vec![Box::new(icon_button), box_item(title_input), Box::new(delete)],
+        vec![
+            Box::new(icon_button),
+            box_item(title_input),
+            Box::new(delete),
+        ],
     )?;
 
     let body_area = TextArea::new(
@@ -289,11 +301,9 @@ fn pill_button(
     on_press: impl Fn() + 'static,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Caption, theme.text),
-    )?;
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        theme.text_style(FontRole::Caption, theme.text)
+    })?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
             .padding_horizontal(10.0)

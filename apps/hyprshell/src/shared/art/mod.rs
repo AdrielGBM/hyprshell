@@ -234,9 +234,10 @@ fn ensure_store() {
     });
     // Headless, `watch` is a no-op: no worker runs and every request stays on `Loading`, which is what an
     // offline render shows.
-    watch(move |sender| run_worker(incoming, sender), |(url, path)| {
-        deliver(url, path)
-    });
+    watch(
+        move |sender| run_worker(incoming, sender),
+        |(url, path)| deliver(url, path),
+    );
 }
 
 fn run_worker(incoming: Receiver<String>, sender: EventSender<(String, Option<PathBuf>)>) {
@@ -278,7 +279,10 @@ mod tests {
     fn a_cache_name_is_stable_filesystem_safe_and_keeps_a_usable_extension() {
         let url = "https://example.test/covers/album cover.jpg?token=abc";
         assert_eq!(cache_name(url), cache_name(url), "stable across calls");
-        assert_ne!(cache_name(url), cache_name("https://example.test/other.jpg"));
+        assert_ne!(
+            cache_name(url),
+            cache_name("https://example.test/other.jpg")
+        );
 
         let name = cache_name(url);
         assert!(name.ends_with(".jpg"), "browsable: {name}");

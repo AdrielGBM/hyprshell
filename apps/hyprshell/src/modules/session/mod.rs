@@ -29,7 +29,11 @@ pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
         || rsx::t!("session.title"),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
 
     // Which tile the keyboard is on. `None` until a key is pressed, so opening the panel with the pointer does not paint a selection ring nobody asked for.
@@ -277,8 +281,16 @@ mod tests {
     #[test]
     fn only_unrecoverable_actions_ask_twice() {
         assert!(!is_destructive(Action::Lock), "a lock is undone by typing");
-        assert!(!is_destructive(Action::Suspend), "a suspend is undone by a key");
-        for action in [Action::Logout, Action::Reboot, Action::Shutdown, Action::Hibernate] {
+        assert!(
+            !is_destructive(Action::Suspend),
+            "a suspend is undone by a key"
+        );
+        for action in [
+            Action::Logout,
+            Action::Reboot,
+            Action::Shutdown,
+            Action::Hibernate,
+        ] {
             assert!(
                 is_destructive(action),
                 "'{}' can lose unsaved work, so it must confirm",

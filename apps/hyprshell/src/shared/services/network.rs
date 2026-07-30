@@ -391,7 +391,13 @@ fn saved_ssids(conn: &Connection) -> Vec<String> {
 /// The SSID a saved connection is for, or `None` when it isn't a wireless one.
 fn saved_ssid(conn: &Connection, path: &str) -> Option<String> {
     let reply = conn
-        .call_method(Some(NM_BUS), path, Some(CONNECTION_IFACE), "GetSettings", &())
+        .call_method(
+            Some(NM_BUS),
+            path,
+            Some(CONNECTION_IFACE),
+            "GetSettings",
+            &(),
+        )
         .ok()?;
     let settings: HashMap<String, HashMap<String, OwnedValue>> = reply.body().deserialize().ok()?;
     let wireless = settings.get("802-11-wireless")?;
@@ -596,7 +602,11 @@ pub fn set_wifi_enabled(enabled: bool) {
     };
     WIFI.publish(Wifi {
         enabled,
-        points: if enabled { state.points.clone() } else { Vec::new() },
+        points: if enabled {
+            state.points.clone()
+        } else {
+            Vec::new()
+        },
         ..state
     });
     act("switch the radio", move |conn| {
@@ -754,9 +764,13 @@ pub fn forget(ssid: &str) {
             tracing::warn!("wifi: '{ssid}' has no saved connection to forget");
             return;
         };
-        if let Err(e) =
-            conn.call_method(Some(NM_BUS), saved.as_str(), Some(CONNECTION_IFACE), "Delete", &())
-        {
+        if let Err(e) = conn.call_method(
+            Some(NM_BUS),
+            saved.as_str(),
+            Some(CONNECTION_IFACE),
+            "Delete",
+            &(),
+        ) {
             tracing::warn!("wifi: forgetting '{ssid}': {e}");
         }
     });
@@ -771,9 +785,13 @@ pub fn disconnect() {
         return;
     };
     act("disconnect", move |conn| {
-        if let Err(e) =
-            conn.call_method(Some(NM_BUS), device.as_str(), Some(DEVICE_IFACE), "Disconnect", &())
-        {
+        if let Err(e) = conn.call_method(
+            Some(NM_BUS),
+            device.as_str(),
+            Some(DEVICE_IFACE),
+            "Disconnect",
+            &(),
+        ) {
             tracing::warn!("wifi: disconnecting: {e}");
         }
     });
@@ -860,7 +878,11 @@ mod tests {
         const SAE: u32 = 0x400;
 
         assert_eq!(security_from_flags(0, 0, 0), Security::Open);
-        assert_eq!(security_from_flags(PRIVACY, 0, 0), Security::Wep, "privacy with no key management is WEP");
+        assert_eq!(
+            security_from_flags(PRIVACY, 0, 0),
+            Security::Wep,
+            "privacy with no key management is WEP"
+        );
         assert_eq!(security_from_flags(PRIVACY, PSK, 0), Security::Wpa);
         assert_eq!(security_from_flags(PRIVACY, 0, PSK), Security::Wpa2);
         assert_eq!(security_from_flags(PRIVACY, 0, SAE), Security::Wpa3);
@@ -899,7 +921,10 @@ mod tests {
         assert_eq!(home.strength, 88, "and reports its strongest radio");
         assert!(home.saved, "saved on any radio is saved");
         assert!(home.active);
-        assert_eq!(home.path, "/ap/home/88", "the action targets the radio it named");
+        assert_eq!(
+            home.path, "/ap/home/88",
+            "the action targets the radio it named"
+        );
     }
 
     #[test]

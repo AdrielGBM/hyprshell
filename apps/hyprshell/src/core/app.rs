@@ -6,8 +6,8 @@ use rsx::{
     new_container, reset_layout_runtime, set_theme,
 };
 
-use crate::modules::bar::build_bar;
 use crate::core::config::{Config, Edge};
+use crate::modules::bar::build_bar;
 use crate::shared::module::{SurfaceEnv, default_registry, set_surface_env};
 
 /// Root component: full-surface container that re-layouts on WindowResized and forwards events, so widgets resolve correctly.
@@ -74,8 +74,8 @@ impl App for BarApp {
         });
         let accent = theme.accent;
         let registry = default_registry();
-        let bar = build_bar(&self.config, self.edge, accent, &registry, theme)
-            .expect("bar build failed");
+        let bar =
+            build_bar(&self.config, self.edge, accent, &registry, theme).expect("bar build failed");
         Box::new(SurfaceRoot::new(bar).expect("bar layout failed"))
     }
 

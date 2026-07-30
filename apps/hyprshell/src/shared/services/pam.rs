@@ -173,7 +173,10 @@ fn passwd_name() -> Option<String> {
         if name.is_null() {
             return None;
         }
-        std::ffi::CStr::from_ptr(name).to_str().ok().map(str::to_string)
+        std::ffi::CStr::from_ptr(name)
+            .to_str()
+            .ok()
+            .map(str::to_string)
     }
 }
 
@@ -255,9 +258,16 @@ unsafe extern "C" fn converse(
 ///
 /// Blocking, and deliberately so: `pam_unix` delays for seconds after a wrong password, which is the point.
 /// Call it from a worker thread; [`crate::shared::services::lock`] is the only caller and does.
-pub fn authenticate(service: &str, user: &str, password: &str, library: &str) -> Result<(), AuthError> {
+pub fn authenticate(
+    service: &str,
+    user: &str,
+    password: &str,
+    library: &str,
+) -> Result<(), AuthError> {
     let Some(pam) = pam(library) else {
-        return Err(AuthError::Unavailable("libpam is not available".to_string()));
+        return Err(AuthError::Unavailable(
+            "libpam is not available".to_string(),
+        ));
     };
     let (Ok(service_c), Ok(user_c), Ok(secret)) = (
         CString::new(service),
@@ -355,7 +365,10 @@ mod tests {
             "a wrong password and an unusable PAM stack must not read the same on screen"
         );
         for key in keys {
-            assert!(key.starts_with("lock."), "'{key}' is not a lock-screen string");
+            assert!(
+                key.starts_with("lock."),
+                "'{key}' is not a lock-screen string"
+            );
         }
     }
 
@@ -363,7 +376,10 @@ mod tests {
     fn the_user_pam_is_asked_about_is_a_real_account() {
         // `$USER` is inherited and can name someone else entirely; the effective uid cannot.
         let user = current_user();
-        assert!(!user.is_empty(), "there is always a passwd entry for the running uid");
+        assert!(
+            !user.is_empty(),
+            "there is always a passwd entry for the running uid"
+        );
     }
 
     /// Authentication itself is never run here — a suite that called `pam_authenticate` would be typing a

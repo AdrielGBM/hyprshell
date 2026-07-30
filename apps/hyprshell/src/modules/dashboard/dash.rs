@@ -5,8 +5,7 @@ use std::path::PathBuf;
 use chrono::{Datelike, Days, Local, Months, NaiveDate, Weekday};
 use rsx::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item,
-    signal,
+    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
 };
 
 use super::card;
@@ -47,7 +46,11 @@ fn clock_card(config: ClockConfig, theme: NordTheme) -> Result<Box<dyn LayoutIte
     let time_text = Text::auto(
         move || time.get(),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Display, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Display, theme.text)
+                .with_weight(700)
+        },
     )?;
     let date_text = Text::auto(
         move || date.get(),
@@ -96,7 +99,11 @@ fn calendar_card(
                 LayoutStyle::new()
                     .flex_grow(1.0)
                     .justify_content(JustifyContent::CENTER),
-                move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+                move || {
+                    theme
+                        .text_style(FontRole::Title, theme.text)
+                        .with_weight(700)
+                },
             )?),
             step_button("chevron-right", anchor.clone(), 1, theme)?,
         ],
@@ -151,7 +158,11 @@ fn weekday_header(first: Weekday, theme: NordTheme) -> Result<Box<dyn LayoutItem
                 .flex_grow(1.0)
                 .flex_basis(0.0)
                 .justify_content(JustifyContent::CENTER),
-            move || theme.text_style(FontRole::Caption, theme.muted).with_weight(700),
+            move || {
+                theme
+                    .text_style(FontRole::Caption, theme.muted)
+                    .with_weight(700)
+            },
         )?));
     }
     Ok(Box::new(Container::new(
@@ -255,7 +266,11 @@ fn user_card(
     let name_text = Text::auto(
         move || name.clone(),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
     let host_text = Text::auto(
         move || host.clone(),

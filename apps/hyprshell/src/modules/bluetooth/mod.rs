@@ -7,8 +7,7 @@
 
 use rsx::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
-    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
-    use_theme,
+    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
 
 use crate::core::config::BluetoothConfig;
@@ -93,7 +92,11 @@ fn header(
     let title = Text::auto(
         || rsx::t!("bluetooth.title"),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
     // Read out, then translate: `adapter_line` calls `t!`, and a `with` here would still hold the reactive
     // runtime's borrow when it read the locale signal.
@@ -399,20 +402,15 @@ fn pill(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let active = std::rc::Rc::new(active);
-    let (fill_active, hover_active, text_active) =
-        (active.clone(), active.clone(), active.clone());
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || {
-            let tint = if text_active() {
-                theme.accent.most_readable(&[theme.text, theme.base])
-            } else {
-                theme.text
-            };
-            theme.text_style(FontRole::Caption, tint)
-        },
-    )?;
+    let (fill_active, hover_active, text_active) = (active.clone(), active.clone(), active.clone());
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        let tint = if text_active() {
+            theme.accent.most_readable(&[theme.text, theme.base])
+        } else {
+            theme.text
+        };
+        theme.text_style(FontRole::Caption, tint)
+    })?;
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
@@ -422,7 +420,11 @@ fn pill(
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER),
             move |_| {
-                let fill = if fill_active() { theme.accent } else { theme.base };
+                let fill = if fill_active() {
+                    theme.accent
+                } else {
+                    theme.base
+                };
                 RectStyle::filled(fill, ROW_RADIUS)
             },
             vec![box_item(text)],

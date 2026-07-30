@@ -78,7 +78,11 @@ mod tests {
             };
             let frame = surface_frame("Clock", style, std::rc::Rc::new(|| {}), body).unwrap();
             let root = SurfaceRoot::new(frame).expect("float surface root failed");
-            let root = if self.animate { root.animate_in() } else { root };
+            let root = if self.animate {
+                root.animate_in()
+            } else {
+                root
+            };
             Box::new(root)
         }
         fn window_config(&self) -> Option<WindowConfig> {

@@ -172,7 +172,10 @@ pub fn icon_view(
                 let inset = (size * 0.25).max(1.0);
                 let side = size - inset * 2.0;
                 Ok(Box::new(StyledContainer::new(
-                    LayoutStyle::new().width(side).height(side).margin_all(inset),
+                    LayoutStyle::new()
+                        .width(side)
+                        .height(side)
+                        .margin_all(inset),
                     move |_| RectStyle::filled(tint().with_alpha(0.3), side * 0.25),
                     vec![],
                 )?))
@@ -440,7 +443,11 @@ fn load_collection(provider: &str, set: &str) -> CollectionState {
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
         .into();
-    let url = format!("{}/collection?prefix={}", provider.trim_end_matches('/'), set);
+    let url = format!(
+        "{}/collection?prefix={}",
+        provider.trim_end_matches('/'),
+        set
+    );
     let body = match agent.get(&url).call() {
         Ok(mut resp) => match resp.body_mut().read_to_string() {
             Ok(body) => body,
@@ -491,7 +498,10 @@ mod tests {
             ("mdi", "home")
         );
         let empty_set = IconId::parse(":oops", "lucide");
-        assert_eq!(empty_set.set, "lucide", "a leading colon is not a set override");
+        assert_eq!(
+            empty_set.set, "lucide",
+            "a leading colon is not a set override"
+        );
     }
 
     #[test]

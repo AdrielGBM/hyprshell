@@ -55,7 +55,9 @@ pub fn current_osd_kind() -> OsdKind {
 
 /// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
 pub fn current_osd_radius() -> f32 {
-    rsx::try_inject::<OsdCtx>().map(|ctx| ctx.radius).unwrap_or(16.0)
+    rsx::try_inject::<OsdCtx>()
+        .map(|ctx| ctx.radius)
+        .unwrap_or(16.0)
 }
 
 /// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
@@ -111,7 +113,10 @@ pub fn show(kind: OsdKind) {
     }
     OPEN_OSD.with(|slot| {
         *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
-        let token = open_surface(placement, Box::new(move || osd_content(kind, theme, radius)));
+        let token = open_surface(
+            placement,
+            Box::new(move || osd_content(kind, theme, radius)),
+        );
         *slot.borrow_mut() = Some(token);
     });
 }

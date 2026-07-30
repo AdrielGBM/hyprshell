@@ -12,15 +12,14 @@ use serde::Serialize;
 
 use crate::core::config::{
     ActiveWindowConfig, Align, AnimationConfig, AppsConfig, AudioConfig, BackgroundConfig,
-    BackgroundVisualiserConfig, BarConfig, BarsConfig,
-    BatteryConfig, BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config,
-    CornersConfig, DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig,
-    FullscreenPopups, GeneralConfig, GpuConfig,
-    IconsConfig, LauncherConfig, LockStatusConfig, LyricsConfig, MediaConfig, MediaScroll, ModuleEntry,
-    KeyNavConfig, NetworkConfig, NotificationsConfig, OsdConfig, PanelsConfig, PathsConfig, Placement, PopoutsConfig,
-    RecorderConfig, ScaleConfig, ScreenshotConfig, Shape,
-    ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig,
-    ToastEvents, ToastsConfig, TrayConfig, UtilitiesConfig,
+    BackgroundVisualiserConfig, BarConfig, BarsConfig, BatteryConfig, BluetoothConfig,
+    BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DashboardConfig,
+    DesktopClockConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups, GeneralConfig,
+    GpuConfig, IconsConfig, KeyNavConfig, LauncherConfig, LockStatusConfig, LyricsConfig,
+    MediaConfig, MediaScroll, ModuleEntry, NetworkConfig, NotificationsConfig, OsdConfig,
+    PanelsConfig, PathsConfig, Placement, PopoutsConfig, RecorderConfig, ScaleConfig,
+    ScreenshotConfig, Shape, ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig,
+    TemperatureUnit, ThemeConfig, ToastEvents, ToastsConfig, TrayConfig, UtilitiesConfig,
     VisualiserConfig, WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
@@ -119,14 +118,15 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
 }
 
 /// The title and the search box, which is the one control that reaches every page.
-fn header(
-    query: RwSignal<String>,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
         || rsx::t!("settings.title"),
         LayoutStyle::new().flex_grow(1.0),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
 
     let input = Input::new(
@@ -164,7 +164,13 @@ fn nav_pane(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(pages::PAGES.len());
     for (index, page) in pages::PAGES.iter().enumerate() {
-        rows.push(nav_row(index, page, selected.clone(), query.clone(), theme)?);
+        rows.push(nav_row(
+            index,
+            page,
+            selected.clone(),
+            query.clone(),
+            theme,
+        )?);
     }
     Ok(Box::new(Container::new(
         LayoutStyle::new()
@@ -367,22 +373,30 @@ fn general_section(
 
     let path = path.to_path_buf();
     let legacy_terminal = config.general.terminal.clone();
-    let save = save_button(|| rsx::t!("settings.save.general"), theme, move || {
-        persist(&path, "general", &GeneralConfig {
-            language: lang.peek(),
-            show_over_fullscreen: over_fullscreen.peek(),
-            logo: logo.peek(),
-            terminal: legacy_terminal.clone(),
-            apps: AppsConfig {
-                terminal: terminal.peek(),
-                file_manager: file_manager.peek(),
-                audio_mixer: audio_mixer.peek(),
-                media_player: media_player.peek(),
-                browser: browser.peek(),
-                editor: editor.peek(),
-            },
-        });
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.general"),
+        theme,
+        move || {
+            persist(
+                &path,
+                "general",
+                &GeneralConfig {
+                    language: lang.peek(),
+                    show_over_fullscreen: over_fullscreen.peek(),
+                    logo: logo.peek(),
+                    terminal: legacy_terminal.clone(),
+                    apps: AppsConfig {
+                        terminal: terminal.peek(),
+                        file_manager: file_manager.peek(),
+                        audio_mixer: audio_mixer.peek(),
+                        media_player: media_player.peek(),
+                        browser: browser.peek(),
+                        editor: editor.peek(),
+                    },
+                },
+            );
+        },
+    )?;
     section(|| rsx::t!("settings.section.general"), rows, save, theme)
 }
 
@@ -543,32 +557,36 @@ fn theme_section(
 
     let base = t.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.theme"), theme, move || {
-        let value = ThemeConfig {
-            name: name.peek(),
-            mode: mode.peek(),
-            variant: variant.peek(),
-            fallback: fallback.peek(),
-            accent: accent.peek(),
-            font_family: opt_string(&font_family.peek()),
-            radius: opt_u32(&radius.peek()),
-            spacing: opt_u32(&spacing.peek()),
-            font_size: opt_f32(&font_size.peek()),
-            icon_size: opt_f32(&icon_size.peek()),
-            icon_stroke: opt_f32(&icon_stroke.peek()),
-            scale: ScaleConfig {
-                rounding: parse_f32(&scale_rounding.peek(), base.scale.rounding),
-                spacing: parse_f32(&scale_spacing.peek(), base.scale.spacing),
-                font: parse_f32(&scale_font.peek(), base.scale.font),
-                icon: parse_f32(&scale_icon.peek(), base.scale.icon),
-            },
-            // Carried through unchanged, like `colors`: per-role overrides and the export switches are nested tables the flat panel has no rows for, and rewriting the section must not drop them.
-            fonts: base.fonts,
-            export: base.export.clone(),
-            colors: base.colors.clone(),
-        };
-        persist(&path, "theme", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.theme"),
+        theme,
+        move || {
+            let value = ThemeConfig {
+                name: name.peek(),
+                mode: mode.peek(),
+                variant: variant.peek(),
+                fallback: fallback.peek(),
+                accent: accent.peek(),
+                font_family: opt_string(&font_family.peek()),
+                radius: opt_u32(&radius.peek()),
+                spacing: opt_u32(&spacing.peek()),
+                font_size: opt_f32(&font_size.peek()),
+                icon_size: opt_f32(&icon_size.peek()),
+                icon_stroke: opt_f32(&icon_stroke.peek()),
+                scale: ScaleConfig {
+                    rounding: parse_f32(&scale_rounding.peek(), base.scale.rounding),
+                    spacing: parse_f32(&scale_spacing.peek(), base.scale.spacing),
+                    font: parse_f32(&scale_font.peek(), base.scale.font),
+                    icon: parse_f32(&scale_icon.peek(), base.scale.icon),
+                },
+                // Carried through unchanged, like `colors`: per-role overrides and the export switches are nested tables the flat panel has no rows for, and rewriting the section must not drop them.
+                fonts: base.fonts,
+                export: base.export.clone(),
+                colors: base.colors.clone(),
+            };
+            persist(&path, "theme", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.theme"), rows, save, theme)
 }
 
@@ -586,8 +604,17 @@ fn shape_section(
     let inactive = signal(s.inactive_size.to_string());
 
     let rows = vec![
-        enum_field(|| rsx::t!("settings.field.mode"), mode.clone(), SHAPES, theme)?,
-        toggle_field(|| rsx::t!("settings.field.frame_ring"), frame.clone(), theme)?,
+        enum_field(
+            || rsx::t!("settings.field.mode"),
+            mode.clone(),
+            SHAPES,
+            theme,
+        )?,
+        toggle_field(
+            || rsx::t!("settings.field.frame_ring"),
+            frame.clone(),
+            theme,
+        )?,
         text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "0", theme)?,
         text_field(
             || rsx::t!("settings.field.spacing"),
@@ -611,17 +638,21 @@ fn shape_section(
 
     let base = s.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.shape"), theme, move || {
-        let value = ShapeConfig {
-            mode: parse_shape(&mode.peek()),
-            frame: frame.peek(),
-            gap: parse_u32(&gap.peek(), base.gap),
-            spacing: opt_u32(&spacing.peek()),
-            radius: opt_u32(&radius.peek()),
-            inactive_size: parse_u32(&inactive.peek(), base.inactive_size),
-        };
-        persist(&path, "shape", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.shape"),
+        theme,
+        move || {
+            let value = ShapeConfig {
+                mode: parse_shape(&mode.peek()),
+                frame: frame.peek(),
+                gap: parse_u32(&gap.peek(), base.gap),
+                spacing: opt_u32(&spacing.peek()),
+                radius: opt_u32(&radius.peek()),
+                inactive_size: parse_u32(&inactive.peek(), base.inactive_size),
+            };
+            persist(&path, "shape", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.shape"), rows, save, theme)
 }
 
@@ -649,7 +680,12 @@ fn bar_rows(
 ) -> Result<Vec<Box<dyn LayoutItem>>, LayoutError> {
     Ok(vec![
         subheader(label, theme)?,
-        text_field(|| rsx::t!("settings.field.size"), s.size.clone(), "34", theme)?,
+        text_field(
+            || rsx::t!("settings.field.size"),
+            s.size.clone(),
+            "34",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.start"),
             s.start.clone(),
@@ -732,7 +768,11 @@ fn bars_section(
         &bottom,
         theme,
     )?);
-    rows.extend(bar_rows(|| rsx::t!("settings.subheader.left"), &left, theme)?);
+    rows.extend(bar_rows(
+        || rsx::t!("settings.subheader.left"),
+        &left,
+        theme,
+    )?);
     rows.extend(bar_rows(
         || rsx::t!("settings.subheader.right"),
         &right,
@@ -741,17 +781,21 @@ fn bars_section(
 
     let base = bars.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.bars"), theme, move || {
-        let value = BarsConfig {
-            // Carried through unchanged: the panel edits the four zones, and rewriting the section must not drop a screen exclusion it has no field for.
-            excluded_screens: base.excluded_screens.clone(),
-            top: bar_from(&top, &base.top),
-            bottom: bar_from(&bottom, &base.bottom),
-            left: bar_from(&left, &base.left),
-            right: bar_from(&right, &base.right),
-        };
-        persist(&path, "bars", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.bars"),
+        theme,
+        move || {
+            let value = BarsConfig {
+                // Carried through unchanged: the panel edits the four zones, and rewriting the section must not drop a screen exclusion it has no field for.
+                excluded_screens: base.excluded_screens.clone(),
+                top: bar_from(&top, &base.top),
+                bottom: bar_from(&bottom, &base.bottom),
+                left: bar_from(&left, &base.left),
+                right: bar_from(&right, &base.right),
+            };
+            persist(&path, "bars", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.bars"), rows, save, theme)
 }
 
@@ -770,7 +814,12 @@ fn panels_section(
     let float_h = signal(p.float.height.to_string());
 
     let rows = vec![
-        text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "(auto)", theme)?,
+        text_field(
+            || rsx::t!("settings.field.gap"),
+            gap.clone(),
+            "(auto)",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.drawer_width"),
             drawer_w.clone(),
@@ -795,28 +844,42 @@ fn panels_section(
             "240",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.drag_threshold"), drag_threshold.clone(), "48", theme)?,
-        text_field(|| rsx::t!("settings.field.opacity"), opacity.clone(), "1", theme)?,
+        text_field(
+            || rsx::t!("settings.field.drag_threshold"),
+            drag_threshold.clone(),
+            "48",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.opacity"),
+            opacity.clone(),
+            "1",
+            theme,
+        )?,
     ];
 
     let base = *p;
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.panels"), theme, move || {
-        let value = PanelsConfig {
-            gap: opt_u32(&gap.peek()),
-            drag_threshold: parse_f32(&drag_threshold.peek(), base.drag_threshold),
-            opacity: parse_f32(&opacity.peek(), base.opacity),
-            drawer: DrawerConfig {
-                width: parse_f32(&drawer_w.peek(), base.drawer.width),
-                max_height: parse_f32(&drawer_h.peek(), base.drawer.max_height),
-            },
-            float: FloatConfig {
-                width: parse_u32(&float_w.peek(), base.float.width),
-                height: parse_u32(&float_h.peek(), base.float.height),
-            },
-        };
-        persist(&path, "panels", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.panels"),
+        theme,
+        move || {
+            let value = PanelsConfig {
+                gap: opt_u32(&gap.peek()),
+                drag_threshold: parse_f32(&drag_threshold.peek(), base.drag_threshold),
+                opacity: parse_f32(&opacity.peek(), base.opacity),
+                drawer: DrawerConfig {
+                    width: parse_f32(&drawer_w.peek(), base.drawer.width),
+                    max_height: parse_f32(&drawer_h.peek(), base.drawer.max_height),
+                },
+                float: FloatConfig {
+                    width: parse_u32(&float_w.peek(), base.float.width),
+                    height: parse_u32(&float_h.peek(), base.float.height),
+                },
+            };
+            persist(&path, "panels", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.panels"), rows, save, theme)
 }
 
@@ -846,7 +909,12 @@ fn popouts_section(
             "200",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.width"), width.clone(), "264", theme)?,
+        text_field(
+            || rsx::t!("settings.field.width"),
+            width.clone(),
+            "264",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.max_height"),
             max_height.clone(),
@@ -856,16 +924,20 @@ fn popouts_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.popouts"), theme, move || {
-        let value = PopoutsConfig {
-            enabled: enabled.peek(),
-            open_delay: parse_u64(&open_delay.peek(), p.open_delay),
-            close_delay: parse_u64(&close_delay.peek(), p.close_delay),
-            width: parse_f32(&width.peek(), p.width),
-            max_height: parse_f32(&max_height.peek(), p.max_height),
-        };
-        persist(&path, "popouts", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.popouts"),
+        theme,
+        move || {
+            let value = PopoutsConfig {
+                enabled: enabled.peek(),
+                open_delay: parse_u64(&open_delay.peek(), p.open_delay),
+                close_delay: parse_u64(&close_delay.peek(), p.close_delay),
+                width: parse_f32(&width.peek(), p.width),
+                max_height: parse_f32(&max_height.peek(), p.max_height),
+            };
+            persist(&path, "popouts", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.popouts"), rows, save, theme)
 }
 
@@ -880,7 +952,12 @@ fn osd_section(
     let timeout = signal(o.timeout_ms.to_string());
 
     let rows = vec![
-        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.edge"),
+            edge.clone(),
+            EDGES,
+            theme,
+        )?,
         enum_field(
             || rsx::t!("settings.field.align"),
             align.clone(),
@@ -897,14 +974,18 @@ fn osd_section(
 
     let base = *o;
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.osd"), theme, move || {
-        let value = OsdConfig {
-            edge: parse_edge(&edge.peek()),
-            align: parse_align(&align.peek()),
-            timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
-        };
-        persist(&path, "osd", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.osd"),
+        theme,
+        move || {
+            let value = OsdConfig {
+                edge: parse_edge(&edge.peek()),
+                align: parse_align(&align.peek()),
+                timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
+            };
+            persist(&path, "osd", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.osd"), rows, save, theme)
 }
 
@@ -940,14 +1021,18 @@ fn icons_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.icons"), theme, move || {
-        let value = IconsConfig {
-            provider: provider.peek(),
-            default_set: default_set.peek(),
-            app_icon_theme: app_icon_theme.peek(),
-        };
-        persist(&path, "icons", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.icons"),
+        theme,
+        move || {
+            let value = IconsConfig {
+                provider: provider.peek(),
+                default_set: default_set.peek(),
+                app_icon_theme: app_icon_theme.peek(),
+            };
+            persist(&path, "icons", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.icons"), rows, save, theme)
 }
 
@@ -991,23 +1076,27 @@ fn clock_section(
 
     let base = c.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.clock"), theme, move || {
-        let typed = format.peek();
-        let value = ClockConfig {
-            twelve_hour: twelve_hour.peek(),
-            format: (!typed.trim().is_empty()).then_some(typed),
-            show_date: show_date.peek(),
-            date_format: {
-                let typed = date_format.peek();
-                if typed.trim().is_empty() {
-                    base.date_format.clone()
-                } else {
-                    typed
-                }
-            },
-        };
-        persist(&path, "clock", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.clock"),
+        theme,
+        move || {
+            let typed = format.peek();
+            let value = ClockConfig {
+                twelve_hour: twelve_hour.peek(),
+                format: (!typed.trim().is_empty()).then_some(typed),
+                show_date: show_date.peek(),
+                date_format: {
+                    let typed = date_format.peek();
+                    if typed.trim().is_empty() {
+                        base.date_format.clone()
+                    } else {
+                        typed
+                    }
+                },
+            };
+            persist(&path, "clock", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.clock"), rows, save, theme)
 }
 
@@ -1032,7 +1121,12 @@ fn workspaces_section(
     let capitalize = signal(capitalize_str(w.capitalize).to_string());
 
     let rows = vec![
-        text_field(|| rsx::t!("settings.field.shown"), shown.clone(), "0", theme)?,
+        text_field(
+            || rsx::t!("settings.field.shown"),
+            shown.clone(),
+            "0",
+            theme,
+        )?,
         toggle_field(
             || rsx::t!("settings.field.per_monitor"),
             per_monitor.clone(),
@@ -1064,7 +1158,12 @@ fn workspaces_section(
             indicator.clone(),
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.indicator_trail"), indicator_trail.clone(), "0.35", theme)?,
+        text_field(
+            || rsx::t!("settings.field.indicator_trail"),
+            indicator_trail.clone(),
+            "0.35",
+            theme,
+        )?,
         toggle_field(|| rsx::t!("settings.field.scroll"), scroll.clone(), theme)?,
         text_field(
             || rsx::t!("settings.field.label"),
@@ -1094,33 +1193,37 @@ fn workspaces_section(
 
     let base = w.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.workspaces"), theme, move || {
-        let typed = label.peek();
-        let value = WorkspacesConfig {
-            shown: parse_u32(&shown.peek(), base.shown),
-            per_monitor: per_monitor.peek(),
-            show_special: show_special.peek(),
-            window_icons: window_icons.peek(),
-            max_window_icons: parse_u32(&max_icons.peek(), base.max_window_icons),
-            occupied_background: occupied.peek(),
-            indicator: indicator.peek(),
-            indicator_trail: parse_f32(&indicator_trail.peek(), base.indicator_trail),
-            scroll: scroll.peek(),
-            label: if typed.trim().is_empty() {
-                base.label.clone()
-            } else {
-                typed
-            },
-            // Empty is meaningful here: it means "render like every other pill".
-            occupied_label: occupied_label.peek().trim().to_string(),
-            active_label: active_label.peek().trim().to_string(),
-            capitalize: parse_capitalize(&capitalize.peek()),
-            // Map-valued, so it stays hand-edited in the TOML; carrying it through means saving here does not
-            // silently drop the user's scratchpad icons.
-            special_icons: base.special_icons.clone(),
-        };
-        persist(&path, "workspaces", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.workspaces"),
+        theme,
+        move || {
+            let typed = label.peek();
+            let value = WorkspacesConfig {
+                shown: parse_u32(&shown.peek(), base.shown),
+                per_monitor: per_monitor.peek(),
+                show_special: show_special.peek(),
+                window_icons: window_icons.peek(),
+                max_window_icons: parse_u32(&max_icons.peek(), base.max_window_icons),
+                occupied_background: occupied.peek(),
+                indicator: indicator.peek(),
+                indicator_trail: parse_f32(&indicator_trail.peek(), base.indicator_trail),
+                scroll: scroll.peek(),
+                label: if typed.trim().is_empty() {
+                    base.label.clone()
+                } else {
+                    typed
+                },
+                // Empty is meaningful here: it means "render like every other pill".
+                occupied_label: occupied_label.peek().trim().to_string(),
+                active_label: active_label.peek().trim().to_string(),
+                capitalize: parse_capitalize(&capitalize.peek()),
+                // Map-valued, so it stays hand-edited in the TOML; carrying it through means saving here does not
+                // silently drop the user's scratchpad icons.
+                special_icons: base.special_icons.clone(),
+            };
+            persist(&path, "workspaces", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.workspaces"), rows, save, theme)
 }
 
@@ -1181,19 +1284,23 @@ fn media_section(
     // existing map through means saving this section does not silently drop them.
     let base = m.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.media"), theme, move || {
-        let value = MediaConfig {
-            preferred_player: preferred.peek(),
-            max_chars: parse_u32(&max_chars.peek(), base.max_chars),
-            scroll: parse_media_scroll(&scroll.peek()),
-            marquee: marquee.peek(),
-            marquee_speed_ms: parse_u32(&marquee_speed.peek(), base.marquee_speed_ms),
-            seek_seconds: parse_u32(&seek_seconds.peek(), base.seek_seconds),
-            visualiser: visualiser.peek(),
-            aliases: base.aliases.clone(),
-        };
-        persist(&path, "media", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.media"),
+        theme,
+        move || {
+            let value = MediaConfig {
+                preferred_player: preferred.peek(),
+                max_chars: parse_u32(&max_chars.peek(), base.max_chars),
+                scroll: parse_media_scroll(&scroll.peek()),
+                marquee: marquee.peek(),
+                marquee_speed_ms: parse_u32(&marquee_speed.peek(), base.marquee_speed_ms),
+                seek_seconds: parse_u32(&seek_seconds.peek(), base.seek_seconds),
+                visualiser: visualiser.peek(),
+                aliases: base.aliases.clone(),
+            };
+            persist(&path, "media", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.media"), rows, save, theme)
 }
 
@@ -1217,13 +1324,17 @@ fn lyrics_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.lyrics"), theme, move || {
-        let value = LyricsConfig {
-            enabled: enabled.peek(),
-            online: online.peek(),
-        };
-        persist(&path, "lyrics", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.lyrics"),
+        theme,
+        move || {
+            let value = LyricsConfig {
+                enabled: enabled.peek(),
+                online: online.peek(),
+            };
+            persist(&path, "lyrics", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.lyrics"), rows, save, theme)
 }
 
@@ -1252,13 +1363,17 @@ fn audio_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.audio"), theme, move || {
-        let value = AudioConfig {
-            increment: parse_i32(&increment.peek(), a.increment),
-            max_volume: parse_i32(&max_volume.peek(), a.max_volume),
-        };
-        persist(&path, "audio", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.audio"),
+        theme,
+        move || {
+            let value = AudioConfig {
+                increment: parse_i32(&increment.peek(), a.increment),
+                max_volume: parse_i32(&max_volume.peek(), a.max_volume),
+            };
+            persist(&path, "audio", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.audio"), rows, save, theme)
 }
 
@@ -1276,7 +1391,12 @@ fn visualiser_section(
     let frame_rate = signal(v.frame_rate.to_string());
 
     let rows = vec![
-        text_field(|| rsx::t!("settings.field.visualiser_bars"), bars.clone(), "48", theme)?,
+        text_field(
+            || rsx::t!("settings.field.visualiser_bars"),
+            bars.clone(),
+            "48",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.smoothing"),
             smoothing.clone(),
@@ -1305,17 +1425,21 @@ fn visualiser_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.visualiser"), theme, move || {
-        let value = VisualiserConfig {
-            bars: parse_u32(&bars.peek(), v.bars),
-            smoothing: parse_f32(&smoothing.peek(), v.smoothing),
-            floor_db: parse_f32(&floor_db.peek(), v.floor_db),
-            gain: parse_f32(&gain.peek(), v.gain),
-            beat_sensitivity: parse_f32(&beat.peek(), v.beat_sensitivity),
-            frame_rate: parse_u32(&frame_rate.peek(), v.frame_rate),
-        };
-        persist(&path, "visualiser", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.visualiser"),
+        theme,
+        move || {
+            let value = VisualiserConfig {
+                bars: parse_u32(&bars.peek(), v.bars),
+                smoothing: parse_f32(&smoothing.peek(), v.smoothing),
+                floor_db: parse_f32(&floor_db.peek(), v.floor_db),
+                gain: parse_f32(&gain.peek(), v.gain),
+                beat_sensitivity: parse_f32(&beat.peek(), v.beat_sensitivity),
+                frame_rate: parse_u32(&frame_rate.peek(), v.frame_rate),
+            };
+            persist(&path, "visualiser", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.visualiser"), rows, save, theme)
 }
 
@@ -1337,17 +1461,37 @@ fn background_visualiser_section(
 
     let rows = vec![
         toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
-        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
-        text_field(|| rsx::t!("settings.field.reach"), reach.clone(), "140", theme)?,
+        enum_field(
+            || rsx::t!("settings.field.edge"),
+            edge.clone(),
+            EDGES,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.reach"),
+            reach.clone(),
+            "140",
+            theme,
+        )?,
         text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "3", theme)?,
-        text_field(|| rsx::t!("settings.field.radius"), radius.clone(), "3", theme)?,
+        text_field(
+            || rsx::t!("settings.field.radius"),
+            radius.clone(),
+            "3",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.bar_opacity"),
             opacity.clone(),
             "0.75",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.margin"), margin.clone(), "0", theme)?,
+        text_field(
+            || rsx::t!("settings.field.margin"),
+            margin.clone(),
+            "0",
+            theme,
+        )?,
         toggle_field(
             || rsx::t!("settings.field.hide_when_silent"),
             hide.clone(),
@@ -1415,13 +1559,17 @@ fn brightness_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.brightness"), theme, move || {
-        let value = BrightnessConfig {
-            increment: parse_i32(&increment.peek(), b.increment),
-            external: external.peek(),
-        };
-        persist(&path, "brightness", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.brightness"),
+        theme,
+        move || {
+            let value = BrightnessConfig {
+                increment: parse_i32(&increment.peek(), b.increment),
+                external: external.peek(),
+            };
+            persist(&path, "brightness", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.brightness"), rows, save, theme)
 }
 
@@ -1460,16 +1608,25 @@ fn temperature_section(
 
     let base = t.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.temperature"), theme, move || {
-        let value = TemperatureConfig {
-            unit: parse_temperature_unit(&unit.peek()),
-            sensor: sensor.peek().trim().to_string(),
-            warn: parse_f32(&warn.peek(), base.warn),
-            critical: parse_f32(&critical.peek(), base.critical),
-        };
-        persist(&path, "temperature", &value);
-    })?;
-    section(|| rsx::t!("settings.section.temperature"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.temperature"),
+        theme,
+        move || {
+            let value = TemperatureConfig {
+                unit: parse_temperature_unit(&unit.peek()),
+                sensor: sensor.peek().trim().to_string(),
+                warn: parse_f32(&warn.peek(), base.warn),
+                critical: parse_f32(&critical.peek(), base.critical),
+            };
+            persist(&path, "temperature", &value);
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.temperature"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn launcher_section(
@@ -1489,7 +1646,12 @@ fn launcher_section(
     let hidden = signal(join_csv(&l.hidden));
 
     let rows = vec![
-        text_field(|| rsx::t!("settings.field.width"), width.clone(), "640", theme)?,
+        text_field(
+            || rsx::t!("settings.field.width"),
+            width.clone(),
+            "640",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.height"),
             height.clone(),
@@ -1530,24 +1692,28 @@ fn launcher_section(
 
     let base = l.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.launcher"), theme, move || {
-        let value = LauncherConfig {
-            width: parse_u32(&width.peek(), base.width),
-            height: parse_u32(&height.peek(), base.height),
-            radius: base.radius,
-            max_results: parse_u32(&max_results.peek(), base.max_results),
-            fuzzy: fuzzy.peek(),
-            calculator: calculator.peek(),
-            qalc: qalc.peek(),
-            favourites: split_csv(&favourites.peek()),
-            hidden: split_csv(&hidden.peek()),
-            // A list of tables, so it stays hand-edited in the TOML; carrying it through means saving here
-            // does not silently drop the user's actions.
-            actions: base.actions.clone(),
-            enable_dangerous_actions: dangerous.peek(),
-        };
-        persist(&path, "launcher", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.launcher"),
+        theme,
+        move || {
+            let value = LauncherConfig {
+                width: parse_u32(&width.peek(), base.width),
+                height: parse_u32(&height.peek(), base.height),
+                radius: base.radius,
+                max_results: parse_u32(&max_results.peek(), base.max_results),
+                fuzzy: fuzzy.peek(),
+                calculator: calculator.peek(),
+                qalc: qalc.peek(),
+                favourites: split_csv(&favourites.peek()),
+                hidden: split_csv(&hidden.peek()),
+                // A list of tables, so it stays hand-edited in the TOML; carrying it through means saving here
+                // does not silently drop the user's actions.
+                actions: base.actions.clone(),
+                enable_dangerous_actions: dangerous.peek(),
+            };
+            persist(&path, "launcher", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.launcher"), rows, save, theme)
 }
 
@@ -1581,15 +1747,19 @@ fn battery_section(
     // through means saving here does not silently drop the user's thresholds.
     let base = b.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.battery"), theme, move || {
-        let value = BatteryConfig {
-            enabled: enabled.peek(),
-            warn_levels: base.warn_levels.clone(),
-            critical_level: parse_i32(&critical_level.peek(), base.critical_level),
-            critical_action: critical_action.peek().trim().to_string(),
-        };
-        persist(&path, "battery", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.battery"),
+        theme,
+        move || {
+            let value = BatteryConfig {
+                enabled: enabled.peek(),
+                warn_levels: base.warn_levels.clone(),
+                critical_level: parse_i32(&critical_level.peek(), base.critical_level),
+                critical_action: critical_action.peek().trim().to_string(),
+            };
+            persist(&path, "battery", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.battery"), rows, save, theme)
 }
 
@@ -1614,15 +1784,24 @@ fn lock_status_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.lock_status"), theme, move || {
-        let value = LockStatusConfig {
-            caps: caps.peek(),
-            num: num.peek(),
-            hide_inactive: hide_inactive.peek(),
-        };
-        persist(&path, "lock_status", &value);
-    })?;
-    section(|| rsx::t!("settings.section.lock_status"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.lock_status"),
+        theme,
+        move || {
+            let value = LockStatusConfig {
+                caps: caps.peek(),
+                num: num.peek(),
+                hide_inactive: hide_inactive.peek(),
+            };
+            persist(&path, "lock_status", &value);
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.lock_status"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn lock_section(
@@ -1703,23 +1882,27 @@ fn lock_section(
     // carried through unchanged, so saving here never quietly drops a setting the panel has no row for.
     let base = l.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.lock"), theme, move || {
-        let value = crate::core::config::LockConfig {
-            pam_service: pam_service.peek().trim().to_string(),
-            max_tries: parse_i32(&max_tries.peek(), base.max_tries as i32).max(0) as u32,
-            lockout_seconds: parse_i32(&lockout_seconds.peek(), base.lockout_seconds as i32).max(0)
-                as u64,
-            lock_before_sleep: lock_before_sleep.peek(),
-            fingerprint: fingerprint.peek(),
-            howdy_command: howdy_command.peek().trim().to_string(),
-            show_avatar: show_avatar.peek(),
-            show_media: show_media.peek(),
-            show_notifications: show_notifications.peek(),
-            hide_notifs: hide_notifs.peek(),
-            ..base.clone()
-        };
-        persist(&path, "lock", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.lock"),
+        theme,
+        move || {
+            let value = crate::core::config::LockConfig {
+                pam_service: pam_service.peek().trim().to_string(),
+                max_tries: parse_i32(&max_tries.peek(), base.max_tries as i32).max(0) as u32,
+                lockout_seconds: parse_i32(&lockout_seconds.peek(), base.lockout_seconds as i32)
+                    .max(0) as u64,
+                lock_before_sleep: lock_before_sleep.peek(),
+                fingerprint: fingerprint.peek(),
+                howdy_command: howdy_command.peek().trim().to_string(),
+                show_avatar: show_avatar.peek(),
+                show_media: show_media.peek(),
+                show_notifications: show_notifications.peek(),
+                hide_notifs: hide_notifs.peek(),
+                ..base.clone()
+            };
+            persist(&path, "lock", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.lock"), rows, save, theme)
 }
 
@@ -1757,16 +1940,20 @@ fn idle_section(
     // idle on from here does not wipe the timeouts it is switching on.
     let base = i.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.idle"), theme, move || {
-        let value = crate::core::config::IdleConfig {
-            enabled: enabled.peek(),
-            stages: base.stages.clone(),
-            inhibit_when_audio: inhibit_when_audio.peek(),
-            inhibit_when_charging: inhibit_when_charging.peek(),
-            respect_inhibitors: respect_inhibitors.peek(),
-        };
-        persist(&path, "idle", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.idle"),
+        theme,
+        move || {
+            let value = crate::core::config::IdleConfig {
+                enabled: enabled.peek(),
+                stages: base.stages.clone(),
+                inhibit_when_audio: inhibit_when_audio.peek(),
+                inhibit_when_charging: inhibit_when_charging.peek(),
+                respect_inhibitors: respect_inhibitors.peek(),
+            };
+            persist(&path, "idle", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.idle"), rows, save, theme)
 }
 
@@ -1788,18 +1975,27 @@ fn gpu_section(
             "auto",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.card"), card.clone(), "card1", theme)?,
+        text_field(
+            || rsx::t!("settings.field.card"),
+            card.clone(),
+            "card1",
+            theme,
+        )?,
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.gpu"), theme, move || {
-        let value = GpuConfig {
-            enabled: enabled.peek(),
-            backend: backend.peek(),
-            card: card.peek(),
-        };
-        persist(&path, "gpu", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.gpu"),
+        theme,
+        move || {
+            let value = GpuConfig {
+                enabled: enabled.peek(),
+                backend: backend.peek(),
+                card: card.peek(),
+            };
+            persist(&path, "gpu", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.gpu"), rows, save, theme)
 }
 
@@ -1852,20 +2048,24 @@ fn weather_section(
 
     let base = w.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.weather"), theme, move || {
-        // A blank coordinate is "not set", not zero: a stray empty field must fall back to the place name
-        // rather than pinning the forecast to the Gulf of Guinea.
-        let optional = |raw: String| raw.trim().parse::<f32>().ok();
-        let value = WeatherConfig {
-            enabled: enabled.peek(),
-            location: location.peek(),
-            latitude: optional(latitude.peek()),
-            longitude: optional(longitude.peek()),
-            refresh_minutes: parse_u32(&refresh.peek(), base.refresh_minutes),
-            forecast_days: parse_u32(&days.peek(), base.forecast_days),
-        };
-        persist(&path, "weather", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.weather"),
+        theme,
+        move || {
+            // A blank coordinate is "not set", not zero: a stray empty field must fall back to the place name
+            // rather than pinning the forecast to the Gulf of Guinea.
+            let optional = |raw: String| raw.trim().parse::<f32>().ok();
+            let value = WeatherConfig {
+                enabled: enabled.peek(),
+                location: location.peek(),
+                latitude: optional(latitude.peek()),
+                longitude: optional(longitude.peek()),
+                refresh_minutes: parse_u32(&refresh.peek(), base.refresh_minutes),
+                forecast_days: parse_u32(&days.peek(), base.forecast_days),
+            };
+            persist(&path, "weather", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.weather"), rows, save, theme)
 }
 
@@ -1916,16 +2116,23 @@ fn dashboard_section(
 
     let base = d.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.dashboard"), theme, move || {
-        let value = DashboardConfig {
-            tabs: split_csv(&tabs.peek()),
-            media_update_interval: parse_u64(&media.peek(), base.media_update_interval),
-            resource_update_interval: parse_u64(&resources.peek(), base.resource_update_interval),
-            first_day_of_week: first_day.peek(),
-            avatar: avatar.peek(),
-        };
-        persist(&path, "dashboard", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.dashboard"),
+        theme,
+        move || {
+            let value = DashboardConfig {
+                tabs: split_csv(&tabs.peek()),
+                media_update_interval: parse_u64(&media.peek(), base.media_update_interval),
+                resource_update_interval: parse_u64(
+                    &resources.peek(),
+                    base.resource_update_interval,
+                ),
+                first_day_of_week: first_day.peek(),
+                avatar: avatar.peek(),
+            };
+            persist(&path, "dashboard", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.dashboard"), rows, save, theme)
 }
 
@@ -1978,16 +2185,20 @@ fn paths_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.paths"), theme, move || {
-        let value = PathsConfig {
-            wallpapers: wallpapers.peek(),
-            lyrics: lyrics.peek(),
-            recordings: recordings.peek(),
-            screenshots: screenshots.peek(),
-            assets: assets.peek(),
-        };
-        persist(&path, "paths", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.paths"),
+        theme,
+        move || {
+            let value = PathsConfig {
+                wallpapers: wallpapers.peek(),
+                lyrics: lyrics.peek(),
+                recordings: recordings.peek(),
+                screenshots: screenshots.peek(),
+                assets: assets.peek(),
+            };
+            persist(&path, "paths", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.paths"), rows, save, theme)
 }
 
@@ -2024,15 +2235,19 @@ fn network_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.network"), theme, move || {
-        let value = NetworkConfig {
-            enabled: enabled.peek(),
-            rescan_seconds: parse_u32(&rescan.peek(), n.rescan_seconds),
-            max_networks: parse_u32(&max_networks.peek(), n.max_networks),
-            show_hidden: show_hidden.peek(),
-        };
-        persist(&path, "network", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.network"),
+        theme,
+        move || {
+            let value = NetworkConfig {
+                enabled: enabled.peek(),
+                rescan_seconds: parse_u32(&rescan.peek(), n.rescan_seconds),
+                max_networks: parse_u32(&max_networks.peek(), n.max_networks),
+                show_hidden: show_hidden.peek(),
+            };
+            persist(&path, "network", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.network"), rows, save, theme)
 }
 
@@ -2068,15 +2283,19 @@ fn bluetooth_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.bluetooth"), theme, move || {
-        let value = BluetoothConfig {
-            enabled: enabled.peek(),
-            scan_on_open: scan_on_open.peek(),
-            max_devices: parse_u32(&max_devices.peek(), b.max_devices),
-            show_unnamed: show_unnamed.peek(),
-        };
-        persist(&path, "bluetooth", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.bluetooth"),
+        theme,
+        move || {
+            let value = BluetoothConfig {
+                enabled: enabled.peek(),
+                scan_on_open: scan_on_open.peek(),
+                max_devices: parse_u32(&max_devices.peek(), b.max_devices),
+                show_unnamed: show_unnamed.peek(),
+            };
+            persist(&path, "bluetooth", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.bluetooth"), rows, save, theme)
 }
 
@@ -2106,14 +2325,23 @@ fn status_icons_section(
 
     let base = s.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.status_icons"), theme, move || {
-        let value = StatusIconsConfig {
-            icons: split_csv(&icons.peek()),
-            spacing: parse_f32(&spacing.peek(), base.spacing),
-        };
-        persist(&path, "status_icons", &value);
-    })?;
-    section(|| rsx::t!("settings.section.status_icons"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.status_icons"),
+        theme,
+        move || {
+            let value = StatusIconsConfig {
+                icons: split_csv(&icons.peek()),
+                spacing: parse_f32(&spacing.peek(), base.spacing),
+            };
+            persist(&path, "status_icons", &value);
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.status_icons"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn tray_section(
@@ -2131,7 +2359,11 @@ fn tray_section(
     let rows = vec![
         toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
         toggle_field(|| rsx::t!("settings.field.compact"), compact.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.recolour"), recolour.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.recolour"),
+            recolour.clone(),
+            theme,
+        )?,
         toggle_field(
             || rsx::t!("settings.field.background"),
             background.clone(),
@@ -2147,24 +2379,28 @@ fn tray_section(
 
     let base = t.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.tray"), theme, move || {
-        let value = TrayConfig {
-            enabled: enabled.peek(),
-            compact: compact.peek(),
-            recolour: recolour.peek(),
-            background: background.peek(),
-            hidden: hidden
-                .peek()
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-            // Map-valued, so it stays hand-edited in the TOML like `theme.colors`; carrying it through means
-            // saving here does not silently drop the user's icon substitutions.
-            icon_subs: base.icon_subs.clone(),
-        };
-        persist(&path, "tray", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.tray"),
+        theme,
+        move || {
+            let value = TrayConfig {
+                enabled: enabled.peek(),
+                compact: compact.peek(),
+                recolour: recolour.peek(),
+                background: background.peek(),
+                hidden: hidden
+                    .peek()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+                // Map-valued, so it stays hand-edited in the TOML like `theme.colors`; carrying it through means
+                // saving here does not silently drop the user's icon substitutions.
+                icon_subs: base.icon_subs.clone(),
+            };
+            persist(&path, "tray", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.tray"), rows, save, theme)
 }
 
@@ -2204,7 +2440,11 @@ fn active_window_section(
             show_icon.clone(),
             theme,
         )?,
-        toggle_field(|| rsx::t!("settings.field.inverted"), inverted.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.inverted"),
+            inverted.clone(),
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.max_chars"),
             max_chars.clone(),
@@ -2214,16 +2454,25 @@ fn active_window_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.active_window"), theme, move || {
-        let value = ActiveWindowConfig {
-            compact: compact.peek(),
-            show_icon: show_icon.peek(),
-            inverted: inverted.peek(),
-            max_chars: parse_u32(&max_chars.peek(), w.max_chars),
-        };
-        persist(&path, "active_window", &value);
-    })?;
-    section(|| rsx::t!("settings.section.active_window"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.active_window"),
+        theme,
+        move || {
+            let value = ActiveWindowConfig {
+                compact: compact.peek(),
+                show_icon: show_icon.peek(),
+                inverted: inverted.peek(),
+                max_chars: parse_u32(&max_chars.peek(), w.max_chars),
+            };
+            persist(&path, "active_window", &value);
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.active_window"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn notifications_section(
@@ -2249,7 +2498,12 @@ fn notifications_section(
     let clear_threshold = signal(n.clear_threshold.to_string());
 
     let rows = vec![
-        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.edge"),
+            edge.clone(),
+            EDGES,
+            theme,
+        )?,
         enum_field(
             || rsx::t!("settings.field.align"),
             align.clone(),
@@ -2273,7 +2527,12 @@ fn notifications_section(
             critical.clone(),
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.width"), width.clone(), "380", theme)?,
+        text_field(
+            || rsx::t!("settings.field.width"),
+            width.clone(),
+            "380",
+            theme,
+        )?,
         text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "10", theme)?,
         enum_field(
             || rsx::t!("settings.field.fullscreen_popups"),
@@ -2314,32 +2573,46 @@ fn notifications_section(
             "canberra-gtk-play -i message",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.clear_threshold"), clear_threshold.clone(), "0.35", theme)?,
+        text_field(
+            || rsx::t!("settings.field.clear_threshold"),
+            clear_threshold.clone(),
+            "0.35",
+            theme,
+        )?,
     ];
 
     let base = n.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.notifications"), theme, move || {
-        let value = NotificationsConfig {
-            edge: parse_edge(&edge.peek()),
-            align: parse_align(&align.peek()),
-            max_visible: parse_u32(&max_visible.peek(), base.max_visible),
-            timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
-            critical_sticky: critical.peek(),
-            width: parse_f32(&width.peek(), base.width),
-            gap: parse_f32(&gap.peek(), base.gap),
-            fullscreen: parse_fullscreen_popups(&fullscreen.peek()),
-            group_by_app: group_by_app.peek(),
-            group_preview_num: parse_u32(&group_preview.peek(), base.group_preview_num),
-            action_on_click: action_on_click.peek(),
-            body_lines: parse_u32(&body_lines.peek(), base.body_lines),
-            open_expanded: open_expanded.peek(),
-            sound: sound.peek(),
-            clear_threshold: parse_f32(&clear_threshold.peek(), base.clear_threshold),
-        };
-        persist(&path, "notifications", &value);
-    })?;
-    section(|| rsx::t!("settings.section.notifications"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.notifications"),
+        theme,
+        move || {
+            let value = NotificationsConfig {
+                edge: parse_edge(&edge.peek()),
+                align: parse_align(&align.peek()),
+                max_visible: parse_u32(&max_visible.peek(), base.max_visible),
+                timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
+                critical_sticky: critical.peek(),
+                width: parse_f32(&width.peek(), base.width),
+                gap: parse_f32(&gap.peek(), base.gap),
+                fullscreen: parse_fullscreen_popups(&fullscreen.peek()),
+                group_by_app: group_by_app.peek(),
+                group_preview_num: parse_u32(&group_preview.peek(), base.group_preview_num),
+                action_on_click: action_on_click.peek(),
+                body_lines: parse_u32(&body_lines.peek(), base.body_lines),
+                open_expanded: open_expanded.peek(),
+                sound: sound.peek(),
+                clear_threshold: parse_f32(&clear_threshold.peek(), base.clear_threshold),
+            };
+            persist(&path, "notifications", &value);
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.notifications"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 /// `[toasts]`, including the per-event switches.
@@ -2377,8 +2650,18 @@ fn toasts_section(
 
     let rows = vec![
         toggle_field(|| rsx::t!("settings.field.enabled"), enabled.clone(), theme)?,
-        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
-        enum_field(|| rsx::t!("settings.field.align"), align.clone(), ALIGNS, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.edge"),
+            edge.clone(),
+            EDGES,
+            theme,
+        )?,
+        enum_field(
+            || rsx::t!("settings.field.align"),
+            align.clone(),
+            ALIGNS,
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.max_toasts"),
             max_toasts.clone(),
@@ -2391,7 +2674,12 @@ fn toasts_section(
             "2500",
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.width"), width.clone(), "300", theme)?,
+        text_field(
+            || rsx::t!("settings.field.width"),
+            width.clone(),
+            "300",
+            theme,
+        )?,
         text_field(|| rsx::t!("settings.field.gap"), gap.clone(), "8", theme)?,
         subheader(|| rsx::t!("settings.subheader.events"), theme)?,
         toggle_field(
@@ -2450,32 +2738,36 @@ fn toasts_section(
 
     let base = t.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.toasts"), theme, move || {
-        let value = ToastsConfig {
-            enabled: enabled.peek(),
-            edge: parse_edge(&edge.peek()),
-            align: parse_align(&align.peek()),
-            max_toasts: parse_u32(&max_toasts.peek(), base.max_toasts),
-            timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
-            width: parse_f32(&width.peek(), base.width),
-            gap: parse_f32(&gap.peek(), base.gap),
-            events: ToastEvents {
-                config_loaded: config_loaded.peek(),
-                charging: charging.peek(),
-                game_mode: game_mode.peek(),
-                dnd: dnd.peek(),
-                audio_output: audio_output.peek(),
-                audio_input: audio_input.peek(),
-                lock_keys: lock_keys.peek(),
-                kb_layout: kb_layout.peek(),
-                vpn: vpn.peek(),
-                now_playing: now_playing.peek(),
-                screenshot: screenshot.peek(),
-                recording: recording.peek(),
-            },
-        };
-        persist(&path, "toasts", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.toasts"),
+        theme,
+        move || {
+            let value = ToastsConfig {
+                enabled: enabled.peek(),
+                edge: parse_edge(&edge.peek()),
+                align: parse_align(&align.peek()),
+                max_toasts: parse_u32(&max_toasts.peek(), base.max_toasts),
+                timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
+                width: parse_f32(&width.peek(), base.width),
+                gap: parse_f32(&gap.peek(), base.gap),
+                events: ToastEvents {
+                    config_loaded: config_loaded.peek(),
+                    charging: charging.peek(),
+                    game_mode: game_mode.peek(),
+                    dnd: dnd.peek(),
+                    audio_output: audio_output.peek(),
+                    audio_input: audio_input.peek(),
+                    lock_keys: lock_keys.peek(),
+                    kb_layout: kb_layout.peek(),
+                    vpn: vpn.peek(),
+                    now_playing: now_playing.peek(),
+                    screenshot: screenshot.peek(),
+                    recording: recording.peek(),
+                },
+            };
+            persist(&path, "toasts", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.toasts"), rows, save, theme)
 }
 
@@ -2496,7 +2788,11 @@ fn screenshot_section(
 
     let rows = vec![
         toggle_field(|| rsx::t!("settings.field.copy"), copy.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.save"), save_to_disk.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.save"),
+            save_to_disk.clone(),
+            theme,
+        )?,
         toggle_field(
             || rsx::t!("settings.field.include_cursor"),
             cursor.clone(),
@@ -2525,19 +2821,23 @@ fn screenshot_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.screenshot"), theme, move || {
-        let value = ScreenshotConfig {
-            copy: copy.peek(),
-            save: save_to_disk.peek(),
-            include_cursor: cursor.peek(),
-            freeze: freeze.peek(),
-            notify: notify.peek(),
-            backend: backend.peek(),
-            file_name: file_name.peek(),
-            annotator: annotator.peek(),
-        };
-        persist(&path, "screenshot", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.screenshot"),
+        theme,
+        move || {
+            let value = ScreenshotConfig {
+                copy: copy.peek(),
+                save: save_to_disk.peek(),
+                include_cursor: cursor.peek(),
+                freeze: freeze.peek(),
+                notify: notify.peek(),
+                backend: backend.peek(),
+                file_name: file_name.peek(),
+                annotator: annotator.peek(),
+            };
+            persist(&path, "screenshot", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.screenshot"), rows, save, theme)
 }
 
@@ -2587,18 +2887,22 @@ fn recorder_section(
 
     let base = r.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.recorder"), theme, move || {
-        let value = RecorderConfig {
-            backend: backend.peek(),
-            audio: audio.peek(),
-            audio_device: device.peek(),
-            fps: parse_u32(&fps.peek(), base.fps),
-            file_name: file_name.peek(),
-            notify: notify.peek(),
-            max_entries: parse_u32(&max_entries.peek(), base.max_entries),
-        };
-        persist(&path, "recorder", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.recorder"),
+        theme,
+        move || {
+            let value = RecorderConfig {
+                backend: backend.peek(),
+                audio: audio.peek(),
+                audio_device: device.peek(),
+                fps: parse_u32(&fps.peek(), base.fps),
+                file_name: file_name.peek(),
+                notify: notify.peek(),
+                max_entries: parse_u32(&max_entries.peek(), base.max_entries),
+            };
+            persist(&path, "recorder", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.recorder"), rows, save, theme)
 }
 
@@ -2631,7 +2935,12 @@ fn utilities_section(
             show_recordings.clone(),
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.columns"), columns.clone(), "4", theme)?,
+        text_field(
+            || rsx::t!("settings.field.columns"),
+            columns.clone(),
+            "4",
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.window_preview_ms"),
             preview.clone(),
@@ -2642,16 +2951,20 @@ fn utilities_section(
 
     let base = u.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.utilities"), theme, move || {
-        let value = UtilitiesConfig {
-            toggles: split_csv(&toggles.peek()),
-            show_capture: show_capture.peek(),
-            show_recordings: show_recordings.peek(),
-            columns: parse_u32(&columns.peek(), base.columns),
-            window_preview_ms: parse_u64(&preview.peek(), base.window_preview_ms),
-        };
-        persist(&path, "utilities", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.utilities"),
+        theme,
+        move || {
+            let value = UtilitiesConfig {
+                toggles: split_csv(&toggles.peek()),
+                show_capture: show_capture.peek(),
+                show_recordings: show_recordings.peek(),
+                columns: parse_u32(&columns.peek(), base.columns),
+                window_preview_ms: parse_u64(&preview.peek(), base.window_preview_ms),
+            };
+            persist(&path, "utilities", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.utilities"), rows, save, theme)
 }
 
@@ -2667,8 +2980,18 @@ fn sidebar_section(
     let show_history = signal(s.show_history);
 
     let rows = vec![
-        enum_field(|| rsx::t!("settings.field.edge"), edge.clone(), EDGES, theme)?,
-        text_field(|| rsx::t!("settings.field.size"), size.clone(), "400", theme)?,
+        enum_field(
+            || rsx::t!("settings.field.edge"),
+            edge.clone(),
+            EDGES,
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.size"),
+            size.clone(),
+            "400",
+            theme,
+        )?,
         toggle_field(
             || rsx::t!("settings.field.show_toggles"),
             show_toggles.clone(),
@@ -2683,15 +3006,19 @@ fn sidebar_section(
 
     let base = s.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.sidebar"), theme, move || {
-        let value = SidebarConfig {
-            edge: parse_edge(&edge.peek()),
-            size: parse_u32(&size.peek(), base.size),
-            show_toggles: show_toggles.peek(),
-            show_history: show_history.peek(),
-        };
-        persist(&path, "sidebar", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.sidebar"),
+        theme,
+        move || {
+            let value = SidebarConfig {
+                edge: parse_edge(&edge.peek()),
+                size: parse_u32(&size.peek(), base.size),
+                show_toggles: show_toggles.peek(),
+                show_history: show_history.peek(),
+            };
+            persist(&path, "sidebar", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.sidebar"), rows, save, theme)
 }
 
@@ -2701,11 +3028,19 @@ fn keynav_section(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let vim = signal(config.keynav.vim);
-    let rows = vec![toggle_field(|| rsx::t!("settings.field.vim"), vim.clone(), theme)?];
+    let rows = vec![toggle_field(
+        || rsx::t!("settings.field.vim"),
+        vim.clone(),
+        theme,
+    )?];
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.keynav"), theme, move || {
-        persist(&path, "keynav", &KeyNavConfig { vim: vim.peek() });
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.keynav"),
+        theme,
+        move || {
+            persist(&path, "keynav", &KeyNavConfig { vim: vim.peek() });
+        },
+    )?;
     section(|| rsx::t!("settings.section.keynav"), rows, save, theme)
 }
 
@@ -2793,24 +3128,28 @@ fn background_section(
 
     let base = b.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.background"), theme, move || {
-        let monitors = monitors
-            .iter()
-            .filter_map(|(name, value)| {
-                opt_string(&value.peek()).map(|path| (name.clone(), PathBuf::from(path)))
-            })
-            .collect();
-        let value = BackgroundConfig {
-            enabled: enabled.peek(),
-            image: opt_string(&image.peek()).map(PathBuf::from),
-            monitors,
-            transition: WallpaperTransition::from_id(&transition.peek()).unwrap_or_default(),
-            transition_ms: parse_u64(&transition_ms.peek(), base.transition_ms),
-            clock: base.clock.clone(),
-            visualiser: base.visualiser,
-        };
-        persist(&path, "background", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.background"),
+        theme,
+        move || {
+            let monitors = monitors
+                .iter()
+                .filter_map(|(name, value)| {
+                    opt_string(&value.peek()).map(|path| (name.clone(), PathBuf::from(path)))
+                })
+                .collect();
+            let value = BackgroundConfig {
+                enabled: enabled.peek(),
+                image: opt_string(&image.peek()).map(PathBuf::from),
+                monitors,
+                transition: WallpaperTransition::from_id(&transition.peek()).unwrap_or_default(),
+                transition_ms: parse_u64(&transition_ms.peek(), base.transition_ms),
+                clock: base.clock.clone(),
+                visualiser: base.visualiser,
+            };
+            persist(&path, "background", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.background"), rows, save, theme)
 }
 
@@ -2855,16 +3194,20 @@ fn wallpaper_section(
 
     let base = w.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.wallpaper"), theme, move || {
-        let value = WallpaperConfig {
-            enabled: enabled.peek(),
-            recursive: recursive.peek(),
-            max_entries: parse_u32(&max_entries.peek(), base.max_entries),
-            thumbnail_size: parse_u32(&thumbnail_size.peek(), base.thumbnail_size),
-            extensions: split_csv(&extensions.peek()),
-        };
-        persist(&path, "wallpaper", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.wallpaper"),
+        theme,
+        move || {
+            let value = WallpaperConfig {
+                enabled: enabled.peek(),
+                recursive: recursive.peek(),
+                max_entries: parse_u32(&max_entries.peek(), base.max_entries),
+                thumbnail_size: parse_u32(&thumbnail_size.peek(), base.thumbnail_size),
+                extensions: split_csv(&extensions.peek()),
+            };
+            persist(&path, "wallpaper", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.wallpaper"), rows, save, theme)
 }
 
@@ -2897,10 +3240,24 @@ fn desktop_clock_section(
             PLACEMENTS,
             theme,
         )?,
-        text_field(|| rsx::t!("settings.field.scale"), scale.clone(), "3", theme)?,
-        text_field(|| rsx::t!("settings.field.margin"), margin.clone(), "48", theme)?,
+        text_field(
+            || rsx::t!("settings.field.scale"),
+            scale.clone(),
+            "3",
+            theme,
+        )?,
+        text_field(
+            || rsx::t!("settings.field.margin"),
+            margin.clone(),
+            "48",
+            theme,
+        )?,
         toggle_field(|| rsx::t!("settings.field.invert"), invert.clone(), theme)?,
-        toggle_field(|| rsx::t!("settings.field.show_date"), show_date.clone(), theme)?,
+        toggle_field(
+            || rsx::t!("settings.field.show_date"),
+            show_date.clone(),
+            theme,
+        )?,
         text_field(
             || rsx::t!("settings.field.time_format"),
             format.clone(),
@@ -2930,31 +3287,40 @@ fn desktop_clock_section(
 
     let base = config.background.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.desktop_clock"), theme, move || {
-        let clock = DesktopClockConfig {
-            enabled: enabled.peek(),
-            position: Placement::from_id(&position.peek()).unwrap_or_default(),
-            scale: parse_f32(&scale.peek(), base.clock.scale),
-            margin: parse_u32(&margin.peek(), base.clock.margin),
-            invert: invert.peek(),
-            show_date: show_date.peek(),
-            format: opt_string(&format.peek()),
-            date_format: opt_string(&date_format.peek()),
-            background: background.peek(),
-            background_opacity: parse_f32(&opacity.peek(), base.clock.background_opacity),
-            background_blur: parse_f32(&blur.peek(), base.clock.background_blur),
-            shadow: shadow.peek(),
-        };
-        persist(
-            &path,
-            "background",
-            &BackgroundConfig {
-                clock,
-                ..base.clone()
-            },
-        );
-    })?;
-    section(|| rsx::t!("settings.section.desktop_clock"), rows, save, theme)
+    let save = save_button(
+        || rsx::t!("settings.save.desktop_clock"),
+        theme,
+        move || {
+            let clock = DesktopClockConfig {
+                enabled: enabled.peek(),
+                position: Placement::from_id(&position.peek()).unwrap_or_default(),
+                scale: parse_f32(&scale.peek(), base.clock.scale),
+                margin: parse_u32(&margin.peek(), base.clock.margin),
+                invert: invert.peek(),
+                show_date: show_date.peek(),
+                format: opt_string(&format.peek()),
+                date_format: opt_string(&date_format.peek()),
+                background: background.peek(),
+                background_opacity: parse_f32(&opacity.peek(), base.clock.background_opacity),
+                background_blur: parse_f32(&blur.peek(), base.clock.background_blur),
+                shadow: shadow.peek(),
+            };
+            persist(
+                &path,
+                "background",
+                &BackgroundConfig {
+                    clock,
+                    ..base.clone()
+                },
+            );
+        },
+    )?;
+    section(
+        || rsx::t!("settings.section.desktop_clock"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn animation_section(
@@ -2977,7 +3343,12 @@ fn animation_section(
             "1",
             theme,
         )?,
-        enum_field(|| rsx::t!("settings.field.curve"), curve.clone(), CURVES, theme)?,
+        enum_field(
+            || rsx::t!("settings.field.curve"),
+            curve.clone(),
+            CURVES,
+            theme,
+        )?,
         enum_field(
             || rsx::t!("settings.field.easing"),
             easing.clone(),
@@ -2994,16 +3365,20 @@ fn animation_section(
 
     let base = a.clone();
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.animation"), theme, move || {
-        let value = AnimationConfig {
-            enabled: enabled.peek(),
-            duration_scale: parse_f32(&scale.peek(), base.duration_scale),
-            curve: curve.peek(),
-            easing: easing.peek(),
-            panel_duration_ms: parse_u64(&panel_ms.peek(), base.panel_duration_ms),
-        };
-        persist(&path, "animation", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.animation"),
+        theme,
+        move || {
+            let value = AnimationConfig {
+                enabled: enabled.peek(),
+                duration_scale: parse_f32(&scale.peek(), base.duration_scale),
+                curve: curve.peek(),
+                easing: easing.peek(),
+                panel_duration_ms: parse_u64(&panel_ms.peek(), base.panel_duration_ms),
+            };
+            persist(&path, "animation", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.animation"), rows, save, theme)
 }
 
@@ -3017,7 +3392,11 @@ fn about_section(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let rows = vec![
-        reading_row(|| rsx::t!("settings.field.version"), env!("CARGO_PKG_VERSION"), theme)?,
+        reading_row(
+            || rsx::t!("settings.field.version"),
+            env!("CARGO_PKG_VERSION"),
+            theme,
+        )?,
         reading_row(
             || rsx::t!("settings.field.compositor"),
             &env_or_unknown("HYPRLAND_INSTANCE_SIGNATURE").map_or_else(
@@ -3051,7 +3430,9 @@ fn about_section(
 
 /// A non-empty environment variable, which is the only kind worth reporting.
 fn env_or_unknown(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
 }
 
 /// A label and a value the user cannot change — the About page's only row shape.
@@ -3108,15 +3489,19 @@ fn corners_section(
     ];
 
     let path = path.to_path_buf();
-    let save = save_button(|| rsx::t!("settings.save.corners"), theme, move || {
-        let value = CornersConfig {
-            top_left: opt_string(&tl.peek()),
-            top_right: opt_string(&tr.peek()),
-            bottom_left: opt_string(&bl.peek()),
-            bottom_right: opt_string(&br.peek()),
-        };
-        persist(&path, "corners", &value);
-    })?;
+    let save = save_button(
+        || rsx::t!("settings.save.corners"),
+        theme,
+        move || {
+            let value = CornersConfig {
+                top_left: opt_string(&tl.peek()),
+                top_right: opt_string(&tr.peek()),
+                bottom_left: opt_string(&bl.peek()),
+                bottom_right: opt_string(&br.peek()),
+            };
+            persist(&path, "corners", &value);
+        },
+    )?;
     section(|| rsx::t!("settings.section.corners"), rows, save, theme)
 }
 
@@ -3149,11 +3534,11 @@ fn section_label(
     label: impl Fn() -> String + 'static,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Body, theme.text).with_weight(700),
-    )?;
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        theme
+            .text_style(FontRole::Body, theme.text)
+            .with_weight(700)
+    })?;
     Ok(Box::new(text))
 }
 
@@ -3161,11 +3546,11 @@ fn subheader(
     label: impl Fn() -> String + 'static,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Caption, theme.muted).with_weight(700),
-    )?;
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        theme
+            .text_style(FontRole::Caption, theme.muted)
+            .with_weight(700)
+    })?;
     Ok(Box::new(text))
 }
 
@@ -3174,11 +3559,9 @@ fn labelled(
     control: Box<dyn LayoutItem>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label_text = Text::auto(
-        label,
-        LayoutStyle::new().width(120.0),
-        move || theme.text_style(FontRole::Body, theme.subtle),
-    )?;
+    let label_text = Text::auto(label, LayoutStyle::new().width(120.0), move || {
+        theme.text_style(FontRole::Body, theme.subtle)
+    })?;
     let row = Container::new(
         LayoutStyle::new()
             .flex_row()
@@ -3293,11 +3676,9 @@ fn save_button(
     on_press: impl Fn() + 'static,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let fg = theme.accent.most_readable(&[theme.text, theme.base]);
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Body, fg).with_weight(700),
-    )?;
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        theme.text_style(FontRole::Body, fg).with_weight(700)
+    })?;
     let button = StyledContainer::new(
         LayoutStyle::new()
             .padding_horizontal(14.0)
@@ -3463,14 +3844,19 @@ mod tests {
         use rsx::{ComponentList, DrawCommand, Event};
 
         fn has_text(tree: &ComponentList, needle: &str) -> bool {
-            tree.commands().iter().any(|c| matches!(c, DrawCommand::Text { text, .. } if text.contains(needle)))
+            tree.commands()
+                .iter()
+                .any(|c| matches!(c, DrawCommand::Text { text, .. } if text.contains(needle)))
         }
 
         reset_layout_runtime();
         set_theme(NordTheme::new());
         let panel = settings_panel().expect("settings panel");
         let mut tree = ComponentList::new(SurfaceRoot::new(panel).expect("root"));
-        tree.on_event(&Event::WindowResized { width: 380, height: 1200 });
+        tree.on_event(&Event::WindowResized {
+            width: 380,
+            height: 1200,
+        });
 
         // Force the locale after building so the assertion is independent of the machine's system locale; the
         // labels are reactive `t!` closures, so `commands()` re-renders in whatever locale is active now.
@@ -3479,17 +3865,26 @@ mod tests {
         assert!(!has_text(&tree, "Ajustes"));
 
         rsx::set_locale("es");
-        assert!(has_text(&tree, "Ajustes"), "Spanish title after live switch");
-        assert!(!has_text(&tree, "Settings"), "English title gone after switch");
+        assert!(
+            has_text(&tree, "Ajustes"),
+            "Spanish title after live switch"
+        );
+        assert!(
+            !has_text(&tree, "Settings"),
+            "English title gone after switch"
+        );
     }
 
     #[test]
     fn csv_round_trips_and_trims() {
-        assert_eq!(split_csv("workspaces,  clock ,notes"), vec![
-            "workspaces".to_string(),
-            "clock".to_string(),
-            "notes".to_string(),
-        ]);
+        assert_eq!(
+            split_csv("workspaces,  clock ,notes"),
+            vec![
+                "workspaces".to_string(),
+                "clock".to_string(),
+                "notes".to_string(),
+            ]
+        );
         assert_eq!(split_csv("  ,, "), Vec::<String>::new());
         assert_eq!(join_csv(&["a".to_string(), "b".to_string()]), "a, b");
     }
@@ -3513,7 +3908,10 @@ mod tests {
         assert_eq!(same, base, "an untouched field writes back what it read");
 
         let moved = entries_from_csv("clock, clock, workspaces", &base);
-        assert_eq!(moved, vec![base[1].clone(), base[2].clone(), base[0].clone()]);
+        assert_eq!(
+            moved,
+            vec![base[1].clone(), base[2].clone(), base[0].clone()]
+        );
 
         let added = entries_from_csv("clock, clock, clock", &base);
         assert_eq!(added[2], ModuleEntry::bare("clock"));
@@ -3524,11 +3922,19 @@ mod tests {
         for e in Edge::ALL {
             assert_eq!(parse_edge(edge_str(e)), e);
         }
-        for (s, a) in [("start", Align::Start), ("center", Align::Center), ("end", Align::End)] {
+        for (s, a) in [
+            ("start", Align::Start),
+            ("center", Align::Center),
+            ("end", Align::End),
+        ] {
             assert_eq!(align_str(a), s);
             assert_eq!(parse_align(s), a);
         }
-        for (s, sh) in [("bar", Shape::Bar), ("sections", Shape::Sections), ("chips", Shape::Chips)] {
+        for (s, sh) in [
+            ("bar", Shape::Bar),
+            ("sections", Shape::Sections),
+            ("chips", Shape::Chips),
+        ] {
             assert_eq!(shape_str(sh), s);
             assert_eq!(parse_shape(s), sh);
         }
@@ -3563,4 +3969,5 @@ mod tests {
             return;
         };
         crate::test_support::render_png(SettingsPreview, 920, 680, &out);
-    }}
+    }
+}

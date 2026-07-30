@@ -218,7 +218,11 @@ fn resolve_output(monitor: &ddc::Monitor, screens: &[hyprland::Screen]) -> Strin
     }
     if !monitor.model.is_empty()
         && let Some(screen) = screens.iter().find(|screen| {
-            !screen.model.is_empty() && monitor.model.to_lowercase().contains(&screen.model.to_lowercase())
+            !screen.model.is_empty()
+                && monitor
+                    .model
+                    .to_lowercase()
+                    .contains(&screen.model.to_lowercase())
         })
     {
         return screen.name.clone();

@@ -66,7 +66,9 @@ fn scan(root: &Path, config: &WallpaperConfig) -> Vec<Entry> {
                 break;
             }
             let path = entry.path();
-            let Ok(kind) = entry.file_type() else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
             if kind.is_dir() {
                 if config.recursive {
                     queue.push(path);
@@ -471,7 +473,11 @@ mod tests {
         let config = WallpaperConfig::default();
         let found = scan(&root, &config);
         let names: Vec<&str> = found.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, vec!["a", "b", "c"], "sorted by folder then name: {names:?}");
+        assert_eq!(
+            names,
+            vec!["a", "b", "c"],
+            "sorted by folder then name: {names:?}"
+        );
         assert_eq!(found[0].folder, "", "a top-level image has no folder");
         assert_eq!(found[1].folder, "nature");
         assert_eq!(found[2].folder, "nature/deep");
@@ -526,7 +532,10 @@ mod tests {
     fn scanning_a_missing_folder_is_not_fatal() {
         let config = WallpaperConfig::default();
         assert!(scan(Path::new("/nonexistent-wallpapers"), &config).is_empty());
-        assert_eq!(fingerprint(Path::new("/nonexistent-wallpapers"), &config), 0);
+        assert_eq!(
+            fingerprint(Path::new("/nonexistent-wallpapers"), &config),
+            0
+        );
     }
 
     #[test]
@@ -566,7 +575,10 @@ mod tests {
             Some(&PathBuf::from("/runtime/global.png")),
             "a screen with no entry of its own follows the global choice"
         );
-        assert_eq!(assignment.for_output(None), Some(&PathBuf::from("/runtime/global.png")));
+        assert_eq!(
+            assignment.for_output(None),
+            Some(&PathBuf::from("/runtime/global.png"))
+        );
         assert_eq!(Assignment::default().for_output(Some("DP-1")), None);
     }
 
@@ -580,8 +592,12 @@ mod tests {
         let library = vec![entry("/a.png"), entry("/b.png"), entry("/c.png")];
         let showing = PathBuf::from("/a.png");
         for roll in 0..12 {
-            let chosen = choose(&library, Some(&showing), roll).expect("a library of three always answers");
-            assert_ne!(chosen.path, showing, "roll {roll} picked the one already up");
+            let chosen =
+                choose(&library, Some(&showing), roll).expect("a library of three always answers");
+            assert_ne!(
+                chosen.path, showing,
+                "roll {roll} picked the one already up"
+            );
         }
 
         // A library of one: excluding what is showing empties the list, and doing nothing would read as the
@@ -591,6 +607,9 @@ mod tests {
             choose(&single, Some(&showing), 5).map(|e| e.path.clone()),
             Some(showing)
         );
-        assert!(choose(&[], None, 0).is_none(), "an empty library has no answer");
+        assert!(
+            choose(&[], None, 0).is_none(),
+            "an empty library has no answer"
+        );
     }
 }

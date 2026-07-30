@@ -134,9 +134,17 @@ pub const PAGES: &[Page] = &[
             section!("popouts", ["popouts"], super::popouts_section),
             section!("osd", ["osd"], super::osd_section),
             section!("clock", ["clock"], super::clock_section),
-            section!("active_window", ["active_window"], super::active_window_section),
+            section!(
+                "active_window",
+                ["active_window"],
+                super::active_window_section
+            ),
             section!("workspaces", ["workspaces"], super::workspaces_section),
-            section!("status_icons", ["status_icons"], super::status_icons_section),
+            section!(
+                "status_icons",
+                ["status_icons"],
+                super::status_icons_section
+            ),
             section!("tray", ["tray"], super::tray_section),
             section!("battery", ["battery"], super::battery_section),
             section!("lock_status", ["lock_status"], super::lock_status_section),
@@ -161,7 +169,11 @@ pub const PAGES: &[Page] = &[
     Page {
         label: "bluetooth",
         icon: "bluetooth",
-        sections: &[section!("bluetooth", ["bluetooth"], super::bluetooth_section)],
+        sections: &[section!(
+            "bluetooth",
+            ["bluetooth"],
+            super::bluetooth_section
+        )],
     },
     Page {
         label: "applications",
@@ -172,7 +184,11 @@ pub const PAGES: &[Page] = &[
         label: "notifications",
         icon: "bell",
         sections: &[
-            section!("notifications", ["notifications"], super::notifications_section),
+            section!(
+                "notifications",
+                ["notifications"],
+                super::notifications_section
+            ),
             section!("toasts", ["toasts"], super::toasts_section),
             section!("sidebar", ["sidebar"], super::sidebar_section),
         ],
@@ -191,7 +207,11 @@ pub const PAGES: &[Page] = &[
         sections: &[
             section!("background", ["background"], super::background_section),
             section!("wallpaper", ["wallpaper"], super::wallpaper_section),
-            section!("desktop_clock", ["background"], super::desktop_clock_section),
+            section!(
+                "desktop_clock",
+                ["background"],
+                super::desktop_clock_section
+            ),
             section!(
                 "background_visualiser",
                 ["background"],
@@ -257,7 +277,10 @@ mod tests {
             .filter(|key| !placed.contains(&key.as_str()))
             .map(|key| key.as_str())
             .collect();
-        assert!(missing.is_empty(), "config sections with no page: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "config sections with no page: {missing:?}"
+        );
     }
 
     #[test]
@@ -292,7 +315,10 @@ mod tests {
             found.iter().map(|s| s.label).collect::<Vec<_>>(),
             vec!["visualiser"]
         );
-        let audio = PAGES.iter().find(|p| p.label == "audio").expect("the audio page");
+        let audio = PAGES
+            .iter()
+            .find(|p| p.label == "audio")
+            .expect("the audio page");
         assert!(audio.matches("beat_sensitivity"));
         assert!(
             !audio.matches("ddcutil"),

@@ -335,7 +335,9 @@ fn hottest(sensors: &[Sensor]) -> Option<f32> {
     sensors
         .iter()
         .map(|s| s.celsius)
-        .fold(None, |acc: Option<f32>, c| Some(acc.map_or(c, |a| a.max(c))))
+        .fold(None, |acc: Option<f32>, c| {
+            Some(acc.map_or(c, |a| a.max(c)))
+        })
 }
 
 /// A mount's capacity, straight from the `statvfs` syscall. "Used" is total minus what an unprivileged user can
@@ -487,7 +489,11 @@ mod tests {
     #[test]
     fn the_frequency_is_the_mean_across_cores_and_absent_when_unreported() {
         let cpuinfo = "cpu MHz\t\t: 3800.000\ncpu MHz\t\t: 2200.000\n";
-        assert_eq!(parse_cpu_mhz(cpuinfo), Some(3000.0), "one number for one bar");
+        assert_eq!(
+            parse_cpu_mhz(cpuinfo),
+            Some(3000.0),
+            "one number for one bar"
+        );
         // A VM or an ARM board reports no live clock; `None` says so rather than a zero reading as "stopped".
         assert_eq!(parse_cpu_mhz("model name\t: Cortex-A72\n"), None);
     }
@@ -536,10 +542,7 @@ mod tests {
             total: 10_000,
             idle: 5_000,
         };
-        let reset = CpuTimes {
-            total: 10,
-            idle: 5,
-        };
+        let reset = CpuTimes { total: 10, idle: 5 };
         assert_eq!(
             busy_between(high, reset),
             0.0,
@@ -596,7 +599,8 @@ SwapFree:        3000000 kB
 
     /// A scratch hwmon tree: one chip with a labelled sensor, an unlabelled one, and an implausible reading.
     fn hwmon_fixture(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hyprshell-hwmon-{}-{tag}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("hyprshell-hwmon-{}-{tag}", std::process::id()));
         let device = dir.join("hwmon0");
         fs::create_dir_all(&device).unwrap();
         fs::write(device.join("name"), "coretemp").unwrap();
@@ -622,7 +626,10 @@ SwapFree:        3000000 kB
         assert_eq!(sensors.len(), 2, "the implausible reading is dropped");
         assert_eq!(sensors[0].chip, "coretemp");
         assert_eq!(sensors[0].label, "Package id 0", "the kernel's label wins");
-        assert_eq!(sensors[1].label, "temp2", "an unlabelled sensor keeps its file name");
+        assert_eq!(
+            sensors[1].label, "temp2",
+            "an unlabelled sensor keeps its file name"
+        );
 
         let resources = Resources {
             temperature: hottest(&sensors),
@@ -630,8 +637,16 @@ SwapFree:        3000000 kB
             ..Resources::default()
         };
         assert_eq!(resources.temperature_of("Package id 0"), Some(45.0));
-        assert_eq!(resources.temperature_of("coretemp"), Some(45.0), "a chip name matches its first sensor");
-        assert_eq!(resources.temperature_of("PACKAGE ID 0"), Some(45.0), "matching ignores case");
+        assert_eq!(
+            resources.temperature_of("coretemp"),
+            Some(45.0),
+            "a chip name matches its first sensor"
+        );
+        assert_eq!(
+            resources.temperature_of("PACKAGE ID 0"),
+            Some(45.0),
+            "matching ignores case"
+        );
         assert_eq!(
             resources.temperature_of("k10temp"),
             Some(61.5),
@@ -658,7 +673,10 @@ SwapFree:        3000000 kB
         let values = history.values();
         assert_eq!(values.len(), HISTORY, "old readings fall off the front");
         assert_eq!(history.latest(), (HISTORY + 9) as f32);
-        assert_eq!(values[0], 10.0, "the oldest kept reading is the 11th pushed");
+        assert_eq!(
+            values[0], 10.0,
+            "the oldest kept reading is the 11th pushed"
+        );
         assert_eq!(history.peak(), (HISTORY + 9) as f32);
     }
 

@@ -54,7 +54,12 @@ pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
         move |micros| ticker.set(micros),
     );
 
-    let mut cards = vec![now_playing(player.clone(), position.clone(), config, theme)?];
+    let mut cards = vec![now_playing(
+        player.clone(),
+        position.clone(),
+        config,
+        theme,
+    )?];
     if config.lyrics.enabled {
         cards.push(lyrics_card(player, position, theme)?);
     }
@@ -127,7 +132,10 @@ fn lyrics_card(
                     let track = player.get();
                     let state = lyrics::of(&track).get();
                     let searching = state == Load::Loading;
-                    lyric_lines(state.ready().map(Vec::as_slice).unwrap_or_default(), searching)
+                    lyric_lines(
+                        state.ready().map(Vec::as_slice).unwrap_or_default(),
+                        searching,
+                    )
                 }
             };
             let build = move |line: LyricLine| -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -292,9 +300,10 @@ fn cover(
 
     let bands = signal(visualiser::Spectrum::quiet(config.visualiser.band_count()).bars);
     let sink = bands.clone();
-    platform_layershell::watch(visualiser::subscribe, move |spectrum: visualiser::Spectrum| {
-        sink.set(spectrum.bars)
-    });
+    platform_layershell::watch(
+        visualiser::subscribe,
+        move |spectrum: visualiser::Spectrum| sink.set(spectrum.bars),
+    );
 
     // No fade and no floor: a silent spectrum is every bar at zero length, which draws nothing. The ring
     // hides itself by being made of the readings rather than by a rule about them.
@@ -327,7 +336,10 @@ fn cover(
 /// The art itself, or a placeholder while there is nothing to show. A keyed list over the resolved file rather
 /// than a plain image, so the art is decoded once per picture instead of once per repaint, and so the
 /// placeholder is swapped for the real thing when the download lands.
-fn cover_art(player: RwSignal<Player>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+fn cover_art(
+    player: RwSignal<Player>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let source = derive(player, |p| p.art_url.clone());
     let rows = ReactiveList::with_gap(
         move || vec![art_file(&source.get())],
@@ -628,7 +640,10 @@ mod tests {
         // Every row is its own identity, or the reactive list would reuse one line's widget for another's words.
         let keys: Vec<(usize, String)> = rows.iter().map(LyricLine::key).collect();
         assert_eq!(keys.len(), 3);
-        assert!(keys.iter().all(|key| keys.iter().filter(|k| *k == key).count() == 1));
+        assert!(
+            keys.iter()
+                .all(|key| keys.iter().filter(|k| *k == key).count() == 1)
+        );
     }
 
     #[test]
@@ -714,7 +729,11 @@ mod tests {
             rect.get()
         };
 
-        assert_eq!(measured(false).width, COVER, "off, the art is the whole column");
+        assert_eq!(
+            measured(false).width,
+            COVER,
+            "off, the art is the whole column"
+        );
         assert_eq!(
             measured(true).width,
             COVER + (RING_GAP + RING_REACH) * 2.0,

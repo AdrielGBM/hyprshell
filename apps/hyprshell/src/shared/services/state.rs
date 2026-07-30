@@ -132,6 +132,10 @@ mod tests {
         let text = r#"{"dnd": true, "some_future_key": 42}"#;
         let state: ShellState = serde_json::from_str(text).expect("tolerates unknown keys");
         assert!(state.dnd);
-        assert_eq!(state.launch_counts.len(), 0, "missing keys take their default");
+        assert_eq!(
+            state.launch_counts.len(),
+            0,
+            "missing keys take their default"
+        );
     }
 }

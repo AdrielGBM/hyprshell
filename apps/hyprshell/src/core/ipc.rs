@@ -462,14 +462,11 @@ static TARGETS: &[Target] = &[
                     let config = crate::core::shell::config()
                         .map(|c| c.launcher.clone())
                         .unwrap_or_default();
-                    let names: Vec<String> = launcher::results(
-                        crate::shared::services::apps::all(),
-                        &query,
-                        &config,
-                    )
-                    .into_iter()
-                    .map(|a| a.name)
-                    .collect();
+                    let names: Vec<String> =
+                        launcher::results(crate::shared::services::apps::all(), &query, &config)
+                            .into_iter()
+                            .map(|a| a.name)
+                            .collect();
                     Ok(names.join("\t"))
                 },
             },
@@ -505,7 +502,9 @@ static TARGETS: &[Target] = &[
                         Some("on") => true,
                         Some("off") => false,
                         Some("toggle") => !current,
-                        Some(other) => return Err(format!("expected on|off|toggle, got '{other}'")),
+                        Some(other) => {
+                            return Err(format!("expected on|off|toggle, got '{other}'"));
+                        }
                     };
                     notifs::set_app_muted(app, next);
                     Ok(on_off(next).to_string())
@@ -535,7 +534,9 @@ static TARGETS: &[Target] = &[
                         Some("on") => true,
                         Some("off") => false,
                         Some("toggle") => !current,
-                        Some(other) => return Err(format!("expected on|off|toggle, got '{other}'")),
+                        Some(other) => {
+                            return Err(format!("expected on|off|toggle, got '{other}'"));
+                        }
                     };
                     crate::shared::services::notifications::set_dnd(next);
                     Ok(on_off(next).to_string())
@@ -699,13 +700,13 @@ static TARGETS: &[Target] = &[
                 run: |_| {
                     use crate::shared::services::recorder;
                     let config = shell::config().ok_or("the shell is not running")?;
-                    let rows: Vec<String> = recorder::recordings(
-                        &config.recordings_dir(),
-                        config.recorder.entries(),
-                    )
-                    .into_iter()
-                    .map(|entry| format!("{}\t{}", entry.size_label(), entry.path.display()))
-                    .collect();
+                    let rows: Vec<String> =
+                        recorder::recordings(&config.recordings_dir(), config.recorder.entries())
+                            .into_iter()
+                            .map(|entry| {
+                                format!("{}\t{}", entry.size_label(), entry.path.display())
+                            })
+                            .collect();
                     Ok(rows.join("\n"))
                 },
             },
@@ -1531,7 +1532,11 @@ static TARGETS: &[Target] = &[
                         .map(|entry| {
                             format!(
                                 "{}\t{}\t{}",
-                                if entry.folder.is_empty() { "-" } else { &entry.folder },
+                                if entry.folder.is_empty() {
+                                    "-"
+                                } else {
+                                    &entry.folder
+                                },
                                 entry.name,
                                 entry.path.display()
                             )
@@ -1696,7 +1701,10 @@ static TARGETS: &[Target] = &[
                     };
                     let variant = Variant::from_id(wanted).ok_or_else(|| {
                         let known: Vec<&str> = Variant::ALL.iter().map(|v| v.id()).collect();
-                        format!("unknown variant '{wanted}', expected one of {}", known.join("|"))
+                        format!(
+                            "unknown variant '{wanted}', expected one of {}",
+                            known.join("|")
+                        )
                     })?;
                     scheme::apply(scheme::Choice::Variant, variant.id())
                 },
@@ -1721,8 +1729,8 @@ static TARGETS: &[Target] = &[
                 run: |_| {
                     use crate::shared::scheme;
                     let config = shell::config().ok_or("the shell is not running")?;
-                    let current = scheme::current()
-                        .ok_or("no dynamic palette has been derived yet")?;
+                    let current =
+                        scheme::current().ok_or("no dynamic palette has been derived yet")?;
                     let export = crate::core::config::SchemeExportConfig {
                         enabled: true,
                         ..config.theme.export.clone()
@@ -1791,7 +1799,11 @@ fn list_nodes(kind: NodeKind) -> String {
                 node.id,
                 node.level,
                 on_off(node.muted),
-                if Some(node.id) == default { "default" } else { "-" },
+                if Some(node.id) == default {
+                    "default"
+                } else {
+                    "-"
+                },
                 node.label()
             )
         })
@@ -2131,7 +2143,10 @@ mod tests {
         assert_eq!(dispatch("nope ping"), "err unknown target 'nope'");
         let reply = dispatch("panel wiggle");
         assert!(reply.starts_with("err unknown command 'wiggle'"), "{reply}");
-        assert!(reply.contains("toggle"), "it lists the real commands: {reply}");
+        assert!(
+            reply.contains("toggle"),
+            "it lists the real commands: {reply}"
+        );
         assert_eq!(dispatch("   "), "err empty request");
     }
 
@@ -2167,9 +2182,8 @@ mod tests {
                 // volume, the backlight, whether the process is still alive — and a test that proved the
                 // wiring by *executing* every entry was doing all of that to whoever ran `cargo test`.
                 let line = format!("{} {}", target.name, command.name);
-                let (found, _) = resolve(&line).unwrap_or_else(|e| {
-                    panic!("{line} is advertised but does not resolve: {e}")
-                });
+                let (found, _) = resolve(&line)
+                    .unwrap_or_else(|e| panic!("{line} is advertised but does not resolve: {e}"));
                 assert_eq!(
                     found.name, command.name,
                     "'{} {}' resolved to a different command",
@@ -2235,11 +2249,16 @@ mod tests {
 
         let refused = known_screen("--features", &screens).expect_err("a flag is not a screen");
         assert!(refused.contains("not a monitor"), "{refused}");
-        assert!(refused.contains("DP-1"), "and it says what there is: {refused}");
+        assert!(
+            refused.contains("DP-1"),
+            "and it says what there is: {refused}"
+        );
         // A typo in a real name is the common case and must not read as "no monitors".
         assert!(known_screen("DP1", &screens).is_err());
         assert!(
-            known_screen("DP-1", &[]).unwrap_err().contains("none are connected"),
+            known_screen("DP-1", &[])
+                .unwrap_err()
+                .contains("none are connected"),
             "no screens at all is its own message, not an empty list"
         );
     }

@@ -9,8 +9,8 @@ use rsx::Color;
 
 use crate::shared::services::bluetooth::Status;
 use crate::shared::services::network::{Network, NetworkKind, WifiStatus};
-use crate::shared::services::weather::Condition;
 use crate::shared::services::volume::Volume;
+use crate::shared::services::weather::Condition;
 use crate::shared::theme::NordTheme;
 
 /// Muted wins over the level, because it is the state that matters at a glance; below that the glyph tracks
@@ -197,7 +197,11 @@ pub fn game_mode(active: bool) -> &'static str {
 }
 
 pub fn vpn(connected: bool) -> &'static str {
-    if connected { "shield-check" } else { "shield-off" }
+    if connected {
+        "shield-check"
+    } else {
+        "shield-off"
+    }
 }
 
 /// Holding the idle timers off reads as a machine kept awake, not as one asleep.

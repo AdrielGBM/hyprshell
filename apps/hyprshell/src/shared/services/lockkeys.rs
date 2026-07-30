@@ -49,9 +49,10 @@ fn any_lit(leds: &Path, suffix: &str) -> bool {
 fn has_leds(leds: &Path) -> bool {
     fs::read_dir(leds).is_ok_and(|entries| {
         entries.flatten().any(|entry| {
-            entry.file_name().to_str().is_some_and(|name| {
-                name.ends_with("::capslock") || name.ends_with("::numlock")
-            })
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with("::capslock") || name.ends_with("::numlock"))
         })
     })
 }
@@ -118,17 +119,23 @@ mod tests {
         let dir = fixture("state");
         fs::write(dir.join("input3::capslock/brightness"), "1").unwrap();
         fs::write(dir.join("input3::numlock/brightness"), "0").unwrap();
-        assert_eq!(read_from(&dir), LockKeys {
-            caps: true,
-            num: false
-        });
+        assert_eq!(
+            read_from(&dir),
+            LockKeys {
+                caps: true,
+                num: false
+            }
+        );
 
         fs::write(dir.join("input3::capslock/brightness"), "0").unwrap();
         fs::write(dir.join("input3::numlock/brightness"), "1").unwrap();
-        assert_eq!(read_from(&dir), LockKeys {
-            caps: false,
-            num: true
-        });
+        assert_eq!(
+            read_from(&dir),
+            LockKeys {
+                caps: false,
+                num: true
+            }
+        );
         fs::remove_dir_all(&dir).ok();
     }
 

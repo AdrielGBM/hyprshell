@@ -30,7 +30,13 @@ fn parse_id(text: &str) -> Option<String> {
     text.lines()
         .filter_map(|line| line.split_once('='))
         .find(|(key, _)| key.trim() == "ID")
-        .map(|(_, value)| value.trim().trim_matches('"').trim_matches('\'').to_string())
+        .map(|(_, value)| {
+            value
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_string()
+        })
         .filter(|id| !id.is_empty())
 }
 

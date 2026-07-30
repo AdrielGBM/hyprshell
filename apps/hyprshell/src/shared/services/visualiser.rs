@@ -234,10 +234,7 @@ impl Analyser {
         Self {
             plan: rustfft::FftPlanner::new().plan_fft_forward(WINDOW),
             window: (0..WINDOW)
-                .map(|n| {
-                    0.5 * (1.0
-                        - (std::f32::consts::TAU * n as f32 / WINDOW as f32).cos())
-                })
+                .map(|n| 0.5 * (1.0 - (std::f32::consts::TAU * n as f32 / WINDOW as f32).cos()))
                 .collect(),
             history: vec![0.0; WINDOW],
             scratch: vec![Complex32::default(); WINDOW],
@@ -245,8 +242,9 @@ impl Analyser {
             beat_bands,
             smoothed: vec![0.0; bars],
             history_energy: VecDeque::new(),
-            energy_capacity: (BEAT_HISTORY.as_secs_f32() * frames_per_second).round().max(4.0)
-                as usize,
+            energy_capacity: (BEAT_HISTORY.as_secs_f32() * frames_per_second)
+                .round()
+                .max(4.0) as usize,
             refractory: 0,
             refractory_frames: (frames_per_second / BEAT_REFRACTORY_HZ).round().max(1.0) as u32,
             attack: config.attack(),
@@ -290,7 +288,11 @@ impl Analyser {
             .collect();
 
         for (current, target) in self.smoothed.iter_mut().zip(&bars) {
-            let rate = if *target > *current { self.attack } else { self.decay };
+            let rate = if *target > *current {
+                self.attack
+            } else {
+                self.decay
+            };
             *current += (*target - *current) * rate;
             if *current < EPSILON {
                 *current = 0.0;
@@ -409,8 +411,14 @@ mod tests {
             );
         }
         for (start, end) in bands {
-            assert!(start <= end, "a band with no bins is a bar that never moves");
-            assert!(end < WINDOW / 2, "a band reaching past Nyquist reads mirror noise");
+            assert!(
+                start <= end,
+                "a band with no bins is a bar that never moves"
+            );
+            assert!(
+                end < WINDOW / 2,
+                "a band reaching past Nyquist reads mirror noise"
+            );
         }
     }
 
@@ -444,7 +452,10 @@ mod tests {
         for _ in 0..64 {
             analyser.push(&vec![0.0; 735]);
         }
-        assert_eq!(analyser.push(&vec![0.0; 735]), analyser.push(&vec![0.0; 735]));
+        assert_eq!(
+            analyser.push(&vec![0.0; 735]),
+            analyser.push(&vec![0.0; 735])
+        );
     }
 
     #[test]
@@ -484,7 +495,10 @@ mod tests {
             spectrum = analyser.push(&tone(1000.0, 735));
         }
         let peak = spectrum.bars.iter().fold(0.0f32, |a, b| a.max(*b));
-        assert!(peak > 0.9, "a full-scale sine should fill its bar; got {peak}");
+        assert!(
+            peak > 0.9,
+            "a full-scale sine should fill its bar; got {peak}"
+        );
     }
 
     #[test]
@@ -497,7 +511,10 @@ mod tests {
         }
         let kick = tone(60.0, 735);
         let beats = (0..8).filter(|_| analyser.push(&kick).beat).count();
-        assert_eq!(beats, 1, "the transient is one beat, however long it is held");
+        assert_eq!(
+            beats, 1,
+            "the transient is one beat, however long it is held"
+        );
     }
 
     #[test]
@@ -542,7 +559,10 @@ mod live {
                     .iter()
                     .map(|b| " ▁▂▃▄▅▆▇█".chars().nth((b * 8.0) as usize).unwrap_or('█'))
                     .collect();
-                println!("{art} level={:.2} beat={} silent={}", spectrum.level, spectrum.beat, spectrum.silent);
+                println!(
+                    "{art} level={:.2} beat={} silent={}",
+                    spectrum.level, spectrum.beat, spectrum.silent
+                );
             }
         }
         let _ = child.kill();

@@ -4,8 +4,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rsx::{
-    AlignItems, Color, ImageData, ImageFilter, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ObjectFit, PointerButton, ReadSignal, Rect, RectStyle, StyledContainer, track_layout,
+    AlignItems, Color, ImageData, ImageFilter, JustifyContent, LayoutError, LayoutItem,
+    LayoutStyle, ObjectFit, PointerButton, ReadSignal, Rect, RectStyle, StyledContainer,
+    track_layout,
 };
 
 mod menu;
@@ -189,7 +190,11 @@ pub fn tray_icon(
                 (dy, false)
             };
             if delta != 0.0 {
-                tray::scroll(&scroll_item, (delta / 60.0).round().clamp(-3.0, 3.0) as i32, horizontal);
+                tray::scroll(
+                    &scroll_item,
+                    (delta / 60.0).round().clamp(-3.0, 3.0) as i32,
+                    horizontal,
+                );
             }
         });
     Ok(Box::new(container))
@@ -211,7 +216,10 @@ mod tests {
 
     #[test]
     fn a_passive_item_is_running_but_not_drawn() {
-        let items = [item("nm-applet", Status::Active), item("quiet", Status::Passive)];
+        let items = [
+            item("nm-applet", Status::Active),
+            item("quiet", Status::Passive),
+        ];
         let shown = visible(&items, &TrayConfig::default());
         assert_eq!(shown.len(), 1);
         assert_eq!(shown[0].id, "nm-applet");
@@ -251,16 +259,27 @@ mod tests {
     fn a_private_icon_directory_is_only_used_when_it_holds_the_file() {
         let mut item = item("dropbox", Status::Active);
         item.icon_name = "dropboxstatus-idle".to_string();
-        assert_eq!(private_icon(&item), None, "no directory named, nothing to find");
+        assert_eq!(
+            private_icon(&item),
+            None,
+            "no directory named, nothing to find"
+        );
 
         let dir = std::env::temp_dir().join(format!("hyprshell-tray-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         item.icon_theme_path = dir.to_string_lossy().into_owned();
-        assert_eq!(private_icon(&item), None, "a directory without the file is not a match");
+        assert_eq!(
+            private_icon(&item),
+            None,
+            "a directory without the file is not a match"
+        );
 
         let png = dir.join("dropboxstatus-idle.png");
         std::fs::write(&png, b"not really a png").unwrap();
-        assert_eq!(private_icon(&item), Some(png.to_string_lossy().into_owned()));
+        assert_eq!(
+            private_icon(&item),
+            Some(png.to_string_lossy().into_owned())
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

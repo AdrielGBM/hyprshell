@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
-use zbus::message::Type as MessageType;
 use zbus::blocking::{Connection, MessageIterator, Proxy};
+use zbus::message::Type as MessageType;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 use crate::core::ipc::Request;
@@ -116,7 +116,9 @@ fn command_for(id: &str) -> Option<&'static str> {
 /// through one code path and cannot drift apart.
 pub fn serve(tx: EventSender<Request>) {
     let Some(conn) = Connection::session().ok() else {
-        tracing::info!("global shortcuts: no session bus; keybinds still work through `exec, hyprshell …`");
+        tracing::info!(
+            "global shortcuts: no session bus; keybinds still work through `exec, hyprshell …`"
+        );
         return;
     };
     let Some(session) = register(&conn) else {
@@ -290,7 +292,11 @@ mod tests {
                 "'{}' cannot appear in a `global, appid:id` bind",
                 shortcut.id
             );
-            assert!(!shortcut.description.is_empty(), "'{}' has no description", shortcut.id);
+            assert!(
+                !shortcut.description.is_empty(),
+                "'{}' has no description",
+                shortcut.id
+            );
             seen.push(shortcut.id);
         }
     }

@@ -5,8 +5,8 @@
 //! why it is empty, rather than the chip going blank because the panel's dependency is missing.
 
 use rsx::{
-    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
-    RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
+    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
+    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
     use_theme,
 };
 
@@ -85,7 +85,11 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let title = Text::auto(
         || rsx::t!("network.title"),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
     // Read out, then translate: `status_line` calls `t!`, and a `with` here would still hold the reactive
     // runtime's borrow when it read the locale signal.
@@ -407,9 +411,7 @@ fn network_row(
 /// Whether joining this network needs a password from the user: secured, not already saved, and something the
 /// shell can actually authenticate on its own.
 fn needs_prompt(point: &AccessPoint) -> bool {
-    point.security.needs_password()
-        && !point.saved
-        && point.security.joinable_with_a_password()
+    point.security.needs_password() && !point.saved && point.security.joinable_with_a_password()
 }
 
 /// The password field, shown under the row it belongs to. Masked: a shell panel is on screen in front of
@@ -474,8 +476,8 @@ fn prompt(
 /// Joins by name rather than by object path: the strongest radio for an SSID changes as you move, and the row
 /// was built from a snapshot. Resolving at press time joins the one that is actually best right now.
 fn join(ssid: &str, password: Option<String>) {
-    let Some(point) = network::current_wifi()
-        .and_then(|w| w.networks().into_iter().find(|p| p.ssid == ssid))
+    let Some(point) =
+        network::current_wifi().and_then(|w| w.networks().into_iter().find(|p| p.ssid == ssid))
     else {
         return;
     };
@@ -511,20 +513,15 @@ fn pill(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let active = std::rc::Rc::new(active);
-    let (fill_active, hover_active, text_active) =
-        (active.clone(), active.clone(), active.clone());
-    let text = Text::auto(
-        label,
-        LayoutStyle::new(),
-        move || {
-            let tint = if text_active() {
-                theme.accent.most_readable(&[theme.text, theme.base])
-            } else {
-                theme.text
-            };
-            theme.text_style(FontRole::Caption, tint)
-        },
-    )?;
+    let (fill_active, hover_active, text_active) = (active.clone(), active.clone(), active.clone());
+    let text = Text::auto(label, LayoutStyle::new(), move || {
+        let tint = if text_active() {
+            theme.accent.most_readable(&[theme.text, theme.base])
+        } else {
+            theme.text
+        };
+        theme.text_style(FontRole::Caption, tint)
+    })?;
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
@@ -534,7 +531,11 @@ fn pill(
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER),
             move |_| {
-                let fill = if fill_active() { theme.accent } else { theme.base };
+                let fill = if fill_active() {
+                    theme.accent
+                } else {
+                    theme.base
+                };
                 RectStyle::filled(fill, ROW_RADIUS)
             },
             vec![box_item(text)],
@@ -607,7 +608,11 @@ mod tests {
             asking: true,
             ..base.clone()
         };
-        assert_ne!(base.key(), asking.key(), "the prompt opening does rebuild it");
+        assert_ne!(
+            base.key(),
+            asking.key(),
+            "the prompt opening does rebuild it"
+        );
 
         let joined = Row {
             point: AccessPoint {

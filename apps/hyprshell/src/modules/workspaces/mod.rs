@@ -6,7 +6,8 @@ use std::rc::Rc;
 use rsx::motion::{Animated, Spring};
 use rsx::{
     AlignItems, Canvas, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text, box_item, signal, track_layout,
+    ReactiveList, ReadSignal, Rect, RectStyle, RenderNode, RwSignal, StyledContainer, Text,
+    box_item, signal, track_layout,
 };
 
 use crate::core::config::WorkspacesConfig;
@@ -590,7 +591,10 @@ mod tests {
         };
         let one = pills(&snapshot(vec![ws(1, 1, "eDP-1")], 1), &config, None);
         let many = pills(
-            &snapshot(vec![ws(1, 1, "eDP-1"), ws(2, 1, "eDP-1"), ws(3, 0, "eDP-1")], 1),
+            &snapshot(
+                vec![ws(1, 1, "eDP-1"), ws(2, 1, "eDP-1"), ws(3, 0, "eDP-1")],
+                1,
+            ),
             &config,
             None,
         );
@@ -638,7 +642,11 @@ mod tests {
             "the other monitor's workspaces stay on the other monitor"
         );
         let all = pills(&snap, &WorkspacesConfig::default(), Some("eDP-1"));
-        assert_eq!(all.len(), 3, "without per_monitor every bar shows every one");
+        assert_eq!(
+            all.len(),
+            3,
+            "without per_monitor every bar shows every one"
+        );
     }
 
     #[test]
@@ -727,8 +735,16 @@ mod tests {
     #[test]
     fn a_pills_key_tracks_focus_and_occupancy() {
         let config = WorkspacesConfig::default();
-        let idle = pills(&snapshot(vec![ws(1, 0, "eDP-1"), ws(2, 0, "eDP-1")], 2), &config, None);
-        let focused = pills(&snapshot(vec![ws(1, 0, "eDP-1"), ws(2, 0, "eDP-1")], 1), &config, None);
+        let idle = pills(
+            &snapshot(vec![ws(1, 0, "eDP-1"), ws(2, 0, "eDP-1")], 2),
+            &config,
+            None,
+        );
+        let focused = pills(
+            &snapshot(vec![ws(1, 0, "eDP-1"), ws(2, 0, "eDP-1")], 1),
+            &config,
+            None,
+        );
         assert_ne!(idle[0].key(), focused[0].key(), "focus repaints the pill");
 
         let occupied = pills(&snapshot(vec![ws(1, 3, "eDP-1")], 2), &config, None);
@@ -951,7 +967,10 @@ mod tests {
             "without the indicator the occupied tint is unchanged"
         );
         // Occupancy has to stay legible once the tint is gone, and the label colour is what carries it.
-        assert_ne!(text_for(&occupied, style(true)), text_for(&empty, style(true)));
+        assert_ne!(
+            text_for(&occupied, style(true)),
+            text_for(&empty, style(true))
+        );
     }
 
     /// The indicator paints on its own, with no event to force a redraw.
@@ -971,15 +990,28 @@ mod tests {
 
         let ahead = with_trail(at(0.0), at(100.0), 0.5);
         assert_eq!(ahead.x, 0.0, "the trailing edge stays put");
-        assert_eq!(ahead.width, 80.0, "and it reaches half the remaining distance");
+        assert_eq!(
+            ahead.width, 80.0,
+            "and it reaches half the remaining distance"
+        );
 
         let behind = with_trail(at(100.0), at(0.0), 0.5);
         assert_eq!(behind.x, 50.0);
         assert_eq!(behind.width, 80.0);
 
         let down = with_trail(
-            Rect { x: 5.0, y: 0.0, width: 30.0, height: 30.0 },
-            Rect { x: 5.0, y: 60.0, width: 30.0, height: 30.0 },
+            Rect {
+                x: 5.0,
+                y: 0.0,
+                width: 30.0,
+                height: 30.0,
+            },
+            Rect {
+                x: 5.0,
+                y: 60.0,
+                width: 30.0,
+                height: 30.0,
+            },
             0.5,
         );
         assert_eq!((down.y, down.height, down.width), (0.0, 60.0, 30.0));

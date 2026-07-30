@@ -115,7 +115,9 @@ pub fn reconcile() {
         return;
     }
     if !platform_layershell::idle_supported() {
-        tracing::warn!("this compositor does not implement ext-idle-notify-v1; [idle] does nothing");
+        tracing::warn!(
+            "this compositor does not implement ext-idle-notify-v1; [idle] does nothing"
+        );
         note_armed(false);
         return;
     }
@@ -161,7 +163,9 @@ fn arm(stage: &crate::core::config::IdleStage, respect_inhibitors: bool) -> Opti
         return None;
     }
     if !return_action.is_empty() && !crate::core::ipc::resolves(&return_action) {
-        tracing::warn!("[[idle.stages]] return_action '{return_action}' is not a command this shell answers");
+        tracing::warn!(
+            "[[idle.stages]] return_action '{return_action}' is not a command this shell answers"
+        );
     }
     let fired = Rc::new(Cell::new(false));
     let on_idle = {
@@ -178,12 +182,7 @@ fn arm(stage: &crate::core::config::IdleStage, respect_inhibitors: bool) -> Opti
         }
         run(&return_action);
     };
-    platform_layershell::idle_notification(
-        stage.duration(),
-        respect_inhibitors,
-        on_idle,
-        on_resume,
-    )
+    platform_layershell::idle_notification(stage.duration(), respect_inhibitors, on_idle, on_resume)
 }
 
 /// Runs a stage's action through the shell's own command surface, so an idle timeout and a keybind reach the
@@ -254,7 +253,10 @@ mod tests {
             !config.enabled,
             "a shell that locks a machine nobody told it to lock is a bug"
         );
-        assert!(config.respect_inhibitors, "another app's inhibitor is honoured by default");
+        assert!(
+            config.respect_inhibitors,
+            "another app's inhibitor is honoured by default"
+        );
     }
 
     #[test]
@@ -265,7 +267,15 @@ mod tests {
             ..IdleStage::default()
         };
         assert_eq!(instant.duration().as_secs(), 1);
-        assert_eq!(IdleStage { timeout: 90, ..IdleStage::default() }.duration().as_secs(), 90);
+        assert_eq!(
+            IdleStage {
+                timeout: 90,
+                ..IdleStage::default()
+            }
+            .duration()
+            .as_secs(),
+            90
+        );
     }
 
     #[test]

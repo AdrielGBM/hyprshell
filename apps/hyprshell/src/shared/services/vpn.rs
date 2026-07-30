@@ -106,7 +106,13 @@ fn property(conn: &Connection, path: &str, iface: &str, name: &str) -> Option<Ow
 /// The `connection` group of a saved profile, which is where its id and type live.
 fn profile(conn: &Connection, path: &str) -> Option<(String, String)> {
     let reply = conn
-        .call_method(Some(NM_BUS), path, Some(CONNECTION_IFACE), "GetSettings", &())
+        .call_method(
+            Some(NM_BUS),
+            path,
+            Some(CONNECTION_IFACE),
+            "GetSettings",
+            &(),
+        )
         .ok()?;
     let settings: HashMap<String, HashMap<String, OwnedValue>> = reply.body().deserialize().ok()?;
     let group = settings.get("connection")?;
@@ -188,7 +194,10 @@ fn read_kernel(known: &[Tunnel]) -> Vec<Tunnel> {
                 return None;
             }
             let uevent = fs::read_to_string(entry.path().join("uevent")).ok()?;
-            if !uevent.lines().any(|line| line.trim() == "DEVTYPE=wireguard") {
+            if !uevent
+                .lines()
+                .any(|line| line.trim() == "DEVTYPE=wireguard")
+            {
                 return None;
             }
             Some(Tunnel {
@@ -398,7 +407,10 @@ mod tests {
     #[test]
     fn only_tunnel_connection_types_are_listed() {
         assert!(is_tunnel("vpn"), "every plugin reports the generic type");
-        assert!(is_tunnel("wireguard"), "which NetworkManager implements natively");
+        assert!(
+            is_tunnel("wireguard"),
+            "which NetworkManager implements natively"
+        );
         for ordinary in ["802-11-wireless", "802-3-ethernet", "bridge", "loopback"] {
             assert!(!is_tunnel(ordinary), "'{ordinary}' is not a tunnel");
         }

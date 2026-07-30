@@ -165,9 +165,13 @@ pub fn module_shell(
     } else {
         style.padding_horizontal(8.0).padding_vertical(2.0)
     };
-    let mut shell = StyledContainer::new(style, move |_r| RectStyle::filled(base, radius), vec![content])?
-        .on_hover_style(move |_r| RectStyle::filled(hover, radius))
-        .on_active_style(move |_r| RectStyle::filled(active, radius));
+    let mut shell = StyledContainer::new(
+        style,
+        move |_r| RectStyle::filled(base, radius),
+        vec![content],
+    )?
+    .on_hover_style(move |_r| RectStyle::filled(hover, radius))
+    .on_active_style(move |_r| RectStyle::filled(active, radius));
     if let Some(cb) = on_press {
         shell = shell.on_press(cb);
     }
@@ -445,7 +449,10 @@ mod tests {
         };
         // "Away from the bar" is a different direction on each edge, and the sign is what decides.
         assert_eq!(gesture(Edge::Top).travel((10.0, 5.0), (10.0, 65.0)), 60.0);
-        assert_eq!(gesture(Edge::Bottom).travel((10.0, 65.0), (10.0, 5.0)), 60.0);
+        assert_eq!(
+            gesture(Edge::Bottom).travel((10.0, 65.0), (10.0, 5.0)),
+            60.0
+        );
         assert_eq!(gesture(Edge::Left).travel((5.0, 10.0), (65.0, 10.0)), 60.0);
         assert_eq!(gesture(Edge::Right).travel((65.0, 10.0), (5.0, 10.0)), 60.0);
 
@@ -491,7 +498,9 @@ mod tests {
         ];
         let registry = default_registry();
         for id in HAS_PANEL {
-            let def = registry.def(id).unwrap_or_else(|| panic!("'{id}' is registered"));
+            let def = registry
+                .def(id)
+                .unwrap_or_else(|| panic!("'{id}' is registered"));
             assert!(
                 matches!(def.click, Some(ModuleClick::Panel)),
                 "'{id}' should open a panel"
@@ -531,7 +540,10 @@ mod tests {
                 "'{id}' is a readout, not a control"
             );
         }
-        assert!(r.def("logo").unwrap().icon, "the logo is a square icon chip");
+        assert!(
+            r.def("logo").unwrap().icon,
+            "the logo is a square icon chip"
+        );
     }
 
     #[test]

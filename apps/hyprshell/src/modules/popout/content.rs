@@ -176,11 +176,14 @@ fn playing_label(graph: &pipewire::Graph) -> String {
 fn brightness_card(theme: NordTheme) -> Card {
     let level = signal(brightness::current().unwrap_or(0));
     let sink = level.clone();
-    platform_layershell::watch(brightness::subscribe, move |snapshot: brightness::Snapshot| {
-        if let Some(percent) = snapshot.level() {
-            sink.set(percent);
-        }
-    });
+    platform_layershell::watch(
+        brightness::subscribe,
+        move |snapshot: brightness::Snapshot| {
+            if let Some(percent) = snapshot.level() {
+                sink.set(percent);
+            }
+        },
+    );
 
     Card::titled(rsx::t!("popout.brightness"))
         .icon(fixed_text(glyph::brightness()))
@@ -215,9 +218,11 @@ fn battery_card(theme: NordTheme) -> Card {
 
     Card::titled(rsx::t!("popout.battery"))
         .icon(derive(charging_glyph, |c| glyph::battery(c).to_string()))
-        .icon_tint(derive_pair(level_tint, charging_tint, move |level, charging| {
-            glyph::battery_tint(level, charging, theme, theme.text)
-        }))
+        .icon_tint(derive_pair(
+            level_tint,
+            charging_tint,
+            move |level, charging| glyph::battery_tint(level, charging, theme, theme.text),
+        ))
         .subtitle(derive(level.clone(), |l| format!("{l}%")))
         .meter(
             derive(level.clone(), |l| l as f32 / 100.0),
@@ -343,7 +348,10 @@ fn bluetooth_card(theme: NordTheme) -> Card {
             } else if bt.discovering {
                 rsx::t!("bluetooth.scanning")
             } else {
-                rsx::t!("bluetooth.connected_count", count = bt.connected_count().to_string())
+                rsx::t!(
+                    "bluetooth.connected_count",
+                    count = bt.connected_count().to_string()
+                )
             }
         }))
         .row(
@@ -625,9 +633,7 @@ fn temperature_card(config: &Config, theme: NordTheme) -> Card {
         )
         .row(
             fixed_text(rsx::t!("popout.sensor")),
-            derive(state.clone(), move |r| {
-                sensor_label(r.as_ref(), &for_label)
-            }),
+            derive(state.clone(), move |r| sensor_label(r.as_ref(), &for_label)),
         )
         .row(
             fixed_text(rsx::t!("popout.critical")),
@@ -641,9 +647,7 @@ fn reading_for(resources: &resources::Resources, wanted: &str) -> Option<f32> {
     if wanted.trim().is_empty() {
         return resources.temperature;
     }
-    resources
-        .temperature_of(wanted)
-        .or(resources.temperature)
+    resources.temperature_of(wanted).or(resources.temperature)
 }
 
 fn sensor_label(resources: Option<&resources::Resources>, wanted: &str) -> String {
@@ -785,7 +789,11 @@ mod tests {
             }],
             ..resources::Resources::default()
         };
-        assert_eq!(reading_for(&r, "Tctl"), Some(61.0), "the named sensor is read");
+        assert_eq!(
+            reading_for(&r, "Tctl"),
+            Some(61.0),
+            "the named sensor is read"
+        );
         assert_eq!(
             reading_for(&r, "nonesuch"),
             Some(40.0),

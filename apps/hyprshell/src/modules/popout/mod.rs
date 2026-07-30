@@ -178,7 +178,11 @@ fn anchor_flags(edge: Edge) -> Anchor {
 fn layer_config(env: &SurfaceEnv, chip: Rect) -> LayerConfig {
     let popouts = env.config.popouts;
     let (width, height) = (popouts.card_width(), popouts.card_height());
-    let span = if env.edge.is_vertical() { height } else { width };
+    let span = if env.edge.is_vertical() {
+        height
+    } else {
+        width
+    };
     let off_bar = env.config.panel_gap(env.edge) as f32;
     LayerConfig {
         output: env.output.clone(),
@@ -327,13 +331,15 @@ mod tests {
             config.interactive_input_region,
             "the surplus around the card has to stay click-through"
         );
-        assert!(!config.input_transparent, "the card itself must take the pointer");
+        assert!(
+            !config.input_transparent,
+            "the card itself must take the pointer"
+        );
     }
 
     #[test]
     fn a_disabled_section_never_schedules_anything() {
-        let config: Config =
-            toml::from_str("[popouts]\nenabled = false\n").expect("config parses");
+        let config: Config = toml::from_str("[popouts]\nenabled = false\n").expect("config parses");
         assert!(!config.popouts.enabled);
         // The guard lives in `hover`, which needs a surface; the flag it returns on is what a unit test can reach.
         assert!(Config::starter().popouts.enabled, "on by default");
@@ -341,8 +347,8 @@ mod tests {
 
     #[test]
     fn the_delays_are_clamped_so_a_typo_cannot_make_a_popout_instant() {
-        let config: Config = toml::from_str("[popouts]\nopen_delay = 0\nclose_delay = 0\n")
-            .expect("config parses");
+        let config: Config =
+            toml::from_str("[popouts]\nopen_delay = 0\nclose_delay = 0\n").expect("config parses");
         assert!(
             config.popouts.open_after().as_millis() >= 60,
             "an instant popout would fire on a bar the pointer is only crossing"

@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use platform_layershell::timeout;
 use rsx::{
-    AlignItems, Component, Container, Effect, Event, EventResult, Input, JustifyContent, LayoutError,
-    LayoutItem, LayoutScrollArea, LayoutStyle, NodeId, Overlay, ReactiveList, ReadSignal, Rect,
-    RectStyle, RenderNode, RwSignal, ScrollViewport, SizeDimension, StyledContainer, Text, anchor_rect, box_item, effect, signal, use_theme,
+    AlignItems, Component, Container, Effect, Event, EventResult, Input, JustifyContent,
+    LayoutError, LayoutItem, LayoutScrollArea, LayoutStyle, NodeId, Overlay, ReactiveList,
+    ReadSignal, Rect, RectStyle, RenderNode, RwSignal, ScrollViewport, SizeDimension,
+    StyledContainer, Text, anchor_rect, box_item, effect, signal, use_theme,
 };
 
 use super::{CollectionState, icon_collection, icon_view};
@@ -309,14 +310,21 @@ fn cell(
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER),
         move |_| RectStyle::filled(theme.base, 8.0),
-        vec![icon_view(move || id_icon.clone(), move || theme.text, ICON)?],
+        vec![icon_view(
+            move || id_icon.clone(),
+            move || theme.text,
+            ICON,
+        )?],
     )?
     .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
     .on_press(move || pick(id.clone()));
     Ok(Box::new(button))
 }
 
-fn search_box(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+fn search_box(
+    query: RwSignal<String>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let input = Input::new(
         query,
         LayoutStyle::new()
@@ -341,11 +349,9 @@ fn message(
     text: impl Fn() -> String + 'static,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let label = Text::auto(
-        text,
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Caption, theme.muted),
-    )?;
+    let label = Text::auto(text, LayoutStyle::new(), move || {
+        theme.text_style(FontRole::Caption, theme.muted)
+    })?;
     let wrap = Container::new(
         LayoutStyle::new().padding_all(12.0),
         vec![Box::new(label) as Box<dyn LayoutItem>],
@@ -396,10 +402,15 @@ mod tests {
 
     #[test]
     fn filter_matches_the_name_part_case_insensitively_and_caps() {
-        let all: Vec<String> = ["lucide:home", "lucide:home-plus", "mdi:house", "lucide:bell"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
+        let all: Vec<String> = [
+            "lucide:home",
+            "lucide:home-plus",
+            "mdi:house",
+            "lucide:bell",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         // Empty query keeps everything (order preserved).
         assert_eq!(filter_ids(&all, "  ").len(), 4);
         // Matches the name after `set:`, case-insensitively; `house` matches on the name, not the set.
@@ -482,17 +493,22 @@ mod tests {
         let filtered = signal(Vec::<String>::new());
         let filtered_read = filtered.read_only();
         let pick: Rc<dyn Fn(String)> = Rc::new(|_| {});
-        let scroll = LayoutScrollArea::new_with(
-            LayoutStyle::new().width(280.0).height(240.0),
-            move |vp| grid(vp, filtered_read, theme, pick.clone()),
-        )
-        .expect("scroll");
+        let scroll =
+            LayoutScrollArea::new_with(LayoutStyle::new().width(280.0).height(240.0), move |vp| {
+                grid(vp, filtered_read, theme, pick.clone())
+            })
+            .expect("scroll");
         let scroll_node = scroll.layout_node();
         let _keep = Box::new(scroll);
 
         // Lay the (empty) grid out first, so the scroll viewport is already sized when cells appear.
         let lay = |node| {
-            compute_layout(node, AvailableSpace::Definite(280.0), AvailableSpace::Definite(240.0)).ok();
+            compute_layout(
+                node,
+                AvailableSpace::Definite(280.0),
+                AvailableSpace::Definite(240.0),
+            )
+            .ok();
             relayout_if_dirty();
         };
         lay(scroll_node);
@@ -528,8 +544,7 @@ mod tests {
             .expect("trigger");
             let node = trigger.layout_node();
             let rect = track_layout(node).expect("trigger node");
-            let overlay =
-                icon_picker_overlay(node, rect, |_| {}, || {}).expect("overlay");
+            let overlay = icon_picker_overlay(node, rect, |_| {}, || {}).expect("overlay");
             let root = Container::new(
                 LayoutStyle::new().flex_column(),
                 vec![Box::new(trigger), overlay],
@@ -634,18 +649,22 @@ mod tests {
                     move |vp| grid(vp, filtered, theme, pick.clone()),
                 )?;
                 let panel = StyledContainer::new(
-                    LayoutStyle::new().flex_column().width(PANEL_WIDTH).padding_all(8.0),
+                    LayoutStyle::new()
+                        .flex_column()
+                        .width(PANEL_WIDTH)
+                        .padding_all(8.0),
                     move |_| RectStyle::filled(theme.surface, 10.0),
                     vec![Box::new(scroll)],
                 )?
                 .on_press(|| {});
-                let overlay = Overlay::new(LayoutStyle::new().flex_column(), vec![box_item(panel)])?;
+                let overlay =
+                    Overlay::new(LayoutStyle::new().flex_column(), vec![box_item(panel)])?;
                 Ok(box_item(overlay))
             },
         )
         .expect("holder");
-        let card = Container::new(LayoutStyle::new().flex_column(), vec![Box::new(holder)])
-            .expect("card");
+        let card =
+            Container::new(LayoutStyle::new().flex_column(), vec![Box::new(holder)]).expect("card");
         let scroll = LayoutScrollArea::new(
             LayoutStyle::new().width(300.0).height(280.0),
             Box::new(card),

@@ -52,35 +52,157 @@ const fn unit(
 
 /// The table. Bases: metre, gram, second, byte, kelvin, metre per second, radian, square metre, litre.
 static UNITS: &[Unit] = &[
-    unit("m", &["m", "metre", "metres", "meter", "meters"], Dimension::Length, 1.0),
-    unit("km", &["km", "kilometre", "kilometres", "kilometer", "kilometers"], Dimension::Length, 1000.0),
-    unit("cm", &["cm", "centimetre", "centimetres", "centimeter", "centimeters"], Dimension::Length, 0.01),
-    unit("mm", &["mm", "millimetre", "millimetres", "millimeter", "millimeters"], Dimension::Length, 0.001),
-    unit("µm", &["um", "µm", "micrometre", "micrometer", "micron", "microns"], Dimension::Length, 1e-6),
-    unit("nm", &["nm", "nanometre", "nanometer"], Dimension::Length, 1e-9),
+    unit(
+        "m",
+        &["m", "metre", "metres", "meter", "meters"],
+        Dimension::Length,
+        1.0,
+    ),
+    unit(
+        "km",
+        &["km", "kilometre", "kilometres", "kilometer", "kilometers"],
+        Dimension::Length,
+        1000.0,
+    ),
+    unit(
+        "cm",
+        &[
+            "cm",
+            "centimetre",
+            "centimetres",
+            "centimeter",
+            "centimeters",
+        ],
+        Dimension::Length,
+        0.01,
+    ),
+    unit(
+        "mm",
+        &[
+            "mm",
+            "millimetre",
+            "millimetres",
+            "millimeter",
+            "millimeters",
+        ],
+        Dimension::Length,
+        0.001,
+    ),
+    unit(
+        "µm",
+        &["um", "µm", "micrometre", "micrometer", "micron", "microns"],
+        Dimension::Length,
+        1e-6,
+    ),
+    unit(
+        "nm",
+        &["nm", "nanometre", "nanometer"],
+        Dimension::Length,
+        1e-9,
+    ),
     unit("mi", &["mi", "mile", "miles"], Dimension::Length, 1609.344),
     unit("yd", &["yd", "yard", "yards"], Dimension::Length, 0.9144),
     unit("ft", &["ft", "foot", "feet"], Dimension::Length, 0.3048),
     unit("in", &["in", "inch", "inches"], Dimension::Length, 0.0254),
-    unit("nmi", &["nmi", "nauticalmile", "nauticalmiles"], Dimension::Length, 1852.0),
-    unit("ly", &["ly", "lightyear", "lightyears"], Dimension::Length, 9.4607304725808e15),
-    unit("g", &["g", "gram", "grams", "gramme", "grammes"], Dimension::Mass, 1.0),
-    unit("kg", &["kg", "kilogram", "kilograms", "kilo", "kilos"], Dimension::Mass, 1000.0),
-    unit("mg", &["mg", "milligram", "milligrams"], Dimension::Mass, 0.001),
-    unit("t", &["t", "tonne", "tonnes", "metricton"], Dimension::Mass, 1e6),
-    unit("lb", &["lb", "lbs", "pound", "pounds"], Dimension::Mass, 453.59237),
-    unit("oz", &["oz", "ounce", "ounces"], Dimension::Mass, 28.349523125),
-    unit("st", &["st", "stone", "stones"], Dimension::Mass, 6350.29318),
-    unit("s", &["s", "sec", "secs", "second", "seconds"], Dimension::Time, 1.0),
-    unit("ms", &["ms", "millisecond", "milliseconds"], Dimension::Time, 1e-3),
-    unit("µs", &["us", "µs", "microsecond", "microseconds"], Dimension::Time, 1e-6),
-    unit("ns", &["ns", "nanosecond", "nanoseconds"], Dimension::Time, 1e-9),
-    unit("min", &["min", "mins", "minute", "minutes"], Dimension::Time, 60.0),
-    unit("h", &["h", "hr", "hrs", "hour", "hours"], Dimension::Time, 3600.0),
+    unit(
+        "nmi",
+        &["nmi", "nauticalmile", "nauticalmiles"],
+        Dimension::Length,
+        1852.0,
+    ),
+    unit(
+        "ly",
+        &["ly", "lightyear", "lightyears"],
+        Dimension::Length,
+        9.4607304725808e15,
+    ),
+    unit(
+        "g",
+        &["g", "gram", "grams", "gramme", "grammes"],
+        Dimension::Mass,
+        1.0,
+    ),
+    unit(
+        "kg",
+        &["kg", "kilogram", "kilograms", "kilo", "kilos"],
+        Dimension::Mass,
+        1000.0,
+    ),
+    unit(
+        "mg",
+        &["mg", "milligram", "milligrams"],
+        Dimension::Mass,
+        0.001,
+    ),
+    unit(
+        "t",
+        &["t", "tonne", "tonnes", "metricton"],
+        Dimension::Mass,
+        1e6,
+    ),
+    unit(
+        "lb",
+        &["lb", "lbs", "pound", "pounds"],
+        Dimension::Mass,
+        453.59237,
+    ),
+    unit(
+        "oz",
+        &["oz", "ounce", "ounces"],
+        Dimension::Mass,
+        28.349523125,
+    ),
+    unit(
+        "st",
+        &["st", "stone", "stones"],
+        Dimension::Mass,
+        6350.29318,
+    ),
+    unit(
+        "s",
+        &["s", "sec", "secs", "second", "seconds"],
+        Dimension::Time,
+        1.0,
+    ),
+    unit(
+        "ms",
+        &["ms", "millisecond", "milliseconds"],
+        Dimension::Time,
+        1e-3,
+    ),
+    unit(
+        "µs",
+        &["us", "µs", "microsecond", "microseconds"],
+        Dimension::Time,
+        1e-6,
+    ),
+    unit(
+        "ns",
+        &["ns", "nanosecond", "nanoseconds"],
+        Dimension::Time,
+        1e-9,
+    ),
+    unit(
+        "min",
+        &["min", "mins", "minute", "minutes"],
+        Dimension::Time,
+        60.0,
+    ),
+    unit(
+        "h",
+        &["h", "hr", "hrs", "hour", "hours"],
+        Dimension::Time,
+        3600.0,
+    ),
     unit("d", &["d", "day", "days"], Dimension::Time, 86400.0),
     unit("wk", &["wk", "week", "weeks"], Dimension::Time, 604800.0),
     // A year is the Julian one, which is what makes `1 y in d` answer 365.25 rather than depending on which year.
-    unit("y", &["y", "yr", "yrs", "year", "years"], Dimension::Time, 31557600.0),
+    unit(
+        "y",
+        &["y", "yr", "yrs", "year", "years"],
+        Dimension::Time,
+        31557600.0,
+    ),
     unit("B", &["b", "byte", "bytes"], Dimension::Data, 1.0),
     unit("bit", &["bit", "bits"], Dimension::Data, 0.125),
     // SI for the decimal prefixes and IEC for the binary ones, so `1 gb in gib` is a real question with a real
@@ -88,12 +210,42 @@ static UNITS: &[Unit] = &[
     unit("kB", &["kb", "kilobyte", "kilobytes"], Dimension::Data, 1e3),
     unit("MB", &["mb", "megabyte", "megabytes"], Dimension::Data, 1e6),
     unit("GB", &["gb", "gigabyte", "gigabytes"], Dimension::Data, 1e9),
-    unit("TB", &["tb", "terabyte", "terabytes"], Dimension::Data, 1e12),
-    unit("PB", &["pb", "petabyte", "petabytes"], Dimension::Data, 1e15),
-    unit("KiB", &["kib", "kibibyte", "kibibytes"], Dimension::Data, 1024.0),
-    unit("MiB", &["mib", "mebibyte", "mebibytes"], Dimension::Data, 1048576.0),
-    unit("GiB", &["gib", "gibibyte", "gibibytes"], Dimension::Data, 1073741824.0),
-    unit("TiB", &["tib", "tebibyte", "tebibytes"], Dimension::Data, 1099511627776.0),
+    unit(
+        "TB",
+        &["tb", "terabyte", "terabytes"],
+        Dimension::Data,
+        1e12,
+    ),
+    unit(
+        "PB",
+        &["pb", "petabyte", "petabytes"],
+        Dimension::Data,
+        1e15,
+    ),
+    unit(
+        "KiB",
+        &["kib", "kibibyte", "kibibytes"],
+        Dimension::Data,
+        1024.0,
+    ),
+    unit(
+        "MiB",
+        &["mib", "mebibyte", "mebibytes"],
+        Dimension::Data,
+        1048576.0,
+    ),
+    unit(
+        "GiB",
+        &["gib", "gibibyte", "gibibytes"],
+        Dimension::Data,
+        1073741824.0,
+    ),
+    unit(
+        "TiB",
+        &["tib", "tebibyte", "tebibytes"],
+        Dimension::Data,
+        1099511627776.0,
+    ),
     Unit {
         symbol: "°C",
         names: &["c", "°c", "celsius", "centigrade"],
@@ -115,30 +267,116 @@ static UNITS: &[Unit] = &[
         scale: 1.0,
         offset: 0.0,
     },
-    unit("m/s", &["mps", "m/s", "metrepersecond"], Dimension::Speed, 1.0),
-    unit("km/h", &["kmh", "kph", "km/h", "kmph"], Dimension::Speed, 1.0 / 3.6),
+    unit(
+        "m/s",
+        &["mps", "m/s", "metrepersecond"],
+        Dimension::Speed,
+        1.0,
+    ),
+    unit(
+        "km/h",
+        &["kmh", "kph", "km/h", "kmph"],
+        Dimension::Speed,
+        1.0 / 3.6,
+    ),
     unit("mph", &["mph", "mi/h"], Dimension::Speed, 0.44704),
     unit("ft/s", &["fps", "ft/s"], Dimension::Speed, 0.3048),
-    unit("kn", &["kn", "kt", "knot", "knots"], Dimension::Speed, 0.5144444444444445),
+    unit(
+        "kn",
+        &["kn", "kt", "knot", "knots"],
+        Dimension::Speed,
+        0.5144444444444445,
+    ),
     unit("rad", &["rad", "radian", "radians"], Dimension::Angle, 1.0),
-    unit("°", &["deg", "degree", "degrees", "°"], Dimension::Angle, std::f64::consts::PI / 180.0),
-    unit("grad", &["grad", "gradian", "gradians"], Dimension::Angle, std::f64::consts::PI / 200.0),
-    unit("m²", &["m2", "m²", "sqm", "squaremetre", "squaremeter"], Dimension::Area, 1.0),
+    unit(
+        "°",
+        &["deg", "degree", "degrees", "°"],
+        Dimension::Angle,
+        std::f64::consts::PI / 180.0,
+    ),
+    unit(
+        "grad",
+        &["grad", "gradian", "gradians"],
+        Dimension::Angle,
+        std::f64::consts::PI / 200.0,
+    ),
+    unit(
+        "m²",
+        &["m2", "m²", "sqm", "squaremetre", "squaremeter"],
+        Dimension::Area,
+        1.0,
+    ),
     unit("km²", &["km2", "km²", "sqkm"], Dimension::Area, 1e6),
     unit("cm²", &["cm2", "cm²"], Dimension::Area, 1e-4),
     unit("ft²", &["ft2", "ft²", "sqft"], Dimension::Area, 0.09290304),
-    unit("mi²", &["mi2", "mi²", "sqmi"], Dimension::Area, 2589988.110336),
-    unit("ha", &["ha", "hectare", "hectares"], Dimension::Area, 10000.0),
+    unit(
+        "mi²",
+        &["mi2", "mi²", "sqmi"],
+        Dimension::Area,
+        2589988.110336,
+    ),
+    unit(
+        "ha",
+        &["ha", "hectare", "hectares"],
+        Dimension::Area,
+        10000.0,
+    ),
     unit("acre", &["acre", "acres"], Dimension::Area, 4046.8564224),
-    unit("l", &["l", "litre", "litres", "liter", "liters"], Dimension::Volume, 1.0),
-    unit("ml", &["ml", "millilitre", "millilitres", "milliliter", "milliliters"], Dimension::Volume, 0.001),
-    unit("cl", &["cl", "centilitre", "centiliter"], Dimension::Volume, 0.01),
-    unit("m³", &["m3", "m³", "cubicmetre", "cubicmeter"], Dimension::Volume, 1000.0),
-    unit("gal", &["gal", "gallon", "gallons"], Dimension::Volume, 3.785411784),
-    unit("qt", &["qt", "quart", "quarts"], Dimension::Volume, 0.946352946),
-    unit("pt", &["pt", "pint", "pints"], Dimension::Volume, 0.473176473),
+    unit(
+        "l",
+        &["l", "litre", "litres", "liter", "liters"],
+        Dimension::Volume,
+        1.0,
+    ),
+    unit(
+        "ml",
+        &[
+            "ml",
+            "millilitre",
+            "millilitres",
+            "milliliter",
+            "milliliters",
+        ],
+        Dimension::Volume,
+        0.001,
+    ),
+    unit(
+        "cl",
+        &["cl", "centilitre", "centiliter"],
+        Dimension::Volume,
+        0.01,
+    ),
+    unit(
+        "m³",
+        &["m3", "m³", "cubicmetre", "cubicmeter"],
+        Dimension::Volume,
+        1000.0,
+    ),
+    unit(
+        "gal",
+        &["gal", "gallon", "gallons"],
+        Dimension::Volume,
+        3.785411784,
+    ),
+    unit(
+        "qt",
+        &["qt", "quart", "quarts"],
+        Dimension::Volume,
+        0.946352946,
+    ),
+    unit(
+        "pt",
+        &["pt", "pint", "pints"],
+        Dimension::Volume,
+        0.473176473,
+    ),
     unit("cup", &["cup", "cups"], Dimension::Volume, 0.2365882365),
-    unit("floz", &["floz", "fluidounce", "fluidounces"], Dimension::Volume, 0.0295735295625),
+    unit(
+        "floz",
+        &["floz", "fluidounce", "fluidounces"],
+        Dimension::Volume,
+        0.0295735295625,
+    ),
 ];
 
 /// The words that mean "convert this into". The `->` forms need no spaces around them, which is why they are
@@ -241,17 +479,33 @@ mod tests {
 
     #[test]
     fn a_length_converts_both_ways_and_carries_its_unit() {
-        assert_eq!(convert_to_string("3 km in mi").as_deref(), Some("1.8641135767 mi"));
-        assert_eq!(convert_to_string("1 mi in km").as_deref(), Some("1.609344 km"));
+        assert_eq!(
+            convert_to_string("3 km in mi").as_deref(),
+            Some("1.8641135767 mi")
+        );
+        assert_eq!(
+            convert_to_string("1 mi in km").as_deref(),
+            Some("1.609344 km")
+        );
         assert_eq!(convert_to_string("100 cm to m").as_deref(), Some("1 m"));
-        assert_eq!(convert_to_string("2m in cm").as_deref(), Some("200 cm"), "no space needed");
-        assert_eq!(convert_to_string("6 feet in cm").as_deref(), Some("182.88 cm"));
+        assert_eq!(
+            convert_to_string("2m in cm").as_deref(),
+            Some("200 cm"),
+            "no space needed"
+        );
+        assert_eq!(
+            convert_to_string("6 feet in cm").as_deref(),
+            Some("182.88 cm")
+        );
     }
 
     /// `in` is both a unit and the keyword, so the split has to be the last one, not the first.
     #[test]
     fn inches_survive_being_spelled_like_the_keyword() {
-        assert_eq!(convert_to_string("12 in in cm").as_deref(), Some("30.48 cm"));
+        assert_eq!(
+            convert_to_string("12 in in cm").as_deref(),
+            Some("30.48 cm")
+        );
         assert_eq!(convert_to_string("1 ft in in").as_deref(), Some("12 in"));
     }
 
@@ -263,22 +517,38 @@ mod tests {
         assert_eq!(convert_to_string("-40 c in f").as_deref(), Some("-40 °F"));
         assert_eq!(convert_to_string("32 f in c").as_deref(), Some("0 °C"));
         assert_eq!(convert_to_string("0 c in k").as_deref(), Some("273.15 K"));
-        assert_eq!(convert_to_string("°C in °F").as_deref(), None, "a unit with no value is not a sum");
+        assert_eq!(
+            convert_to_string("°C in °F").as_deref(),
+            None,
+            "a unit with no value is not a sum"
+        );
     }
 
     #[test]
     fn the_decimal_and_binary_data_prefixes_are_different_questions() {
         assert_eq!(convert_to_string("1 gb in mb").as_deref(), Some("1000 MB"));
-        assert_eq!(convert_to_string("1 gib in mib").as_deref(), Some("1024 MiB"));
-        assert_eq!(convert_to_string("1 gib in gb").as_deref(), Some("1.073741824 GB"));
+        assert_eq!(
+            convert_to_string("1 gib in mib").as_deref(),
+            Some("1024 MiB")
+        );
+        assert_eq!(
+            convert_to_string("1 gib in gb").as_deref(),
+            Some("1.073741824 GB")
+        );
         assert_eq!(convert_to_string("8 bit in b").as_deref(), Some("1 B"));
     }
 
     #[test]
     fn the_left_side_is_a_whole_expression() {
         assert_eq!(convert_to_string("2*3 km in m").as_deref(), Some("6000 m"));
-        assert_eq!(convert_to_string("(1+1) kg in g").as_deref(), Some("2000 g"));
-        assert_eq!(convert_to_string("1_500 m in km").as_deref(), Some("1.5 km"));
+        assert_eq!(
+            convert_to_string("(1+1) kg in g").as_deref(),
+            Some("2000 g")
+        );
+        assert_eq!(
+            convert_to_string("1_500 m in km").as_deref(),
+            Some("1.5 km")
+        );
     }
 
     #[test]
@@ -310,19 +580,37 @@ mod tests {
 
     #[test]
     fn plurals_spellings_and_case_all_resolve() {
-        assert_eq!(convert_to_string("1 Kilometre in Metres").as_deref(), Some("1000 m"));
+        assert_eq!(
+            convert_to_string("1 Kilometre in Metres").as_deref(),
+            Some("1000 m")
+        );
         assert_eq!(convert_to_string("1 KM IN M").as_deref(), Some("1000 m"));
-        assert_eq!(convert_to_string("2 square metres in cm2").as_deref(), Some("20000 cm²"));
+        assert_eq!(
+            convert_to_string("2 square metres in cm2").as_deref(),
+            Some("20000 cm²")
+        );
         assert_eq!(convert_to_string("1 m3 in l").as_deref(), Some("1000 l"));
     }
 
     #[test]
     fn speed_angle_and_the_rest_of_the_dimensions_answer() {
-        assert_eq!(convert_to_string("100 kmh in mph").as_deref(), Some("62.1371192237 mph"));
-        assert_eq!(convert_to_string("180 deg in rad").as_deref(), Some("3.1415926536 rad"));
+        assert_eq!(
+            convert_to_string("100 kmh in mph").as_deref(),
+            Some("62.1371192237 mph")
+        );
+        assert_eq!(
+            convert_to_string("180 deg in rad").as_deref(),
+            Some("3.1415926536 rad")
+        );
         assert_eq!(convert_to_string("1 h in min").as_deref(), Some("60 min"));
-        assert_eq!(convert_to_string("1 stone in kg").as_deref(), Some("6.35029318 kg"));
-        assert_eq!(convert_to_string("1 acre in m2").as_deref(), Some("4046.8564224 m²"));
+        assert_eq!(
+            convert_to_string("1 stone in kg").as_deref(),
+            Some("6.35029318 kg")
+        );
+        assert_eq!(
+            convert_to_string("1 acre in m2").as_deref(),
+            Some("4046.8564224 m²")
+        );
     }
 
     /// Every name in the table has to be reachable, and no two units may claim the same spelling — the first

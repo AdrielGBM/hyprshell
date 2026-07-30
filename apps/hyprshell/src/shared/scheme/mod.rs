@@ -570,9 +570,11 @@ fn cache_path(source: &Path, mode: Mode, variant: Variant) -> PathBuf {
         hash = (hash ^ *byte as u64).wrapping_mul(1099511628211);
     }
     hash = (hash ^ stamp).wrapping_mul(1099511628211);
-    paths::cache_dir()
-        .join("schemes")
-        .join(format!("{hash:016x}-{}-{}.json", mode.id(), variant.id()))
+    paths::cache_dir().join("schemes").join(format!(
+        "{hash:016x}-{}-{}.json",
+        mode.id(),
+        variant.id()
+    ))
 }
 
 fn load_cached(source: &Path, mode: Mode, variant: Variant) -> Option<Scheme> {
@@ -857,7 +859,11 @@ fn as_sequences(scheme: &Scheme) -> String {
         out.push_str(&format!("\x1b]4;{index};{}\x1b\\", hex(*color)));
     }
     for (index, color) in ansi.iter().enumerate() {
-        out.push_str(&format!("\x1b]4;{};{}\x1b\\", index + 8, hex(brighter(*color))));
+        out.push_str(&format!(
+            "\x1b]4;{};{}\x1b\\",
+            index + 8,
+            hex(brighter(*color))
+        ));
     }
     out.push_str(&format!("\x1b]10;{}\x1b\\", hex(get("text"))));
     out.push_str(&format!("\x1b]11;{}\x1b\\", hex(get("base"))));
@@ -889,7 +895,10 @@ mod tests {
         let seed = seed_of(&pixels, 4000).expect("a seed comes out");
         let (_, chroma, hue, _) = seed.to_oklcha();
         assert!(chroma > 0.05, "the seed carries colour, not grey: {chroma}");
-        assert!((20.0..100.0).contains(&hue), "it is the orange, not the sky: {hue}");
+        assert!(
+            (20.0..100.0).contains(&hue),
+            "it is the orange, not the sky: {hue}"
+        );
     }
 
     #[test]
@@ -992,7 +1001,11 @@ mod tests {
                     mode.id()
                 );
                 let drift = ((hue - seed_hue + 540.0).rem_euclid(360.0) - 180.0).abs();
-                assert!(drift < 20.0, "{}/{token} is not the wallpaper's hue", mode.id());
+                assert!(
+                    drift < 20.0,
+                    "{}/{token} is not the wallpaper's hue",
+                    mode.id()
+                );
             }
         }
 
@@ -1100,13 +1113,19 @@ mod tests {
         let css = as_gtk(&scheme);
         let ini = as_ini(&scheme);
         for token in TOKENS {
-            assert!(css.contains(&format!("@define-color {token} ")), "{token} in gtk");
+            assert!(
+                css.contains(&format!("@define-color {token} ")),
+                "{token} in gtk"
+            );
             assert!(ini.contains(&format!("{token}=#")), "{token} in ini");
         }
         assert!(as_shell(&scheme).contains("wallpaper='/tmp/wall.png'"));
         // The escapes are what a terminal actually reads; a plain hex dump would be silently useless.
         assert!(as_sequences(&scheme).contains("\x1b]4;0;"));
-        assert!(as_sequences(&scheme).contains("\x1b]11;"), "the background is set");
+        assert!(
+            as_sequences(&scheme).contains("\x1b]11;"),
+            "the background is set"
+        );
         let parsed: Scheme = serde_json::from_str(&as_json(&scheme)).expect("json round-trips");
         assert_eq!(parsed, scheme);
     }

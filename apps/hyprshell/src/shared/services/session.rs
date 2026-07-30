@@ -138,7 +138,9 @@ fn call(action: Action) -> Result<(), zbus::Error> {
             )?;
         }
         other => {
-            let (method, _) = other.manager_method().expect("non-session actions have one");
+            let (method, _) = other
+                .manager_method()
+                .expect("non-session actions have one");
             // `false` = don't ask the policy layer to prompt; the caller already confirmed in the menu.
             conn.call_method(
                 Some(LOGIN1),
@@ -286,7 +288,12 @@ fn take_sleep_inhibitor(conn: &Connection) -> Option<zbus::zvariant::OwnedFd> {
             MANAGER_PATH,
             Some(MANAGER_IFACE),
             "Inhibit",
-            &("sleep", "hyprshell", "Locking the session before sleep", "delay"),
+            &(
+                "sleep",
+                "hyprshell",
+                "Locking the session before sleep",
+                "delay",
+            ),
         )
         .inspect_err(|e| tracing::warn!("logind: cannot take a sleep inhibitor: {e}"))
         .ok()?;

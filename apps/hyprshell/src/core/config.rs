@@ -932,7 +932,11 @@ impl DesktopClockConfig {
         if clock.format.is_some() {
             return clock.time_format();
         }
-        if clock.twelve_hour { "%I:%M %p" } else { "%H:%M" }
+        if clock.twelve_hour {
+            "%I:%M %p"
+        } else {
+            "%H:%M"
+        }
     }
 
     pub fn date_format<'a>(&'a self, clock: &'a ClockConfig) -> &'a str {
@@ -996,9 +1000,12 @@ impl WallpaperConfig {
             return false;
         };
         let extension = extension.to_ascii_lowercase();
-        self.extensions
-            .iter()
-            .any(|allowed| allowed.trim().trim_start_matches('.').eq_ignore_ascii_case(&extension))
+        self.extensions.iter().any(|allowed| {
+            allowed
+                .trim()
+                .trim_start_matches('.')
+                .eq_ignore_ascii_case(&extension)
+        })
     }
 }
 
@@ -2017,10 +2024,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
     }
     let (first, last) = (parts[0], parts[parts.len() - 1]);
     // The two anchors must not overlap: `a*b` matches `ab`, but nothing shorter.
-    if !text.starts_with(first)
-        || !text.ends_with(last)
-        || first.len() + last.len() > text.len()
-    {
+    if !text.starts_with(first) || !text.ends_with(last) || first.len() + last.len() > text.len() {
         return false;
     }
     let mut rest = &text[first.len()..text.len() - last.len()];
@@ -3085,8 +3089,9 @@ impl Config {
         if self.background.transition == WallpaperTransition::None {
             return Duration::ZERO;
         }
-        self.animation
-            .duration(Duration::from_millis(self.background.transition_ms.min(10_000)))
+        self.animation.duration(Duration::from_millis(
+            self.background.transition_ms.min(10_000),
+        ))
     }
 
     /// The mode and variant a dynamic scheme is generated at.
@@ -3095,9 +3100,10 @@ impl Config {
     /// Catppuccin Latte has already said which end of the ramp they live at, and asking them to say it twice is
     /// how the two settings end up disagreeing.
     pub fn scheme_selection(&self) -> (scheme::Mode, scheme::Variant) {
-        let mode = self.theme.requested_mode().unwrap_or_else(|| {
-            scheme::Mode::of(&NordTheme::named(&self.theme.fallback))
-        });
+        let mode = self
+            .theme
+            .requested_mode()
+            .unwrap_or_else(|| scheme::Mode::of(&NordTheme::named(&self.theme.fallback)));
         (mode, self.theme.requested_variant())
     }
 
@@ -3335,8 +3341,7 @@ impl Config {
     /// to instead of a colour scheme they never chose.
     fn base_palette(&self) -> NordTheme {
         if self.theme.is_dynamic() {
-            return scheme::theme()
-                .unwrap_or_else(|| self.in_requested_mode(&self.theme.fallback));
+            return scheme::theme().unwrap_or_else(|| self.in_requested_mode(&self.theme.fallback));
         }
         self.in_requested_mode(&self.theme.name)
     }
@@ -3570,9 +3575,7 @@ impl Config {
 
     /// Where a monitor's override lives: `<config dir>/monitors/<output>/config.toml`.
     pub fn monitor_dir(path: &Path) -> PathBuf {
-        path.parent()
-            .unwrap_or(Path::new("."))
-            .join("monitors")
+        path.parent().unwrap_or(Path::new(".")).join("monitors")
     }
 
     /// Serializes the whole config to `path`, creating its directory. Used only to seed a fresh install; edits
@@ -3686,7 +3689,10 @@ fn migrate(document: &mut toml::Value) {
 /// v0 → v1: `[general] terminal` became `[general.apps] terminal` when the other helper applications arrived.
 /// The older key wins nothing if the newer one is set, so a config carrying both keeps the deliberate value.
 fn migrate_terminal_into_apps(document: &mut toml::Value) {
-    let Some(general) = document.get_mut("general").and_then(toml::Value::as_table_mut) else {
+    let Some(general) = document
+        .get_mut("general")
+        .and_then(toml::Value::as_table_mut)
+    else {
         return;
     };
     let Some(legacy) = general.get("terminal").and_then(toml::Value::as_str) else {
@@ -3878,7 +3884,10 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
             "the untouched section survives"
         );
         let reloaded: Config = toml::from_str(&out).unwrap();
-        assert_eq!(reloaded.theme.accent, "orange", "the edited value persisted");
+        assert_eq!(
+            reloaded.theme.accent, "orange",
+            "the edited value persisted"
+        );
         assert_eq!(
             reloaded.icons.default_set, "lucide",
             "the other section round-trips"
@@ -3904,10 +3913,7 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
 
         Config::save_section(&path, "theme", &ThemeConfig::default()).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        let headers: Vec<&str> = text
-            .lines()
-            .filter(|line| line.starts_with('['))
-            .collect();
+        let headers: Vec<&str> = text.lines().filter(|line| line.starts_with('[')).collect();
         let at = |name: &str| {
             headers
                 .iter()
@@ -3915,7 +3921,10 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
                 .unwrap_or_else(|| panic!("{name} missing from\n{text}"))
         };
 
-        assert!(at("[theme]") < at("[theme.export]"), "a parent precedes its children:\n{text}");
+        assert!(
+            at("[theme]") < at("[theme.export]"),
+            "a parent precedes its children:\n{text}"
+        );
         assert!(at("[theme]") < at("[theme.scale]"), "{text}");
         assert!(at("[shape]") < at("[panels]"), "{text}");
         assert!(at("[panels]") < at("[theme]"), "{text}");
@@ -3976,7 +3985,10 @@ start = ["workspaces"]
         assert_eq!(cfg.shape.mode, Shape::Bar);
         assert!(!cfg.shape.frame);
         assert_eq!(cfg.shape.gap, 0);
-        assert_eq!(cfg.shape.radius, None, "unset radius falls back to the theme");
+        assert_eq!(
+            cfg.shape.radius, None,
+            "unset radius falls back to the theme"
+        );
         let top = cfg.shape_for(Edge::Top);
         assert_eq!(top.mode, Shape::Bar);
         assert_eq!(top.gap, 0);
@@ -4032,11 +4044,17 @@ end = ["battery", "volume"]
         // An unset coordinate is the one field type TOML has no value for, so it is the one that would break
         // the write of a fresh config rather than merely round-trip oddly.
         assert_eq!(parsed.weather.latitude, None);
-        assert_eq!(parsed.weather.refresh_minutes, starter.weather.refresh_minutes);
+        assert_eq!(
+            parsed.weather.refresh_minutes,
+            starter.weather.refresh_minutes
+        );
         assert_eq!(parsed.gpu.backend, "auto");
         assert!(parsed.paths.wallpapers.is_empty());
         assert_eq!(parsed.bluetooth.max_devices, starter.bluetooth.max_devices);
-        assert_eq!(parsed.network.rescan_seconds, starter.network.rescan_seconds);
+        assert_eq!(
+            parsed.network.rescan_seconds,
+            starter.network.rescan_seconds
+        );
         assert_eq!(parsed.media.seek_seconds, starter.media.seek_seconds);
     }
 
@@ -4092,7 +4110,8 @@ end = ["battery", "volume"]
     #[test]
     fn theme_config_parses_font_family_and_icon_stroke() {
         let cfg: Config =
-            toml::from_str("[theme]\nfont_family = \"JetBrains Mono\"\nicon_stroke = 1.5\n").unwrap();
+            toml::from_str("[theme]\nfont_family = \"JetBrains Mono\"\nicon_stroke = 1.5\n")
+                .unwrap();
         // font_family stays in config (applied process-wide, not carried in the Copy theme struct).
         assert_eq!(cfg.theme.font_family.as_deref(), Some("JetBrains Mono"));
         // icon_stroke flows into the resolved theme so icon_view can read it.
@@ -4115,8 +4134,16 @@ end = ["battery", "volume"]
         )
         .unwrap();
         assert_eq!(cfg.resolved_radius(Edge::Top), 2.0, "per-bar override wins");
-        assert_eq!(cfg.resolved_spacing(Edge::Top), 4.0, "spacing falls to [shape]");
-        assert_eq!(cfg.resolved_radius(Edge::Bottom), 10.0, "bottom takes [shape]");
+        assert_eq!(
+            cfg.resolved_spacing(Edge::Top),
+            4.0,
+            "spacing falls to [shape]"
+        );
+        assert_eq!(
+            cfg.resolved_radius(Edge::Bottom),
+            10.0,
+            "bottom takes [shape]"
+        );
     }
 
     #[test]
@@ -4127,7 +4154,11 @@ end = ["battery", "volume"]
         )
         .unwrap();
         assert_eq!(cfg.panel_radius(Edge::Top), 8.0);
-        assert_eq!(cfg.panel_radius(Edge::Left), 0.0, "left inherits the global radius");
+        assert_eq!(
+            cfg.panel_radius(Edge::Left),
+            0.0,
+            "left inherits the global radius"
+        );
     }
 
     #[test]
@@ -4152,11 +4183,20 @@ end = ["battery", "volume"]
         )
         .unwrap();
         assert_eq!(cfg.panels.gap, Some(4));
-        assert_eq!(cfg.panel_gap(Edge::Top), 4, "the override wins over the derived bar gap");
+        assert_eq!(
+            cfg.panel_gap(Edge::Top),
+            4,
+            "the override wins over the derived bar gap"
+        );
         assert_eq!(cfg.panel_gap(Edge::Bottom), 4);
 
-        let derived: Config = toml::from_str("[shape]\ngap=20\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
-        assert_eq!(derived.panel_gap(Edge::Top), 20, "without an override it tracks the bar gap");
+        let derived: Config =
+            toml::from_str("[shape]\ngap=20\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
+        assert_eq!(
+            derived.panel_gap(Edge::Top),
+            20,
+            "without an override it tracks the bar gap"
+        );
     }
 
     #[test]
@@ -4212,7 +4252,11 @@ end = ["battery", "volume"]
         )
         .unwrap();
         assert_eq!(broken.audio.step(), 1);
-        assert_eq!(broken.audio.ceiling(), 100, "a sink must reach its own maximum");
+        assert_eq!(
+            broken.audio.ceiling(),
+            100,
+            "a sink must reach its own maximum"
+        );
         assert_eq!(broken.brightness.step(), 1);
     }
 
@@ -4220,7 +4264,10 @@ end = ["battery", "volume"]
     fn temperature_unit_converts_and_labels_the_reading() {
         let d: Config = toml::from_str("").unwrap();
         assert_eq!(d.temperature.unit, TemperatureUnit::Celsius);
-        assert!(d.temperature.sensor.is_empty(), "empty tracks the hottest sensor");
+        assert!(
+            d.temperature.sensor.is_empty(),
+            "empty tracks the hottest sensor"
+        );
         assert_eq!(d.temperature.warn, 70.0);
         assert_eq!(d.temperature.critical, 85.0);
         assert_eq!(d.temperature.unit.format(61.5), "62°C");
@@ -4231,7 +4278,10 @@ end = ["battery", "volume"]
         .unwrap();
         assert_eq!(cfg.temperature.sensor, "k10temp");
         assert_eq!(cfg.temperature.warn, 80.0);
-        assert_eq!(cfg.temperature.critical, 85.0, "unset fields keep their defaults");
+        assert_eq!(
+            cfg.temperature.critical, 85.0,
+            "unset fields keep their defaults"
+        );
         assert_eq!(cfg.temperature.unit.from_celsius(100.0), 212.0);
         assert_eq!(cfg.temperature.unit.format(20.0), "68°F");
     }
@@ -4257,7 +4307,11 @@ end = ["battery", "volume"]
         let d: Config = toml::from_str("").unwrap();
         assert!(d.battery.enabled);
         assert_eq!(
-            d.battery.warn_levels.iter().map(|w| w.level).collect::<Vec<_>>(),
+            d.battery
+                .warn_levels
+                .iter()
+                .map(|w| w.level)
+                .collect::<Vec<_>>(),
             vec![20, 10],
             "a laptop shell that silently runs a battery flat is a bug"
         );
@@ -4306,7 +4360,10 @@ end = ["battery", "volume"]
         assert_eq!(reloaded.battery.critical_action, "suspend");
         assert_eq!(reloaded.battery.warn_levels.len(), 2);
         assert_eq!(reloaded.battery.warn_levels[1].level, 10);
-        assert_eq!(reloaded.theme.accent, "orange", "the other section is untouched");
+        assert_eq!(
+            reloaded.theme.accent, "orange",
+            "the other section is untouched"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -4376,9 +4433,15 @@ end = ["battery", "volume"]
         assert!(glob_matches("steam_app_*", "steam_app_12345"));
         assert!(glob_matches("*applet", "nm-applet"));
         assert!(glob_matches("chrome*icon*", "chrome_status_icon_1"));
-        assert!(!glob_matches("chrome*icon", "chrome_status_icon_1"), "a trailing literal anchors the end");
+        assert!(
+            !glob_matches("chrome*icon", "chrome_status_icon_1"),
+            "a trailing literal anchors the end"
+        );
         assert!(glob_matches("*", "anything at all"));
-        assert!(glob_matches("NM-Applet", "nm-applet"), "matching ignores case");
+        assert!(
+            glob_matches("NM-Applet", "nm-applet"),
+            "matching ignores case"
+        );
 
         // The two anchors must not overlap: `a*t` needs at least `at`, not just `a`.
         assert!(glob_matches("a*t", "at"));
@@ -4473,7 +4536,11 @@ end = ["battery", "volume"]
     fn notifications_defaults_to_top_right_with_sensible_limits() {
         let d: Config = toml::from_str("").unwrap();
         assert_eq!(d.notifications.edge, Edge::Top);
-        assert_eq!(d.notifications.align, Align::End, "align=end is the right side");
+        assert_eq!(
+            d.notifications.align,
+            Align::End,
+            "align=end is the right side"
+        );
         assert_eq!(d.notifications.max_visible, 4);
         assert_eq!(d.notifications.timeout_ms, 5000);
         assert!(d.notifications.critical_sticky);
@@ -4484,7 +4551,10 @@ end = ["battery", "volume"]
         assert_eq!(cfg.notifications.max_visible, 2);
         assert_eq!(cfg.notifications.timeout_ms, 0, "0 ms = sticky popups");
         assert_eq!(cfg.notifications.edge, Edge::Bottom);
-        assert!(cfg.notifications.critical_sticky, "unset fields keep defaults");
+        assert!(
+            cfg.notifications.critical_sticky,
+            "unset fields keep defaults"
+        );
     }
 
     #[test]
@@ -4492,7 +4562,10 @@ end = ["battery", "volume"]
         let d = NotificationsConfig::default();
         assert!(d.group_by_app);
         assert_eq!(d.group_preview(), 3);
-        assert!(d.action_on_click, "a tap opens what the notification is about");
+        assert!(
+            d.action_on_click,
+            "a tap opens what the notification is about"
+        );
         assert_eq!(d.body_max_lines(), Some(4));
         assert_eq!(
             d.sound_command(),
@@ -4513,7 +4586,11 @@ end = ["battery", "volume"]
         };
         assert_eq!(zeroed.group_preview(), 1);
         assert_eq!(zeroed.body_max_lines(), Some(1));
-        assert_eq!(zeroed.sound_command(), None, "a whitespace-only command is silent");
+        assert_eq!(
+            zeroed.sound_command(),
+            None,
+            "a whitespace-only command is silent"
+        );
 
         let expanded = NotificationsConfig {
             open_expanded: true,
@@ -4539,7 +4616,10 @@ end = ["battery", "volume"]
             ..NotificationsConfig::default()
         })
         .unwrap();
-        assert!(round_tripped.contains("fullscreen = \"never\""), "{round_tripped}");
+        assert!(
+            round_tripped.contains("fullscreen = \"never\""),
+            "{round_tripped}"
+        );
     }
 
     /// A config directory with a global file and, optionally, one monitor override.
@@ -4608,7 +4688,10 @@ accent = "orange"
         );
 
         let unknown = Config::for_output(&path, Some("HDMI-A-1")).unwrap();
-        assert_eq!(unknown.bars.top.size, 34, "a screen with no file is the global config");
+        assert_eq!(
+            unknown.bars.top.size, 34,
+            "a screen with no file is the global config"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -4632,7 +4715,10 @@ accent = "orange"
             NotificationsConfig::default().max_visible,
             "[notifications] is global-only — one daemon owns it"
         );
-        assert_eq!(cfg.shape.gap, 12, "a visual section is still the monitor's to set");
+        assert_eq!(
+            cfg.shape.gap, 12,
+            "a visual section is still the monitor's to set"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -4664,7 +4750,10 @@ accent = "orange"
             migrate(&mut document);
             document.try_into().unwrap()
         };
-        assert_eq!(cfg.general.apps.terminal, "kitty", "moved into its new home");
+        assert_eq!(
+            cfg.general.apps.terminal, "kitty",
+            "moved into its new home"
+        );
         assert_eq!(cfg.app_command(HelperApp::Terminal), "kitty");
 
         let mut twice: toml::Value = toml::from_str(legacy).unwrap();
@@ -4673,16 +4762,18 @@ accent = "orange"
         migrate(&mut twice);
         assert_eq!(twice, once);
 
-        let mut both: toml::Value =
-            toml::from_str("[general]\nterminal = \"xterm\"\n\n[general.apps]\nterminal = \"foot\"\n")
-                .unwrap();
+        let mut both: toml::Value = toml::from_str(
+            "[general]\nterminal = \"xterm\"\n\n[general.apps]\nterminal = \"foot\"\n",
+        )
+        .unwrap();
         migrate(&mut both);
         let cfg: Config = both.try_into().unwrap();
         assert_eq!(cfg.general.apps.terminal, "foot");
 
-        let mut current: toml::Value =
-            toml::from_str(&format!("version = {CONFIG_VERSION}\n[general]\nterminal = \"kitty\"\n"))
-                .unwrap();
+        let mut current: toml::Value = toml::from_str(&format!(
+            "version = {CONFIG_VERSION}\n[general]\nterminal = \"kitty\"\n"
+        ))
+        .unwrap();
         let before = current.clone();
         migrate(&mut current);
         assert_eq!(current, before);
@@ -4739,7 +4830,10 @@ accent = "orange"
             "an unknown name is the default, not a panic"
         );
         assert_eq!(with("", "linear").easing(), rsx::motion::Easing::Linear);
-        assert_eq!(with("", "ease_in_out").easing(), rsx::motion::Easing::EaseInOut);
+        assert_eq!(
+            with("", "ease_in_out").easing(),
+            rsx::motion::Easing::EaseInOut
+        );
         assert_eq!(with("", "nonsense").easing(), rsx::motion::Easing::EaseOut);
     }
 
@@ -4752,26 +4846,40 @@ accent = "orange"
         )
         .unwrap();
         let theme = cfg.resolve_theme();
-        assert_eq!(theme.font(FontRole::Caption), 20.0, "the named role takes the override");
-        assert_eq!(theme.font(FontRole::Body), 13.0, "and every other role is untouched");
+        assert_eq!(
+            theme.font(FontRole::Caption),
+            20.0,
+            "the named role takes the override"
+        );
+        assert_eq!(
+            theme.font(FontRole::Body),
+            13.0,
+            "and every other role is untouched"
+        );
 
         let styled = theme.text_style(FontRole::Caption, theme.text);
         assert_eq!(styled.weight, 700);
         assert!(styled.italic);
         let plain = theme.text_style(FontRole::Body, theme.text);
-        assert_eq!(plain.weight, 400, "a role with no override keeps the default weight");
+        assert_eq!(
+            plain.weight, 400,
+            "a role with no override keeps the default weight"
+        );
         assert!(!plain.italic);
 
         // Bounded on read: a size a screen cannot render is not a size.
-        let absurd: Config =
-            toml::from_str("[theme.fonts.body]\nsize = 100000.0\n").unwrap();
+        let absurd: Config = toml::from_str("[theme.fonts.body]\nsize = 100000.0\n").unwrap();
         assert_eq!(absurd.resolve_theme().font(FontRole::Body), 200.0);
     }
 
     #[test]
     fn the_panel_background_is_solid_by_default_and_never_fades_past_readable() {
         let solid = Config::starter();
-        assert_eq!(solid.panel_fill().a, 1.0, "a panel is opaque unless asked otherwise");
+        assert_eq!(
+            solid.panel_fill().a,
+            1.0,
+            "a panel is opaque unless asked otherwise"
+        );
         assert_eq!(
             solid.panel_fill().to_rgba8(),
             solid.resolve_theme().surface.to_rgba8(),
@@ -4855,7 +4963,10 @@ accent = "orange"
         )
         .unwrap();
         let theme = scaled.resolve_theme();
-        assert_eq!(theme.radius, 20.0, "the scale multiplies the pinned radius, not the palette's");
+        assert_eq!(
+            theme.radius, 20.0,
+            "the scale multiplies the pinned radius, not the palette's"
+        );
         assert_eq!(theme.font_size, 7.0);
         assert_eq!(
             theme.icon_size, base.icon_size,
@@ -4876,16 +4987,29 @@ accent = "orange"
         use crate::shared::scheme::Mode;
         assert_eq!(NordTheme::in_mode("gruvbox", Mode::Light), "gruvbox-light");
         assert_eq!(NordTheme::in_mode("gruvbox-light", Mode::Dark), "gruvbox");
-        assert_eq!(NordTheme::in_mode("catppuccin-frappe", Mode::Light), "catppuccin-latte");
-        assert_eq!(NordTheme::in_mode("rose_pine_moon", Mode::Light), "rose-pine-dawn");
+        assert_eq!(
+            NordTheme::in_mode("catppuccin-frappe", Mode::Light),
+            "catppuccin-latte"
+        );
+        assert_eq!(
+            NordTheme::in_mode("rose_pine_moon", Mode::Light),
+            "rose-pine-dawn"
+        );
         // Nord has no light sibling anyone drew, and inventing one by inversion would be a palette its author
         // never made.
         assert_eq!(NordTheme::in_mode("nord", Mode::Light), "nord");
-        assert_eq!(NordTheme::in_mode("tokyo-night", Mode::Light), "tokyo-night");
+        assert_eq!(
+            NordTheme::in_mode("tokyo-night", Mode::Light),
+            "tokyo-night"
+        );
         // Already on the asked-for side: a no-op, not a round trip through the other one.
-        assert_eq!(NordTheme::in_mode("gruvbox-light", Mode::Light), "gruvbox-light");
+        assert_eq!(
+            NordTheme::in_mode("gruvbox-light", Mode::Light),
+            "gruvbox-light"
+        );
 
-        let light: Config = toml::from_str("[theme]\nname = \"gruvbox\"\nmode = \"light\"\n").unwrap();
+        let light: Config =
+            toml::from_str("[theme]\nname = \"gruvbox\"\nmode = \"light\"\n").unwrap();
         assert_eq!(
             light.resolve_theme().base,
             NordTheme::gruvbox_light().base,
@@ -4903,24 +5027,25 @@ accent = "orange"
     fn a_dynamic_theme_falls_back_to_a_real_palette_until_a_wallpaper_has_been_read() {
         // Nothing has been quantised in a unit test, which is also the state of a fresh install's first frame.
         let dynamic: Config =
-            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"catppuccin-latte\"\n").unwrap();
+            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"catppuccin-latte\"\n")
+                .unwrap();
         assert!(dynamic.theme.is_dynamic());
         assert_eq!(
             dynamic.resolve_theme().base,
             NordTheme::catppuccin_latte().base,
             "the fallback is a setting, not a formality"
         );
-        let tuned: Config = toml::from_str(
-            "[theme]\nname = \"dynamic\"\nfallback = \"nord\"\nradius = 14\n",
-        )
-        .unwrap();
+        let tuned: Config =
+            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"nord\"\nradius = 14\n")
+                .unwrap();
         assert_eq!(tuned.resolve_theme().radius, 14.0);
     }
 
     #[test]
     fn auto_reads_the_mode_a_dynamic_scheme_should_be_generated_at_off_the_fallback() {
         use crate::shared::scheme::{Mode, Variant};
-        let dark: Config = toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"nord\"\n").unwrap();
+        let dark: Config =
+            toml::from_str("[theme]\nname = \"dynamic\"\nfallback = \"nord\"\n").unwrap();
         assert_eq!(dark.scheme_selection(), (Mode::Dark, Variant::Vibrant));
 
         // A user whose fallback is a light palette has already said which end of the ramp they live at.
@@ -4954,9 +5079,10 @@ accent = "orange"
             "the global animation switch reaches this like every other duration"
         );
 
-        let scaled: Config =
-            toml::from_str("[background]\ntransition_ms = 400\n\n[animation]\nduration_scale = 2.0\n")
-                .unwrap();
+        let scaled: Config = toml::from_str(
+            "[background]\ntransition_ms = 400\n\n[animation]\nduration_scale = 2.0\n",
+        )
+        .unwrap();
         assert_eq!(scaled.wallpaper_transition(), Duration::from_millis(800));
 
         // An absurd duration is a slow transition, never one that outlives the session.
@@ -4967,7 +5093,10 @@ accent = "orange"
     #[test]
     fn the_background_surface_is_opened_by_anything_that_needs_to_draw_on_it() {
         let bare: Config = toml::from_str("").unwrap();
-        assert!(!bare.background.is_enabled(), "opt-in, so it never clobbers the compositor's own");
+        assert!(
+            !bare.background.is_enabled(),
+            "opt-in, so it never clobbers the compositor's own"
+        );
 
         for toml_text in [
             "[background]\nenabled = true\n",
@@ -4977,7 +5106,10 @@ accent = "orange"
             "[background.clock]\nenabled = true\n",
         ] {
             let config: Config = toml::from_str(toml_text).unwrap();
-            assert!(config.background.is_enabled(), "'{toml_text}' needs the surface");
+            assert!(
+                config.background.is_enabled(),
+                "'{toml_text}' needs the surface"
+            );
         }
     }
 
@@ -5070,7 +5202,11 @@ center = ["clock"]
             spacing: 30.0,
             radius: 4.0,
         };
-        assert_eq!(tight.chip_radius(), 0.0, "radius floors at 0, never negative");
+        assert_eq!(
+            tight.chip_radius(),
+            0.0,
+            "radius floors at 0, never negative"
+        );
     }
 
     #[test]
@@ -5087,11 +5223,14 @@ center = ["clock"]
 
     #[test]
     fn corner_owner_prefers_horizontal_then_vertical() {
-        let cfg: Config = toml::from_str(
-            "[bars.top]\ncenter=[\"clock\"]\n[bars.left]\nstart=[\"workspaces\"]\n",
-        )
-        .unwrap();
-        assert_eq!(cfg.corner_owner(Corner::TopLeft), Some(Edge::Top), "top wins over left");
+        let cfg: Config =
+            toml::from_str("[bars.top]\ncenter=[\"clock\"]\n[bars.left]\nstart=[\"workspaces\"]\n")
+                .unwrap();
+        assert_eq!(
+            cfg.corner_owner(Corner::TopLeft),
+            Some(Edge::Top),
+            "top wins over left"
+        );
         assert_eq!(cfg.corner_owner(Corner::BottomLeft), Some(Edge::Left));
         assert_eq!(cfg.corner_owner(Corner::BottomRight), None);
     }
@@ -5113,7 +5252,11 @@ center = ["clock"]
         let floating: Config =
             toml::from_str("[shape]\ngap=12\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
         assert_eq!(floating.edge_gap(Edge::Top), 12);
-        assert_eq!(floating.panel_gap(Edge::Top), 12, "a floating bar's panels float in step");
+        assert_eq!(
+            floating.panel_gap(Edge::Top),
+            12,
+            "a floating bar's panels float in step"
+        );
         assert_eq!(
             floating.edge_reserved(Edge::Top),
             12 + 34,
@@ -5134,7 +5277,11 @@ center = ["clock"]
     fn frame_edge_reserves_thickness_without_a_gap() {
         let cfg: Config =
             toml::from_str("[shape]\nframe=true\ngap=8\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
-        assert_eq!(cfg.edge_gap(Edge::Top), 0, "frame forces a hug, so no outer gap");
+        assert_eq!(
+            cfg.edge_gap(Edge::Top),
+            0,
+            "frame forces a hug, so no outer gap"
+        );
         assert_eq!(cfg.edge_reserved(Edge::Top), 34);
         assert_eq!(cfg.panel_gap(Edge::Top), DEFAULT_PANEL_GAP);
     }
@@ -5149,7 +5296,11 @@ inactive_size = 6
 center = ["clock"]
 "#;
         let cfg: Config = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.edge_thickness(Edge::Top), 34, "active edge keeps its size");
+        assert_eq!(
+            cfg.edge_thickness(Edge::Top),
+            34,
+            "active edge keeps its size"
+        );
         assert_eq!(
             cfg.edge_thickness(Edge::Bottom),
             6,

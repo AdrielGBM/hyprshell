@@ -125,13 +125,21 @@ fn heading(
     row.push(box_item(Text::auto(
         move || title.get(),
         LayoutStyle::new().flex_grow(1.0),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?));
     if let Some(value) = trailing {
         row.push(box_item(Text::auto(
             move || value.get(),
             LayoutStyle::new().flex_shrink(0.0),
-            move || theme.text_style(FontRole::Title, theme.accent).with_weight(700),
+            move || {
+                theme
+                    .text_style(FontRole::Title, theme.accent)
+                    .with_weight(700)
+            },
         )?));
     }
     Ok(Box::new(Container::new(

@@ -165,7 +165,11 @@ pub fn apply_grid(current: usize, count: usize, columns: usize, movement: Move) 
                 current - columns
             } else {
                 let bottom = (last / columns) * columns + current % columns;
-                if bottom > last { bottom - columns } else { bottom }
+                if bottom > last {
+                    bottom - columns
+                } else {
+                    bottom
+                }
             }
         }
         Move::Activate | Move::Cancel => current,
@@ -202,10 +206,22 @@ mod tests {
 
     #[test]
     fn the_arrows_always_navigate_and_the_letters_only_do_in_vim_mode() {
-        assert_eq!(arrows().interpret(&named(NamedKey::ArrowDown)), Some(Move::Next));
-        assert_eq!(arrows().interpret(&named(NamedKey::ArrowUp)), Some(Move::Previous));
-        assert_eq!(arrows().interpret(&named(NamedKey::Enter)), Some(Move::Activate));
-        assert_eq!(arrows().interpret(&named(NamedKey::Escape)), Some(Move::Cancel));
+        assert_eq!(
+            arrows().interpret(&named(NamedKey::ArrowDown)),
+            Some(Move::Next)
+        );
+        assert_eq!(
+            arrows().interpret(&named(NamedKey::ArrowUp)),
+            Some(Move::Previous)
+        );
+        assert_eq!(
+            arrows().interpret(&named(NamedKey::Enter)),
+            Some(Move::Activate)
+        );
+        assert_eq!(
+            arrows().interpret(&named(NamedKey::Escape)),
+            Some(Move::Cancel)
+        );
 
         // The half that matters: with vim off, a letter is typing and must reach the search field.
         assert_eq!(arrows().interpret(&character('j')), None);
@@ -216,16 +232,34 @@ mod tests {
         assert_eq!(vim().interpret(&character('k')), Some(Move::Previous));
         assert_eq!(vim().interpret(&character('g')), Some(Move::First));
         assert_eq!(vim().interpret(&character('G')), Some(Move::Last));
-        assert_eq!(vim().interpret(&character('\u{e}')), Some(Move::Next), "Ctrl-N");
-        assert_eq!(vim().interpret(&character('\u{10}')), Some(Move::Previous), "Ctrl-P");
-        assert_eq!(vim().interpret(&character('q')), None, "an unbound letter is still typing");
+        assert_eq!(
+            vim().interpret(&character('\u{e}')),
+            Some(Move::Next),
+            "Ctrl-N"
+        );
+        assert_eq!(
+            vim().interpret(&character('\u{10}')),
+            Some(Move::Previous),
+            "Ctrl-P"
+        );
+        assert_eq!(
+            vim().interpret(&character('q')),
+            None,
+            "an unbound letter is still typing"
+        );
     }
 
     #[test]
     fn a_horizontal_list_reads_the_other_pair_of_arrows() {
         let row = arrows().horizontal();
-        assert_eq!(row.interpret(&named(NamedKey::ArrowRight)), Some(Move::Next));
-        assert_eq!(row.interpret(&named(NamedKey::ArrowLeft)), Some(Move::Previous));
+        assert_eq!(
+            row.interpret(&named(NamedKey::ArrowRight)),
+            Some(Move::Next)
+        );
+        assert_eq!(
+            row.interpret(&named(NamedKey::ArrowLeft)),
+            Some(Move::Previous)
+        );
         assert_eq!(
             row.interpret(&named(NamedKey::ArrowDown)),
             None,
@@ -242,7 +276,11 @@ mod tests {
         assert_eq!(apply(1, 3, Move::Last), 2);
         assert_eq!(apply(1, 3, Move::Activate), 1, "activating moves nothing");
 
-        assert_eq!(apply(0, 0, Move::Next), 0, "an empty list has nowhere to go");
+        assert_eq!(
+            apply(0, 0, Move::Next),
+            0,
+            "an empty list has nowhere to go"
+        );
         // A selection left over from a longer list is clamped rather than wrapping off a stale index — the launcher's results shrink on every keystroke.
         assert_eq!(apply(9, 3, Move::Next), 0);
         assert_eq!(apply(9, 3, Move::Previous), 1);
@@ -257,11 +295,26 @@ mod tests {
     #[test]
     fn a_grid_uses_both_pairs_of_arrows() {
         let grid = arrows().grid();
-        assert_eq!(grid.interpret(&named(NamedKey::ArrowRight)), Some(Move::Next));
-        assert_eq!(grid.interpret(&named(NamedKey::ArrowLeft)), Some(Move::Previous));
-        assert_eq!(grid.interpret(&named(NamedKey::ArrowDown)), Some(Move::NextRow));
-        assert_eq!(grid.interpret(&named(NamedKey::ArrowUp)), Some(Move::PreviousRow));
-        assert_eq!(grid.interpret(&named(NamedKey::Enter)), Some(Move::Activate));
+        assert_eq!(
+            grid.interpret(&named(NamedKey::ArrowRight)),
+            Some(Move::Next)
+        );
+        assert_eq!(
+            grid.interpret(&named(NamedKey::ArrowLeft)),
+            Some(Move::Previous)
+        );
+        assert_eq!(
+            grid.interpret(&named(NamedKey::ArrowDown)),
+            Some(Move::NextRow)
+        );
+        assert_eq!(
+            grid.interpret(&named(NamedKey::ArrowUp)),
+            Some(Move::PreviousRow)
+        );
+        assert_eq!(
+            grid.interpret(&named(NamedKey::Enter)),
+            Some(Move::Activate)
+        );
 
         // With vim off — the launcher's default, since the grid sits under a search field — a letter is typing.
         assert_eq!(grid.interpret(&character('j')), None);
@@ -282,9 +335,21 @@ mod tests {
         // 6 7 8
         assert_eq!(apply_grid(0, 9, 3, Move::NextRow), 3);
         assert_eq!(apply_grid(4, 9, 3, Move::PreviousRow), 1);
-        assert_eq!(apply_grid(1, 9, 3, Move::Next), 2, "along the row, not down it");
-        assert_eq!(apply_grid(7, 9, 3, Move::NextRow), 1, "wraps to the same column");
-        assert_eq!(apply_grid(1, 9, 3, Move::PreviousRow), 7, "and back to the bottom of it");
+        assert_eq!(
+            apply_grid(1, 9, 3, Move::Next),
+            2,
+            "along the row, not down it"
+        );
+        assert_eq!(
+            apply_grid(7, 9, 3, Move::NextRow),
+            1,
+            "wraps to the same column"
+        );
+        assert_eq!(
+            apply_grid(1, 9, 3, Move::PreviousRow),
+            7,
+            "and back to the bottom of it"
+        );
 
         // 0 1 2
         // 3 4
@@ -295,12 +360,20 @@ mod tests {
         // Up from the top column 2 finds the bottom-most tile in that column, which is on the row above the gap.
         assert_eq!(apply_grid(2, 5, 3, Move::PreviousRow), 2);
         assert_eq!(apply_grid(1, 5, 3, Move::PreviousRow), 4);
-        assert_eq!(apply_grid(4, 5, 3, Move::NextRow), 1, "the last row wraps to the first");
+        assert_eq!(
+            apply_grid(4, 5, 3, Move::NextRow),
+            1,
+            "the last row wraps to the first"
+        );
 
         // One row: a row move has nowhere to go and must stay put rather than run off the end.
         assert_eq!(apply_grid(1, 3, 3, Move::NextRow), 1);
         assert_eq!(apply_grid(1, 3, 3, Move::PreviousRow), 1);
         assert_eq!(apply_grid(0, 0, 4, Move::NextRow), 0);
-        assert_eq!(apply_grid(9, 5, 3, Move::NextRow), 1, "a stale index is clamped first");
+        assert_eq!(
+            apply_grid(9, 5, 3, Move::NextRow),
+            1,
+            "a stale index is clamped first"
+        );
     }
 }

@@ -77,7 +77,10 @@ fn tokenize(input: &str) -> Option<Vec<Token>> {
         if c.is_ascii_digit() || (c == '.' && chars.get(i + 1).is_some_and(char::is_ascii_digit)) {
             let start = i;
             // `_` groups digits (`1_000_000`); the float parser never sees it.
-            while chars.get(i).is_some_and(|c| c.is_ascii_digit() || *c == '.' || *c == '_') {
+            while chars
+                .get(i)
+                .is_some_and(|c| c.is_ascii_digit() || *c == '.' || *c == '_')
+            {
                 i += 1;
             }
             // An exponent only counts when a digit (or a sign then a digit) follows, so `2e` is not a number and
@@ -410,7 +413,16 @@ mod tests {
     fn an_app_name_is_not_a_calculation() {
         // The whole point: these run on every keystroke and must fall through to the app search.
         for query in [
-            "firefox", "code", "2 + 3 firefox", "sqrt", "((1+2)", "1 +", "+", "", "   ", "log(",
+            "firefox",
+            "code",
+            "2 + 3 firefox",
+            "sqrt",
+            "((1+2)",
+            "1 +",
+            "+",
+            "",
+            "   ",
+            "log(",
         ] {
             assert!(
                 evaluate(query).is_none(),
@@ -444,7 +456,10 @@ mod tests {
 
     #[test]
     fn looks_like_math_ignores_a_bare_number() {
-        assert!(!looks_like_math("2"), "typing '2' is the start of a name, not a sum");
+        assert!(
+            !looks_like_math("2"),
+            "typing '2' is the start of a name, not a sum"
+        );
         assert!(!looks_like_math("42"));
         assert!(!looks_like_math("firefox"));
         assert!(looks_like_math("2+2"));

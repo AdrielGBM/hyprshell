@@ -188,7 +188,11 @@ mod tests {
     #[test]
     fn store_seeds_from_init_and_updates_in_place() {
         assert_eq!(COUNTER.get(), 7, "seeded lazily from `init`");
-        assert_eq!(COUNTER.update(|n| *n += 5), 12, "update returns the new value");
+        assert_eq!(
+            COUNTER.update(|n| *n += 5),
+            12,
+            "update returns the new value"
+        );
         assert_eq!(COUNTER.get(), 12, "and it is what later readers see");
     }
 }

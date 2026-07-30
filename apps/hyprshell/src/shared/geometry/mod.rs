@@ -170,7 +170,11 @@ mod tests {
     fn corner_l_fills_square_and_carves_inner_vertex() {
         for corner in Corner::ALL {
             let p = corner_l_path(corner, 40.0, 12.0);
-            assert_eq!(bounds(&p), (0.0, 0.0, 40.0, 40.0), "{corner:?} fills the cell");
+            assert_eq!(
+                bounds(&p),
+                (0.0, 0.0, 40.0, 40.0),
+                "{corner:?} fills the cell"
+            );
             let cubics = p
                 .verbs()
                 .iter()
@@ -233,8 +237,16 @@ mod tests {
             .skip(1);
         for v in after_first_close {
             if let PathVerb::MoveTo(pt) | PathVerb::LineTo(pt) = v {
-                assert!(pt.x >= il - 0.01 && pt.x <= ir + 0.01, "x {} in [{il},{ir}]", pt.x);
-                assert!(pt.y >= it - 0.01 && pt.y <= ib + 0.01, "y {} in [{it},{ib}]", pt.y);
+                assert!(
+                    pt.x >= il - 0.01 && pt.x <= ir + 0.01,
+                    "x {} in [{il},{ir}]",
+                    pt.x
+                );
+                assert!(
+                    pt.y >= it - 0.01 && pt.y <= ib + 0.01,
+                    "y {} in [{it},{ib}]",
+                    pt.y
+                );
             }
         }
     }

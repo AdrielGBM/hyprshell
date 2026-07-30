@@ -71,9 +71,7 @@ pub fn retry_face() {
         return;
     }
     let generation = GENERATION.load(Ordering::Relaxed);
-    spawn("hyprshell-howdy", move || {
-        run_face(generation, &howdy, 1)
-    });
+    spawn("hyprshell-howdy", move || run_face(generation, &howdy, 1));
 }
 
 /// Whether either method is configured at all, so the screen can offer them rather than showing a control
@@ -135,7 +133,13 @@ fn run_fingerprint(generation: u64, max_tries: u32) {
     };
     let path = device.as_str().to_string();
     // An empty user name means "whoever is logged in", which is the right question for a lock screen.
-    if let Err(e) = conn.call_method(Some(FPRINT), path.as_str(), Some(DEVICE_IFACE), "Claim", &("",)) {
+    if let Err(e) = conn.call_method(
+        Some(FPRINT),
+        path.as_str(),
+        Some(DEVICE_IFACE),
+        "Claim",
+        &("",),
+    ) {
         tracing::debug!("fprintd: cannot claim the reader: {e}");
         return;
     }
@@ -162,7 +166,13 @@ fn run_fingerprint(generation: u64, max_tries: u32) {
         }
     }
     lock::set_busy(None);
-    let _ = conn.call_method(Some(FPRINT), path.as_str(), Some(DEVICE_IFACE), "Release", &());
+    let _ = conn.call_method(
+        Some(FPRINT),
+        path.as_str(),
+        Some(DEVICE_IFACE),
+        "Release",
+        &(),
+    );
 }
 
 /// Starts one verification and parks on `VerifyStatus` until it resolves. `Some(true)` is a match, `Some(false)`

@@ -181,13 +181,20 @@ mod tests {
 
         let first = marquee(&long, &config, 0);
         assert_eq!(first.chars().count(), 10, "the chip's width never moves");
-        assert!(first.starts_with("John Colt"), "it starts at the beginning: {first:?}");
+        assert!(
+            first.starts_with("John Colt"),
+            "it starts at the beginning: {first:?}"
+        );
         assert_ne!(marquee(&long, &config, 1), first, "and it advances");
 
         // A full cycle returns to the start: the text plus the gap between its end and its own beginning.
         let cycle = long.summary().chars().count() + MARQUEE_GAP.chars().count();
         assert_eq!(marquee(&long, &config, cycle), first);
-        assert_eq!(marquee(&long, &config, cycle * 3), first, "and stays in step");
+        assert_eq!(
+            marquee(&long, &config, cycle * 3),
+            first,
+            "and stays in step"
+        );
     }
 
     #[test]

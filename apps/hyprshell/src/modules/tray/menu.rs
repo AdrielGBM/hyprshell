@@ -64,32 +64,36 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
     let event_bus = bus.clone();
     let event_path = path.clone();
 
-    platform_layershell::watch(dbusmenu::fetch_into(bus, path), move |menu: Option<MenuItem>| {
-        // The chip may have been clicked again, or another one opened, while the application was answering.
-        if OPEN_FOR.with(|o| o.borrow().as_deref() != Some(key.as_str())) {
-            return;
-        }
-        let Some(root) = menu.filter(|m| !m.children.is_empty()) else {
-            tracing::info!("tray item '{label}' offers no menu to show");
-            OPEN_FOR.with(|o| *o.borrow_mut() = None);
-            return;
-        };
-        // Along a horizontal bar the menu's extent is its fixed width; along a vertical one it would be its height, which is content-derived and unknown before layout.
-        let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
-        let placement = chip_placement(&env, chip, span);
-        let theme = env.config.resolve_theme();
-        let radius = env.config.panel_radius(env.edge);
-        let (bus, path) = (event_bus.clone(), event_path.clone());
-        crate::core::shell::toggle_window(SURFACE_ID, move || {
-            open_surface(
-                placement,
-                Box::new(move || {
-                    set_theme(theme);
-                    menu_view(&root, &bus, &path, theme, radius).expect("tray menu build failed")
-                }),
-            )
-        });
-    });
+    platform_layershell::watch(
+        dbusmenu::fetch_into(bus, path),
+        move |menu: Option<MenuItem>| {
+            // The chip may have been clicked again, or another one opened, while the application was answering.
+            if OPEN_FOR.with(|o| o.borrow().as_deref() != Some(key.as_str())) {
+                return;
+            }
+            let Some(root) = menu.filter(|m| !m.children.is_empty()) else {
+                tracing::info!("tray item '{label}' offers no menu to show");
+                OPEN_FOR.with(|o| *o.borrow_mut() = None);
+                return;
+            };
+            // Along a horizontal bar the menu's extent is its fixed width; along a vertical one it would be its height, which is content-derived and unknown before layout.
+            let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
+            let placement = chip_placement(&env, chip, span);
+            let theme = env.config.resolve_theme();
+            let radius = env.config.panel_radius(env.edge);
+            let (bus, path) = (event_bus.clone(), event_path.clone());
+            crate::core::shell::toggle_window(SURFACE_ID, move || {
+                open_surface(
+                    placement,
+                    Box::new(move || {
+                        set_theme(theme);
+                        menu_view(&root, &bus, &path, theme, radius)
+                            .expect("tray menu build failed")
+                    }),
+                )
+            });
+        },
+    );
 }
 
 fn menu_view(

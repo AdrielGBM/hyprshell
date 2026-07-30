@@ -328,8 +328,7 @@ mod tests {
     fn a_warning_fires_once_as_the_charge_crosses_its_level() {
         let levels = levels();
         assert_eq!(
-            warning_for(Some(discharging(21)), discharging(19), &levels)
-                .map(|w| w.level),
+            warning_for(Some(discharging(21)), discharging(19), &levels).map(|w| w.level),
             Some(20)
         );
         assert!(
@@ -347,7 +346,10 @@ mod tests {
         let levels = levels();
         let fired = warning_for(Some(discharging(30)), discharging(5), &levels);
         assert_eq!(fired.map(|w| w.level), Some(10));
-        assert!(fired.unwrap().critical, "the 10 % warning is the sticky one");
+        assert!(
+            fired.unwrap().critical,
+            "the 10 % warning is the sticky one"
+        );
     }
 
     #[test]

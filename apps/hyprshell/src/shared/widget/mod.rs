@@ -197,7 +197,9 @@ fn bar_rects(
     let inset = (slot - thickness) / 2.0;
 
     values.iter().enumerate().map(move |(index, value)| {
-        let length = (value.clamp(0.0, 1.0) * across).max(style.floor).min(across);
+        let length = (value.clamp(0.0, 1.0) * across)
+            .max(style.floor)
+            .min(across);
         let start = index as f32 * slot + inset;
         match edge {
             crate::core::config::Edge::Bottom => Rect {
@@ -269,7 +271,10 @@ pub fn spectrum_ring(
             };
             RenderNode::transform_with(
                 Transform::rotate_around(spoke as f32 * 360.0 / spokes as f32, cx, cy).to_array(),
-                [RenderNode::rect(bar, RectStyle::filled(color, style.radius))],
+                [RenderNode::rect(
+                    bar,
+                    RectStyle::filled(color, style.radius),
+                )],
             )
         }))
     })?;
@@ -403,13 +408,22 @@ mod tests {
         // The one thing that makes this widget work on all four edges. Getting it wrong is not a crash: the
         // bars simply grow *into* the screen from the far side, which on a bottom row means a fringe hanging
         // off the top of the surface.
-        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let box_ = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 40.0,
+        };
         let values = [0.5, 1.0, 0.0];
         let style = SpectrumStyle::default();
         let at = |edge| bar_rects(&values, edge, style, box_).collect::<Vec<_>>();
 
         for bar in at(Edge::Bottom) {
-            assert_eq!(bar.y + bar.height, box_.height, "a bottom bar is rooted on the bottom");
+            assert_eq!(
+                bar.y + bar.height,
+                box_.height,
+                "a bottom bar is rooted on the bottom"
+            );
         }
         for bar in at(Edge::Top) {
             assert_eq!(bar.y, 0.0, "a top bar hangs from the top");
@@ -418,21 +432,35 @@ mod tests {
             assert_eq!(bar.x, 0.0, "a left bar grows rightward off the left edge");
         }
         for bar in at(Edge::Right) {
-            assert_eq!(bar.x + bar.width, box_.width, "a right bar is rooted on the right");
+            assert_eq!(
+                bar.x + bar.width,
+                box_.width,
+                "a right bar is rooted on the right"
+            );
         }
     }
 
     #[test]
     fn every_band_gets_one_bar_inside_the_box() {
-        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let box_ = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 40.0,
+        };
         let values: Vec<f32> = (0..24).map(|i| i as f32 / 23.0).collect();
         for edge in Edge::ALL {
-            let bars: Vec<Rect> = bar_rects(&values, edge, SpectrumStyle::default(), box_).collect();
+            let bars: Vec<Rect> =
+                bar_rects(&values, edge, SpectrumStyle::default(), box_).collect();
             assert_eq!(bars.len(), values.len(), "one bar per band on {edge:?}");
             for bar in bars {
                 // A band reading zero is a bar with no *length*, which is right; a bar with no thickness is
                 // a slot that swallowed its own width, which is a row that draws nothing.
-                let thickness = if edge.is_horizontal() { bar.width } else { bar.height };
+                let thickness = if edge.is_horizontal() {
+                    bar.width
+                } else {
+                    bar.height
+                };
                 assert!(thickness > 0.0, "{edge:?}: {bar:?} has no thickness");
                 assert!(
                     bar.x >= 0.0
@@ -449,9 +477,17 @@ mod tests {
     fn a_gap_wider_than_the_slot_still_draws_bars() {
         // A dense row with a generous gap is a config a user reaches by turning one number up, and the
         // arithmetic answer — a negative width — is a row that silently empties as it gets more detailed.
-        let box_ = Rect { x: 0.0, y: 0.0, width: 100.0, height: 40.0 };
+        let box_ = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 40.0,
+        };
         let values = vec![1.0f32; 64];
-        let style = SpectrumStyle { gap: 20.0, ..SpectrumStyle::default() };
+        let style = SpectrumStyle {
+            gap: 20.0,
+            ..SpectrumStyle::default()
+        };
         for bar in bar_rects(&values, Edge::Bottom, style, box_) {
             assert!(bar.width >= 1.0, "{bar:?}");
         }
@@ -483,8 +519,14 @@ mod tests {
                     crate::shared::reactive::fixed(bands.clone()),
                     crate::shared::reactive::fixed(theme.accent),
                     crate::core::config::Edge::Bottom,
-                    SpectrumStyle { gap: 4.0, radius: 3.0, floor: 0.0 },
-                    LayoutStyle::new().width(SizeDimension::Percent(1.0)).height(160.0),
+                    SpectrumStyle {
+                        gap: 4.0,
+                        radius: 3.0,
+                        floor: 0.0,
+                    },
+                    LayoutStyle::new()
+                        .width(SizeDimension::Percent(1.0))
+                        .height(160.0),
                 )
                 .expect("row");
                 let ring = spectrum_ring(
@@ -492,7 +534,11 @@ mod tests {
                     crate::shared::reactive::fixed(theme.text),
                     60.0,
                     50.0,
-                    SpectrumStyle { gap: 2.0, radius: 2.0, floor: 2.0 },
+                    SpectrumStyle {
+                        gap: 2.0,
+                        radius: 2.0,
+                        floor: 2.0,
+                    },
                     LayoutStyle::new().width(240.0).height(240.0),
                 )
                 .expect("ring");

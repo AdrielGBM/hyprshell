@@ -167,9 +167,7 @@ fn icon(
             });
             icon_view(
                 move || glyph::battery(charging_glyph.get()).to_string(),
-                move || {
-                    glyph::battery_tint(level_read.get(), charging_read.get(), theme, fg.get())
-                },
+                move || glyph::battery_tint(level_read.get(), charging_read.get(), theme, fg.get()),
                 size,
             )
         }
@@ -188,7 +186,11 @@ fn icon(
                 },
                 // A lock key is the one reading here usually *off*, so idle recedes to muted rather than sitting at full strength beside live ones.
                 move || {
-                    let engaged = if caps { read.get().caps } else { read.get().num };
+                    let engaged = if caps {
+                        read.get().caps
+                    } else {
+                        read.get().num
+                    };
                     if engaged { fg.get() } else { theme.muted }
                 },
                 size,
@@ -237,11 +239,10 @@ mod tests {
             icons: vec!["battery".into(), "volume".into(), "network".into()],
             ..StatusIconsConfig::default()
         };
-        assert_eq!(icons(&config), vec![
-            StatusIcon::Battery,
-            StatusIcon::Volume,
-            StatusIcon::Network
-        ]);
+        assert_eq!(
+            icons(&config),
+            vec![StatusIcon::Battery, StatusIcon::Volume, StatusIcon::Network]
+        );
     }
 
     #[test]
@@ -250,7 +251,10 @@ mod tests {
             icons: vec!["volume".into(), "nonesuch".into(), "battery".into()],
             ..StatusIconsConfig::default()
         };
-        assert_eq!(icons(&config), vec![StatusIcon::Volume, StatusIcon::Battery]);
+        assert_eq!(
+            icons(&config),
+            vec![StatusIcon::Volume, StatusIcon::Battery]
+        );
     }
 
     #[test]
@@ -304,11 +308,14 @@ mod tests {
     #[test]
     fn the_default_cluster_is_the_readings_a_laptop_bar_carries() {
         let config = StatusIconsConfig::default();
-        assert_eq!(icons(&config), vec![
-            StatusIcon::Volume,
-            StatusIcon::Mic,
-            StatusIcon::Network,
-            StatusIcon::Battery
-        ]);
+        assert_eq!(
+            icons(&config),
+            vec![
+                StatusIcon::Volume,
+                StatusIcon::Mic,
+                StatusIcon::Network,
+                StatusIcon::Battery
+            ]
+        );
     }
 }

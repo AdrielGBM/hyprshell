@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use rsx::{Color, Theme, TextStyle, ThemeTokens};
+use rsx::{Color, TextStyle, Theme, ThemeTokens};
 
 use crate::core::config::{FontSpec, FontsConfig};
 
@@ -784,22 +784,43 @@ mod tests {
     #[test]
     fn named_selects_a_palette_and_falls_back_to_nord() {
         assert_eq!(NordTheme::named("nord").base, NordTheme::nord().base);
-        assert_eq!(NordTheme::named("rose-pine").base, NordTheme::rose_pine().base);
+        assert_eq!(
+            NordTheme::named("rose-pine").base,
+            NordTheme::rose_pine().base
+        );
         // Rosé Pine is a different palette with its own metrics.
         assert_ne!(NordTheme::rose_pine().base, NordTheme::nord().base);
         assert_eq!(NordTheme::rose_pine().radius, 10.0);
         // Moon and Dawn are their own palettes, distinct from the main Rosé Pine, sharing its metrics.
-        assert_eq!(NordTheme::named("rose-pine-moon").base, NordTheme::rose_pine_moon().base);
-        assert_eq!(NordTheme::named("rose-pine-dawn").base, NordTheme::rose_pine_dawn().base);
-        assert_ne!(NordTheme::rose_pine_moon().base, NordTheme::rose_pine().base);
-        assert_ne!(NordTheme::rose_pine_dawn().base, NordTheme::rose_pine().base);
+        assert_eq!(
+            NordTheme::named("rose-pine-moon").base,
+            NordTheme::rose_pine_moon().base
+        );
+        assert_eq!(
+            NordTheme::named("rose-pine-dawn").base,
+            NordTheme::rose_pine_dawn().base
+        );
+        assert_ne!(
+            NordTheme::rose_pine_moon().base,
+            NordTheme::rose_pine().base
+        );
+        assert_ne!(
+            NordTheme::rose_pine_dawn().base,
+            NordTheme::rose_pine().base
+        );
         assert_eq!(NordTheme::rose_pine_moon().radius, 10.0);
         assert_eq!(NordTheme::rose_pine_dawn().radius, 10.0);
         // Dawn is the light variant: a pale base under dark text (the reverse of the dark palettes).
-        assert_ne!(NordTheme::rose_pine_dawn().base, NordTheme::rose_pine_dawn().text);
+        assert_ne!(
+            NordTheme::rose_pine_dawn().base,
+            NordTheme::rose_pine_dawn().text
+        );
         // "custom" and unknown names both fall back to nord (custom for config to override).
         assert_eq!(NordTheme::named("custom").base, NordTheme::nord().base);
-        assert_eq!(NordTheme::named("does-not-exist").base, NordTheme::nord().base);
+        assert_eq!(
+            NordTheme::named("does-not-exist").base,
+            NordTheme::nord().base
+        );
         assert_eq!(NordTheme::meta("rose-pine").name, "Rosé Pine");
         assert_eq!(NordTheme::meta("rose-pine-moon").name, "Rosé Pine Moon");
         assert_eq!(NordTheme::meta("rose-pine-dawn").name, "Rosé Pine Dawn");
@@ -808,7 +829,13 @@ mod tests {
 
     #[test]
     fn separators_and_case_do_not_change_which_theme_a_name_selects() {
-        for spelling in ["rose-pine", "rose_pine", "rosepine", "Rose Pine", "ROSE-PINE"] {
+        for spelling in [
+            "rose-pine",
+            "rose_pine",
+            "rosepine",
+            "Rose Pine",
+            "ROSE-PINE",
+        ] {
             assert_eq!(
                 NordTheme::named(spelling).base,
                 NordTheme::rose_pine().base,
@@ -824,7 +851,10 @@ mod tests {
             NordTheme::catppuccin_mocha().base,
             "the bare family name lands on its flagship flavour"
         );
-        assert_eq!(NordTheme::named("gruvbox-dark").base, NordTheme::gruvbox().base);
+        assert_eq!(
+            NordTheme::named("gruvbox-dark").base,
+            NordTheme::gruvbox().base
+        );
         assert_eq!(NordTheme::meta("TokyoNight").name, "Tokyo Night");
     }
 
@@ -849,7 +879,10 @@ mod tests {
             ] {
                 assert_ne!(token, theme.base, "'{name}' {label} must lift off the base");
             }
-            assert!(theme.radius >= 0.0 && theme.spacing > 0.0, "'{name}' has sane metrics");
+            assert!(
+                theme.radius >= 0.0 && theme.spacing > 0.0,
+                "'{name}' has sane metrics"
+            );
             // Nord is the metadata fallback, so only the others prove they registered their own.
             if *name != "nord" {
                 assert_ne!(
@@ -863,7 +896,10 @@ mod tests {
         // A copy-paste that left two flavours identical would still pass every check above.
         for (i, (name, base)) in palettes.iter().enumerate() {
             for (other, other_base) in &palettes[i + 1..] {
-                assert_ne!(base, other_base, "'{name}' and '{other}' are the same palette");
+                assert_ne!(
+                    base, other_base,
+                    "'{name}' and '{other}' are the same palette"
+                );
             }
         }
     }
@@ -874,7 +910,10 @@ mod tests {
         // shell with an invisible accent.
         for name in BUILT_IN_THEMES {
             let theme = NordTheme::named(name).with_accent("cyan");
-            assert_ne!(theme.accent, theme.base, "'{name}' accent vanishes into the bar");
+            assert_ne!(
+                theme.accent, theme.base,
+                "'{name}' accent vanishes into the bar"
+            );
         }
     }
 
@@ -891,7 +930,13 @@ mod tests {
                 "'{light}' is the light variant: dark text on a pale base"
             );
         }
-        for dark in ["nord", "catppuccin-mocha", "gruvbox", "tokyo-night", "everforest"] {
+        for dark in [
+            "nord",
+            "catppuccin-mocha",
+            "gruvbox",
+            "tokyo-night",
+            "everforest",
+        ] {
             let theme = NordTheme::named(dark);
             assert!(
                 luminance(theme.base) < luminance(theme.text),

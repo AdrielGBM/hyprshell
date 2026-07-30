@@ -41,9 +41,14 @@ pub fn build_bar(
     let chrome = Chrome { edge, shape, theme };
     match shape.mode {
         Shape::Bar => build_whole_bar(config, &chrome, &zones, registry, &ctx),
-        Shape::Sections => {
-            build_units(config, &chrome, &zones, registry, &ctx, Granularity::Section)
-        }
+        Shape::Sections => build_units(
+            config,
+            &chrome,
+            &zones,
+            registry,
+            &ctx,
+            Granularity::Section,
+        ),
         Shape::Chips => build_units(config, &chrome, &zones, registry, &ctx, Granularity::Chip),
     }
 }
@@ -76,7 +81,14 @@ fn build_whole_bar(
     let mut slots = Vec::with_capacity(3);
     for (entries, justify) in zones {
         // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up. The hover/press (and Filled) highlight rounds at the theme's chip radius, matching chip mode.
-        let items = build_items(config, entries, registry, ctx, Color::TRANSPARENT, shape.chip_radius())?;
+        let items = build_items(
+            config,
+            entries,
+            registry,
+            ctx,
+            Color::TRANSPARENT,
+            shape.chip_radius(),
+        )?;
         slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
     }
     let radius = shape.radius;
@@ -216,8 +228,8 @@ fn chip_wrapper(
             .expect("a container registers its rect")
             .read_only();
         let module = module_id.to_string();
-        wrapper =
-            wrapper.on_hover(move |entered| crate::modules::popout::hover(&module, rect.get(), entered));
+        wrapper = wrapper
+            .on_hover(move |entered| crate::modules::popout::hover(&module, rect.get(), entered));
     }
     Ok(Box::new(wrapper))
 }
@@ -417,7 +429,13 @@ mod tests {
             );
             let cfg: Config = toml::from_str(&toml).unwrap();
             reset_layout_runtime();
-            let bar = build_bar(&cfg, Edge::Top, NordTheme::new().accent, &registry(), NordTheme::new());
+            let bar = build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new(),
+            );
             assert!(bar.is_ok(), "mode {mode} builds a tree");
         }
     }
@@ -430,7 +448,13 @@ mod tests {
             ))
             .unwrap();
             reset_layout_runtime();
-            let bar = build_bar(&cfg, Edge::Top, NordTheme::new().accent, &registry(), NordTheme::new());
+            let bar = build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new(),
+            );
             assert!(bar.is_ok(), "corner routing builds in mode {mode}");
         }
     }
@@ -443,7 +467,14 @@ mod tests {
         .unwrap();
         reset_layout_runtime();
         assert!(
-            build_bar(&cfg, Edge::Top, NordTheme::new().accent, &registry(), NordTheme::new()).is_ok()
+            build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new()
+            )
+            .is_ok()
         );
     }
 
@@ -456,8 +487,14 @@ mod tests {
             let cfg: Config = toml::from_str(&toml).unwrap();
             reset_layout_runtime();
             assert!(
-                build_bar(&cfg, Edge::Left, NordTheme::new().accent, &registry(), NordTheme::new())
-                    .is_ok(),
+                build_bar(
+                    &cfg,
+                    Edge::Left,
+                    NordTheme::new().accent,
+                    &registry(),
+                    NordTheme::new()
+                )
+                .is_ok(),
                 "vertical {mode} builds"
             );
         }
@@ -482,12 +519,11 @@ mod tests {
             reset_layout_runtime();
             set_theme(NordTheme::new());
 
-            let inner = Container::new(
-                LayoutStyle::new().width(content_width).height(20.0),
-                vec![],
-            )
-            .unwrap();
-            let chip = Container::new(LayoutStyle::new().flex_row(), vec![Box::new(inner)]).unwrap();
+            let inner =
+                Container::new(LayoutStyle::new().width(content_width).height(20.0), vec![])
+                    .unwrap();
+            let chip =
+                Container::new(LayoutStyle::new().flex_row(), vec![Box::new(inner)]).unwrap();
             let chip_node = chip.layout_node();
             let chip_rect = track_layout(chip_node).expect("the chip registers its rect");
 
@@ -501,8 +537,14 @@ mod tests {
             )
             .unwrap();
             // The zone the bar puts a chip in: along the bar, stretching its children across it.
-            let zone = zone(edge, JustifyContent::START, 0.0, AlignItems::STRETCH, vec![wrapped])
-                .unwrap();
+            let zone = zone(
+                edge,
+                JustifyContent::START,
+                0.0,
+                AlignItems::STRETCH,
+                vec![wrapped],
+            )
+            .unwrap();
             let (w, h) = if edge.is_vertical() {
                 (side, 600.0)
             } else {

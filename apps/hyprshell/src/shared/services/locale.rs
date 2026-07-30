@@ -33,7 +33,11 @@ pub fn init(lang: String) {
 /// The current language, or `fallback` if none has been set yet.
 pub fn current_or(fallback: String) -> String {
     let current = STATE.lock().unwrap().current.clone();
-    if current.is_empty() { fallback } else { current }
+    if current.is_empty() {
+        fallback
+    } else {
+        current
+    }
 }
 
 /// Registers `tx` (bound to a surface's event loop) and immediately sends the current language so the surface

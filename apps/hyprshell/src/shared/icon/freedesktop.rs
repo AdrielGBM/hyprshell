@@ -118,7 +118,12 @@ fn theme_search_order(preferred: &str, bases: &[PathBuf]) -> Vec<String> {
             continue;
         }
         let inherits = theme_index(bases, &theme)
-            .and_then(|index| index.get("Icon Theme").and_then(|s| s.get("Inherits")).cloned())
+            .and_then(|index| {
+                index
+                    .get("Icon Theme")
+                    .and_then(|s| s.get("Inherits"))
+                    .cloned()
+            })
             .unwrap_or_default();
         order.push(theme);
         for parent in inherits.split(',').rev() {
@@ -260,7 +265,10 @@ fn directory_size_distance(props: &HashMap<String, String>, size: u32) -> u32 {
 }
 
 fn prop(props: &HashMap<String, String>, key: &str, default: u32) -> u32 {
-    props.get(key).and_then(|v| v.parse().ok()).unwrap_or(default)
+    props
+        .get(key)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 thread_local! {
@@ -319,10 +327,21 @@ mod tests {
 
     #[test]
     fn directory_matches_size_honors_type() {
-        assert!(directory_matches_size(&map(&[("Size", "48"), ("Type", "Fixed")]), 48));
-        assert!(!directory_matches_size(&map(&[("Size", "48"), ("Type", "Fixed")]), 32));
+        assert!(directory_matches_size(
+            &map(&[("Size", "48"), ("Type", "Fixed")]),
+            48
+        ));
+        assert!(!directory_matches_size(
+            &map(&[("Size", "48"), ("Type", "Fixed")]),
+            32
+        ));
 
-        let scalable = map(&[("Size", "48"), ("MinSize", "16"), ("MaxSize", "256"), ("Type", "Scalable")]);
+        let scalable = map(&[
+            ("Size", "48"),
+            ("MinSize", "16"),
+            ("MaxSize", "256"),
+            ("Type", "Scalable"),
+        ]);
         assert!(directory_matches_size(&scalable, 48));
         assert!(directory_matches_size(&scalable, 16));
         assert!(!directory_matches_size(&scalable, 512));
@@ -338,7 +357,10 @@ mod tests {
         let ini = "# comment\n[Icon Theme]\nName = Hicolor\nDirectories=48x48/apps,scalable/apps\n\n[48x48/apps]\nSize=48\nType=Fixed\n";
         let parsed = parse_ini(ini);
         assert_eq!(parsed["Icon Theme"]["Name"], "Hicolor");
-        assert_eq!(parsed["Icon Theme"]["Directories"], "48x48/apps,scalable/apps");
+        assert_eq!(
+            parsed["Icon Theme"]["Directories"],
+            "48x48/apps,scalable/apps"
+        );
         assert_eq!(parsed["48x48/apps"]["Type"], "Fixed");
     }
 
@@ -375,15 +397,35 @@ mod tests {
         fs::write(scalable.join("firefox.svg"), b"<svg/>").unwrap();
 
         // Both directories match size 48; the scalable SVG is preferred over the fixed PNG.
-        let hit = lookup("firefox", 48, std::slice::from_ref(&root), &["Test".to_string()]).unwrap();
+        let hit = lookup(
+            "firefox",
+            48,
+            std::slice::from_ref(&root),
+            &["Test".to_string()],
+        )
+        .unwrap();
         assert_eq!(hit, scalable.join("firefox.svg"));
 
         // A themeless icon resolves via the base-directory fallback.
         fs::write(root.join("loose.png"), b"x").unwrap();
-        let loose = lookup("loose", 48, std::slice::from_ref(&root), &["Test".to_string()]).unwrap();
+        let loose = lookup(
+            "loose",
+            48,
+            std::slice::from_ref(&root),
+            &["Test".to_string()],
+        )
+        .unwrap();
         assert_eq!(loose, root.join("loose.png"));
 
-        assert!(lookup("absent", 48, std::slice::from_ref(&root), &["Test".to_string()]).is_none());
+        assert!(
+            lookup(
+                "absent",
+                48,
+                std::slice::from_ref(&root),
+                &["Test".to_string()]
+            )
+            .is_none()
+        );
         fs::remove_dir_all(&root).ok();
     }
 
@@ -395,7 +437,10 @@ mod tests {
         fs::write(&file, b"x").unwrap();
 
         assert_eq!(locate(file.to_str().unwrap(), ""), Some(file.clone()));
-        assert_eq!(locate(&format!("file://{}", file.display()), ""), Some(file.clone()));
+        assert_eq!(
+            locate(&format!("file://{}", file.display()), ""),
+            Some(file.clone())
+        );
         assert!(locate("/no/such/icon.png", "").is_none());
         fs::remove_dir_all(&root).ok();
     }

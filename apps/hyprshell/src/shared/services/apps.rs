@@ -60,7 +60,12 @@ fn application_dirs() -> Vec<PathBuf> {
     }
     let system = std::env::var("XDG_DATA_DIRS")
         .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
-    dirs.extend(system.split(':').filter(|s| !s.is_empty()).map(|d| PathBuf::from(d).join("applications")));
+    dirs.extend(
+        system
+            .split(':')
+            .filter(|s| !s.is_empty())
+            .map(|d| PathBuf::from(d).join("applications")),
+    );
     dirs
 }
 
@@ -323,7 +328,10 @@ Exec=firefox --new-window
     fn a_desktop_entry_parses_into_a_launchable_app() {
         let app = parse_entry("firefox", FIREFOX).expect("a normal entry parses");
         assert_eq!(app.name, "Firefox");
-        assert_eq!(app.description, "Web Browser", "GenericName wins over Comment");
+        assert_eq!(
+            app.description, "Web Browser",
+            "GenericName wins over Comment"
+        );
         assert_eq!(app.icon, "firefox");
         assert_eq!(app.exec, "firefox", "the %u field code is stripped");
         assert_eq!(app.keywords, vec!["Internet", "WWW", "Browser"]);
@@ -402,7 +410,10 @@ Exec=firefox --new-window
     #[test]
     fn scanning_a_missing_directory_is_not_fatal() {
         assert!(scan(&[PathBuf::from("/nonexistent-applications")]).is_empty());
-        assert_eq!(fingerprint(&[PathBuf::from("/nonexistent-applications")]), 0);
+        assert_eq!(
+            fingerprint(&[PathBuf::from("/nonexistent-applications")]),
+            0
+        );
     }
 
     #[test]
@@ -413,13 +424,20 @@ Exec=firefox --new-window
         let empty = fingerprint(&dirs);
 
         let entry = dir.join("editor.desktop");
-        std::fs::write(&entry, "[Desktop Entry]\nType=Application\nName=A\nExec=a\n").unwrap();
+        std::fs::write(
+            &entry,
+            "[Desktop Entry]\nType=Application\nName=A\nExec=a\n",
+        )
+        .unwrap();
         let installed = fingerprint(&dirs);
         assert_ne!(installed, empty, "a new entry is a change");
 
         // Same name, same second, different length — the size is what catches an edit inside one tick.
-        std::fs::write(&entry, "[Desktop Entry]\nType=Application\nName=A Longer Name\nExec=a\n")
-            .unwrap();
+        std::fs::write(
+            &entry,
+            "[Desktop Entry]\nType=Application\nName=A Longer Name\nExec=a\n",
+        )
+        .unwrap();
         assert_ne!(fingerprint(&dirs), installed, "an edited entry is a change");
 
         // A file the scan would not read cannot move the fingerprint either, or every icon cache write in the

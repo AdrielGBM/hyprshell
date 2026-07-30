@@ -370,7 +370,10 @@ mod tests {
         assert!(state.accepts_input(), "an idle field takes a password");
 
         state.busy = Some(Method::Password);
-        assert!(!state.accepts_input(), "a check in flight is not a second prompt");
+        assert!(
+            !state.accepts_input(),
+            "a check in flight is not a second prompt"
+        );
 
         state.busy = None;
         state.locked_out_until = Some(Instant::now() + Duration::from_secs(30));

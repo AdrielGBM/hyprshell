@@ -168,7 +168,11 @@ pub fn set_held(held: bool) {
             ..state
         });
     }
-    let method = if held { "RegisterGame" } else { "UnregisterGame" };
+    let method = if held {
+        "RegisterGame"
+    } else {
+        "UnregisterGame"
+    };
     let pid = std::process::id() as i32;
     let _ = std::thread::Builder::new()
         .name("hyprshell-gamemode-act".to_string())
@@ -177,9 +181,13 @@ pub fn set_held(held: bool) {
                 tracing::warn!("gamemode: cannot reach the session bus");
                 return;
             };
-            if let Err(e) =
-                conn.call_method(Some(GAMEMODE), GAMEMODE_PATH, Some(GAMEMODE), method, &(pid,))
-            {
+            if let Err(e) = conn.call_method(
+                Some(GAMEMODE),
+                GAMEMODE_PATH,
+                Some(GAMEMODE),
+                method,
+                &(pid,),
+            ) {
                 tracing::warn!("gamemode: {method}({pid}): {e}");
             }
         });

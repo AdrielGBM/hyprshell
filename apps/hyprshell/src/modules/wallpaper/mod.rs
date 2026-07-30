@@ -98,7 +98,10 @@ impl WallpaperApp {
         if first.is_none() && initial.is_some() {
             tracing::warn!(
                 "wallpaper '{}' could not be loaded; using the theme base colour",
-                initial.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
+                initial
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
             );
         }
 
@@ -108,7 +111,13 @@ impl WallpaperApp {
         let (read_fade, set_fade) = self.fade_control();
         let travel = self.output_width();
 
-        let layer_a = image_layer(slot_a.read_only(), read_fade.clone(), 0.0, transition, travel)?;
+        let layer_a = image_layer(
+            slot_a.read_only(),
+            read_fade.clone(),
+            0.0,
+            transition,
+            travel,
+        )?;
         let layer_b = image_layer(slot_b.read_only(), read_fade, 1.0, transition, travel)?;
 
         // Which slot holds the newest image. A plain `Cell`: it only ever changes on the driver thread, from
@@ -148,7 +157,10 @@ impl WallpaperApp {
         if instant {
             let at = signal(0.0f32);
             let reading = at.read_only();
-            return (Rc::new(move || reading.get()), Box::new(move |to| at.set(to)));
+            return (
+                Rc::new(move || reading.get()),
+                Box::new(move |to| at.set(to)),
+            );
         }
         let tween = self
             .config
@@ -250,7 +262,11 @@ fn blank() -> Arc<ImageData> {
 fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = config.resolve_theme();
     let settings = config.background.clock.clone();
-    let ink = if settings.invert { theme.base } else { theme.text };
+    let ink = if settings.invert {
+        theme.base
+    } else {
+        theme.text
+    };
 
     let format = settings.time_format(&config.clock).to_string();
     let date_format = settings.date_format(&config.clock).to_string();
@@ -314,17 +330,18 @@ fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
         )?));
     }
 
-    let column = Container::new(
-        LayoutStyle::new().flex_column().gap(size * 0.08),
-        rows,
-    )?;
+    let column = Container::new(LayoutStyle::new().flex_column().gap(size * 0.08), rows)?;
 
     let plate_radius = theme.radius.max(12.0);
     let opacity = settings.plate_opacity();
     let feather = settings.background_blur.max(0.0);
     // The raised surface, not the base: a plate painted in the colour behind it is invisible on a screen with
     // no image, which is exactly the state a user switching it on for the first time is looking at.
-    let plate_fill = if settings.invert { theme.text } else { theme.surface };
+    let plate_fill = if settings.invert {
+        theme.text
+    } else {
+        theme.surface
+    };
     let plate = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
@@ -340,7 +357,8 @@ fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
                 // by `background_blur`. That is what "the plate's edge fades into the wallpaper" means with the
                 // primitives the renderer has — there is no backdrop blur to sample the image through.
                 style.shadow = Some(
-                    Shadow::new(0.0, 0.0, feather, plate_fill.with_alpha(opacity)).with_spread(feather * 0.5),
+                    Shadow::new(0.0, 0.0, feather, plate_fill.with_alpha(opacity))
+                        .with_spread(feather * 0.5),
                 );
             }
             style
@@ -374,7 +392,11 @@ fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
 fn visualiser_row(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let settings = config.background.visualiser;
     let theme = config.resolve_theme();
-    let tint = if settings.accent { theme.accent } else { theme.text };
+    let tint = if settings.accent {
+        theme.accent
+    } else {
+        theme.text
+    };
 
     let start = visualiser::Spectrum::quiet(config.visualiser.band_count());
     let bands = signal(start.bars.clone());
@@ -531,12 +553,13 @@ mod tests {
             for hide in [true, false] {
                 for animated in [true, false] {
                     let mut config = Config::starter();
-                    config.background.visualiser = crate::core::config::BackgroundVisualiserConfig {
-                        enabled: true,
-                        edge,
-                        hide_when_silent: hide,
-                        ..crate::core::config::BackgroundVisualiserConfig::default()
-                    };
+                    config.background.visualiser =
+                        crate::core::config::BackgroundVisualiserConfig {
+                            enabled: true,
+                            edge,
+                            hide_when_silent: hide,
+                            ..crate::core::config::BackgroundVisualiserConfig::default()
+                        };
                     config.animation.enabled = animated;
                     let _ = built(config);
                 }
@@ -591,7 +614,11 @@ mod tests {
             .plate_opacity()
         };
         assert_eq!(bounded(0.5), 0.5);
-        assert_eq!(bounded(0.0), 0.05, "a plate asked for is a plate you can see");
+        assert_eq!(
+            bounded(0.0),
+            0.05,
+            "a plate asked for is a plate you can see"
+        );
         assert_eq!(bounded(4.0), 1.0);
         assert_eq!(bounded(f32::NAN), 0.35);
     }
@@ -612,7 +639,10 @@ mod tests {
             (Align::Start, Align::Start),
             "the row is the vertical axis and the column the horizontal one"
         );
-        assert_eq!(Placement::from_id("bottom-right"), Some(Placement::BottomRight));
+        assert_eq!(
+            Placement::from_id("bottom-right"),
+            Some(Placement::BottomRight)
+        );
         assert_eq!(Placement::from_id("nowhere"), None);
     }
 

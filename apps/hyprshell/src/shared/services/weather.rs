@@ -184,7 +184,13 @@ fn agent() -> ureq::Agent {
 }
 
 fn get_json(agent: &ureq::Agent, url: &str) -> Option<serde_json::Value> {
-    let body = agent.get(url).call().ok()?.body_mut().read_to_string().ok()?;
+    let body = agent
+        .get(url)
+        .call()
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
     serde_json::from_str(&body).ok()
 }
 
@@ -439,7 +445,8 @@ mod tests {
         // Not hypothetical: `forecast_days=1` and a request that drops the daily block both land here, and a
         // missing forecast should cost the days rather than the whole reading.
         let json: serde_json::Value =
-            serde_json::from_str(r#"{"current": {"temperature_2m": 9.0, "weather_code": 3}}"#).unwrap();
+            serde_json::from_str(r#"{"current": {"temperature_2m": 9.0, "weather_code": 3}}"#)
+                .unwrap();
         let weather = parse(&json, "here").expect("the current block is enough");
         assert_eq!(weather.temperature, 9.0);
         assert_eq!(weather.condition(), Condition::Overcast);
@@ -457,7 +464,11 @@ mod tests {
         assert_eq!(encode("Berlin"), "Berlin");
         assert_eq!(encode("San Francisco"), "San%20Francisco");
         assert_eq!(encode("Málaga"), "M%C3%A1laga");
-        assert_eq!(encode("a&b=c"), "a%26b%3Dc", "a separator cannot leak into the URL");
+        assert_eq!(
+            encode("a&b=c"),
+            "a%26b%3Dc",
+            "a separator cannot leak into the URL"
+        );
     }
 
     #[test]

@@ -242,8 +242,13 @@ fn connection(timeout: Duration) -> Option<Connection> {
 }
 
 fn read_state(conn: &Connection) -> Bluetooth {
-    let Ok(reply) = conn.call_method(Some(BLUEZ), "/", Some(OBJECT_MANAGER), "GetManagedObjects", &())
-    else {
+    let Ok(reply) = conn.call_method(
+        Some(BLUEZ),
+        "/",
+        Some(OBJECT_MANAGER),
+        "GetManagedObjects",
+        &(),
+    ) else {
         return Bluetooth::default();
     };
     match reply.body().deserialize::<ManagedObjects>() {
@@ -359,8 +364,13 @@ fn call(conn: &Connection, path: &str, iface: &str, method: &str) {
 }
 
 fn set_property(conn: &Connection, path: &str, iface: &str, name: &str, value: Value<'_>) {
-    if let Err(e) = conn.call_method(Some(BLUEZ), path, Some(PROPERTIES), "Set", &(iface, name, value))
-    {
+    if let Err(e) = conn.call_method(
+        Some(BLUEZ),
+        path,
+        Some(PROPERTIES),
+        "Set",
+        &(iface, name, value),
+    ) {
         tracing::warn!("bluetooth: setting {iface}.{name} on {path}: {e}");
     }
 }
@@ -375,7 +385,11 @@ pub fn set_powered(on: bool) {
     BLUETOOTH.publish(Bluetooth {
         powered: on,
         discovering: on && state.discovering,
-        devices: if on { state.devices.clone() } else { Vec::new() },
+        devices: if on {
+            state.devices.clone()
+        } else {
+            Vec::new()
+        },
         ..state.clone()
     });
     let path = state.adapter_path;
@@ -410,7 +424,11 @@ pub fn set_discovering(on: bool) {
         ..state.clone()
     });
     let path = state.adapter_path;
-    let method = if on { "StartDiscovery" } else { "StopDiscovery" };
+    let method = if on {
+        "StartDiscovery"
+    } else {
+        "StopDiscovery"
+    };
     act("scan", move |conn| call(conn, &path, ADAPTER_IFACE, method));
 
     let generation = SCAN_GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
@@ -559,19 +577,30 @@ mod tests {
             ("Alias".to_string(), owned(Value::Str("desk".into()))),
         ]);
         let headset: Props = HashMap::from([
-            ("Adapter".to_string(), owned(Value::Str("/org/bluez/hci0".into()))),
+            (
+                "Adapter".to_string(),
+                owned(Value::Str("/org/bluez/hci0".into())),
+            ),
             ("Address".to_string(), owned(Value::Str("AA:BB".into()))),
             ("Alias".to_string(), owned(Value::Str("WH-1000".into()))),
-            ("Icon".to_string(), owned(Value::Str("audio-headset".into()))),
+            (
+                "Icon".to_string(),
+                owned(Value::Str("audio-headset".into())),
+            ),
             ("Connected".to_string(), owned(Value::Bool(true))),
             ("Paired".to_string(), owned(Value::Bool(true))),
             ("RSSI".to_string(), owned(Value::I16(-55))),
         ]);
-        let battery: Props =
-            HashMap::from([("Percentage".to_string(), owned(Value::U8(80)))]);
+        let battery: Props = HashMap::from([("Percentage".to_string(), owned(Value::U8(80)))]);
         let other: Props = HashMap::from([
-            ("Adapter".to_string(), owned(Value::Str("/org/bluez/hci1".into()))),
-            ("Alias".to_string(), owned(Value::Str("dongle mouse".into()))),
+            (
+                "Adapter".to_string(),
+                owned(Value::Str("/org/bluez/hci1".into())),
+            ),
+            (
+                "Alias".to_string(),
+                owned(Value::Str("dongle mouse".into())),
+            ),
         ]);
 
         HashMap::from([

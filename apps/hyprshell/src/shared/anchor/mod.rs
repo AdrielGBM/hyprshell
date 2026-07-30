@@ -48,7 +48,10 @@ fn along(env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> f32 {
     let (start, extent) = if env.edge.is_vertical() {
         (chip.y, height)
     } else {
-        (chip.x + chip.width / 2.0 - span.unwrap_or_default() / 2.0, width)
+        (
+            chip.x + chip.width / 2.0 - span.unwrap_or_default() / 2.0,
+            width,
+        )
     };
     let far = (extent - span.unwrap_or_default() - gap).max(gap);
     start.clamp(gap, far)
@@ -119,7 +122,10 @@ mod tests {
         let env = env(Edge::Top);
         let gap = env.config.panel_gap(Edge::Top) as i32;
         let (top, _, _, left) = chip_margin(&env, chip(500.0, 0.0), gap as f32, Some(SPAN));
-        assert_eq!(top, gap, "the surface hangs the standard panel gap off the bar");
+        assert_eq!(
+            top, gap,
+            "the surface hangs the standard panel gap off the bar"
+        );
         assert_eq!(
             left,
             (500.0 + 15.0 - SPAN / 2.0) as i32,
@@ -172,7 +178,10 @@ mod tests {
             let placement = chip_placement(&env, chip(200.0, 200.0), Some(SPAN));
             assert_eq!(placement.anchor, anchor_for(edge));
             assert_eq!(placement.align, SurfaceAlign::Start);
-            assert!(placement.dismiss_on_outside, "a click outside closes a menu");
+            assert!(
+                placement.dismiss_on_outside,
+                "a click outside closes a menu"
+            );
         }
     }
 }

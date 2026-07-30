@@ -12,15 +12,17 @@ use platform_layershell::{
 use rsx::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
-    RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, WindowConfig,
-    box_item, memo, reset_layout_runtime, set_theme, signal, use_theme,
+    RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, WindowConfig, box_item,
+    memo, reset_layout_runtime, set_theme, signal, use_theme,
 };
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, Edge, FullscreenPopups, NotificationsConfig};
 use crate::shared::module::surface_env;
 use crate::shared::services::hyprland::{self, ActiveWindow, Client};
-use crate::shared::services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
+use crate::shared::services::notifications::{
+    self, Notification, SharedSnapshot, Snapshot, Urgency,
+};
 use crate::shared::theme::{FontRole, NordTheme};
 
 /// Parses the freedesktop notification body's limited HTML markup into styled runs for a [`RichText`]: `<b>`/
@@ -68,14 +70,30 @@ fn body_runs(markup: &str, text_color: Color, link_color: Color) -> Vec<TextRun>
             _ if lower == "a" || lower.starts_with("a ") => (2, 1),
             _ => continue,
         };
-        push_run(&mut runs, &mut current, bold > 0, italic > 0, link > 0, text_color, link_color);
+        push_run(
+            &mut runs,
+            &mut current,
+            bold > 0,
+            italic > 0,
+            link > 0,
+            text_color,
+            link_color,
+        );
         match kind {
             0 => bold = (bold + delta).max(0),
             1 => italic = (italic + delta).max(0),
             _ => link = (link + delta).max(0),
         }
     }
-    push_run(&mut runs, &mut current, bold > 0, italic > 0, link > 0, text_color, link_color);
+    push_run(
+        &mut runs,
+        &mut current,
+        bold > 0,
+        italic > 0,
+        link > 0,
+        text_color,
+        link_color,
+    );
     runs
 }
 
@@ -171,7 +189,12 @@ fn visible(snapshot: &Snapshot, cfg: &NotificationsConfig, fullscreen: bool) -> 
         return Vec::new();
     }
     // Only fresh arrivals pop up; notifications restored from persisted history stay in the panel, unpopped.
-    let mut list: Vec<Notification> = snapshot.active.iter().filter(|n| n.popup).cloned().collect();
+    let mut list: Vec<Notification> = snapshot
+        .active
+        .iter()
+        .filter(|n| n.popup)
+        .cloned()
+        .collect();
     if fullscreen {
         list.retain(|n| cfg.fullscreen.allows(n.urgency));
     }
@@ -265,7 +288,8 @@ fn notification_card(
         move || summary.clone(),
         LayoutStyle::new(),
         move || {
-            theme.text_style(FontRole::Body, theme.text)
+            theme
+                .text_style(FontRole::Body, theme.text)
                 .with_weight(700)
                 .with_max_lines(1)
                 .with_ellipsis(true)
@@ -290,7 +314,9 @@ fn notification_card(
     }
     // Shown wherever the card is interactive (the panel, and now popups via their carved input region): an
     // action pill hit-tests before the card, so tapping one invokes it while tapping elsewhere dismisses.
-    if dismiss.is_some() && let Some(actions) = action_buttons(notification, theme)? {
+    if dismiss.is_some()
+        && let Some(actions) = action_buttons(notification, theme)?
+    {
         column.push(actions);
     }
     let text_column = Container::new(
@@ -483,7 +509,9 @@ fn card_stack(
     let list = ReactiveList::with_gap(
         source,
         card_key,
-        move |n: Notification| notification_card(&n, width.into(), style, Some(notifications::expire)),
+        move |n: Notification| {
+            notification_card(&n, width.into(), style, Some(notifications::expire))
+        },
         gap,
     )?;
     // No outer padding: the surface's layer margin (`Config::panel_margin`) already floats the stack off the
@@ -500,10 +528,9 @@ fn popup_content(
     let snapshot = signal(Arc::new(Snapshot::default()));
     let setter = snapshot.clone();
     // The producer hands its sender to the daemon and returns; the daemon then pushes snapshots here, updated on this surface's loop.
-    platform_layershell::watch(
-        notifications::subscribe,
-        move |snap: SharedSnapshot| setter.set(snap),
-    );
+    platform_layershell::watch(notifications::subscribe, move |snap: SharedSnapshot| {
+        setter.set(snap)
+    });
     let fullscreen = fullscreen_focus(&cfg);
     card_stack(snapshot.read_only(), fullscreen, cfg, theme, radius)
 }
@@ -676,7 +703,11 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let badge = Text::auto(
         move || badge_text(unread_read.get()),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Caption, fg.get()).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Caption, fg.get())
+                .with_weight(700)
+        },
     )?;
     let row = Container::new(
         LayoutStyle::new()
@@ -734,7 +765,11 @@ fn panel_header(
     let title = Text::auto(
         || rsx::t!("notifications.title"),
         LayoutStyle::new(),
-        move || theme.text_style(FontRole::Title, theme.text).with_weight(700),
+        move || {
+            theme
+                .text_style(FontRole::Title, theme.text)
+                .with_weight(700)
+        },
     )?;
     let dnd_label = read.clone();
     let dnd_toggle = read.clone();
@@ -749,7 +784,11 @@ fn panel_header(
         move || notifications::set_dnd(!dnd_toggle.peek().dnd),
         theme,
     )?;
-    let clear = pill_button(|| rsx::t!("notifications.clear_all"), notifications::clear_all, theme)?;
+    let clear = pill_button(
+        || rsx::t!("notifications.clear_all"),
+        notifications::clear_all,
+        theme,
+    )?;
     let actions = Container::new(
         LayoutStyle::new()
             .flex_row()
@@ -867,7 +906,11 @@ fn history_rows(
             muted: snapshot.is_muted(app),
             expanded: is_expanded,
         });
-        rows.extend(group[..shown].iter().map(|n| HistoryRow::Card((*n).clone())));
+        rows.extend(
+            group[..shown]
+                .iter()
+                .map(|n| HistoryRow::Card((*n).clone())),
+        );
         if group.len() > cfg.group_preview() {
             rows.push(HistoryRow::Expander {
                 app: app.to_string(),
@@ -958,7 +1001,8 @@ fn group_header(
         move || name.clone(),
         LayoutStyle::new().flex_grow(1.0),
         move || {
-            theme.text_style(FontRole::Caption, theme.muted)
+            theme
+                .text_style(FontRole::Caption, theme.muted)
                 .with_weight(700)
                 .with_max_lines(1)
                 .with_ellipsis(true)
@@ -966,7 +1010,13 @@ fn group_header(
     )?;
     // A count of one is what a header without a badge already says.
     let badge = Text::auto(
-        move || if count > 1 { count.to_string() } else { String::new() },
+        move || {
+            if count > 1 {
+                count.to_string()
+            } else {
+                String::new()
+            }
+        },
         LayoutStyle::new(),
         move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
@@ -1070,7 +1120,10 @@ mod tests {
 
         let runs = body_runs("<b>Bold</b> &amp; <i>italic</i>", text, link);
         assert_eq!(runs.len(), 3);
-        assert_eq!((&*runs[0].text, runs[0].weight, runs[0].italic), ("Bold", 700, false));
+        assert_eq!(
+            (&*runs[0].text, runs[0].weight, runs[0].italic),
+            ("Bold", 700, false)
+        );
         assert_eq!((&*runs[1].text, runs[1].weight), (" & ", 400));
         assert_eq!((&*runs[2].text, runs[2].italic), ("italic", true));
 
@@ -1083,8 +1136,14 @@ mod tests {
         assert_eq!((br.len(), &*br[0].text), (1, "line1\nline2"));
 
         // `<img>` alt text, decoded entities, and unknown tags (kept inner, tag dropped).
-        assert_eq!(&*body_runs(r#"<img src="a.png" alt="pic"/>"#, text, link)[0].text, "pic");
-        assert_eq!(&*body_runs("&lt;tag&gt; &#65;&#x42;", text, link)[0].text, "<tag> AB");
+        assert_eq!(
+            &*body_runs(r#"<img src="a.png" alt="pic"/>"#, text, link)[0].text,
+            "pic"
+        );
+        assert_eq!(
+            &*body_runs("&lt;tag&gt; &#65;&#x42;", text, link)[0].text,
+            "<tag> AB"
+        );
         assert_eq!(&*body_runs("Q&A", text, link)[0].text, "Q&A");
     }
 
@@ -1232,7 +1291,11 @@ mod tests {
             "expanding one group reveals the rest of it and leaves the other collapsed"
         );
 
-        let single = history_rows(&snapshot_of(vec![note(1, "Slack", Urgency::Normal)]), &cfg, &BTreeSet::new());
+        let single = history_rows(
+            &snapshot_of(vec![note(1, "Slack", Urgency::Normal)]),
+            &cfg,
+            &BTreeSet::new(),
+        );
         assert_eq!(
             single.iter().map(describe_row).collect::<Vec<_>>(),
             ["group:Slack:1", "card:1"],
@@ -1266,15 +1329,20 @@ mod tests {
                 note(2, "Calendar", Urgency::Normal),
             ])
         };
-        let muted: Vec<bool> = history_rows(&snap, &NotificationsConfig::default(), &BTreeSet::new())
-            .iter()
-            .filter_map(|row| match row {
-                HistoryRow::Group { app, muted, .. } => Some((app.clone(), *muted)),
-                _ => None,
-            })
-            .map(|(_, muted)| muted)
-            .collect();
-        assert_eq!(muted, [false, true], "Calendar leads, and only Slack is muted");
+        let muted: Vec<bool> =
+            history_rows(&snap, &NotificationsConfig::default(), &BTreeSet::new())
+                .iter()
+                .filter_map(|row| match row {
+                    HistoryRow::Group { app, muted, .. } => Some((app.clone(), *muted)),
+                    _ => None,
+                })
+                .map(|(_, muted)| muted)
+                .collect();
+        assert_eq!(
+            muted,
+            [false, true],
+            "Calendar leads, and only Slack is muted"
+        );
     }
 
     #[test]
@@ -1337,8 +1405,14 @@ mod tests {
                     let built = match row {
                         HistoryRow::Group {
                             app, count, muted, ..
-                        } => group_header(app.clone(), count, muted, signal(open.clone()), NordTheme::new())
-                            .map(|_| format!("group:{app}")),
+                        } => group_header(
+                            app.clone(),
+                            count,
+                            muted,
+                            signal(open.clone()),
+                            NordTheme::new(),
+                        )
+                        .map(|_| format!("group:{app}")),
                         HistoryRow::Card(n) => notification_card(
                             &n,
                             SizeDimension::Percent(1.0),
@@ -1350,10 +1424,19 @@ mod tests {
                             app,
                             hidden,
                             expanded,
-                        } => expander_row(app.clone(), hidden, expanded, signal(open.clone()), NordTheme::new())
-                            .map(|_| format!("expander:{app}")),
+                        } => expander_row(
+                            app.clone(),
+                            hidden,
+                            expanded,
+                            signal(open.clone()),
+                            NordTheme::new(),
+                        )
+                        .map(|_| format!("expander:{app}")),
                     };
-                    assert!(built.is_ok(), "a row failed to build with group_by_app={group_by_app}");
+                    assert!(
+                        built.is_ok(),
+                        "a row failed to build with group_by_app={group_by_app}"
+                    );
                 }
                 assert!(history_list(snapshot.read_only(), &cfg, NordTheme::new(), 12.0).is_ok());
             }
@@ -1407,8 +1490,8 @@ mod tests {
             let signal = signal(Arc::new(self.snapshot.clone()));
             let read = signal.read_only();
             let header = panel_header(read.clone(), self.theme).expect("header");
-            let list =
-                history_list(read, &NotificationsConfig::default(), self.theme, 12.0).expect("list");
+            let list = history_list(read, &NotificationsConfig::default(), self.theme, 12.0)
+                .expect("list");
             let panel = Container::new(
                 LayoutStyle::new()
                     .flex_column()
@@ -1445,11 +1528,34 @@ mod tests {
         };
         snapshot_of(vec![
             Notification {
-                actions: vec!["reply".into(), "Reply".into(), "archive".into(), "Archive".into()],
-                ..mk(1, "Slack", "Ada Lovelace", "Still on for the review at <b>3pm</b>? &amp; bring notes", Urgency::Normal)
+                actions: vec![
+                    "reply".into(),
+                    "Reply".into(),
+                    "archive".into(),
+                    "Archive".into(),
+                ],
+                ..mk(
+                    1,
+                    "Slack",
+                    "Ada Lovelace",
+                    "Still on for the review at <b>3pm</b>? &amp; bring notes",
+                    Urgency::Normal,
+                )
             },
-            mk(2, "Slack", "Grace Hopper", "Pushed the fix.", Urgency::Normal),
-            mk(3, "Battery", "Battery low", "12% remaining — plug in soon.", Urgency::Critical),
+            mk(
+                2,
+                "Slack",
+                "Grace Hopper",
+                "Pushed the fix.",
+                Urgency::Normal,
+            ),
+            mk(
+                3,
+                "Battery",
+                "Battery low",
+                "12% remaining — plug in soon.",
+                Urgency::Critical,
+            ),
             mk(4, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
         ])
     }
@@ -1491,8 +1597,20 @@ mod tests {
             image: None,
         };
         let snapshot = snapshot_of(vec![
-            mk(1, "Slack", "Ada Lovelace", "Are we still on for the review at 3?", Urgency::Normal),
-            mk(2, "Battery", "Battery low", "12% remaining — plug in soon.", Urgency::Critical),
+            mk(
+                1,
+                "Slack",
+                "Ada Lovelace",
+                "Are we still on for the review at 3?",
+                Urgency::Normal,
+            ),
+            mk(
+                2,
+                "Battery",
+                "Battery low",
+                "12% remaining — plug in soon.",
+                Urgency::Critical,
+            ),
             mk(3, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
         ]);
         crate::test_support::render_png(

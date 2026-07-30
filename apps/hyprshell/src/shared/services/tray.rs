@@ -236,7 +236,11 @@ fn tooltip_text(value: &Value<'_>) -> String {
         _ => String::new(),
     };
     let title = at(2);
-    if title.trim().is_empty() { at(3) } else { title }
+    if title.trim().is_empty() {
+        at(3)
+    } else {
+        title
+    }
 }
 
 /// Whether the item's interface declares `Activate`, read from its introspection XML.
@@ -284,10 +288,7 @@ fn forget_departed(live: &[(String, String)]) {
     if cache.len() <= live.len() {
         return;
     }
-    cache.retain(|key, _| {
-        live.iter()
-            .any(|(bus, path)| &item_key(bus, path) == key)
-    });
+    cache.retain(|key, _| live.iter().any(|(bus, path)| &item_key(bus, path) == key));
 }
 
 fn read_item(conn: &Connection, bus: &str, path: &str) -> Option<TrayItem> {
@@ -496,7 +497,8 @@ fn own_watcher(registry: Arc<Registry>, ping: SyncSender<()>) -> bool {
 /// what makes icons appear at all — including when another shell owns the watcher.
 fn register_as_host(conn: &Connection) {
     let name = format!("org.kde.StatusNotifierHost-{}", std::process::id());
-    let Ok(host) = zbus::blocking::connection::Builder::session().and_then(|b| b.name(name.clone()))
+    let Ok(host) =
+        zbus::blocking::connection::Builder::session().and_then(|b| b.name(name.clone()))
     else {
         return;
     };
@@ -535,7 +537,10 @@ fn spawn_signal_reader(ping: SyncSender<()>) {
             let Ok(dbus) = DBusProxy::new(&conn) else {
                 return;
             };
-            for extra in [signal_rule(WATCHER_NAME), owner_rule()].into_iter().flatten() {
+            for extra in [signal_rule(WATCHER_NAME), owner_rule()]
+                .into_iter()
+                .flatten()
+            {
                 let _ = dbus.add_match_rule(extra);
             }
             let Ok(signals) = MessageIterator::for_match_rule(items, &conn, None) else {
@@ -603,7 +608,9 @@ fn registered_services(conn: &Connection, local: Option<&Registry>) -> Vec<(Stri
 /// prunes its own.
 fn prune_dead(conn: &Connection, local: Option<&Registry>) {
     let Some(registry) = local else { return };
-    let Ok(dbus) = DBusProxy::new(conn) else { return };
+    let Ok(dbus) = DBusProxy::new(conn) else {
+        return;
+    };
     for (bus, _) in registry.snapshot() {
         let alive = BusName::try_from(bus.clone())
             .ok()
@@ -646,7 +653,9 @@ fn invoke(item: &TrayItem, method: &'static str, args: (i32, i32)) {
             let Ok(name) = BusName::try_from(bus.clone()) else {
                 return;
             };
-            if let Err(e) = conn.call_method(Some(name), path.as_str(), Some(ITEM_IFACE), method, &args) {
+            if let Err(e) =
+                conn.call_method(Some(name), path.as_str(), Some(ITEM_IFACE), method, &args)
+            {
                 tracing::debug!("tray {method} on {bus}: {e}");
             }
         });
@@ -769,7 +778,11 @@ mod tests {
         item.title = "Network".to_string();
         assert_eq!(item.label(), "Network");
         item.tooltip = "Wired connection 1".to_string();
-        assert_eq!(item.label(), "Wired connection 1", "the tooltip is the most specific");
+        assert_eq!(
+            item.label(),
+            "Wired connection 1",
+            "the tooltip is the most specific"
+        );
         assert_eq!(TrayItem::default().label(), "");
     }
 
@@ -818,7 +831,13 @@ mod tests {
         assert_eq!(registry.snapshot().len(), 2);
 
         assert!(registry.remove_owner(":1.5"));
-        assert_eq!(registry.snapshot(), vec![(":1.6".to_string(), DEFAULT_ITEM_PATH.to_string())]);
-        assert!(!registry.remove_owner(":1.5"), "removing a stranger changes nothing");
+        assert_eq!(
+            registry.snapshot(),
+            vec![(":1.6".to_string(), DEFAULT_ITEM_PATH.to_string())]
+        );
+        assert!(
+            !registry.remove_owner(":1.5"),
+            "removing a stranger changes nothing"
+        );
     }
 }

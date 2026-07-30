@@ -404,11 +404,14 @@ fn control(method: &'static str) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-call".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else { return };
+            let Ok(conn) = Connection::session() else {
+                return;
+            };
             let Ok(name) = BusName::try_from(player.bus.clone()) else {
                 return;
             };
-            if let Err(e) = conn.call_method(Some(name), MPRIS_PATH, Some(PLAYER_IFACE), method, &())
+            if let Err(e) =
+                conn.call_method(Some(name), MPRIS_PATH, Some(PLAYER_IFACE), method, &())
             {
                 tracing::warn!("mpris {method} on {}: {e}", player.bus);
             }
@@ -440,7 +443,9 @@ where
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-call".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else { return };
+            let Ok(conn) = Connection::session() else {
+                return;
+            };
             let Ok(name) = BusName::try_from(player.bus.clone()) else {
                 return;
             };
@@ -459,7 +464,9 @@ fn set_property(name: &'static str, value: Value<'static>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-set".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else { return };
+            let Ok(conn) = Connection::session() else {
+                return;
+            };
             let Ok(bus) = BusName::try_from(player.bus.clone()) else {
                 return;
             };

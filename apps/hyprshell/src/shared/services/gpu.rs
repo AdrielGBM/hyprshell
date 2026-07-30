@@ -346,7 +346,10 @@ mod tests {
             card: "card9".into(),
             ..auto.clone()
         };
-        assert!(select(&cards, &missing).is_none(), "a named card that isn't there is not silently swapped");
+        assert!(
+            select(&cards, &missing).is_none(),
+            "a named card that isn't there is not silently swapped"
+        );
     }
 
     #[test]
@@ -369,7 +372,8 @@ mod tests {
 
     #[test]
     fn a_field_the_card_does_not_measure_reads_as_unknown_not_as_zero() {
-        let gpu = parse_nvidia("Quadro P400, [N/A], 48, [N/A], 2048").expect("the row still parses");
+        let gpu =
+            parse_nvidia("Quadro P400, [N/A], 48, [N/A], 2048").expect("the row still parses");
         assert_eq!(gpu.usage, None, "no counter is not an idle GPU");
         assert_eq!(gpu.temperature, Some(48.0));
         assert_eq!(gpu.vram_fraction(), None);

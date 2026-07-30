@@ -298,7 +298,8 @@ pub fn screens(dir: &Path) -> Vec<Screen> {
     // `all` includes outputs that are connected but switched off, which is the difference between a settings
     // list that can re-enable a monitor and one that cannot see it. Not every Hyprland accepts the argument, so
     // a refusal falls back to the plain query rather than reporting no screens at all.
-    let Some(parsed) = query_monitors(dir, "j/monitors all").or_else(|| query_monitors(dir, "j/monitors"))
+    let Some(parsed) =
+        query_monitors(dir, "j/monitors all").or_else(|| query_monitors(dir, "j/monitors"))
     else {
         return Vec::new();
     };
@@ -449,17 +450,18 @@ fn query_snapshot(dir: &Path) -> Option<Snapshot> {
     let active_raw = request(dir, "j/activeworkspace").ok()?;
     let mut clients = classes_by_workspace(&clients(dir));
 
-    let mut workspaces: Vec<Workspace> = serde_json::from_str::<Vec<WorkspaceJson>>(&workspaces_raw)
-        .ok()?
-        .into_iter()
-        .map(|w| Workspace {
-            windows: w.windows,
-            clients: clients.remove(&w.id).unwrap_or_default(),
-            name: w.name,
-            monitor: w.monitor,
-            id: w.id,
-        })
-        .collect();
+    let mut workspaces: Vec<Workspace> =
+        serde_json::from_str::<Vec<WorkspaceJson>>(&workspaces_raw)
+            .ok()?
+            .into_iter()
+            .map(|w| Workspace {
+                windows: w.windows,
+                clients: clients.remove(&w.id).unwrap_or_default(),
+                name: w.name,
+                monitor: w.monitor,
+                id: w.id,
+            })
+            .collect();
     workspaces.sort_by_key(|w| (w.is_special(), w.id));
 
     let active = serde_json::from_str::<ActiveJson>(&active_raw).ok()?.id;
@@ -584,7 +586,8 @@ pub fn active_window(dir: &Path) -> ActiveWindow {
         .unwrap_or_default()
 }
 
-static ACTIVE_WINDOW: Service<ActiveWindow> = Service::new("hyprshell-active-window", run_active_window);
+static ACTIVE_WINDOW: Service<ActiveWindow> =
+    Service::new("hyprshell-active-window", run_active_window);
 
 fn run_active_window(service: &Arc<Broadcast<ActiveWindow>>) {
     let Some(dir) = socket_dir() else { return };
@@ -611,7 +614,10 @@ pub fn subscribe_active_window(tx: EventSender<ActiveWindow>) {
 
 /// Focuses a window by its Hyprland address (`0x…`), for clicking the active-window chip or a window list.
 pub fn focus_window(dir: &Path, address: &str) {
-    dispatch(dir, &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"));
+    dispatch(
+        dir,
+        &format!("hl.dsp.focus({{ window = \"address:{address}\" }})"),
+    );
 }
 
 /// The window actions live under `hl.dsp.window.<action>`, and which *shape* each takes cannot be read off the
@@ -663,9 +669,7 @@ pub fn set_floating(dir: &Path, address: &str, floating: bool) -> bool {
     dispatch_until(
         dir,
         window_calls("float", &address, &format!(", state = {floating}")),
-        move |dir| {
-            client_of(dir, &address).is_some_and(|client| client.floating == floating)
-        },
+        move |dir| client_of(dir, &address).is_some_and(|client| client.floating == floating),
     )
 }
 
@@ -675,9 +679,7 @@ pub fn set_fullscreen(dir: &Path, address: &str, fullscreen: bool) -> bool {
     dispatch_until(
         dir,
         window_calls("fullscreen", &address, &format!(", state = {fullscreen}")),
-        move |dir| {
-            client_of(dir, &address).is_some_and(|client| client.fullscreen == fullscreen)
-        },
+        move |dir| client_of(dir, &address).is_some_and(|client| client.fullscreen == fullscreen),
     )
 }
 
@@ -936,7 +938,10 @@ mod tests {
 
         // The pills read the same parse, and a window with no class draws no icon rather than an empty slot.
         let grouped = classes_by_workspace(&list);
-        assert_eq!(grouped[&3], vec!["kitty".to_string(), "firefox".to_string()]);
+        assert_eq!(
+            grouped[&3],
+            vec!["kitty".to_string(), "firefox".to_string()]
+        );
         assert!(
             !grouped.contains_key(&-99),
             "the only window there has no class"
@@ -952,9 +957,15 @@ mod tests {
         assert!(flag.fullscreen.is_set());
         let mode: ClientJson =
             serde_json::from_str(r#"{"workspace":{"id":1},"fullscreen":1}"#).unwrap();
-        assert!(mode.fullscreen.is_set(), "1 is maximized, which still covers");
+        assert!(
+            mode.fullscreen.is_set(),
+            "1 is maximized, which still covers"
+        );
         let none: ClientJson = serde_json::from_str(r#"{"workspace":{"id":1}}"#).unwrap();
-        assert!(!none.fullscreen.is_set(), "an absent field is not fullscreen");
+        assert!(
+            !none.fullscreen.is_set(),
+            "an absent field is not fullscreen"
+        );
     }
 
     #[test]
@@ -972,7 +983,10 @@ mod tests {
         // A minimal entry still parses: the fields a per-monitor list needs are optional, the connector is not.
         assert_eq!(parsed[1].name, "eDP-1");
         assert_eq!(parsed[1].scale, 1.0, "an absent scale is 1, not 0");
-        assert!(parsed[1].dpms_status, "an absent dpms state means the output is on");
+        assert!(
+            parsed[1].dpms_status,
+            "an absent dpms state means the output is on"
+        );
     }
 
     #[test]

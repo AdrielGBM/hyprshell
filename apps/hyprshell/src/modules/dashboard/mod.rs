@@ -20,8 +20,7 @@ use std::sync::Arc;
 use platform_layershell::EventSender;
 use rsx::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal,
-    use_theme,
+    ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
 
 pub use crate::core::config::DashboardTab;
@@ -171,7 +170,9 @@ fn pill(
         move || tab_label(tab),
         LayoutStyle::new(),
         move || {
-            theme.text_style(FontRole::Caption, ink(label_state.get())).with_weight(700)
+            theme
+                .text_style(FontRole::Caption, ink(label_state.get()))
+                .with_weight(700)
         },
     )?;
 

@@ -133,7 +133,11 @@ mod tests {
     fn a_counter_going_backwards_reads_as_idle() {
         // An interface was unplugged, or the counter wrapped; neither is a negative transfer rate.
         assert_eq!(rate(9_000, 10, Duration::from_secs(1)), 0.0);
-        assert_eq!(rate(0, 100, Duration::ZERO), 0.0, "no elapsed time, no rate");
+        assert_eq!(
+            rate(0, 100, Duration::ZERO),
+            0.0,
+            "no elapsed time, no rate"
+        );
     }
 
     #[test]

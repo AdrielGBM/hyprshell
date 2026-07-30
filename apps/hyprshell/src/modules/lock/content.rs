@@ -89,11 +89,7 @@ fn weather(config: &Arc<Config>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let read = current.read_only();
     caption(
         move || match read.get() {
-            Some(reading) => format!(
-                "{}  {}",
-                reading.place,
-                unit.format(reading.temperature)
-            ),
+            Some(reading) => format!("{}  {}", reading.place, unit.format(reading.temperature)),
             None => String::new(),
         },
         theme,
@@ -189,7 +185,11 @@ mod tests {
             },
             ..Config::default()
         });
-        assert!(extras(&config, NordTheme::new()).expect("builds").is_empty());
+        assert!(
+            extras(&config, NordTheme::new())
+                .expect("builds")
+                .is_empty()
+        );
     }
 
     #[test]
