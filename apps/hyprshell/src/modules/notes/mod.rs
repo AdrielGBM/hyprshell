@@ -73,7 +73,11 @@ fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, L
         },
     )?;
     let add_state = state.clone();
-    let add = pill_button(|| telar::t!("notes.new"), move || add_note(&add_state), theme)?;
+    let add = pill_button(
+        || telar::t!("notes.new"),
+        move || add_note(&add_state),
+        theme,
+    )?;
     let header = Container::new(
         LayoutStyle::new()
             .flex_row()

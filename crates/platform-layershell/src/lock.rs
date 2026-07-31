@@ -20,7 +20,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use telar::{App, build_surface_handler};
 use smithay_client_toolkit::compositor::CompositorState;
 use smithay_client_toolkit::reexports::calloop::LoopHandle;
 use smithay_client_toolkit::reexports::protocols::ext::session_lock::v1::client::{
@@ -28,6 +27,7 @@ use smithay_client_toolkit::reexports::protocols::ext::session_lock::v1::client:
     ext_session_lock_surface_v1::{self, ExtSessionLockSurfaceV1},
     ext_session_lock_v1::{self, ExtSessionLockV1},
 };
+use telar::{App, build_surface_handler};
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_output;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};

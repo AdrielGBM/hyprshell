@@ -365,9 +365,9 @@ mod tests {
     /// click while still opening its card on hover.
     #[test]
     fn a_popout_wrapper_lets_a_click_through_to_the_chip() {
-        use telar::{AvailableSpace, Event, PointerButton, PointerSource, compute_layout};
         use std::cell::Cell;
         use std::rc::Rc;
+        use telar::{AvailableSpace, Event, PointerButton, PointerSource, compute_layout};
 
         let clicked = Rc::new(Cell::new(false));
         let sink = Rc::clone(&clicked);

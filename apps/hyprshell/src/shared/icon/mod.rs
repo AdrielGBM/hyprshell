@@ -7,12 +7,12 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
 use platform_layershell::{EventSender, timeout, watch};
+use serde::Deserialize;
 use telar::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,
     ReadSignal, RectStyle, RwSignal, SpinnerProps, StyledContainer, Svg, SvgData, signal, spinner,
     use_theme,
 };
-use serde::Deserialize;
 
 use crate::shared::module::surface_env;
 use crate::shared::theme::NordTheme;
