@@ -1,6 +1,6 @@
 //! The Dash page: what time it is, what month it is, and whose machine this is.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Days, Local, Months, NaiveDate, Weekday};
 use telar::{
@@ -254,7 +254,12 @@ fn user_card(
     let name = username();
     let host = hostname();
 
-    let avatar = match avatar_path(config).and_then(|path| picture::circle(&path, AVATAR)) {
+    let picking = signal(false);
+    let start = avatar_path(config)
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| paths::user_dir("XDG_PICTURES_DIR", "Pictures"));
+
+    let face = match avatar_path(config).and_then(|path| picture::circle(&path, AVATAR)) {
         Some(picture) => picture,
         None => icon_view(
             || "circle-user-round".to_string(),
@@ -262,6 +267,21 @@ fn user_card(
             AVATAR,
         )?,
     };
+    // F4a: the picture is the control. A press opens the browser below it, which is the only affordance the
+    // card has room for and the only one a user would look for — nothing else on this card is pressable.
+    let open = picking.clone();
+    let avatar: Box<dyn LayoutItem> = Box::new(
+        StyledContainer::new(
+            LayoutStyle::new()
+                .flex_shrink(0.0)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::CENTER),
+            move |_r| RectStyle::filled(Color::TRANSPARENT, AVATAR / 2.0),
+            vec![face],
+        )?
+        .on_hover_style(move |_r| RectStyle::filled(theme.overlay, AVATAR / 2.0))
+        .on_press(move || open.set(!open.peek())),
+    );
 
     let name_text = Text::auto(
         move || name.clone(),
@@ -310,7 +330,237 @@ fn user_card(
             .width(SizeDimension::Percent(1.0)),
         vec![avatar, Box::new(labels)],
     )?;
-    card::frame(vec![Box::new(row)], theme)
+    card::frame(
+        vec![Box::new(row), avatar_picker(start, picking, theme)?],
+        theme,
+    )
+}
+
+/// How many entries the avatar browser draws at once, and how large each thumbnail is. The same bound, and the
+/// same reason, as the launcher's wallpaper grid: `ReactiveList` builds a widget per tile up front.
+const PICKER_ENTRIES: usize = 120;
+const PICKER_TILE: f32 = 64.0;
+
+/// One row of the avatar browser: a folder to go into, or a picture to become the avatar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Choice {
+    path: PathBuf,
+    name: String,
+    folder: bool,
+}
+
+/// F4a: the file picker the shell did not have.
+///
+/// Deliberately not a portal dialog — that is another process and another toolkit on screen — and deliberately
+/// not a second surface: a dashboard page already *is* the surface, and a picker that opened its own would have
+/// to be anchored, dismissed and kept on the right monitor for a job that is one press long. It browses instead
+/// of asking for a path, because a user who could type the path already has `[dashboard] avatar`.
+fn avatar_picker(
+    start: PathBuf,
+    picking: RwSignal<bool>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let folder = signal(start);
+    // A one-item keyed list over the open flag, which is how this shell expresses a reactive `if`: the browser
+    // is *built* when it opens and torn down when it closes, so a card that is not picking an avatar costs
+    // exactly what it did before this landed rather than carrying a hidden subtree.
+    let open = picking.read_only();
+    Ok(Box::new(ReactiveList::with_gap(
+        move || vec![open.get()],
+        |open: &bool| open.to_string(),
+        move |open: bool| {
+            if open {
+                browser(folder.clone(), picking.clone(), theme)
+            } else {
+                Ok(Box::new(Container::new(LayoutStyle::new(), vec![])?) as Box<dyn LayoutItem>)
+            }
+        },
+        0.0,
+    )?))
+}
+
+fn browser(
+    folder: RwSignal<PathBuf>,
+    picking: RwSignal<bool>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let source_folder = folder.read_only();
+
+    let path_label = Text::auto(
+        move || source_folder.get().display().to_string(),
+        LayoutStyle::new().flex_grow(1.0),
+        move || {
+            theme
+                .text_style(FontRole::Caption, theme.muted)
+                .with_max_lines(1)
+                .with_ellipsis(true)
+        },
+    )?;
+
+    let up_folder = folder.clone();
+    let up = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_shrink(0.0)
+            .padding_horizontal(8.0)
+            .padding_vertical(4.0),
+        move |_r| RectStyle::filled(theme.base, 8.0),
+        vec![icon_view(
+            || "corner-left-up".to_string(),
+            move || theme.text,
+            16.0,
+        )?],
+    )?
+    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || {
+        let here = up_folder.peek();
+        if let Some(parent) = here.parent() {
+            up_folder.set(parent.to_path_buf());
+        }
+    });
+
+    let list_folder = folder.read_only();
+    let into = folder.clone();
+    let tiles = ReactiveList::with_style(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .width(SizeDimension::Percent(1.0)),
+        move || entries_in(&list_folder.get()),
+        |choice: &Choice| choice.path.display().to_string(),
+        move |choice: Choice| choice_tile(choice, into.clone(), picking.clone(), theme),
+    )?;
+
+    let header = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(8.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![Box::new(up), box_item(path_label)],
+    )?;
+
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(8.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![Box::new(header), Box::new(tiles)],
+    )?))
+}
+
+/// What a folder offers: its sub-folders, then the pictures in it, each alphabetical. Hidden entries are left
+/// out — a picture someone chose to hide is not one they are looking for here.
+fn entries_in(folder: &Path) -> Vec<Choice> {
+    let Ok(read) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let (mut folders, mut images): (Vec<Choice>, Vec<Choice>) = (Vec::new(), Vec::new());
+    for entry in read.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            folders.push(Choice {
+                path,
+                name,
+                folder: true,
+            });
+        } else if is_picture(&path) {
+            images.push(Choice {
+                path,
+                name,
+                folder: false,
+            });
+        }
+    }
+    folders.sort_by_key(|choice| choice.name.to_lowercase());
+    images.sort_by_key(|choice| choice.name.to_lowercase());
+    folders.extend(images);
+    folders.truncate(PICKER_ENTRIES);
+    folders
+}
+
+/// The formats `shared::picture` can decode. Stated here rather than read from `[wallpaper] extensions`,
+/// which is about what counts as a wallpaper — a user who narrows their wallpaper library to `png` has not
+/// said anything about which pictures may be their face.
+fn is_picture(path: &Path) -> bool {
+    let Some(extension) = path.extension().map(|e| e.to_string_lossy().to_lowercase()) else {
+        return false;
+    };
+    matches!(extension.as_str(), "png" | "jpg" | "jpeg" | "webp")
+}
+
+fn choice_tile(
+    choice: Choice,
+    folder: RwSignal<PathBuf>,
+    picking: RwSignal<bool>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let picture: Box<dyn LayoutItem> = if choice.folder {
+        icon_view(|| "folder".to_string(), move || theme.yellow, 28.0)?
+    } else {
+        crate::shared::thumbnail::view(
+            choice.path.clone(),
+            PICKER_TILE,
+            PICKER_TILE,
+            6.0,
+            "image",
+            theme,
+        )?
+    };
+    let name = choice.name.clone();
+    let label = Text::auto(
+        move || name.clone(),
+        LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+        move || {
+            theme
+                .text_style(FontRole::Caption, theme.subtle)
+                .with_max_lines(1)
+                .with_ellipsis(true)
+        },
+    )?;
+
+    let tile = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(4.0)
+            .width(PICKER_TILE + 12.0)
+            .padding_all(4.0)
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::CENTER),
+        move |_r| RectStyle::filled(theme.base, 8.0),
+        vec![picture, box_item(label)],
+    )?
+    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || {
+        if choice.folder {
+            folder.set(choice.path.clone());
+            return;
+        }
+        set_avatar(&choice.path);
+        picking.set(false);
+    });
+    Ok(Box::new(tile))
+}
+
+/// Writes the chosen picture to `[dashboard] avatar`, which the config watcher then applies — the same route
+/// the settings panel's Save takes, so one path leads to a reload and one look for the change.
+fn set_avatar(path: &Path) {
+    let Some(config) = crate::core::shell::config() else {
+        return;
+    };
+    let value = DashboardConfig {
+        avatar: path.display().to_string(),
+        ..config.dashboard.clone()
+    };
+    if let Err(e) = Config::save_section(&Config::default_path(), "dashboard", &value) {
+        tracing::warn!("dashboard: could not save the avatar: {e}");
+    }
 }
 
 /// The first image that exists, in the order a desktop conventionally writes them: the user's own `~/.face`
@@ -437,6 +687,82 @@ mod tests {
 
     fn date(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).expect("a real date")
+    }
+
+    /// The avatar is a bitmap in a pressable box, which is two things that position themselves — so the one
+    /// question worth measuring is whether it ends up inside the card at all.
+    #[test]
+    fn the_avatar_sits_inside_its_card() {
+        use telar::{AvailableSpace, compute_layout, new_container, track_layout};
+
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
+        let theme = NordTheme::new();
+        let card = user_card(&DashboardConfig::default(), theme).expect("the user card builds");
+        let card_rect = track_layout(card.layout_node()).expect("the card registers its rect");
+
+        let root = new_container(
+            LayoutStyle::new()
+                .flex_column()
+                .padding_all(16.0)
+                .width(380.0)
+                .height(900.0),
+            &[card.layout_node()],
+        )
+        .expect("a drawer-shaped root");
+        compute_layout(
+            root,
+            AvailableSpace::Definite(380.0),
+            AvailableSpace::Definite(900.0),
+        )
+        .expect("layout");
+
+        let card_rect = card_rect.get();
+        assert!(
+            card_rect.width > 0.0 && card_rect.height > 0.0,
+            "the card measured {}x{}",
+            card_rect.width,
+            card_rect.height
+        );
+        assert!(
+            card_rect.height < 900.0,
+            "the collapsed picker must cost the card no height: {}",
+            card_rect.height
+        );
+    }
+
+    #[test]
+    fn the_avatar_browser_lists_folders_first_and_only_pictures() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-avatar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("zz-folder")).expect("a sub-folder");
+        std::fs::create_dir_all(dir.join(".hidden-folder")).expect("a hidden sub-folder");
+        for name in ["b.png", "a.JPG", "notes.txt", ".secret.png"] {
+            std::fs::write(dir.join(name), b"x").expect("a file");
+        }
+
+        let listed = entries_in(&dir);
+        assert_eq!(
+            listed
+                .iter()
+                .map(|c| (c.name.as_str(), c.folder))
+                .collect::<Vec<_>>(),
+            vec![("zz-folder", true), ("a.JPG", false), ("b.png", false)],
+            "folders first, then pictures, each alphabetical and case-insensitively so"
+        );
+        assert!(
+            !listed.iter().any(|c| c.name.starts_with('.')),
+            "a picture someone hid is not one they are looking for here"
+        );
+        assert!(
+            !listed.iter().any(|c| c.name.ends_with(".txt")),
+            "only what `shared::picture` can decode"
+        );
+        assert!(
+            entries_in(&dir.join("no-such-folder")).is_empty(),
+            "a folder that is not there lists nothing rather than failing the page"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
