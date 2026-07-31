@@ -64,6 +64,43 @@ pub struct ThemeMeta {
     pub version: &'static str,
 }
 
+/// Every palette token, in the order an export lists them — the surfaces, the inks, the hues, the semantic
+/// four, then the highlights.
+///
+/// One list rather than four: the scheme exporter, the IPC palette dump, `[theme.colors]`'s editor and
+/// [`NordTheme::token`] all need the same names, and each copy that existed was a place a token added to the
+/// theme could go missing from without anything failing.
+pub const THEME_TOKENS: &[&str] = &[
+    "base",
+    "surface",
+    "overlay",
+    "muted",
+    "subtle",
+    "text",
+    "accent",
+    "blue",
+    "cyan",
+    "teal",
+    "red",
+    "orange",
+    "yellow",
+    "green",
+    "purple",
+    "success",
+    "warning",
+    "error",
+    "info",
+    "highlight_low",
+    "highlight_med",
+    "highlight_high",
+];
+
+/// A colour as `#rrggbb`, which is the only spelling `[theme.colors]` and every export file use.
+pub fn hex(color: Color) -> String {
+    let [r, g, b, _] = color.to_rgba8();
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
 /// Every built-in palette's config name, in the order a picker should offer them.
 pub const BUILT_IN_THEMES: &[&str] = &[
     "nord",
@@ -705,6 +742,36 @@ impl NordTheme {
         self
     }
 
+    /// One token by name — the read half of [`with_color`](Self::with_color), and what lets a palette be drawn
+    /// as swatches, exported, or edited from [`THEME_TOKENS`] rather than as twenty-two hardcoded fields.
+    pub fn token(&self, name: &str) -> Color {
+        match name {
+            "base" => self.base,
+            "surface" => self.surface,
+            "overlay" => self.overlay,
+            "muted" => self.muted,
+            "subtle" => self.subtle,
+            "text" => self.text,
+            "accent" => self.accent,
+            "blue" => self.blue,
+            "cyan" => self.cyan,
+            "teal" => self.teal,
+            "red" => self.red,
+            "orange" => self.orange,
+            "yellow" => self.yellow,
+            "green" => self.green,
+            "purple" => self.purple,
+            "success" => self.success,
+            "warning" => self.warning,
+            "error" => self.error,
+            "info" => self.info,
+            "highlight_low" => self.highlight_low,
+            "highlight_med" => self.highlight_med,
+            "highlight_high" => self.highlight_high,
+            _ => self.accent,
+        }
+    }
+
     pub fn accent_by_name(&self, name: &str) -> Color {
         match name {
             "blue" => self.blue,
@@ -780,6 +847,24 @@ impl ThemeTokens for NordTheme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The two halves of the token table have to name the same tokens. A swatch drawn from a name `token`
+    /// does not know reads the accent, which is a preview that quietly shows the wrong colour rather than a
+    /// blank — so the guard is that every name `with_color` writes, `token` reads back.
+    #[test]
+    fn every_token_reads_back_what_with_color_wrote() {
+        let marker = Color::from_hex("#123456").expect("a hex colour");
+        for name in THEME_TOKENS {
+            let written = NordTheme::new().with_color(name, marker);
+            assert_eq!(written.token(name), marker, "token '{name}'");
+        }
+        assert_eq!(
+            NordTheme::new().token("no-such-token"),
+            NordTheme::new().accent,
+            "an unknown name falls back rather than panicking a settings page"
+        );
+        assert_eq!(hex(marker), "#123456", "the spelling every export uses");
+    }
 
     #[test]
     fn named_selects_a_palette_and_falls_back_to_nord() {

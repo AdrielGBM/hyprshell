@@ -1931,38 +1931,11 @@ fn refresh_scheme() {
 
 /// The palette as one `name<TAB>#rrggbb` row per token, which is what a script recolouring something else needs.
 fn palette_rows(theme: &crate::NordTheme) -> String {
-    let hex = |color: telar::Color| {
-        let [r, g, b, _] = color.to_rgba8();
-        format!("#{r:02x}{g:02x}{b:02x}")
-    };
-    [
-        ("base", theme.base),
-        ("surface", theme.surface),
-        ("overlay", theme.overlay),
-        ("muted", theme.muted),
-        ("subtle", theme.subtle),
-        ("text", theme.text),
-        ("accent", theme.accent),
-        ("blue", theme.blue),
-        ("cyan", theme.cyan),
-        ("teal", theme.teal),
-        ("red", theme.red),
-        ("orange", theme.orange),
-        ("yellow", theme.yellow),
-        ("green", theme.green),
-        ("purple", theme.purple),
-        ("success", theme.success),
-        ("warning", theme.warning),
-        ("error", theme.error),
-        ("info", theme.info),
-        ("highlight_low", theme.highlight_low),
-        ("highlight_med", theme.highlight_med),
-        ("highlight_high", theme.highlight_high),
-    ]
-    .iter()
-    .map(|(name, color)| format!("{name}\t{}", hex(*color)))
-    .collect::<Vec<String>>()
-    .join("\n")
+    crate::shared::theme::THEME_TOKENS
+        .iter()
+        .map(|name| format!("{name}\t{}", crate::shared::theme::hex(theme.token(name))))
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 /// Switches the dashboard's page by its config id, refusing an unknown one by name — a keybind bound to a page

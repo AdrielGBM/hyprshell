@@ -20,13 +20,13 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use platform_layershell::EventSender;
-use telar::Color;
 use serde::{Deserialize, Serialize};
+use telar::Color;
 
 use crate::core::config::{Config, SchemeExportConfig};
 use crate::shared::paths;
 use crate::shared::services::broadcast::Store;
-use crate::shared::theme::NordTheme;
+use crate::shared::theme::{NordTheme, THEME_TOKENS as TOKENS, hex};
 
 /// The config name that selects a wallpaper-derived scheme.
 pub const DYNAMIC: &str = "dynamic";
@@ -197,37 +197,6 @@ impl Scheme {
             .find(|(token, _)| token == name)
             .and_then(|(_, hex)| Color::from_hex(hex))
     }
-}
-
-/// The token names a palette carries, in the order the export files list them.
-const TOKENS: &[&str] = &[
-    "base",
-    "surface",
-    "overlay",
-    "muted",
-    "subtle",
-    "text",
-    "accent",
-    "blue",
-    "cyan",
-    "teal",
-    "red",
-    "orange",
-    "yellow",
-    "green",
-    "purple",
-    "success",
-    "warning",
-    "error",
-    "info",
-    "highlight_low",
-    "highlight_med",
-    "highlight_high",
-];
-
-fn hex(color: Color) -> String {
-    let [r, g, b, _] = color.to_rgba8();
-    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
 /// The dominant colours of an RGBA buffer, most populous first.
