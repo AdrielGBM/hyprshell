@@ -33,6 +33,7 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
         "battery" => crate::battery_panel(),
         "bluetooth" => crate::modules::bluetooth::bluetooth_panel(),
         "network" => crate::modules::network::network_panel(),
+        "mixer" => crate::modules::mixer::mixer_panel(),
         "notifications" => crate::modules::notifications::bell_panel(),
         "notes" => crate::notes_panel(),
         "settings" => crate::modules::settings::settings_panel(),

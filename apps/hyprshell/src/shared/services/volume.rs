@@ -16,7 +16,7 @@ use platform_layershell::EventSender;
 
 use crate::core::config::AudioConfig;
 use crate::shared::services::broadcast::{Broadcast, Service};
-use crate::shared::services::pipewire::{self, Graph, Node};
+use crate::shared::services::pipewire::{self, Graph, Node, NodeKind};
 
 const SINK: &str = "@DEFAULT_AUDIO_SINK@";
 const SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
@@ -162,9 +162,27 @@ pub fn set_mic(level: i32) {
     ]);
 }
 
+/// Republishes the graph with `edit` applied to one node, so a mixer's slider follows the pointer instead of
+/// waiting for `pw-dump` to report the change back.
+///
+/// The same optimism [`set`] has, and needed more here: a drag emits a mutation per pointer move, and a bar
+/// that only moved once the monitor answered would trail the finger by a round trip each time. The reading
+/// that follows is authoritative — it reconciles whatever PipeWire actually accepted.
+fn optimistically(id: u32, edit: impl FnOnce(&mut Node)) {
+    let Some(mut graph) = pipewire::current() else {
+        return;
+    };
+    let Some(node) = graph.nodes.iter_mut().find(|node| node.id == id) else {
+        return;
+    };
+    edit(node);
+    pipewire::publish(graph);
+}
+
 /// Sets one node's volume by id — an output device, an input device, or a single application's stream.
 pub fn set_node(id: u32, level: i32) {
     let level = level.clamp(0, settings().ceiling());
+    optimistically(id, |node| node.level = level);
     apply(vec![
         "set-volume".into(),
         id.to_string(),
@@ -173,19 +191,33 @@ pub fn set_node(id: u32, level: i32) {
 }
 
 pub fn toggle_node_mute(id: u32) {
+    optimistically(id, |node| node.muted = !node.muted);
     apply(vec!["set-mute".into(), id.to_string(), "toggle".into()]);
 }
 
 /// Makes `id` the default sink or source. WirePlumber writes the choice into PipeWire's `default` metadata,
 /// which is what the graph reads back, so nothing here has to guess whether it took.
 pub fn set_default(id: u32) {
+    if let Some(mut graph) = pipewire::current()
+        && let Some(node) = graph.node(id)
+    {
+        // The metadata names the node, so the optimistic edit has to as well — writing the id would leave the
+        // graph naming a default no sink answers to.
+        let (name, kind) = (node.name.clone(), node.kind);
+        match kind {
+            NodeKind::Sink => graph.default_sink = name,
+            NodeKind::Source => graph.default_source = name,
+            // A stream has no "default" to be; `wpctl` would refuse it too.
+            _ => return,
+        }
+        pipewire::publish(graph);
+    }
     apply(vec!["set-default".into(), id.to_string()]);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::services::pipewire::NodeKind;
 
     fn node(id: u32, name: &str, kind: NodeKind, level: i32) -> Node {
         Node {

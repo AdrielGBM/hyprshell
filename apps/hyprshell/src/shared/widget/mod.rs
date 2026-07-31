@@ -52,6 +52,44 @@ pub fn meter(
     )?))
 }
 
+/// How much taller than its bar a [`slider`]'s hit area is, above and below. A 6px meter is a target a
+/// pointer misses; the padding is what makes the whole row's height pressable without the bar itself growing.
+const SLIDER_REACH: f32 = 7.0;
+
+/// A [`meter`] that is also a control: pressing or dragging anywhere along it reports the fraction under the
+/// pointer, as `0..1`.
+///
+/// `on_drag` fires on the press as well as on every move until release, so a single click is a set and a drag
+/// is a scrub — one handler covers both. The width comes from the box's own laid-out rect rather than from a
+/// constant, so the same slider works in a drawer and on a settings page without being told how wide it is.
+pub fn slider(
+    fraction: Live<f32>,
+    tint: Live<Color>,
+    track: Color,
+    height: f32,
+    on_set: impl Fn(f32) + 'static,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let bar = meter(fraction, tint, track, height)?;
+    let area = StyledContainer::new(
+        LayoutStyle::new()
+            .width(SizeDimension::Percent(1.0))
+            .padding_vertical(SLIDER_REACH)
+            .justify_content(JustifyContent::CENTER),
+        |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
+        vec![bar],
+    )?;
+    let rect = telar::track_layout(area.layout_node())
+        .expect("a container registers its rect")
+        .read_only();
+    Ok(Box::new(area.on_drag(move |px, _py| {
+        let width = rect.get().width;
+        if width <= 0.0 {
+            return;
+        }
+        on_set((px / width).clamp(0.0, 1.0));
+    })))
+}
+
 /// A label on the left, its value on the right. The label never shrinks, so a long value wraps or truncates
 /// rather than squeezing the word that says what it is.
 pub fn label_value(

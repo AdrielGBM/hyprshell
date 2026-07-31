@@ -1,0 +1,10 @@
+[mixer]
+title = "Volume mixer"
+default = "Default device"
+set_default = "Click to make default"
+unavailable = "No audio devices — PipeWire is not running."
+
+[mixer.group]
+outputs = "Output"
+inputs = "Input"
+streams = "Applications"

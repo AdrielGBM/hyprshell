@@ -1,0 +1,10 @@
+[mixer]
+title = "Mezclador de volumen"
+default = "Dispositivo predeterminado"
+set_default = "Clic para usarlo por defecto"
+unavailable = "Sin dispositivos de audio: PipeWire no está en ejecución."
+
+[mixer.group]
+outputs = "Salida"
+inputs = "Entrada"
+streams = "Aplicaciones"

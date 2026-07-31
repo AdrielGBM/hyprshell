@@ -279,6 +279,14 @@ impl ModuleRegistry {
         self.modules.get(id)
     }
 
+    /// Every registered id, sorted. What the settings application's per-module overrides enumerate, so a chip
+    /// can be restyled before it has been put on a bar.
+    pub fn ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.modules.keys().cloned().collect();
+        ids.sort_unstable();
+        ids
+    }
+
     /// Marks every registered module the popout layer has card content for. Driven off that list rather than
     /// declared per module, so the two cannot drift into a chip that opens an empty card.
     pub fn wire_popouts(&mut self) {
@@ -398,6 +406,21 @@ pub fn default_registry() -> ModuleRegistry {
             .on_click(crate::modules::osd::volume_action)
             .on_scroll(crate::modules::osd::volume_scroll),
     );
+    // The pointer path to a non-default device. The volume chip stays what it is — a level, a mute and a wheel
+    // — because a chip that opened a panel could no longer toggle mute with the same press.
+    registry.register(
+        "mixer",
+        ModuleDef::new(|_ctx| {
+            let fg = module_fg();
+            crate::icon_view(
+                || "sliders-horizontal".to_string(),
+                move || fg.get(),
+                icon_px(),
+            )
+        })
+        .icon()
+        .opens(),
+    );
     registry.register(
         "brightness",
         ModuleDef::new(|_ctx| crate::brightness())
@@ -489,6 +512,7 @@ mod tests {
             "battery",
             "bluetooth",
             "network",
+            "mixer",
             "notifications",
             "notes",
             "settings",
