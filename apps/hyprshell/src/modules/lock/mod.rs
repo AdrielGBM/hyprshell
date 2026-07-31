@@ -173,7 +173,7 @@ pub(crate) fn centred(item: Box<dyn LayoutItem>) -> Result<Box<dyn LayoutItem>, 
 
 fn avatar(config: &Arc<Config>) -> Option<Box<dyn LayoutItem>> {
     let path = crate::modules::dashboard::avatar_path(&config.dashboard)?;
-    crate::shared::picture::square(&path, AVATAR)
+    crate::shared::picture::circle(&path, AVATAR)
 }
 
 fn user_name(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {

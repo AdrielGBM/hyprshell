@@ -19,26 +19,37 @@ pub fn decode(path: &Path) -> Option<ImageData> {
     Some(ImageData::new(rgba.into_raw(), width, height))
 }
 
-/// A fixed-size, cover-cropped picture — an avatar, a cover. Decoding happens once, at build time: the file is
-/// on local disk and a surface that re-read it every frame would be doing a JPEG decode per repaint.
-pub fn square(path: &Path, size: f32) -> Option<Box<dyn LayoutItem>> {
+/// A fixed-size, cover-cropped picture with rounded corners — a cover, a tile.
+///
+/// The radius goes on the `Image` and not on a box around it: a `StyledContainer`'s radius rounds the *fill*
+/// it paints, and a bitmap child draws straight over that. This is `Image::with_radius`, which telar grew for
+/// exactly this reason.
+pub fn square(path: &Path, size: f32, radius: f32) -> Option<Box<dyn LayoutItem>> {
     fitted(
         path,
         LayoutStyle::new().width(size).height(size).flex_shrink(0.0),
+        radius,
     )
 }
 
+/// A square picture rounded all the way to a circle — a face, which is the one picture in this shell that is
+/// a person rather than a thing.
+pub fn circle(path: &Path, size: f32) -> Option<Box<dyn LayoutItem>> {
+    square(path, size, size / 2.0)
+}
+
 /// A picture that fills its container's width at a fixed height.
-pub fn banner(path: &Path, height: f32) -> Option<Box<dyn LayoutItem>> {
+pub fn banner(path: &Path, height: f32, radius: f32) -> Option<Box<dyn LayoutItem>> {
     fitted(
         path,
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
             .height(height),
+        radius,
     )
 }
 
-fn fitted(path: &Path, style: LayoutStyle) -> Option<Box<dyn LayoutItem>> {
+fn fitted(path: &Path, style: LayoutStyle, radius: f32) -> Option<Box<dyn LayoutItem>> {
     let data = Arc::new(decode(path)?);
     let image: Result<Image, LayoutError> = Image::new(
         style,
@@ -47,7 +58,7 @@ fn fitted(path: &Path, style: LayoutStyle) -> Option<Box<dyn LayoutItem>> {
         || ObjectFit::Cover,
     );
     match image {
-        Ok(image) => Some(Box::new(image)),
+        Ok(image) => Some(Box::new(image.with_radius(radius))),
         Err(e) => {
             tracing::warn!("cannot lay out {}: {e}", path.display());
             None

@@ -254,7 +254,7 @@ fn user_card(
     let name = username();
     let host = hostname();
 
-    let avatar = match avatar_path(config).and_then(|path| picture::square(&path, AVATAR)) {
+    let avatar = match avatar_path(config).and_then(|path| picture::circle(&path, AVATAR)) {
         Some(picture) => picture,
         None => icon_view(
             || "circle-user-round".to_string(),

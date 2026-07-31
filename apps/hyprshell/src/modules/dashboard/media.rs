@@ -344,7 +344,8 @@ fn cover_art(
     let rows = ReactiveList::with_gap(
         move || vec![art_file(&source.get())],
         |path: &Option<String>| path.clone().unwrap_or_default(),
-        move |path: Option<String>| match path.and_then(|p| picture::square(p.as_ref(), COVER)) {
+        move |path: Option<String>| match path.and_then(|p| picture::square(p.as_ref(), COVER, 8.0))
+        {
             Some(image) => Ok(image),
             None => placeholder(theme),
         },
