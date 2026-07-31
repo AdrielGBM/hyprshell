@@ -30,4 +30,4 @@ libc = "0.2.189"
 rustfft = "6.4.1"
 
 [dev-dependencies]
-platform-headless = { path = "../../../telar/crates/platform/platform-headless" }
+platform-headless = { path = "../../../telar/crates/platform/platform-headless", package = "telar-platform-headless" }
