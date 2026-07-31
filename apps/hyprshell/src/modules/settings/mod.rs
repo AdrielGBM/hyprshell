@@ -1,30 +1,33 @@
 mod pages;
 
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
-use telar::{
-    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
-    use_theme,
-};
 use serde::Serialize;
+use telar::{
+    AlignItems, Color, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
+    ReactiveList, Rect, RectStyle, RwSignal, ShapeStyle, SizeDimension, StyledContainer, Text,
+    box_item, signal, use_theme,
+};
 
 use crate::core::config::{
     ActiveWindowConfig, Align, AnimationConfig, AppsConfig, AudioConfig, BackgroundConfig,
-    BackgroundVisualiserConfig, BarConfig, BarsConfig, BatteryConfig, BluetoothConfig,
-    BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig, DashboardConfig,
-    DesktopClockConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups, GeneralConfig,
-    GpuConfig, IconsConfig, KeyNavConfig, LauncherConfig, LockStatusConfig, LyricsConfig,
-    MediaConfig, MediaScroll, ModuleEntry, NetworkConfig, NotificationsConfig, OsdConfig,
-    PanelsConfig, PathsConfig, Placement, PopoutsConfig, RecorderConfig, ScaleConfig,
-    ScreenshotConfig, Shape, ShapeConfig, SidebarConfig, StatusIconsConfig, TemperatureConfig,
-    TemperatureUnit, ThemeConfig, ToastEvents, ToastsConfig, TrayConfig, UtilitiesConfig,
-    VisualiserConfig, WallpaperConfig, WallpaperTransition, WeatherConfig, WorkspacesConfig,
+    BackgroundVisualiserConfig, BarConfig, BarsConfig, BatteryConfig, BatteryWarning,
+    BluetoothConfig, BrightnessConfig, Capitalize, ClockConfig, Config, CornersConfig,
+    DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups,
+    GeneralConfig, GpuConfig, IconsConfig, IdleConfig, IdleStage, KeyNavConfig, LauncherConfig,
+    LockStatusConfig, LyricsConfig, MediaConfig, MediaScroll, ModuleEntry, ModuleOverride,
+    NetworkConfig, NotificationsConfig, OpenMode, OsdConfig, PanelsConfig, PathsConfig, Placement,
+    PopoutsConfig, RecorderConfig, ScaleConfig, ScreenshotConfig, Shape, ShapeConfig,
+    SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, ToastEvents,
+    ToastsConfig, TrayConfig, UtilitiesConfig, Variant, VisualiserConfig, WallpaperConfig,
+    WallpaperTransition, WeatherConfig, WorkspacesConfig,
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
-use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme};
+use crate::shared::services::apps::{self, App};
+use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme, THEME_TOKENS};
 
 const EDGES: &[&str] = &["top", "bottom", "left", "right"];
 const ALIGNS: &[&str] = &["start", "center", "end"];
@@ -41,6 +44,8 @@ const TRANSITIONS: &[&str] = &["fade", "wipe", "none"];
 const SHOT_BACKENDS: &[&str] = &["auto", "screencopy", "grim"];
 const RECORDER_BACKENDS: &[&str] = &["auto", "wf-recorder", "gpu-screen-recorder"];
 const CURVES: &[&str] = &["gentle", "snappy", "bouncy"];
+const VARIANT_STYLES: &[&str] = &["default", "filled"];
+const OPEN_MODES: &[&str] = &["drawer", "float"];
 const EASINGS: &[&str] = &["linear", "ease-in", "ease-out", "ease-in-out"];
 
 /// The nav pane's width, the gap to the forms beside it, and how wide the search box is. Wide enough for the
@@ -82,19 +87,33 @@ pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
 
 /// The settings panel: an in-shell editor for `config.toml`. Each section's fields are seeded from the current
 /// file; its Save button writes just that section back with [`Config::save_section`] (format-preserving), which
-/// the running shell hot-reloads and applies live. Map-valued config (`theme.colors`, `background.monitors`,
-/// per-module overrides) stays hand-edited in the TOML for now.
+/// the running shell hot-reloads and applies live. With `[general] live_settings` on, a form applies itself a
+/// moment after the last edit and Revert (in the header) puts the file back to how it was when the window
+/// opened — see [`live_apply`].
 pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let path = Arc::new(Config::default_path());
     let config = Arc::new(Config::load_or_default(&path));
     crate::shared::services::locale::attach(config.language());
 
-    // The selection and the query are the whole state of the application. Both are plain signals on this
-    // surface: a settings window reopened from scratch should start on the first page, not on wherever the
-    // last one was left, which is a preference nobody asked to have remembered.
-    let selected = signal(0usize);
-    let query = signal(String::new());
+    // The selection and the query are the whole state of the application. Plain signals on this surface: a
+    // settings window reopened from the bar should start on the first page, not on wherever the last one was
+    // left, which is a preference nobody asked to have remembered. The one exception is the window reopening
+    // *itself* — a save or a revert reloads the shell, which closes every surface — and that carries its place
+    // across in `RESUME`, so applying a change reads as a blink rather than as the window disappearing.
+    let resumed = RESUME.with(|slot| slot.borrow_mut().take());
+    let selected = signal(resumed.as_ref().map(|r| r.page).unwrap_or(0));
+    let query = signal(resumed.map(|r| r.query).unwrap_or_default());
+    PANEL_STATE.with(|state| {
+        *state.borrow_mut() = Some((selected.read_only(), query.read_only()));
+    });
+    // What Revert restores: the file as it was when the *user* opened this window, not as it was a reload ago.
+    OPENED_WITH.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.is_none() {
+            *slot = std::fs::read_to_string(path.as_path()).ok();
+        }
+    });
 
     let body = Container::new(
         LayoutStyle::new()
@@ -103,7 +122,13 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
             .width(SizeDimension::Percent(1.0)),
         vec![
             nav_pane(selected.clone(), query.read_only(), theme)?,
-            page_stack(selected.read_only(), query.read_only(), config, path, theme)?,
+            page_stack(
+                selected.read_only(),
+                query.read_only(),
+                config,
+                Arc::clone(&path),
+                theme,
+            )?,
         ],
     )?;
 
@@ -112,13 +137,25 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
             .flex_column()
             .gap(16.0)
             .width(SizeDimension::Percent(1.0)),
-        vec![header(query, theme)?, Box::new(body)],
+        vec![header(query, path, theme)?, Box::new(body)],
     )?;
     Ok(Box::new(panel))
 }
 
-/// The title and the search box, which is the one control that reaches every page.
-fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+/// Forgets the settings window's place and its Revert snapshot. Called when the panel is closed for real, so
+/// the next one opens on the first page against the file as it stands.
+pub fn forget_panel_state() {
+    RESUME.with(|slot| *slot.borrow_mut() = None);
+    OPENED_WITH.with(|slot| *slot.borrow_mut() = None);
+    PANEL_STATE.with(|state| *state.borrow_mut() = None);
+}
+
+/// The title, the search box that reaches every page, and Revert.
+fn header(
+    query: RwSignal<String>,
+    path: Arc<PathBuf>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let title = Text::auto(
         || telar::t!("settings.title"),
         LayoutStyle::new().flex_grow(1.0),
@@ -146,13 +183,35 @@ fn header(query: RwSignal<String>, theme: NordTheme) -> Result<Box<dyn LayoutIte
         vec![box_item(input)],
     )?;
 
+    // Not a `save_button`: that one now records the form it belongs to, and Revert belongs to no form.
+    let revert_ink = theme.red;
+    let revert = StyledContainer::new(
+        LayoutStyle::new()
+            .padding_horizontal(12.0)
+            .padding_vertical(6.0)
+            .flex_shrink(0.0)
+            .justify_content(JustifyContent::CENTER),
+        move |_| RectStyle::filled(theme.base, 8.0),
+        vec![box_item(Text::auto(
+            || telar::t!("settings.revert"),
+            LayoutStyle::new(),
+            move || {
+                theme
+                    .text_style(FontRole::Caption, revert_ink)
+                    .with_weight(700)
+            },
+        )?)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || revert_to_opened(path.as_path()));
+
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
             .gap(12.0)
             .width(SizeDimension::Percent(1.0)),
-        vec![Box::new(title), Box::new(boxed)],
+        vec![Box::new(title), Box::new(boxed), Box::new(revert)],
     )?))
 }
 
@@ -264,7 +323,11 @@ fn page_stack(
             .min_width(0.0)
             .height(height),
         move |_viewport| {
-            let (config, path) = (config.clone(), path.clone());
+            let (_opened_with, path) = (config.clone(), path.clone());
+            // Re-read per rebuild rather than seeding every form from the snapshot taken when the window
+            // opened. A form rebuilt is a form re-seeded, which is what a user who has just saved another one
+            // — or pressed Revert — expects to see; the snapshot only decides how tall the page area is.
+            let config = Arc::new(Config::load_or_default(path.as_path()));
             let source = move || {
                 // Both read out first: `visible` translates labels, which reads the locale signal, and a
                 // nested read inside another signal's borrow is the re-entrant panic that only fires when the
@@ -305,6 +368,7 @@ fn general_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let lang = signal(telar::current_locale().unwrap_or_else(|| config.language()));
     let over_fullscreen = signal(config.general.show_over_fullscreen);
+    let live = signal(config.general.live_settings);
     let logo = signal(config.general.logo.clone());
     let apps = config.general.apps.clone();
     // `[general.apps] terminal` is the field's home now; a config still carrying the older top-level key is
@@ -369,6 +433,11 @@ fn general_section(
             "xdg-open",
             theme,
         )?,
+        toggle_field(
+            || telar::t!("settings.field.live_settings"),
+            live.clone(),
+            theme,
+        )?,
     ];
 
     let path = path.to_path_buf();
@@ -383,6 +452,7 @@ fn general_section(
                 &GeneralConfig {
                     language: lang.peek(),
                     show_over_fullscreen: over_fullscreen.peek(),
+                    live_settings: live.peek(),
                     logo: logo.peek(),
                     terminal: legacy_terminal.clone(),
                     apps: AppsConfig {
@@ -440,6 +510,214 @@ fn language_name(code: &str) -> String {
     }
 }
 
+/// The palette tokens the preview strip shows, in the order they read as a design rather than as a list: the
+/// three surfaces the shell is built out of, the two inks over them, then the hues.
+const PREVIEW_TOKENS: &[&str] = &[
+    "base", "surface", "overlay", "text", "subtle", "accent", "red", "orange", "yellow", "green",
+    "cyan", "blue", "teal", "purple",
+];
+
+/// What `[theme] accent` accepts, in the order [`NordTheme::accent_by_name`] resolves them. `""` is the
+/// palette's own accent, which is the value a config that never set one carries.
+const ACCENT_NAMES: &[&str] = &[
+    "", "blue", "cyan", "teal", "red", "orange", "yellow", "green", "purple",
+];
+
+const SWATCH: f32 = 22.0;
+const SWATCH_RADIUS: f32 = 6.0;
+const TILE_WIDTH: f32 = 76.0;
+const TILE_HEIGHT: f32 = 40.0;
+
+/// A palette a control draws from and re-reads: the pending `[theme]` selection resolved through
+/// [`Config::theme_with`], so a swatch shows the theme being chosen rather than the one being worn.
+type Palette = Rc<dyn Fn() -> NordTheme>;
+
+/// Resolves the page's unsaved `[theme]` selection into a palette, on every read.
+///
+/// Not a [`Live`](crate::shared::reactive::Live): that is a `Memo`, which needs its value to be `PartialEq` to
+/// know whether it moved, and a palette is twenty-two colours and a font table. A closure re-resolving is a
+/// match and a struct copy — cheaper than the comparison would be.
+fn pending_palette(
+    config: &Config,
+    name: telar::ReadSignal<String>,
+    mode: telar::ReadSignal<String>,
+    accent: telar::ReadSignal<String>,
+) -> Palette {
+    let base = Arc::new(config.clone());
+    let saved = config.theme.clone();
+    Rc::new(move || {
+        // Read out first: each is a separate signal, and `theme_with` is not something to run inside one's borrow.
+        let (name, mode, accent) = (name.get(), mode.get(), accent.get());
+        base.theme_with(&ThemeConfig {
+            name,
+            mode,
+            accent,
+            ..saved.clone()
+        })
+    })
+}
+
+/// The palette as fourteen swatches. The one control on this page that is not a field: a scheme is a thing you
+/// look at, and `accent = "cyan"` in a text box is a name for a colour rather than the colour.
+fn palette_preview(palette: Palette, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut swatches: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(PREVIEW_TOKENS.len());
+    for token in PREVIEW_TOKENS {
+        let palette = palette.clone();
+        swatches.push(Box::new(StyledContainer::new(
+            LayoutStyle::new().width(SWATCH).height(SWATCH),
+            move |_r| {
+                RectStyle::filled(palette().token(token), SWATCH_RADIUS)
+                    .with_stroke(telar::Stroke::new(theme.overlay, 1.0))
+            },
+            vec![],
+        )?));
+    }
+    let row = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0),
+        swatches,
+    )?;
+    labelled(|| telar::t!("settings.field.palette"), Box::new(row), theme)
+}
+
+/// One tile per selectable theme, each painted in its own colours: the surface it would give the shell, the ink
+/// it would write with, and its accent. The tile a cycle button replaces — ten presses to see ten palettes is
+/// the control this page had, and the reason K2 existed.
+fn theme_swatches(
+    name: RwSignal<String>,
+    mode: telar::ReadSignal<String>,
+    config: Config,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let config = Arc::new(config);
+    let mut tiles: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(theme_options().len());
+    for option in theme_options() {
+        tiles.push(theme_tile(
+            option,
+            name.clone(),
+            mode.clone(),
+            &config,
+            theme,
+        )?);
+    }
+    let grid = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0),
+        tiles,
+    )?;
+    labelled(|| telar::t!("settings.field.name"), Box::new(grid), theme)
+}
+
+fn theme_tile(
+    option: &'static str,
+    name: RwSignal<String>,
+    mode: telar::ReadSignal<String>,
+    config: &Arc<Config>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let saved = config.theme.clone();
+    let config = Arc::clone(config);
+    // Resolved with the page's *pending* mode, so switching to light repaints every tile rather than showing
+    // ten dark palettes above a mode the user has already changed.
+    let swatch_of = move || {
+        let mode = mode.get();
+        config.theme_with(&ThemeConfig {
+            name: option.to_string(),
+            mode,
+            ..saved.clone()
+        })
+    };
+
+    let ink = swatch_of.clone();
+    let label = Text::auto(
+        move || option.to_string(),
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Caption, ink().text),
+    )?;
+    let dot_of = swatch_of.clone();
+    let dot = StyledContainer::new(
+        LayoutStyle::new().width(10.0).height(10.0).flex_shrink(0.0),
+        move |_r| RectStyle::filled(dot_of().accent, 5.0),
+        vec![],
+    )?;
+    let row = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(5.0),
+        vec![Box::new(dot), box_item(label)],
+    )?;
+
+    let selected = name.read_only();
+    let fill = swatch_of;
+    let tile = StyledContainer::new(
+        LayoutStyle::new()
+            .width(TILE_WIDTH)
+            .height(TILE_HEIGHT)
+            .padding_horizontal(6.0)
+            .align_items(AlignItems::CENTER)
+            .justify_content(JustifyContent::CENTER),
+        move |_r| {
+            // Read both out before painting: `selected` and the palette closure each touch the runtime.
+            let chosen = selected.get() == option;
+            let palette = fill();
+            let border = if chosen { theme.accent } else { theme.overlay };
+            RectStyle::filled(palette.surface, SWATCH_RADIUS)
+                .with_stroke(telar::Stroke::new(border, if chosen { 2.0 } else { 1.0 }))
+        },
+        vec![Box::new(row)],
+    )?
+    .on_press(move || name.set(option.to_string()));
+    Ok(Box::new(tile))
+}
+
+/// The accents `[theme] accent` accepts, each drawn in the pending palette's own version of that hue — so
+/// "cyan" under rosé-pine is rosé-pine's cyan, which is the whole point of naming a hue rather than a hex.
+fn accent_swatches(
+    accent: RwSignal<String>,
+    palette: Palette,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut swatches: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(ACCENT_NAMES.len());
+    for option in ACCENT_NAMES {
+        let selected = accent.read_only();
+        let palette = palette.clone();
+        let set = accent.clone();
+        swatches.push(Box::new(
+            StyledContainer::new(
+                LayoutStyle::new().width(SWATCH).height(SWATCH),
+                move |_r| {
+                    let chosen = selected.get() == *option;
+                    let colour = palette().accent_by_name(option);
+                    let border = if chosen { theme.text } else { theme.overlay };
+                    RectStyle::filled(colour, SWATCH_RADIUS)
+                        .with_stroke(telar::Stroke::new(border, if chosen { 2.0 } else { 1.0 }))
+                },
+                vec![],
+            )?
+            .on_press(move || set.set(option.to_string())),
+        ));
+    }
+    let row = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0),
+        swatches,
+    )?;
+    labelled(|| telar::t!("settings.field.accent"), Box::new(row), theme)
+}
+
 fn theme_section(
     config: &Config,
     path: &Path,
@@ -462,13 +740,20 @@ fn theme_section(
     let scale_font = signal(t.scale.font.to_string());
     let scale_icon = signal(t.scale.icon.to_string());
 
+    // What the pickers below and the preview above them all read: the palette the *pending* selection resolves
+    // to, not the one the shell is currently wearing. A swatch row showing the saved theme while the user is
+    // choosing another one is a preview of the wrong thing.
+    let pending = pending_palette(
+        config,
+        name.read_only(),
+        mode.read_only(),
+        accent.read_only(),
+    );
+
     let rows = vec![
-        enum_field(
-            || telar::t!("settings.field.name"),
-            name.clone(),
-            theme_options(),
-            theme,
-        )?,
+        palette_preview(pending.clone(), theme)?,
+        theme_swatches(name.clone(), mode.read_only(), config.clone(), theme)?,
+        accent_swatches(accent.clone(), pending, theme)?,
         enum_field(
             || telar::t!("settings.field.color_mode"),
             mode.clone(),
@@ -485,12 +770,6 @@ fn theme_section(
             || telar::t!("settings.field.fallback"),
             fallback.clone(),
             BUILT_IN_THEMES,
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.accent"),
-            accent.clone(),
-            "cyan",
             theme,
         )?,
         text_field(
@@ -659,17 +938,129 @@ fn shape_section(
 #[derive(Clone)]
 struct BarSignals {
     size: RwSignal<String>,
-    start: RwSignal<String>,
-    center: RwSignal<String>,
-    end: RwSignal<String>,
+    zones: ZoneEditor,
 }
 
 fn bar_signals(bar: &BarConfig) -> BarSignals {
     BarSignals {
         size: signal(bar.size.to_string()),
-        start: signal(join_ids(&bar.start)),
-        center: signal(join_ids(&bar.center)),
-        end: signal(join_ids(&bar.end)),
+        zones: ZoneEditor::new(bar),
+    }
+}
+
+/// K3: one bar's three zones, edited as draggable module pills.
+///
+/// What this replaces is three comma-separated text fields of desktop ids — a control that required knowing
+/// every module's spelling, gave no way to see what was available, and turned "put the clock on the other end"
+/// into two careful edits. A pill can be dragged anywhere in any of the three zones, dropped to reorder, and
+/// dismissed with its own ✕; the palette underneath is every module the shell registers.
+///
+/// The entries are carried whole rather than by id, which is what keeps `{ id = "clock", accent = "red" }`
+/// intact across a reorder — the thing the CSV field had to reconstruct by claiming entries by name.
+#[derive(Clone)]
+struct ZoneEditor {
+    zones: [RwSignal<Vec<ModuleEntry>>; 3],
+    /// Where each pill and each zone row was laid out. A drop is resolved against the pointer's actual
+    /// position, so dragging a pill onto another zone's *empty* space works as well as onto a pill in it.
+    rects: PillRects,
+    /// Which zone the palette adds to, so pressing a module is one press rather than a press and a drag.
+    target: RwSignal<usize>,
+}
+
+/// Every pill's laid-out box, keyed by `(zone, index)` — and by `(zone, ZONE_ROW)` for a zone's own row.
+type PillRects =
+    Rc<std::cell::RefCell<std::collections::HashMap<(usize, usize), telar::ReadSignal<Rect>>>>;
+
+/// The key a zone row registers its own rect under — past any pill index it could ever hold.
+const ZONE_ROW: usize = usize::MAX;
+
+impl ZoneEditor {
+    fn new(bar: &BarConfig) -> Self {
+        Self {
+            zones: [
+                signal(bar.start.clone()),
+                signal(bar.center.clone()),
+                signal(bar.end.clone()),
+            ],
+            rects: Rc::new(std::cell::RefCell::new(std::collections::HashMap::new())),
+            target: signal(0usize),
+        }
+    }
+
+    fn entries(&self, zone: usize) -> Vec<ModuleEntry> {
+        self.zones[zone].peek()
+    }
+
+    fn append(&self, zone: usize, entry: ModuleEntry) {
+        let mut entries = self.zones[zone].peek();
+        entries.push(entry);
+        self.zones[zone].set(entries);
+    }
+
+    fn remove(&self, zone: usize, index: usize) {
+        let mut entries = self.zones[zone].peek();
+        if index < entries.len() {
+            entries.remove(index);
+            self.zones[zone].set(entries);
+        }
+    }
+
+    /// Moves the pill at `(from_zone, from_index)` to `to_index` of `to_zone`.
+    fn move_entry(&self, from: (usize, usize), to: (usize, usize)) {
+        let mut source = self.zones[from.0].peek();
+        if from.1 >= source.len() {
+            return;
+        }
+        let entry = source.remove(from.1);
+        if from.0 == to.0 {
+            let index = to.1.min(source.len());
+            source.insert(index, entry);
+            self.zones[from.0].set(source);
+            return;
+        }
+        let mut target = self.zones[to.0].peek();
+        let index = to.1.min(target.len());
+        target.insert(index, entry);
+        self.zones[from.0].set(source);
+        self.zones[to.0].set(target);
+    }
+
+    /// Where a drop at `point` (surface coordinates) lands: the pill under it, else the zone row it is over.
+    fn drop_target(&self, point: (f32, f32)) -> Option<(usize, usize)> {
+        // Read the three lengths once, and use them to ignore the rects of pills that are no longer there. A
+        // zone that went from three pills to two leaves `(zone, 2)` in the map pointing at a destroyed
+        // widget's rect, and nothing about that entry says so — it would go on winning drops over the area it
+        // used to occupy, ahead of whichever live pill the map happened to be walked to second.
+        let lengths = [
+            self.zones[0].peek().len(),
+            self.zones[1].peek().len(),
+            self.zones[2].peek().len(),
+        ];
+        let rects = self.rects.borrow();
+        let mut row: Option<(usize, usize)> = None;
+        for ((zone, index), rect) in rects.iter() {
+            if *index != ZONE_ROW && *index >= lengths[*zone] {
+                continue;
+            }
+            let rect = rect.get();
+            if !rect.contains(point.0, point.1) {
+                continue;
+            }
+            if *index == ZONE_ROW {
+                // Held rather than returned: a pill's own rect is inside its row's, and the pill is the more
+                // precise answer whichever order the map happens to be walked in.
+                row = Some((*zone, lengths[*zone]));
+                continue;
+            }
+            // The half of the pill the pointer is on decides which side of it the dragged one lands.
+            let after = point.0 > rect.x + rect.width / 2.0;
+            return Some((*zone, index + usize::from(after)));
+        }
+        row
+    }
+
+    fn track(&self, zone: usize, index: usize, rect: telar::ReadSignal<Rect>) {
+        self.rects.borrow_mut().insert((zone, index), rect);
     }
 }
 
@@ -678,7 +1069,7 @@ fn bar_rows(
     s: &BarSignals,
     theme: NordTheme,
 ) -> Result<Vec<Box<dyn LayoutItem>>, LayoutError> {
-    Ok(vec![
+    let mut rows = vec![
         subheader(label, theme)?,
         text_field(
             || telar::t!("settings.field.size"),
@@ -686,68 +1077,183 @@ fn bar_rows(
             "34",
             theme,
         )?,
-        text_field(
-            || telar::t!("settings.field.start"),
-            s.start.clone(),
-            "module ids",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.center"),
-            s.center.clone(),
-            "module ids",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.end"),
-            s.end.clone(),
-            "module ids",
-            theme,
-        )?,
-    ])
+    ];
+    for (zone, label) in ZONE_LABELS.iter().enumerate() {
+        rows.push(zone_row(label, zone, &s.zones, theme)?);
+    }
+    rows.push(module_palette(&s.zones, theme)?);
+    Ok(rows)
+}
+
+const ZONE_LABELS: [&str; 3] = ["start", "center", "end"];
+const PILL_RADIUS: f32 = 8.0;
+
+/// One zone: its name, and the pills in it.
+fn zone_row(
+    label: &'static str,
+    zone: usize,
+    editor: &ZoneEditor,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let source = editor.zones[zone].read_only();
+    let list_editor = editor.clone();
+    let pills = ReactiveList::with_style(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0),
+        move || source.get().into_iter().enumerate().collect(),
+        // Keyed on the position *and* the id: a reorder has to redraw both pills that swapped, and a list
+        // keyed on the id alone would leave them where they were.
+        |(index, entry): &(usize, ModuleEntry)| format!("{index}|{}", entry.id),
+        move |(index, entry): (usize, ModuleEntry)| {
+            module_pill(zone, index, entry, list_editor.clone(), theme)
+        },
+    )?;
+
+    let selected = editor.target.read_only();
+    let choose = editor.target.clone();
+    let row = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(8.0)
+            .padding_all(6.0)
+            .min_height(theme.font(FontRole::Body) * 2.4)
+            .width(SizeDimension::Percent(1.0)),
+        move |_r| {
+            let fill = if selected.get() == zone {
+                theme.overlay
+            } else {
+                theme.base
+            };
+            RectStyle::filled(fill, PILL_RADIUS)
+        },
+        vec![
+            box_item(Text::auto(
+                move || pages::label("settings.field", label),
+                LayoutStyle::new().width(90.0).flex_shrink(0.0),
+                move || theme.text_style(FontRole::Caption, theme.subtle),
+            )?),
+            Box::new(pills),
+        ],
+    )?
+    .on_press(move || choose.set(zone));
+    let rect = telar::track_layout(row.layout_node())
+        .expect("a container registers its rect")
+        .read_only();
+    editor.track(zone, ZONE_ROW, rect);
+    Ok(Box::new(row))
+}
+
+/// One module on a bar: its id, a ✕ that takes it off, and the drag that moves it.
+fn module_pill(
+    zone: usize,
+    index: usize,
+    entry: ModuleEntry,
+    editor: ZoneEditor,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let id = entry.id.clone();
+    let label = Text::auto(
+        move || id.clone(),
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Caption, theme.text),
+    )?;
+    let remove = {
+        let editor = editor.clone();
+        toggle_pill("x", false, theme.red, theme, move || {
+            editor.remove(zone, index)
+        })?
+    };
+
+    let pill = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(4.0)
+            .padding_horizontal(8.0)
+            .padding_vertical(4.0)
+            .flex_shrink(0.0),
+        move |_r| RectStyle::filled(theme.surface, PILL_RADIUS),
+        vec![box_item(label), remove],
+    )?;
+    let rect = telar::track_layout(pill.layout_node())
+        .expect("a container registers its rect")
+        .read_only();
+    editor.track(zone, index, rect.clone());
+
+    let dropped = editor.clone();
+    let pill = pill.on_drag_end(move |x, y| {
+        // The gesture reports where the pointer is *inside the pill*; the drop is about where that is on the
+        // surface, so the pill's own origin has to be added back before anything can be hit-tested.
+        let origin = rect.peek();
+        let point = (origin.x + x, origin.y + y);
+        if let Some(target) = dropped.drop_target(point) {
+            dropped.move_entry((zone, index), target);
+        }
+    });
+    Ok(Box::new(pill))
+}
+
+/// Every module the shell registers, as something to press. The add half of K3: the CSV field it replaces
+/// required knowing a module existed before it could be typed.
+fn module_palette(
+    editor: &ZoneEditor,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let registry = crate::shared::module::default_registry();
+    let mut chips: Vec<Box<dyn LayoutItem>> = Vec::new();
+    for id in registry.ids() {
+        let editor = editor.clone();
+        let label = id.clone();
+        let text = Text::auto(
+            move || label.clone(),
+            LayoutStyle::new(),
+            move || theme.text_style(FontRole::Caption, theme.subtle),
+        )?;
+        chips.push(Box::new(
+            StyledContainer::new(
+                LayoutStyle::new()
+                    .padding_horizontal(8.0)
+                    .padding_vertical(4.0)
+                    .flex_shrink(0.0),
+                move |_r| RectStyle::filled(theme.base, PILL_RADIUS),
+                vec![box_item(text)],
+            )?
+            .on_hover_style(move |_r| RectStyle::filled(theme.overlay, PILL_RADIUS))
+            .on_press(move || {
+                let zone = editor.target.peek();
+                editor.append(zone, ModuleEntry::bare(id.clone()));
+            }),
+        ));
+    }
+    let grid = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(6.0)
+            .flex_grow(1.0)
+            .min_width(0.0),
+        chips,
+    )?;
+    labelled(
+        || telar::t!("settings.field.add_module"),
+        Box::new(grid),
+        theme,
+    )
 }
 
 fn bar_from(s: &BarSignals, base: &BarConfig) -> BarConfig {
     BarConfig {
         size: parse_u32(&s.size.peek(), base.size),
-        start: entries_from_csv(&s.start.peek(), &base.start),
-        center: entries_from_csv(&s.center.peek(), &base.center),
-        end: entries_from_csv(&s.end.peek(), &base.end),
+        start: s.zones.entries(0),
+        center: s.zones.entries(1),
+        end: s.zones.entries(2),
         shape: base.shape,
     }
-}
-
-fn join_ids(entries: &[ModuleEntry]) -> String {
-    entries
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Reads a zone back from its comma-separated ids, carrying each entry's table settings across.
-///
-/// The field edits ids only, so an entry written as `{ id = "clock", accent = "red" }` would otherwise lose its
-/// accent the first time anything else on the bar was saved. Each id claims the first not-yet-claimed entry
-/// with that id, which keeps both sets of settings when a module appears twice and survives a reorder.
-fn entries_from_csv(text: &str, base: &[ModuleEntry]) -> Vec<ModuleEntry> {
-    let mut claimed = vec![false; base.len()];
-    split_csv(text)
-        .into_iter()
-        .map(|id| {
-            let found = base
-                .iter()
-                .enumerate()
-                .find(|(index, entry)| !claimed[*index] && entry.id == id);
-            match found {
-                Some((index, entry)) => {
-                    claimed[index] = true;
-                    entry.clone()
-                }
-                None => ModuleEntry::bare(id),
-            }
-        })
-        .collect()
 }
 
 fn bars_section(
@@ -762,7 +1268,11 @@ fn bars_section(
     let right = bar_signals(&bars.right);
 
     let mut rows = Vec::new();
-    rows.extend(bar_rows(|| telar::t!("settings.subheader.top"), &top, theme)?);
+    rows.extend(bar_rows(
+        || telar::t!("settings.subheader.top"),
+        &top,
+        theme,
+    )?);
     rows.extend(bar_rows(
         || telar::t!("settings.subheader.bottom"),
         &bottom,
@@ -896,7 +1406,11 @@ fn popouts_section(
     let max_height = signal(p.max_height.to_string());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.open_delay"),
             open_delay.clone(),
@@ -1224,7 +1738,12 @@ fn workspaces_section(
             persist(&path, "workspaces", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.workspaces"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.workspaces"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn media_section(
@@ -1266,7 +1785,11 @@ fn media_section(
             "5",
             theme,
         )?,
-        toggle_field(|| telar::t!("settings.field.marquee"), marquee.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.marquee"),
+            marquee.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.marquee_speed_ms"),
             marquee_speed.clone(),
@@ -1315,7 +1838,11 @@ fn lyrics_section(
 
     // The folder is `[paths] lyrics`, edited with the other paths rather than duplicated here.
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.lyrics_online"),
             online.clone(),
@@ -1409,7 +1936,12 @@ fn visualiser_section(
             "-60",
             theme,
         )?,
-        text_field(|| telar::t!("settings.field.gain"), gain.clone(), "1", theme)?,
+        text_field(
+            || telar::t!("settings.field.gain"),
+            gain.clone(),
+            "1",
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.beat_sensitivity"),
             beat.clone(),
@@ -1440,7 +1972,12 @@ fn visualiser_section(
             persist(&path, "visualiser", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.visualiser"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.visualiser"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn background_visualiser_section(
@@ -1460,7 +1997,11 @@ fn background_visualiser_section(
     let margin = signal(v.margin.to_string());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         enum_field(
             || telar::t!("settings.field.edge"),
             edge.clone(),
@@ -1570,7 +2111,12 @@ fn brightness_section(
             persist(&path, "brightness", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.brightness"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.brightness"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn temperature_section(
@@ -1597,7 +2143,12 @@ fn temperature_section(
             "(hottest)",
             theme,
         )?,
-        text_field(|| telar::t!("settings.field.warn"), warn.clone(), "70", theme)?,
+        text_field(
+            || telar::t!("settings.field.warn"),
+            warn.clone(),
+            "70",
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.critical"),
             critical.clone(),
@@ -1642,8 +2193,6 @@ fn launcher_section(
     let calculator = signal(l.calculator);
     let qalc = signal(l.qalc);
     let dangerous = signal(l.enable_dangerous_actions);
-    let favourites = signal(join_csv(&l.favourites));
-    let hidden = signal(join_csv(&l.hidden));
 
     let rows = vec![
         text_field(
@@ -1676,18 +2225,6 @@ fn launcher_section(
             dangerous.clone(),
             theme,
         )?,
-        text_field(
-            || telar::t!("settings.field.favourites"),
-            favourites.clone(),
-            "desktop ids",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.hidden"),
-            hidden.clone(),
-            "desktop ids",
-            theme,
-        )?,
     ];
 
     let base = l.clone();
@@ -1696,7 +2233,10 @@ fn launcher_section(
         || telar::t!("settings.save.launcher"),
         theme,
         move || {
-            let value = LauncherConfig {
+            // Merged into the file as it is now, because the applications page below owns the other half of
+            // this same `[launcher]` table. A snapshot taken when the form was built would quietly revert a
+            // favourite marked since — see `persist_with`.
+            persist_with(&path, "launcher", |current| LauncherConfig {
                 width: parse_u32(&width.peek(), base.width),
                 height: parse_u32(&height.peek(), base.height),
                 radius: base.radius,
@@ -1704,17 +2244,1164 @@ fn launcher_section(
                 fuzzy: fuzzy.peek(),
                 calculator: calculator.peek(),
                 qalc: qalc.peek(),
-                favourites: split_csv(&favourites.peek()),
-                hidden: split_csv(&hidden.peek()),
-                // A list of tables, so it stays hand-edited in the TOML; carrying it through means saving here
-                // does not silently drop the user's actions.
-                actions: base.actions.clone(),
                 enable_dangerous_actions: dangerous.peek(),
-            };
-            persist(&path, "launcher", &value);
+                // Not this form's to edit: the app list owns the first three, and `actions` is a list of
+                // tables that stays hand-edited in the TOML.
+                favourites: current.launcher.favourites.clone(),
+                hidden: current.launcher.hidden.clone(),
+                icons: current.launcher.icons.clone(),
+                actions: current.launcher.actions.clone(),
+            });
         },
     )?;
     section(|| telar::t!("settings.section.launcher"), rows, save, theme)
+}
+
+/// K13, first half: the maps whose keys are enumerable.
+///
+/// `background.monitors` came off this list with J9 by the route that generalises worst and works best — its
+/// keys are not free text, they are the monitors that exist, so the panel names them instead of asking the
+/// user to type one. Three of the four remaining maps take the same route, each with its own answer to "what
+/// are the keys":
+///
+/// - `[theme.colors]` — the palette's own token names, which are fixed and shipped ([`THEME_TOKENS`]).
+/// - `[modules.<id>]` — every module registered in the shell, so a chip can be restyled before it is on a bar.
+/// - `[media.aliases]` — the players that have been seen on the bus, plus whatever the config already names.
+///   The one genuinely open set here, handled exactly as `monitor_keys` handles a monitor left at the office:
+///   listing only what is running now would delete an alias for a player that happens to be closed.
+///
+/// A row per key with the *resolved* value as its placeholder, so an empty field reads as "whatever the theme
+/// says" rather than as a value that got lost.
+fn theme_colors_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let resolved = config.resolve_theme();
+    let fields: Vec<(&'static str, RwSignal<String>)> = THEME_TOKENS
+        .iter()
+        .map(|token| {
+            (
+                *token,
+                signal(config.theme.colors.get(*token).cloned().unwrap_or_default()),
+            )
+        })
+        .collect();
+
+    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(fields.len());
+    for (token, value) in fields.iter().map(|(t, v)| (*t, v.clone())) {
+        rows.push(text_field(
+            move || token.to_string(),
+            value,
+            &crate::shared::theme::hex(resolved.token(token)),
+            theme,
+        )?);
+    }
+
+    let path = path.to_path_buf();
+    let save = save_button(
+        || telar::t!("settings.save.theme_colors"),
+        theme,
+        move || {
+            let colors: std::collections::HashMap<String, String> = fields
+                .iter()
+                .filter_map(|(token, value)| {
+                    opt_string(&value.peek()).map(|hex| (token.to_string(), hex))
+                })
+                .collect();
+            // Only this form's key: `theme_section` above owns every other one in `[theme]`.
+            persist_with(&path, "theme", |current| ThemeConfig {
+                colors,
+                ..current.theme.clone()
+            });
+        },
+    )?;
+    section(
+        || telar::t!("settings.section.theme_colors"),
+        rows,
+        save,
+        theme,
+    )
+}
+
+/// Every media player a `[media.aliases]` row should exist for: the ones seen on the bus this session, plus
+/// any the config already renames. Both halves matter, for the reason `monitor_keys` documents.
+fn player_keys(configured: &std::collections::HashMap<String, String>) -> Vec<String> {
+    let mut keys: Vec<String> = configured.keys().cloned().collect();
+    if let Some(player) = crate::shared::services::mpris::current()
+        && !player.identity.trim().is_empty()
+        && !keys.contains(&player.identity)
+    {
+        keys.push(player.identity.clone());
+    }
+    keys.sort_unstable();
+    keys
+}
+
+fn media_aliases_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let keys = player_keys(&config.media.aliases);
+    let fields: Vec<(String, RwSignal<String>)> = keys
+        .iter()
+        .map(|key| {
+            (
+                key.clone(),
+                signal(config.media.aliases.get(key).cloned().unwrap_or_default()),
+            )
+        })
+        .collect();
+
+    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(fields.len().max(1));
+    if fields.is_empty() {
+        rows.push(box_item(Text::auto(
+            || telar::t!("settings.media.no_players"),
+            LayoutStyle::new(),
+            move || theme.text_style(FontRole::Caption, theme.muted),
+        )?));
+    }
+    for (key, value) in &fields {
+        let label = key.clone();
+        rows.push(text_field(
+            move || label.clone(),
+            value.clone(),
+            key,
+            theme,
+        )?);
+    }
+
+    let path = path.to_path_buf();
+    let save = save_button(
+        || telar::t!("settings.save.media_aliases"),
+        theme,
+        move || {
+            let aliases: std::collections::HashMap<String, String> = fields
+                .iter()
+                .filter_map(|(key, value)| {
+                    opt_string(&value.peek()).map(|alias| (key.clone(), alias))
+                })
+                .collect();
+            persist_with(&path, "media", |current| MediaConfig {
+                aliases,
+                ..current.media.clone()
+            });
+        },
+    )?;
+    section(
+        || telar::t!("settings.section.media_aliases"),
+        rows,
+        save,
+        theme,
+    )
+}
+
+/// `[modules.<id>]`: the per-module presentation overrides.
+///
+/// Keyed on the registry rather than on what the bars currently use, so a module can be styled before it is
+/// placed — the alternative would be a user having to add a chip, save, reopen the page and only then be able
+/// to give it an accent.
+fn module_overrides_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut ids: Vec<String> = crate::shared::module::default_registry().ids();
+    for configured in config.modules.keys() {
+        if !ids.contains(configured) {
+            ids.push(configured.clone());
+        }
+    }
+    ids.sort_unstable();
+
+    struct Fields {
+        id: String,
+        variant: RwSignal<String>,
+        accent: RwSignal<String>,
+        open: RwSignal<String>,
+        width: RwSignal<String>,
+        height: RwSignal<String>,
+    }
+
+    let mut fields: Vec<Fields> = Vec::with_capacity(ids.len());
+    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(ids.len() * 6);
+    for id in ids {
+        let existing = config.modules.get(&id).cloned().unwrap_or_default();
+        let entry = Fields {
+            variant: signal(variant_str(existing.variant).to_string()),
+            accent: signal(existing.accent.clone().unwrap_or_default()),
+            open: signal(open_mode_str(existing.open).to_string()),
+            width: signal(opt_num(existing.width)),
+            height: signal(opt_num(existing.height)),
+            id: id.clone(),
+        };
+        rows.push(subheader(move || id.clone(), theme)?);
+        rows.push(enum_field(
+            || telar::t!("settings.field.variant_style"),
+            entry.variant.clone(),
+            VARIANT_STYLES,
+            theme,
+        )?);
+        rows.push(text_field(
+            || telar::t!("settings.field.accent"),
+            entry.accent.clone(),
+            "(theme)",
+            theme,
+        )?);
+        rows.push(enum_field(
+            || telar::t!("settings.field.open"),
+            entry.open.clone(),
+            OPEN_MODES,
+            theme,
+        )?);
+        rows.push(text_field(
+            || telar::t!("settings.field.width"),
+            entry.width.clone(),
+            "(panels)",
+            theme,
+        )?);
+        rows.push(text_field(
+            || telar::t!("settings.field.height"),
+            entry.height.clone(),
+            "(panels)",
+            theme,
+        )?);
+        fields.push(entry);
+    }
+
+    let path = path.to_path_buf();
+    let save = save_button(
+        || telar::t!("settings.save.modules"),
+        theme,
+        move || {
+            let overrides: std::collections::HashMap<String, ModuleOverride> = fields
+                .iter()
+                .filter_map(|entry| {
+                    let value = ModuleOverride {
+                        variant: parse_variant(&entry.variant.peek()),
+                        accent: opt_string(&entry.accent.peek()),
+                        open: parse_open_mode(&entry.open.peek()),
+                        width: opt_u32(&entry.width.peek()),
+                        height: opt_u32(&entry.height.peek()),
+                    };
+                    // A module left entirely at its defaults gets no table at all, so the file keeps only the
+                    // overrides a user actually made rather than thirty empty sections.
+                    if is_default_override(&value) {
+                        None
+                    } else {
+                        Some((entry.id.clone(), value))
+                    }
+                })
+                .collect();
+            persist(&path, "modules", &overrides);
+        },
+    )?;
+    section(|| telar::t!("settings.section.modules"), rows, save, theme)
+}
+
+fn is_default_override(value: &ModuleOverride) -> bool {
+    value.variant == Variant::Default
+        && value.accent.is_none()
+        && value.open == OpenMode::default()
+        && value.width.is_none()
+        && value.height.is_none()
+}
+
+/// K13, second half: a `[[list]]` of config tables, edited as rows with an Add button and a remove control on
+/// each — `[[battery.warn_levels]]` and `[[idle.stages]]`.
+///
+/// Two pieces of state, deliberately. The *order* is a signal, so adding or removing a row redraws the list.
+/// The *values* are a plain map behind an `Rc`, because a row's fields change on every keystroke and a signal
+/// there would rebuild the row being typed into — the trap every keyed list in this shell documents.
+///
+/// Rows are keyed on a synthetic id rather than on their index. An index-keyed list reuses row 1's widgets for
+/// what used to be row 2 when row 1 is deleted, because the key it reconciles on did not change: the user
+/// deletes one warning and the form quietly shows them another one's values under the first one's heading.
+struct TableList<T> {
+    order: RwSignal<Vec<u64>>,
+    values: Rc<std::cell::RefCell<std::collections::HashMap<u64, T>>>,
+    next: Rc<std::cell::Cell<u64>>,
+}
+
+impl<T: Clone + 'static> TableList<T> {
+    fn new(entries: Vec<T>) -> Self {
+        let list = Self {
+            order: signal(Vec::new()),
+            values: Rc::new(std::cell::RefCell::new(std::collections::HashMap::new())),
+            next: Rc::new(std::cell::Cell::new(0)),
+        };
+        for entry in entries {
+            list.add(entry);
+        }
+        list
+    }
+
+    fn clone_handle(&self) -> Self {
+        Self {
+            order: self.order.clone(),
+            values: Rc::clone(&self.values),
+            next: Rc::clone(&self.next),
+        }
+    }
+
+    fn add(&self, entry: T) {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        self.values.borrow_mut().insert(id, entry);
+        let mut order = self.order.peek();
+        order.push(id);
+        self.order.set(order);
+    }
+
+    fn remove(&self, id: u64) {
+        self.values.borrow_mut().remove(&id);
+        let order: Vec<u64> = self
+            .order
+            .peek()
+            .into_iter()
+            .filter(|existing| *existing != id)
+            .collect();
+        self.order.set(order);
+    }
+
+    fn edit(&self, id: u64, apply: impl FnOnce(&mut T)) {
+        if let Some(entry) = self.values.borrow_mut().get_mut(&id) {
+            apply(entry);
+        }
+    }
+
+    fn get(&self, id: u64) -> Option<T> {
+        self.values.borrow().get(&id).cloned()
+    }
+
+    /// The list as the config carries it, in the order the rows are drawn in.
+    fn collect(&self) -> Vec<T> {
+        let values = self.values.borrow();
+        self.order
+            .peek()
+            .into_iter()
+            .filter_map(|id| values.get(&id).cloned())
+            .collect()
+    }
+
+    fn view(
+        &self,
+        row: impl Fn(u64) -> Result<Box<dyn LayoutItem>, LayoutError> + 'static,
+    ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        let order = self.order.read_only();
+        Ok(Box::new(ReactiveList::with_gap(
+            move || order.get(),
+            |id: &u64| id.to_string(),
+            move |id: u64| row(id),
+            10.0,
+        )?))
+    }
+}
+
+/// A text field bound to one field of a [`TableList`] entry, writing back on every keystroke.
+///
+/// Returns the effect for the row to hold: a bare `effect(…)` statement runs once and stops, which looks like
+/// a field that accepts the first character and then ignores the rest of the word.
+fn bound_field<T: Clone + 'static>(
+    label: impl Fn() -> String + 'static,
+    list: &TableList<T>,
+    id: u64,
+    initial: String,
+    placeholder: &str,
+    theme: NordTheme,
+    apply: impl Fn(&mut T, &str) + 'static,
+) -> Result<(Box<dyn LayoutItem>, telar::Effect), LayoutError> {
+    let value = signal(initial);
+    let watched = value.read_only();
+    let list = list.clone_handle();
+    let sync = telar::effect(move || {
+        let text = watched.get();
+        list.edit(id, |entry| apply(entry, &text));
+    });
+    Ok((text_field(label, value, placeholder, theme)?, sync))
+}
+
+/// [`bound_field`] for a switch.
+fn bound_toggle<T: Clone + 'static>(
+    label: impl Fn() -> String + 'static,
+    list: &TableList<T>,
+    id: u64,
+    initial: bool,
+    theme: NordTheme,
+    apply: impl Fn(&mut T, bool) + 'static,
+) -> Result<(Box<dyn LayoutItem>, telar::Effect), LayoutError> {
+    let value = signal(initial);
+    let watched = value.read_only();
+    let list = list.clone_handle();
+    let sync = telar::effect(move || {
+        let on = watched.get();
+        list.edit(id, |entry| apply(entry, on));
+    });
+    Ok((toggle_field(label, value, theme)?, sync))
+}
+
+/// The `[[battery.warn_levels]]` editor: one card per warning, with Add and Remove.
+fn battery_warnings_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let list = Rc::new(TableList::new(config.battery.warn_levels.clone()));
+
+    let rows = {
+        let list = Rc::clone(&list);
+        let handle = Rc::clone(&list);
+        handle.view(move |id| {
+            let Some(warning) = list.get(id) else {
+                return Ok(Box::new(Container::new(LayoutStyle::new(), vec![])?));
+            };
+            let (level, a) = bound_field(
+                || telar::t!("settings.field.level"),
+                &list,
+                id,
+                warning.level.to_string(),
+                "20",
+                theme,
+                |entry: &mut BatteryWarning, text| entry.level = parse_i32(text, entry.level),
+            )?;
+            let (title, b) = bound_field(
+                || telar::t!("settings.field.title"),
+                &list,
+                id,
+                warning.title.clone(),
+                "(default)",
+                theme,
+                |entry: &mut BatteryWarning, text| entry.title = text.to_string(),
+            )?;
+            let (message, c) = bound_field(
+                || telar::t!("settings.field.message"),
+                &list,
+                id,
+                warning.message.clone(),
+                "(default)",
+                theme,
+                |entry: &mut BatteryWarning, text| entry.message = text.to_string(),
+            )?;
+            let (icon, d) = bound_field(
+                || telar::t!("settings.field.icon"),
+                &list,
+                id,
+                warning.icon.clone(),
+                "battery-low",
+                theme,
+                |entry: &mut BatteryWarning, text| entry.icon = text.to_string(),
+            )?;
+            let (critical, e) = bound_toggle(
+                || telar::t!("settings.field.critical_urgency"),
+                &list,
+                id,
+                warning.critical,
+                theme,
+                |entry: &mut BatteryWarning, on| entry.critical = on,
+            )?;
+            entry_card(
+                vec![level, title, message, icon, critical],
+                &list,
+                id,
+                theme,
+                vec![a, b, c, d, e],
+            )
+        })?
+    };
+
+    let add = {
+        let list = Rc::clone(&list);
+        save_button(
+            || telar::t!("settings.list.add"),
+            theme,
+            move || list.add(BatteryWarning::default()),
+        )?
+    };
+
+    let path = path.to_path_buf();
+    let saved = Rc::clone(&list);
+    let save = save_button(
+        || telar::t!("settings.save.battery_warnings"),
+        theme,
+        move || {
+            persist_with(&path, "battery", |current| BatteryConfig {
+                warn_levels: saved.collect(),
+                ..current.battery.clone()
+            });
+        },
+    )?;
+
+    section(
+        || telar::t!("settings.section.battery_warnings"),
+        vec![rows, add],
+        save,
+        theme,
+    )
+}
+
+/// The `[[idle.stages]]` editor. `hyprshell --list` is what the action fields accept; the placeholders name
+/// the three a user reaches for.
+fn idle_stages_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let list = Rc::new(TableList::new(config.idle.stages.clone()));
+
+    let rows = {
+        let list = Rc::clone(&list);
+        let handle = Rc::clone(&list);
+        handle.view(move |id| {
+            let Some(stage) = list.get(id) else {
+                return Ok(Box::new(Container::new(LayoutStyle::new(), vec![])?));
+            };
+            let (timeout, a) = bound_field(
+                || telar::t!("settings.field.timeout_seconds"),
+                &list,
+                id,
+                stage.timeout.to_string(),
+                "300",
+                theme,
+                |entry: &mut IdleStage, text| entry.timeout = parse_u64(text, entry.timeout),
+            )?;
+            let (action, b) = bound_field(
+                || telar::t!("settings.field.action"),
+                &list,
+                id,
+                stage.action.clone(),
+                "lock on",
+                theme,
+                |entry: &mut IdleStage, text| entry.action = text.to_string(),
+            )?;
+            let (return_action, c) = bound_field(
+                || telar::t!("settings.field.return_action"),
+                &list,
+                id,
+                stage.return_action.clone(),
+                "shell dpms on",
+                theme,
+                |entry: &mut IdleStage, text| entry.return_action = text.to_string(),
+            )?;
+            entry_card(
+                vec![timeout, action, return_action],
+                &list,
+                id,
+                theme,
+                vec![a, b, c],
+            )
+        })?
+    };
+
+    let add = {
+        let list = Rc::clone(&list);
+        save_button(
+            || telar::t!("settings.list.add"),
+            theme,
+            move || list.add(IdleStage::default()),
+        )?
+    };
+
+    let path = path.to_path_buf();
+    let saved = Rc::clone(&list);
+    let save = save_button(
+        || telar::t!("settings.save.idle_stages"),
+        theme,
+        move || {
+            persist_with(&path, "idle", |current| IdleConfig {
+                stages: saved.collect(),
+                ..current.idle.clone()
+            });
+        },
+    )?;
+
+    section(
+        || telar::t!("settings.section.idle_stages"),
+        vec![rows, add],
+        save,
+        theme,
+    )
+}
+
+/// One entry of a [`TableList`]: its fields in a filled card, with the control that deletes it.
+fn entry_card<T: Clone + 'static>(
+    mut fields: Vec<Box<dyn LayoutItem>>,
+    list: &TableList<T>,
+    id: u64,
+    theme: NordTheme,
+    subscriptions: Vec<telar::Effect>,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let remove = {
+        let list = list.clone_handle();
+        toggle_pill("trash-2", false, theme.red, theme, move || list.remove(id))?
+    };
+    fields.push(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .justify_content(JustifyContent::END)
+            .width(SizeDimension::Percent(1.0)),
+        vec![remove],
+    )?));
+    let card = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(6.0)
+            .padding_all(10.0)
+            .width(SizeDimension::Percent(1.0)),
+        move |_r| RectStyle::filled(theme.surface, 8.0),
+        fields,
+    )?;
+    crate::shared::reactive::keeping_all(Box::new(card), subscriptions)
+}
+
+/// How wide one wallpaper tile is, and the shape of its picture — landscape, because a wallpaper is a picture
+/// of a screen and a square crop of one is unrecognisable.
+const WALL_TILE: f32 = 132.0;
+const WALL_ASPECT: f32 = 9.0 / 16.0;
+
+/// The same bound, and the same reason, as the launcher's wallpaper grid: `ReactiveList` builds a widget per
+/// tile up front, so a library of two thousand would spend the UI thread before the page appeared. The search
+/// box is what reaches past it.
+const WALL_TILES: usize = 150;
+
+/// K9: the wallpaper library, grouped by the folder each image was found in.
+///
+/// `[background] image` names one file and `[background.monitors]` names one per screen — both of which the
+/// forms below already edit. What neither of them is, is a way to *see* the library, and choosing a picture
+/// from a list of paths is choosing it by its file name. Pressing a tile sets it on every screen, which is the
+/// rule the wallpaper commands already follow: a mutation with no target named means all of them.
+fn wallpaper_browser_section(
+    config: &Config,
+    _path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let query = signal(String::new());
+
+    let library = signal(crate::shared::services::wallpaper::all());
+    let sink = library.clone();
+    platform_layershell::watch(
+        crate::shared::services::wallpaper::subscribe_library,
+        move |entries| sink.set(entries),
+    );
+
+    // Which tile reads as the current one. The runtime choice first, then whatever `[background]` resolves to,
+    // so a fresh session with nothing chosen at runtime still marks the picture actually on screen.
+    let configured = crate::shared::services::wallpaper::current_image(config, None);
+    let current = signal(
+        crate::shared::services::wallpaper::assignment()
+            .global
+            .or(configured),
+    );
+    let current_sink = current.clone();
+    platform_layershell::watch(
+        crate::shared::services::wallpaper::subscribe,
+        move |assignment: crate::shared::services::wallpaper::Assignment| {
+            current_sink.set(assignment.global)
+        },
+    );
+
+    let search = text_field(
+        || telar::t!("settings.field.search"),
+        query.clone(),
+        "sunset",
+        theme,
+    )?;
+
+    let source_library = library.read_only();
+    let source_query = query.read_only();
+    let source_current = current.read_only();
+    let groups = ReactiveList::with_gap(
+        move || {
+            let entries = source_library.get();
+            let query = source_query.get();
+            let current = source_current.get();
+            folders(&entries, &query)
+                .into_iter()
+                .map(|(folder, entries)| WallGroup {
+                    key: group_key(&folder, &entries, current.as_deref()),
+                    folder,
+                    entries,
+                })
+                .collect()
+        },
+        |group: &WallGroup| group.key.clone(),
+        move |group: WallGroup| wallpaper_group(group, current.read_only(), theme),
+        14.0,
+    )?;
+
+    let empty_library = library.read_only();
+    let empty_query = query.read_only();
+    let empty = Text::auto(
+        move || {
+            let entries = empty_library.get();
+            let query = empty_query.get();
+            if entries.is_empty() {
+                telar::t!("settings.wallpaper.empty")
+            } else if folders(&entries, &query).is_empty() {
+                telar::t!("settings.wallpaper.no_match")
+            } else {
+                String::new()
+            }
+        },
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Caption, theme.muted),
+    )?;
+
+    let clear = save_button(
+        || telar::t!("settings.wallpaper.clear"),
+        theme,
+        || crate::shared::services::wallpaper::clear(None),
+    )?;
+
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(8.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![
+            section_label(|| telar::t!("settings.section.library"), theme)?,
+            search,
+            box_item(empty),
+            Box::new(groups),
+            clear,
+        ],
+    )?))
+}
+
+/// One folder's worth of the library, as the browser draws it.
+#[derive(Clone, Debug, PartialEq)]
+struct WallGroup {
+    /// Keyed on the pictures *and* on which of them is current, so choosing one repaints the ring without the
+    /// whole library rebuilding under the pointer.
+    key: String,
+    folder: String,
+    entries: Vec<crate::shared::services::wallpaper::Entry>,
+}
+
+fn group_key(
+    folder: &str,
+    entries: &[crate::shared::services::wallpaper::Entry],
+    current: Option<&Path>,
+) -> String {
+    let chosen = entries
+        .iter()
+        .position(|entry| Some(entry.path.as_path()) == current);
+    format!("{folder}|{}|{chosen:?}", entries.len())
+}
+
+/// The library narrowed by `query` and grouped by folder, top-level images first and the rest alphabetical —
+/// which is the order a file manager would show them in, and the only one a user can predict.
+fn folders(
+    entries: &[crate::shared::services::wallpaper::Entry],
+    query: &str,
+) -> Vec<(String, Vec<crate::shared::services::wallpaper::Entry>)> {
+    let needle = query.trim().to_lowercase();
+    let mut grouped: std::collections::BTreeMap<
+        String,
+        Vec<crate::shared::services::wallpaper::Entry>,
+    > = std::collections::BTreeMap::new();
+    let mut shown = 0usize;
+    for entry in entries {
+        if shown >= WALL_TILES {
+            break;
+        }
+        if !needle.is_empty()
+            && !entry.name.to_lowercase().contains(&needle)
+            && !entry.folder.to_lowercase().contains(&needle)
+        {
+            continue;
+        }
+        grouped
+            .entry(entry.folder.clone())
+            .or_default()
+            .push(entry.clone());
+        shown += 1;
+    }
+    grouped.into_iter().collect()
+}
+
+fn wallpaper_group(
+    group: WallGroup,
+    current: telar::ReadSignal<Option<PathBuf>>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut tiles: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(group.entries.len());
+    for entry in group.entries {
+        tiles.push(wallpaper_tile(entry, current.clone(), theme)?);
+    }
+    let grid = Container::new(
+        LayoutStyle::new()
+            .flex_row()
+            .flex_wrap()
+            .gap(8.0)
+            .width(SizeDimension::Percent(1.0)),
+        tiles,
+    )?;
+    // A folder name at the top level is empty, and a heading reading nothing is a gap the user has to guess at.
+    let folder = group.folder.clone();
+    let heading = subheader(
+        move || {
+            if folder.is_empty() {
+                telar::t!("settings.wallpaper.top_level")
+            } else {
+                folder.clone()
+            }
+        },
+        theme,
+    )?;
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(6.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![heading, Box::new(grid)],
+    )?))
+}
+
+fn wallpaper_tile(
+    entry: crate::shared::services::wallpaper::Entry,
+    current: telar::ReadSignal<Option<PathBuf>>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let picture_height = (WALL_TILE * WALL_ASPECT).round();
+    let picture = crate::shared::thumbnail::view(
+        entry.path.clone(),
+        WALL_TILE,
+        picture_height,
+        6.0,
+        "image",
+        theme,
+    )?;
+
+    let name = entry.name.clone();
+    let label = Text::auto(
+        move || name.clone(),
+        LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+        move || {
+            theme
+                .text_style(FontRole::Caption, theme.subtle)
+                .with_max_lines(1)
+                .with_ellipsis(true)
+        },
+    )?;
+
+    let path = entry.path.clone();
+    let chosen = entry.path.clone();
+    let tile = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(4.0)
+            .width(WALL_TILE + 8.0)
+            .padding_all(4.0)
+            .align_items(AlignItems::CENTER),
+        move |_r| {
+            let is_current = current.get().as_deref() == Some(path.as_path());
+            let fill = if is_current { theme.accent } else { theme.base };
+            RectStyle::filled(fill, 8.0)
+        },
+        vec![picture, box_item(label)],
+    )?
+    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_press(move || crate::shared::services::wallpaper::set(&chosen, None));
+    Ok(Box::new(tile))
+}
+
+/// How many applications the database page draws at once. `ReactiveList` builds a widget per row up front, so
+/// a machine with two thousand entries would spend the UI thread before the page appeared — the same bound,
+/// and the same reason, as the launcher's wallpaper grid. The search box is what reaches past it.
+const APP_ROWS: usize = 200;
+
+/// K7: the installed applications, as the launcher sees them.
+///
+/// `[launcher] favourites` and `hidden` are lists of desktop-entry ids, and a user does not know their
+/// software by desktop-entry id — the CSV fields these replace asked them to type `org.gnome.Nautilus` from
+/// memory. Here the list is the control: every application it found, each with the two switches and the icon
+/// override that are the only per-app settings there are.
+fn apps_section(
+    config: &Config,
+    path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let query = signal(String::new());
+    let favourites = signal(config.launcher.favourites.clone());
+    let hidden = signal(config.launcher.hidden.clone());
+    let icons = signal(config.launcher.icons.clone());
+
+    let installed = signal(apps::all());
+    let sink = installed.clone();
+    platform_layershell::watch(apps::subscribe, move |apps| sink.set(apps));
+
+    let search = text_field(
+        || telar::t!("settings.field.search"),
+        query.clone(),
+        "firefox",
+        theme,
+    )?;
+
+    let source_apps = installed.read_only();
+    let source_query = query.read_only();
+    let source_favourites = favourites.read_only();
+    let source_hidden = hidden.read_only();
+    let list = ReactiveList::with_gap(
+        move || {
+            // Every signal read out before any of them is mapped: `matching` does no reactive work, but a
+            // `with` over one while reading the next is the borrow panic this file keeps documenting.
+            let apps = source_apps.get();
+            let query = source_query.get();
+            let favourites = source_favourites.get();
+            let hidden = source_hidden.get();
+            matching(&apps, &query)
+                .into_iter()
+                .map(|app| AppRow {
+                    favourite: favourites.contains(&app.id),
+                    hidden: hidden.contains(&app.id),
+                    app,
+                })
+                .collect()
+        },
+        |row: &AppRow| format!("{}|{}|{}", row.app.id, row.favourite, row.hidden),
+        {
+            let (favourites, hidden, icons) = (favourites.clone(), hidden.clone(), icons.clone());
+            move |row: AppRow| {
+                app_row(
+                    row,
+                    favourites.clone(),
+                    hidden.clone(),
+                    icons.clone(),
+                    theme,
+                )
+            }
+        },
+        6.0,
+    )?;
+
+    let count_apps = installed.read_only();
+    let count_query = query.read_only();
+    let count = Text::auto(
+        move || {
+            let apps = count_apps.get();
+            let query = count_query.get();
+            let shown = matching(&apps, &query).len();
+            telar::t!(
+                "settings.apps.count",
+                shown = shown.to_string(),
+                total = apps.len().to_string()
+            )
+        },
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Caption, theme.muted),
+    )?;
+
+    let path = path.to_path_buf();
+    let save = save_button(
+        || telar::t!("settings.save.apps"),
+        theme,
+        move || {
+            persist_with(&path, "launcher", |current| LauncherConfig {
+                favourites: favourites.peek(),
+                hidden: hidden.peek(),
+                icons: icons.peek(),
+                ..current.launcher.clone()
+            });
+        },
+    )?;
+
+    section(
+        || telar::t!("settings.section.apps"),
+        vec![search, box_item(count), Box::new(list)],
+        save,
+        theme,
+    )
+}
+
+/// One application in the database list, and the two switches it carries.
+#[derive(Clone, Debug, PartialEq)]
+struct AppRow {
+    app: App,
+    favourite: bool,
+    hidden: bool,
+}
+
+/// The applications a query narrows to, capped. Sorted by name rather than left in scan order, because the
+/// directories are read most-specific-first and a user browsing a list expects an alphabet.
+fn matching(apps: &[App], query: &str) -> Vec<App> {
+    let needle = query.trim().to_lowercase();
+    let mut found: Vec<App> = apps
+        .iter()
+        .filter(|app| {
+            needle.is_empty()
+                || app.haystack().to_lowercase().contains(&needle)
+                || app.id.to_lowercase().contains(&needle)
+        })
+        .cloned()
+        .collect();
+    found.sort_by_key(|app| app.name.to_lowercase());
+    found.truncate(APP_ROWS);
+    found
+}
+
+fn app_row(
+    row: AppRow,
+    favourites: RwSignal<Vec<String>>,
+    hidden: RwSignal<Vec<String>>,
+    icons: RwSignal<std::collections::HashMap<String, String>>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let id = row.app.id.clone();
+    let declared = row.app.icon.clone();
+    let override_now = icons.peek().get(&id).cloned().unwrap_or_default();
+    let reference = if override_now.trim().is_empty() {
+        declared.clone()
+    } else {
+        override_now.clone()
+    };
+
+    let icon = crate::shared::icon::app_icon_view(&reference, 24.0)?.unwrap_or(icon_view(
+        || "app-window".to_string(),
+        move || theme.muted,
+        24.0,
+    )?);
+
+    let name = row.app.name.clone();
+    let name_text = Text::auto(
+        move || name.clone(),
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Body, theme.text),
+    )?;
+    let subtitle = id.clone();
+    let id_text = Text::auto(
+        move || subtitle.clone(),
+        LayoutStyle::new(),
+        move || theme.text_style(FontRole::Caption, theme.subtle),
+    )?;
+    let labels = Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .flex_grow(1.0)
+            .min_width(0.0)
+            .gap(1.0),
+        vec![box_item(name_text), box_item(id_text)],
+    )?;
+
+    // An `RwSignal<String>` per row rather than one field the Save button reads back: a save that walked two
+    // hundred rows would have to hold two hundred signals it almost never uses. The field feeds the shared map
+    // through an effect instead, and `keeping` ties that effect to this row's lifetime — a bare `effect(…)`
+    // statement runs once and stops, which is the trap `shared::reactive` exists to document.
+    let icon_field = signal(override_now);
+    let watched = icon_field.read_only();
+    let key = id.clone();
+    let sync = telar::effect(move || {
+        let text = watched.get();
+        let mut map = icons.peek();
+        let changed = match text.trim() {
+            "" => map.remove(&key).is_some(),
+            icon => map.insert(key.clone(), icon.to_string()).as_deref() != Some(icon),
+        };
+        if changed {
+            icons.set(map);
+        }
+    });
+    let placeholder = if declared.trim().is_empty() {
+        telar::t!("settings.apps.no_icon")
+    } else {
+        declared.clone()
+    };
+    let boxed_icon_field = StyledContainer::new(
+        LayoutStyle::new()
+            .width(150.0)
+            .flex_shrink(0.0)
+            .padding_horizontal(8.0)
+            .padding_vertical(4.0),
+        move |_r| RectStyle::filled(theme.base, 8.0),
+        vec![box_item(
+            Input::new(
+                icon_field,
+                LayoutStyle::new()
+                    .flex_grow(1.0)
+                    .height(theme.font(FontRole::Body) * 1.6),
+                move || theme.text_style(FontRole::Caption, theme.text),
+            )?
+            .placeholder(placeholder),
+        )],
+    )?;
+
+    let star = toggle_pill(
+        "star",
+        row.favourite,
+        theme.yellow,
+        theme,
+        toggle_membership(favourites, id.clone()),
+    )?;
+    let eye = toggle_pill(
+        "eye-off",
+        row.hidden,
+        theme.red,
+        theme,
+        toggle_membership(hidden, id),
+    )?;
+
+    let row = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(10.0)
+            .padding_horizontal(10.0)
+            .padding_vertical(6.0)
+            .width(SizeDimension::Percent(1.0)),
+        move |_r| RectStyle::filled(theme.base, 8.0),
+        vec![
+            icon,
+            Box::new(labels),
+            Box::new(boxed_icon_field),
+            star,
+            eye,
+        ],
+    )?;
+    // The wrapper is what holds the field's effect for exactly this row's lifetime; it paints nothing and is
+    // full-width, which is what the row already is.
+    crate::shared::reactive::keeping(Box::new(row), sync)
+}
+
+/// Adds `id` to a list or takes it out again — what both switches on an application row do.
+fn toggle_membership(list: RwSignal<Vec<String>>, id: String) -> impl Fn() + 'static {
+    move || {
+        let mut ids = list.peek();
+        match ids.iter().position(|existing| *existing == id) {
+            Some(index) => {
+                ids.remove(index);
+            }
+            None => ids.push(id.clone()),
+        }
+        list.set(ids);
+    }
+}
+
+/// A square icon button that reads as on or off — the row-sized form of [`toggle_field`], which is a labelled
+/// row and far too wide to put two of on every application.
+fn toggle_pill(
+    glyph: &'static str,
+    on: bool,
+    tint: Color,
+    theme: NordTheme,
+    on_press: impl Fn() + 'static,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let ink = if on { theme.base } else { theme.muted };
+    let icon = icon_view(move || glyph.to_string(), move || ink, 16.0)?;
+    Ok(Box::new(
+        StyledContainer::new(
+            LayoutStyle::new()
+                .flex_shrink(0.0)
+                .padding_all(6.0)
+                .align_items(AlignItems::CENTER)
+                .justify_content(JustifyContent::CENTER),
+            move |_r| {
+                let fill = if on { tint } else { theme.overlay };
+                RectStyle::filled(fill, 8.0)
+            },
+            vec![icon],
+        )?
+        .on_press(on_press),
+    ))
 }
 
 fn battery_section(
@@ -1728,7 +3415,11 @@ fn battery_section(
     let critical_action = signal(b.critical_action.clone());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.critical_level"),
             critical_level.clone(),
@@ -1918,7 +3609,11 @@ fn idle_section(
     let respect_inhibitors = signal(i.respect_inhibitors);
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.inhibit_when_audio"),
             inhibit_when_audio.clone(),
@@ -1968,7 +3663,11 @@ fn gpu_section(
     let card = signal(g.card.clone());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.backend"),
             backend.clone(),
@@ -2013,7 +3712,11 @@ fn weather_section(
     let days = signal(w.forecast_days.to_string());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.location"),
             location.clone(),
@@ -2133,7 +3836,12 @@ fn dashboard_section(
             persist(&path, "dashboard", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.dashboard"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.dashboard"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn paths_section(
@@ -2202,6 +3910,67 @@ fn paths_section(
     section(|| telar::t!("settings.section.paths"), rows, save, theme)
 }
 
+/// The three live pages: a mixer, the networks in range, and the Bluetooth devices.
+///
+/// Each is the module's own panel rather than a second rendering of the same service. A settings page that
+/// listed access points its own way would be a second thing to keep in step with NetworkManager, and the first
+/// divergence between the two would be invisible — the panel a user reaches from the bar and the page they
+/// reach from the nav would simply disagree.
+///
+/// They take no `path` and draw no Save: nothing here is a config value. Connecting to a network is an action
+/// on the machine, not a preference to be written down.
+fn mixer_live_section(
+    config: &Config,
+    _path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    live_section(
+        || telar::t!("settings.section.mixer"),
+        crate::modules::mixer::mixer_view(config.audio, theme, false)?,
+        theme,
+    )
+}
+
+fn network_live_section(
+    config: &Config,
+    _path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    live_section(
+        || telar::t!("settings.section.wifi"),
+        crate::modules::network::network_view(config.network, false)?,
+        theme,
+    )
+}
+
+fn bluetooth_live_section(
+    config: &Config,
+    _path: &Path,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    live_section(
+        || telar::t!("settings.section.devices"),
+        crate::modules::bluetooth::bluetooth_view(config.bluetooth, false)?,
+        theme,
+    )
+}
+
+/// A section that is a control rather than a form: the page's own heading, then the module's live content, and
+/// no Save — [`section`] without the button, because there is nothing here to write.
+fn live_section(
+    title: impl Fn() -> String + 'static,
+    content: Box<dyn LayoutItem>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(10.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![section_label(title, theme)?, content],
+    )?))
+}
+
 fn network_section(
     config: &Config,
     path: &Path,
@@ -2214,7 +3983,11 @@ fn network_section(
     let show_hidden = signal(n.show_hidden);
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.rescan_seconds"),
             rescan.clone(),
@@ -2263,7 +4036,11 @@ fn bluetooth_section(
     let show_unnamed = signal(b.show_unnamed);
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.scan_on_open"),
             scan_on_open.clone(),
@@ -2296,7 +4073,12 @@ fn bluetooth_section(
             persist(&path, "bluetooth", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.bluetooth"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.bluetooth"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn status_icons_section(
@@ -2357,8 +4139,16 @@ fn tray_section(
     let hidden = signal(t.hidden.join(", "));
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
-        toggle_field(|| telar::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || telar::t!("settings.field.compact"),
+            compact.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.recolour"),
             recolour.clone(),
@@ -2434,7 +4224,11 @@ fn active_window_section(
     let max_chars = signal(w.max_chars.to_string());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.compact"), compact.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.compact"),
+            compact.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.show_icon"),
             show_icon.clone(),
@@ -2649,7 +4443,11 @@ fn toasts_section(
     let recording = signal(events.recording);
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         enum_field(
             || telar::t!("settings.field.edge"),
             edge.clone(),
@@ -2838,7 +4636,12 @@ fn screenshot_section(
             persist(&path, "screenshot", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.screenshot"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.screenshot"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn recorder_section(
@@ -2965,7 +4768,12 @@ fn utilities_section(
             persist(&path, "utilities", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.utilities"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.utilities"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn sidebar_section(
@@ -3081,7 +4889,11 @@ fn background_section(
     let transition_ms = signal(b.transition_ms.to_string());
 
     let mut rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.image"),
             image.clone(),
@@ -3107,7 +4919,10 @@ fn background_section(
     let names = monitor_keys(&b.monitors);
     let mut monitors: Vec<(String, RwSignal<String>)> = Vec::new();
     if !names.is_empty() {
-        rows.push(subheader(|| telar::t!("settings.subheader.monitors"), theme)?);
+        rows.push(subheader(
+            || telar::t!("settings.subheader.monitors"),
+            theme,
+        )?);
     }
     for name in names {
         let value = signal(
@@ -3150,7 +4965,12 @@ fn background_section(
             persist(&path, "background", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.background"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.background"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 fn wallpaper_section(
@@ -3166,7 +4986,11 @@ fn wallpaper_section(
     let extensions = signal(join_csv(&w.extensions));
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         toggle_field(
             || telar::t!("settings.field.recursive"),
             recursive.clone(),
@@ -3208,7 +5032,12 @@ fn wallpaper_section(
             persist(&path, "wallpaper", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.wallpaper"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.wallpaper"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 /// The clock drawn on the wallpaper. Its own section rather than rows inside `[background]`: it is a nested
@@ -3233,7 +5062,11 @@ fn desktop_clock_section(
     let shadow = signal(c.shadow);
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         enum_field(
             || telar::t!("settings.field.position"),
             position.clone(),
@@ -3281,7 +5114,12 @@ fn desktop_clock_section(
             "0.35",
             theme,
         )?,
-        text_field(|| telar::t!("settings.field.blur"), blur.clone(), "0", theme)?,
+        text_field(
+            || telar::t!("settings.field.blur"),
+            blur.clone(),
+            "0",
+            theme,
+        )?,
         toggle_field(|| telar::t!("settings.field.shadow"), shadow.clone(), theme)?,
     ];
 
@@ -3336,7 +5174,11 @@ fn animation_section(
     let panel_ms = signal(a.panel_duration_ms.to_string());
 
     let rows = vec![
-        toggle_field(|| telar::t!("settings.field.enabled"), enabled.clone(), theme)?,
+        toggle_field(
+            || telar::t!("settings.field.enabled"),
+            enabled.clone(),
+            theme,
+        )?,
         text_field(
             || telar::t!("settings.field.duration_scale"),
             scale.clone(),
@@ -3379,7 +5221,12 @@ fn animation_section(
             persist(&path, "animation", &value);
         },
     )?;
-    section(|| telar::t!("settings.section.animation"), rows, save, theme)
+    section(
+        || telar::t!("settings.section.animation"),
+        rows,
+        save,
+        theme,
+    )
 }
 
 /// K12: what this shell is and what it found to talk to.
@@ -3421,9 +5268,12 @@ fn about_section(
             .flex_column()
             .gap(8.0)
             .width(SizeDimension::Percent(1.0)),
-        std::iter::once(section_label(|| telar::t!("settings.section.about"), theme)?)
-            .chain(rows)
-            .collect(),
+        std::iter::once(section_label(
+            || telar::t!("settings.section.about"),
+            theme,
+        )?)
+        .chain(rows)
+        .collect(),
     )?;
     Ok(Box::new(column))
 }
@@ -3505,10 +5355,154 @@ fn corners_section(
     section(|| telar::t!("settings.section.corners"), rows, save, theme)
 }
 
+/// K14, the recorder half: every field the form helpers build, so a section knows when one of them moved.
+///
+/// A thread-local rather than a parameter because the alternative is threading a tracker through all forty
+/// `*_section` functions and every `text_field`/`toggle_field`/`enum_field` call inside them. The forms are
+/// built one at a time on the driver thread, and each ends with exactly one [`save_button`] — which is where
+/// the recording is drained. That is the whole contract: **a form's fields must be built before its button.**
+///
+/// Each entry is an effect that bumps `revision` when its field changes, plus the revision itself. Effects are
+/// handed to the button so they live exactly as long as the form does.
+struct FormRecorder {
+    revision: RwSignal<u64>,
+    subscriptions: Vec<telar::Effect>,
+}
+
+thread_local! {
+    static RECORDING: std::cell::RefCell<Option<FormRecorder>> = const { std::cell::RefCell::new(None) };
+}
+
+/// How long after the last keystroke a live-preview form applies itself. Long enough that typing a font name
+/// is one apply rather than nine, short enough to read as a preview rather than as a delay.
+const LIVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(700);
+
+/// Registers `value` as one of the current form's fields. Called by every field helper.
+fn record_field<T: Clone + PartialEq + 'static>(value: &RwSignal<T>) {
+    let watched = value.read_only();
+    RECORDING.with(|recording| {
+        let mut recording = recording.borrow_mut();
+        let recorder = recording.get_or_insert_with(|| FormRecorder {
+            revision: signal(0u64),
+            subscriptions: Vec::new(),
+        });
+        let revision = recorder.revision.clone();
+        // An effect fires once when it is registered, and that first run is the field being *seeded* — not a
+        // user changing anything. Reporting it would make every form apply itself the moment it was drawn.
+        let seeded = std::cell::Cell::new(false);
+        recorder.subscriptions.push(telar::effect(move || {
+            let _ = watched.get();
+            if seeded.replace(true) {
+                revision.set(revision.peek() + 1);
+            }
+        }));
+    });
+}
+
+/// Wires the recorded fields to `apply`, debounced — the second half of K14.
+///
+/// Returns the subscriptions for the caller to hold, and `None` when live preview is off, in which case the
+/// recording is dropped and the form behaves exactly as it did before.
+fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
+    let Some(recorder) = RECORDING.with(|recording| recording.borrow_mut().take()) else {
+        return Vec::new();
+    };
+    let on = crate::core::shell::config().is_some_and(|config| config.general.live_settings);
+    if !on {
+        return Vec::new();
+    }
+    let FormRecorder {
+        revision,
+        mut subscriptions,
+    } = recorder;
+    let watched = revision.read_only();
+    subscriptions.push(telar::effect(move || {
+        let at = watched.get();
+        if at == 0 {
+            return;
+        }
+        let apply = Rc::clone(&apply);
+        let watched = watched.clone();
+        // Debounced by re-reading the counter when the timer fires: a change that arrived in the meantime has
+        // its own timer running, so only the last one in a burst applies.
+        platform_layershell::timeout(LIVE_DEBOUNCE, move || {
+            if watched.peek() == at {
+                resume_after_apply();
+                apply();
+            }
+        });
+    }));
+    subscriptions
+}
+
+/// What the settings window puts back when it reopens itself.
+///
+/// A config save reloads the shell, and a reload closes every surface built against the outgoing config — this
+/// window included. Restoring the page and the search is what turns that from "the settings window vanished"
+/// into "the settings window blinked". Deliberately *not* remembered across an ordinary reopen: a settings
+/// window opened from the bar should start on the first page, which is a preference nobody asked to have kept.
+struct Resume {
+    page: usize,
+    query: String,
+}
+
+thread_local! {
+    static RESUME: std::cell::RefCell<Option<Resume>> = const { std::cell::RefCell::new(None) };
+    /// The file exactly as it was when this settings window first opened, which is what Revert restores.
+    static OPENED_WITH: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+thread_local! {
+    /// Where the live panel's state is read from when it is about to reload itself.
+    static PANEL_STATE: std::cell::RefCell<Option<(telar::ReadSignal<usize>, telar::ReadSignal<String>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Snapshots the open panel's place so the reload about to happen can put it back.
+fn resume_after_apply() {
+    let state = PANEL_STATE.with(|state| state.borrow().clone());
+    let Some((page, query)) = state else {
+        return;
+    };
+    let resume = Resume {
+        page: page.get(),
+        query: query.get(),
+    };
+    RESUME.with(|slot| *slot.borrow_mut() = Some(resume));
+}
+
+/// Puts `config.toml` back to how it was when this settings window opened, and lets the config watcher apply
+/// it — the Revert half of K14.
+///
+/// The whole file rather than a per-section undo stack: with apply-on-change there is no single edit to undo,
+/// and "how it was when I opened this" is the state a user actually means. It therefore also discards a change
+/// made to the file by hand while the window was open, which is why it is a button and not automatic.
+fn revert_to_opened(path: &Path) {
+    let snapshot = OPENED_WITH.with(|slot| slot.borrow().clone());
+    let Some(text) = snapshot else {
+        return;
+    };
+    resume_after_apply();
+    if let Err(e) = std::fs::write(path, text) {
+        tracing::warn!("settings: could not revert {}: {e}", path.display());
+    }
+}
+
 fn persist<T: Serialize>(path: &Path, name: &str, value: &T) {
     if let Err(e) = Config::save_section(path, name, value) {
         tracing::warn!("settings: could not save [{name}]: {e}");
     }
+}
+
+/// [`persist`] for a form that owns only *part* of a `[toml]` section.
+///
+/// `save_section` replaces the whole table, so every form has to hand it the keys it does not edit as well —
+/// and taking those from the snapshot the form was built with is what makes two forms over one section
+/// destructive: the applications page marks a favourite, the launcher form saves a width ten seconds later,
+/// and the favourite is gone. Reading the file at save time is also what makes a hand-edit made while the
+/// settings window was open survive it.
+fn persist_with<T: Serialize>(path: &Path, name: &str, build: impl FnOnce(&Config) -> T) {
+    persist(path, name, &build(&Config::load_or_default(path)));
 }
 
 fn section(
@@ -3579,6 +5573,7 @@ fn text_field(
     placeholder: &str,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    record_field(&value);
     let input = Input::new(
         value,
         LayoutStyle::new()
@@ -3603,6 +5598,7 @@ fn toggle_field(
     value: RwSignal<bool>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    record_field(&value);
     let on_fg = theme.accent.most_readable(&[theme.text, theme.base]);
     let value_text = value.read_only();
     let value_fill = value.read_only();
@@ -3647,6 +5643,7 @@ fn enum_field(
     options: &'static [&'static str],
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    record_field(&value);
     let value_text = value.read_only();
     let text = Text::auto(
         move || value_text.get(),
@@ -3670,11 +5667,19 @@ fn enum_field(
     labelled(label, Box::new(control), theme)
 }
 
+/// A form's action button — and, with live preview on, where that form's fields get wired to it.
+///
+/// The wiring lives here because every `*_section` builds its fields and then calls this exactly once, so this
+/// is the one point in the file that has both the form's fields (through [`RECORDING`]) and the action they
+/// feed. The alternative was a fortieth argument on forty functions.
 fn save_button(
     label: impl Fn() -> String + 'static,
     theme: NordTheme,
     on_press: impl Fn() + 'static,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let on_press: Rc<dyn Fn()> = Rc::new(on_press);
+    let live = live_apply(Rc::clone(&on_press));
+
     let fg = theme.accent.most_readable(&[theme.text, theme.base]);
     let text = Text::auto(label, LayoutStyle::new(), move || {
         theme.text_style(FontRole::Body, fg).with_weight(700)
@@ -3689,8 +5694,14 @@ fn save_button(
     )?
     .on_hover_style(move |_| RectStyle::filled(theme.accent.darken(0.08), 8.0))
     .on_active_style(move |_| RectStyle::filled(theme.accent.darken(0.16), 8.0))
-    .on_press(on_press);
-    Ok(Box::new(button))
+    .on_press(move || {
+        resume_after_apply();
+        on_press();
+    });
+    if live.is_empty() {
+        return Ok(Box::new(button));
+    }
+    crate::shared::reactive::keeping_all(Box::new(button), live)
 }
 
 fn opt_num<T: ToString>(value: Option<T>) -> String {
@@ -3740,6 +5751,34 @@ fn split_csv(s: &str) -> Vec<String> {
 
 fn edge_str(edge: Edge) -> &'static str {
     edge.as_str()
+}
+
+fn variant_str(variant: Variant) -> &'static str {
+    match variant {
+        Variant::Filled => "filled",
+        Variant::Default => "default",
+    }
+}
+
+fn parse_variant(s: &str) -> Variant {
+    match s {
+        "filled" => Variant::Filled,
+        _ => Variant::Default,
+    }
+}
+
+fn open_mode_str(mode: OpenMode) -> &'static str {
+    match mode {
+        OpenMode::Float => "float",
+        OpenMode::Drawer => "drawer",
+    }
+}
+
+fn parse_open_mode(s: &str) -> OpenMode {
+    match s {
+        "float" => OpenMode::Float,
+        _ => OpenMode::Drawer,
+    }
 }
 
 fn parse_edge(s: &str) -> Edge {
@@ -3875,6 +5914,196 @@ mod tests {
         );
     }
 
+    /// Every form on every page, built. `labels_live_switch_locale` only ever reaches the first page — the
+    /// page area is a keyed list over the *selected* page — so until this existed, a section that panicked on
+    /// a nested signal read shipped as long as it was not on Appearance. Which is most of them.
+    #[test]
+    fn every_section_on_every_page_builds() {
+        let config = Config::starter();
+        let path = std::path::PathBuf::from("/nonexistent/hyprshell-test.toml");
+        for page in pages::PAGES {
+            for section in page.sections {
+                reset_layout_runtime();
+                set_theme(NordTheme::new());
+                assert!(
+                    (section.build)(&config, &path, NordTheme::new()).is_ok(),
+                    "{}/{} does not build",
+                    page.label,
+                    section.label
+                );
+            }
+        }
+    }
+
+    /// K14's one subtle rule: an effect fires once when it is registered, and that run is the field being
+    /// seeded from the file — not a user changing anything. Counting it would make every form on the page
+    /// write itself back the moment it was drawn, which with a dozen forms on a page is a dozen config saves
+    /// and a dozen reloads for a window the user has only just opened.
+    #[test]
+    fn seeding_a_form_is_not_a_change_to_it() {
+        telar::reset_runtime();
+        RECORDING.with(|recording| *recording.borrow_mut() = None);
+
+        let name = signal("nord".to_string());
+        let filled = signal(false);
+        record_field(&name);
+        record_field(&filled);
+
+        let recorder = RECORDING.with(|recording| recording.borrow_mut().take());
+        let recorder = recorder.expect("two fields were recorded");
+        assert_eq!(recorder.subscriptions.len(), 2);
+        assert_eq!(
+            recorder.revision.peek(),
+            0,
+            "drawing the form is not editing it"
+        );
+
+        name.set("rose-pine".to_string());
+        assert_eq!(recorder.revision.peek(), 1);
+        filled.set(true);
+        assert_eq!(recorder.revision.peek(), 2, "either field counts");
+
+        // And the recording is per form: the next one starts empty, or a section would apply its neighbour's
+        // fields as well as its own.
+        assert!(RECORDING.with(|recording| recording.borrow().is_none()));
+    }
+
+    /// The bug an index-keyed list would ship: deleting one entry has to take *that* entry's values with it,
+    /// and leave every other row still holding its own. Nothing about the rendered form says which is which,
+    /// so it is only visible as a user finding someone else's numbers in the box they were editing.
+    #[test]
+    fn removing_one_entry_leaves_the_others_holding_their_own_values() {
+        telar::reset_runtime();
+        let list = TableList::new(vec![
+            IdleStage {
+                timeout: 300,
+                action: "lock on".into(),
+                return_action: String::new(),
+            },
+            IdleStage {
+                timeout: 600,
+                action: "shell dpms off".into(),
+                return_action: "shell dpms on".into(),
+            },
+            IdleStage {
+                timeout: 900,
+                action: "session do suspend".into(),
+                return_action: String::new(),
+            },
+        ]);
+        let ids = list.order.peek();
+        assert_eq!(ids.len(), 3);
+
+        list.edit(ids[2], |stage| stage.timeout = 1200);
+        list.remove(ids[0]);
+
+        let left = list.collect();
+        assert_eq!(
+            left.iter().map(|s| s.timeout).collect::<Vec<_>>(),
+            vec![600, 1200],
+            "the survivors keep their own values, including one edited before the removal"
+        );
+        assert_eq!(left[0].return_action, "shell dpms on");
+
+        // And an added row is a new entry, never a reused slot: an id is spent even when one has been freed.
+        list.add(IdleStage::default());
+        let after = list.order.peek();
+        assert_eq!(after.len(), 3);
+        assert!(
+            !after.contains(&ids[0]),
+            "the removed id is not handed out again"
+        );
+        assert_eq!(list.collect().len(), 3);
+    }
+
+    #[test]
+    fn the_application_list_narrows_alphabetically_and_stops_at_the_cap() {
+        let app = |id: &str, name: &str, keyword: &str| apps::App {
+            id: id.to_string(),
+            name: name.to_string(),
+            keywords: vec![keyword.to_string()],
+            ..apps::App::default()
+        };
+        let installed = vec![
+            app("zed", "Zed", "editor"),
+            app("firefox", "Firefox", "www"),
+            app("org.gnome.Nautilus", "Files", "browser"),
+        ];
+
+        let names = |query: &str| {
+            matching(&installed, query)
+                .into_iter()
+                .map(|a| a.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(""),
+            vec!["Files", "Firefox", "Zed"],
+            "an alphabet, not the order the directories were scanned in"
+        );
+        assert_eq!(names("www"), vec!["Firefox"], "keywords are searchable");
+        assert_eq!(
+            names("nautilus"),
+            vec!["Files"],
+            "so is the desktop id, which is what the config actually stores"
+        );
+        assert!(names("zzz-no-such-app").is_empty());
+
+        let many: Vec<apps::App> = (0..APP_ROWS + 50)
+            .map(|i| app(&format!("app{i}"), &format!("App {i:04}"), ""))
+            .collect();
+        assert_eq!(matching(&many, "").len(), APP_ROWS);
+    }
+
+    #[test]
+    fn the_wallpaper_browser_groups_by_folder_and_narrows_by_name() {
+        use crate::shared::services::wallpaper::Entry;
+        let entry = |name: &str, folder: &str| Entry {
+            path: PathBuf::from(format!("/w/{folder}/{name}.jpg")),
+            name: name.to_string(),
+            folder: folder.to_string(),
+        };
+        let library = vec![
+            entry("dune", "deserts"),
+            entry("fjord", ""),
+            entry("erg", "deserts"),
+        ];
+
+        let grouped = folders(&library, "");
+        assert_eq!(
+            grouped.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(),
+            vec!["", "deserts"],
+            "the library root sorts above its sub-folders"
+        );
+        assert_eq!(grouped[1].1.len(), 2);
+
+        // A folder name matches as well as an image name: "show me the deserts" is the question a grouped
+        // browser exists to answer, and typing one image's name to reach its neighbours is not an answer.
+        assert_eq!(folders(&library, "deserts")[0].1.len(), 2);
+        assert_eq!(folders(&library, "fjord").len(), 1);
+        assert!(folders(&library, "tundra").is_empty());
+    }
+
+    #[test]
+    fn a_group_is_keyed_on_which_of_its_tiles_is_current() {
+        use crate::shared::services::wallpaper::Entry;
+        let entries: Vec<Entry> = ["a", "b"]
+            .iter()
+            .map(|name| Entry {
+                path: PathBuf::from(format!("/w/{name}.jpg")),
+                name: name.to_string(),
+                folder: String::new(),
+            })
+            .collect();
+        // Choosing a picture has to move the ring, and nothing else about the group changed when it did.
+        let none = group_key("", &entries, None);
+        let first = group_key("", &entries, Some(Path::new("/w/a.jpg")));
+        let second = group_key("", &entries, Some(Path::new("/w/b.jpg")));
+        assert_ne!(none, first);
+        assert_ne!(first, second);
+        assert_eq!(first, group_key("", &entries, Some(Path::new("/w/a.jpg"))));
+    }
+
     #[test]
     fn csv_round_trips_and_trims() {
         assert_eq!(
@@ -3889,32 +6118,103 @@ mod tests {
         assert_eq!(join_csv(&["a".to_string(), "b".to_string()]), "a, b");
     }
 
+    /// A reorder must not cost an entry its own settings. The comma-separated field this replaced could only
+    /// carry ids, so it had to reconstruct `{ id = "clock", accent = "red" }` by claiming entries back by
+    /// name; the pill editor moves the entry itself, and this is the guard that it keeps doing so — including
+    /// across zones, where losing the accent would look like the module having been re-added rather than moved.
     #[test]
-    fn saving_a_bar_keeps_each_entrys_own_settings() {
-        let base = vec![
-            ModuleEntry::bare("workspaces"),
-            ModuleEntry {
-                id: "clock".to_string(),
-                accent: Some("red".to_string()),
-                variant: None,
-            },
-            ModuleEntry {
-                id: "clock".to_string(),
-                variant: Some(crate::Variant::Filled),
-                accent: None,
-            },
-        ];
-        let same = entries_from_csv("workspaces, clock, clock", &base);
-        assert_eq!(same, base, "an untouched field writes back what it read");
+    fn dragging_a_module_carries_its_own_settings_with_it() {
+        telar::reset_runtime();
+        let accented = ModuleEntry {
+            id: "clock".to_string(),
+            accent: Some("red".to_string()),
+            variant: None,
+        };
+        let filled = ModuleEntry {
+            id: "clock".to_string(),
+            variant: Some(crate::Variant::Filled),
+            accent: None,
+        };
+        let bar = BarConfig {
+            start: vec![ModuleEntry::bare("workspaces"), accented.clone()],
+            center: vec![filled.clone()],
+            end: Vec::new(),
+            ..BarConfig::default()
+        };
+        let editor = ZoneEditor::new(&bar);
 
-        let moved = entries_from_csv("clock, clock, workspaces", &base);
+        editor.move_entry((0, 1), (0, 0));
         assert_eq!(
-            moved,
-            vec![base[1].clone(), base[2].clone(), base[0].clone()]
+            editor.entries(0),
+            vec![accented.clone(), ModuleEntry::bare("workspaces")]
         );
 
-        let added = entries_from_csv("clock, clock, clock", &base);
-        assert_eq!(added[2], ModuleEntry::bare("clock"));
+        editor.move_entry((0, 0), (1, 1));
+        assert_eq!(editor.entries(0), vec![ModuleEntry::bare("workspaces")]);
+        assert_eq!(editor.entries(1), vec![filled, accented]);
+
+        editor.move_entry((1, 0), (2, 9));
+        assert_eq!(editor.entries(2).len(), 1);
+        editor.remove(2, 0);
+        assert!(editor.entries(2).is_empty());
+        editor.remove(2, 0);
+        assert!(editor.entries(2).is_empty(), "removing nothing is a no-op");
+
+        editor.append(2, ModuleEntry::bare("notes"));
+        assert_eq!(editor.entries(2), vec![ModuleEntry::bare("notes")]);
+    }
+
+    /// A removed pill leaves its rect behind, and nothing about the entry says the widget is gone. Without the
+    /// length check, that ghost goes on winning drops over the area it used to occupy — ahead of whichever
+    /// live pill the map happened to be walked to second, which makes it look intermittent.
+    #[test]
+    fn a_removed_pill_does_not_keep_catching_drops() {
+        telar::reset_runtime();
+        let bar = BarConfig {
+            start: vec![
+                ModuleEntry::bare("workspaces"),
+                ModuleEntry::bare("clock"),
+                ModuleEntry::bare("notes"),
+            ],
+            ..BarConfig::default()
+        };
+        let editor = ZoneEditor::new(&bar);
+        let at = |x: f32| Rect {
+            x,
+            y: 0.0,
+            width: 40.0,
+            height: 20.0,
+        };
+        for (index, x) in [0.0f32, 50.0, 100.0].into_iter().enumerate() {
+            editor.track(0, index, signal(at(x)).read_only());
+        }
+        // The zone row underneath them all, which is what a drop on empty space lands on.
+        editor.track(
+            0,
+            ZONE_ROW,
+            signal(Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 400.0,
+                height: 20.0,
+            })
+            .read_only(),
+        );
+
+        assert_eq!(editor.drop_target((105.0, 10.0)), Some((0, 2)));
+        editor.remove(0, 2);
+        assert_eq!(
+            editor.drop_target((105.0, 10.0)),
+            Some((0, 2)),
+            "the ghost's area now falls through to the zone row, which appends"
+        );
+        // And the pills that are still there keep answering for themselves.
+        assert_eq!(editor.drop_target((55.0, 10.0)), Some((0, 1)));
+        assert_eq!(
+            editor.drop_target((75.0, 10.0)),
+            Some((0, 2)),
+            "past the middle of a pill lands after it"
+        );
     }
 
     #[test]

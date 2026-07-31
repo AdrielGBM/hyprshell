@@ -107,6 +107,25 @@ pub fn keeping(
     )?))
 }
 
+/// [`keeping`] for a widget that owns several effects — a form row whose every field writes back into the
+/// list it belongs to. One wrapper rather than one per effect, because each `keeping` adds a container to the
+/// layout and a row wrapped five deep is five boxes the flexbox has to agree about.
+pub fn keeping_all(
+    item: Box<dyn LayoutItem>,
+    subscriptions: Vec<Effect>,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    Ok(Box::new(StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .width(SizeDimension::Percent(1.0)),
+        move |_r| {
+            let _ = &subscriptions;
+            RectStyle::default()
+        },
+        vec![item],
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

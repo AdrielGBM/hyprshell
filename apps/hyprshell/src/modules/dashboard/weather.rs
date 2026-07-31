@@ -1,9 +1,12 @@
 //! The Weather page: what it is doing now, and what it will do.
 //!
 //! Everything here already ships — the service, its disk cache, the condition glyphs and the translated
-//! descriptions — so the page adds no I/O of its own. The unit toggle is deliberately local to the surface
-//! rather than a config write: pressing a reading to check it in the other scale is a glance, not a preference,
-//! and `[temperature] unit` stays what the bar and the OSD follow.
+//! descriptions — so the page adds no I/O of its own.
+//!
+//! The unit toggle is local to the surface unless the user has asked for the opposite. Pressing a reading to
+//! check it in the other scale is a glance, not a preference, and writing `[temperature] unit` from a glance
+//! would change what the bar and the OSD show because someone looked at a number — so it only persists under
+//! `[general] live_settings`, which is precisely the setting that means "what I touch, I mean" (K14/F9a).
 
 use chrono::NaiveDate;
 use telar::{
@@ -129,7 +132,8 @@ fn current_card(
     card.build(theme)
 }
 
-/// The reading, pressable. A press swaps the scale for this surface only — see the module note.
+/// The reading, pressable. A press swaps the scale for this surface, and writes it back only when the user has
+/// live settings on — see the module note.
 fn unit_toggle(
     reading: Live<String>,
     unit: RwSignal<TemperatureUnit>,
@@ -151,8 +155,34 @@ fn unit_toggle(
             vec![box_item(text)],
         )?
         .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 6.0))
-        .on_press(move || unit.set(other_unit(unit.peek()))),
+        .on_press(move || {
+            let chosen = other_unit(unit.peek());
+            unit.set(chosen);
+            remember_unit(chosen);
+        }),
     ))
+}
+
+/// Writes the chosen scale back to `[temperature] unit`, and only under `[general] live_settings`.
+///
+/// Off the UI thread would be wrong here — `shell::config` is a thread-local the driver thread owns, which is
+/// where a press handler runs — but the write itself is one small file and the same one the settings panel
+/// performs on a Save.
+fn remember_unit(unit: TemperatureUnit) {
+    let Some(config) = crate::core::shell::config() else {
+        return;
+    };
+    if !config.general.live_settings || config.temperature.unit == unit {
+        return;
+    }
+    let path = Config::default_path();
+    let value = crate::core::config::TemperatureConfig {
+        unit,
+        ..config.temperature.clone()
+    };
+    if let Err(e) = Config::save_section(&path, "temperature", &value) {
+        tracing::warn!("weather: could not save the temperature unit: {e}");
+    }
 }
 
 fn other_unit(unit: TemperatureUnit) -> TemperatureUnit {

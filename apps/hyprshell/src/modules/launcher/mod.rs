@@ -335,6 +335,13 @@ pub fn results(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<App>
             .unwrap_or(usize::MAX)
     });
     ranked.truncate(config.max_results.max(1) as usize);
+    // Applied here rather than at the row that draws it: this is the one place the launcher turns the app
+    // database into the list it shows, so every consumer downstream — the row, its icon, a future preview —
+    // sees the override without each having to know the config carries one.
+    for app in &mut ranked {
+        let icon = config.icon_for(&app.id, &app.icon).to_string();
+        app.icon = icon;
+    }
     ranked
 }
 

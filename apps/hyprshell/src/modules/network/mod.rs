@@ -46,6 +46,18 @@ pub fn network_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     if let Some(env) = surface_env() {
         crate::shared::services::locale::attach(env.config.language());
     }
+    network_view(config, true)
+}
+
+/// The panel's whole content, taking its config rather than reading the surface's — which is what lets the
+/// settings application's network page *be* this panel instead of a second implementation of it.
+///
+/// `titled` is what tells the two apart: a drawer is the surface and has to name itself; a settings section
+/// already sits under a heading the page drew, in the page's own type.
+pub fn network_view(
+    config: NetworkConfig,
+    titled: bool,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
 
     let state = signal(network::current_wifi().unwrap_or_default());
@@ -62,7 +74,7 @@ pub fn network_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let armed = signal(String::new());
 
     let children = vec![
-        header(state.clone(), theme)?,
+        header(state.clone(), titled, theme)?,
         list(state, asking, password, armed, config, theme)?,
     ];
     Ok(Box::new(Container::new(
@@ -74,7 +86,11 @@ pub fn network_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     )?))
 }
 
-fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+fn header(
+    state: RwSignal<Wifi>,
+    titled: bool,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // One handle per closure: a signal is not `Copy`, and each reader below outlives the others.
     let subtitle_state = state.read_only();
     let radio_label = state.read_only();
@@ -82,15 +98,6 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     let scan_label = state.read_only();
     let scan_active = state.read_only();
 
-    let title = Text::auto(
-        || telar::t!("network.title"),
-        LayoutStyle::new(),
-        move || {
-            theme
-                .text_style(FontRole::Title, theme.text)
-                .with_weight(700)
-        },
-    )?;
     // Read out, then translate: `status_line` calls `t!`, and a `with` here would still hold the reactive
     // runtime's borrow when it read the locale signal.
     let subtitle = Text::auto(
@@ -98,9 +105,22 @@ fn header(state: RwSignal<Wifi>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
         LayoutStyle::new(),
         move || theme.text_style(FontRole::Caption, theme.subtle),
     )?;
+    let mut label_column: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(2);
+    if titled {
+        label_column.push(box_item(Text::auto(
+            || telar::t!("network.title"),
+            LayoutStyle::new(),
+            move || {
+                theme
+                    .text_style(FontRole::Title, theme.text)
+                    .with_weight(700)
+            },
+        )?));
+    }
+    label_column.push(box_item(subtitle));
     let labels = Container::new(
         LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
-        vec![box_item(title), box_item(subtitle)],
+        label_column,
     )?;
 
     let radio = pill(

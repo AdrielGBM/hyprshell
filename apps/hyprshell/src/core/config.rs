@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use telar::Color;
 use serde::{Deserialize, Serialize};
+use telar::Color;
 use toml_edit::{DocumentMut, Item};
 
 use crate::shared::paths;
@@ -1020,6 +1020,15 @@ pub struct GeneralConfig {
     pub language: String,
     pub show_over_fullscreen: bool,
     pub logo: String,
+    /// Apply a settings form as it is edited, a moment after the last keystroke, instead of waiting for its
+    /// Save button. Revert (in the settings header) puts the file back to how it was when the window opened.
+    ///
+    /// Off by default, and the reason is worth knowing before turning it on: applying writes `config.toml`,
+    /// and the shell's reload closes every surface built against the outgoing config — the settings window
+    /// among them. It reopens on the same page with the same search, but a text field being typed into loses
+    /// its caret when the change lands. Useful for the pages you *look* at (theme, shape, animation), less so
+    /// for the ones you type into.
+    pub live_settings: bool,
     /// The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
     ///
     /// Superseded by `[general.apps] terminal`, and still read when that one is unset — a config written
@@ -2151,10 +2160,17 @@ pub struct LauncherConfig {
     pub qalc: bool,
     pub favourites: Vec<String>,
     pub hidden: Vec<String>,
-    pub actions: Vec<LauncherAction>,
     /// Off by default: an action that can destroy something should take a deliberate opt-in, not arrive with
     /// a config someone pasted from the internet.
     pub enable_dangerous_actions: bool,
+    pub actions: Vec<LauncherAction>,
+    /// Per-application icon overrides, keyed by desktop-entry id (`firefox`), valued as anything
+    /// [`app_icon_view`](crate::shared::icon::app_icon_view) resolves: an icon-theme name or an absolute path.
+    ///
+    /// For the entries whose `Icon` key names something this machine's icon theme does not have — which is
+    /// most self-packaged software — where the alternative is editing a `.desktop` file the package manager
+    /// owns and will overwrite.
+    pub icons: HashMap<String, String>,
 }
 
 impl Default for LauncherConfig {
@@ -2169,9 +2185,21 @@ impl Default for LauncherConfig {
             qalc: true,
             favourites: Vec::new(),
             hidden: Vec::new(),
-            actions: Vec::new(),
             enable_dangerous_actions: false,
+            actions: Vec::new(),
+            icons: HashMap::new(),
         }
+    }
+}
+
+impl LauncherConfig {
+    /// The icon reference to draw `id` with: the user's override, else the one the desktop entry declared.
+    pub fn icon_for<'a>(&'a self, id: &str, declared: &'a str) -> &'a str {
+        self.icons
+            .get(id)
+            .map(String::as_str)
+            .filter(|icon| !icon.trim().is_empty())
+            .unwrap_or(declared)
     }
 }
 
@@ -3339,15 +3367,15 @@ impl Config {
     /// A dynamic theme with nothing extracted yet resolves to `[theme] fallback` rather than to a blank or a
     /// hardcoded default, so the first frame after an install is already the palette the user asked to fall back
     /// to instead of a colour scheme they never chose.
-    fn base_palette(&self) -> NordTheme {
-        if self.theme.is_dynamic() {
-            return scheme::theme().unwrap_or_else(|| self.in_requested_mode(&self.theme.fallback));
+    fn base_palette(&self, t: &ThemeConfig) -> NordTheme {
+        if t.is_dynamic() {
+            return scheme::theme().unwrap_or_else(|| Self::in_requested_mode(t, &t.fallback));
         }
-        self.in_requested_mode(&self.theme.name)
+        Self::in_requested_mode(t, &t.name)
     }
 
-    fn in_requested_mode(&self, name: &str) -> NordTheme {
-        match self.theme.requested_mode() {
+    fn in_requested_mode(t: &ThemeConfig, name: &str) -> NordTheme {
+        match t.requested_mode() {
             Some(mode) => NordTheme::named(NordTheme::in_mode(name, mode)),
             None => NordTheme::named(name),
         }
@@ -3355,8 +3383,17 @@ impl Config {
 
     /// The theme this config selects, with every `[theme]` override applied — accent, numeric tokens, and per-token `[theme.colors]` hex. The single place a theme is resolved, so its tokens back the config defaults everywhere.
     pub fn resolve_theme(&self) -> NordTheme {
-        let t = &self.theme;
-        let mut theme = self.base_palette().with_accent(&t.accent);
+        self.theme_with(&self.theme)
+    }
+
+    /// The palette a `[theme]` section *would* produce, without adopting it.
+    ///
+    /// The settings application's swatches and its preview both need to draw a selection the user has made but
+    /// not saved, and resolving one at the call site would be a second copy of the rules below — the accent
+    /// lookup, the light/dark sibling, `dynamic`'s fallback, `[theme.colors]`, `tokens.toml`. Hence a
+    /// parameter rather than a helper next to the picker, which is the convention the rest of this file keeps.
+    pub fn theme_with(&self, t: &ThemeConfig) -> NordTheme {
+        let mut theme = self.base_palette(t).with_accent(&t.accent);
         if let Some(r) = t.radius {
             theme.radius = r as f32;
         }
@@ -3858,6 +3895,48 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
         let written = toml::to_string_pretty(&cfg.bars.top).expect("serialises");
         let back: BarConfig = toml::from_str(&written).expect("round-trips");
         assert_eq!(back.start, cfg.bars.top.start);
+    }
+
+    /// `[launcher]` carries both an array of tables (`actions`) and a map (`icons`), and TOML requires every
+    /// scalar to be emitted before either. Field order on the struct is what decides that, so a key added in
+    /// the wrong place turns every launcher save into a serialize error the user only sees in the log.
+    #[test]
+    fn a_launcher_with_actions_and_icon_overrides_still_serialises() {
+        let mut icons = HashMap::new();
+        icons.insert("firefox".to_string(), "firefox-nightly".to_string());
+        let launcher = LauncherConfig {
+            actions: vec![LauncherAction {
+                name: "Reload".to_string(),
+                command: "hyprshell shell reload".to_string(),
+                ..LauncherAction::default()
+            }],
+            icons,
+            enable_dangerous_actions: true,
+            ..LauncherConfig::default()
+        };
+        let written = toml::to_string(&launcher).expect("a launcher section serialises");
+        let back: LauncherConfig = toml::from_str(&written).expect("round-trips");
+        assert_eq!(back.actions.len(), 1);
+        assert_eq!(
+            back.icons.get("firefox").map(String::as_str),
+            Some("firefox-nightly")
+        );
+        assert!(back.enable_dangerous_actions);
+    }
+
+    #[test]
+    fn an_icon_override_wins_only_when_it_says_something() {
+        let mut icons = HashMap::new();
+        icons.insert("firefox".to_string(), "firefox-nightly".to_string());
+        // A row cleared back to empty must fall through to the desktop entry rather than blanking the icon.
+        icons.insert("code".to_string(), "  ".to_string());
+        let launcher = LauncherConfig {
+            icons,
+            ..LauncherConfig::default()
+        };
+        assert_eq!(launcher.icon_for("firefox", "firefox"), "firefox-nightly");
+        assert_eq!(launcher.icon_for("code", "vscode"), "vscode");
+        assert_eq!(launcher.icon_for("gimp", "gimp"), "gimp");
     }
 
     #[test]
@@ -4834,7 +4913,10 @@ accent = "orange"
             with("", "ease_in_out").easing(),
             telar::motion::Easing::EaseInOut
         );
-        assert_eq!(with("", "nonsense").easing(), telar::motion::Easing::EaseOut);
+        assert_eq!(
+            with("", "nonsense").easing(),
+            telar::motion::Easing::EaseOut
+        );
     }
 
     #[test]

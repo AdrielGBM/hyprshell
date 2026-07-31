@@ -1,8 +1,32 @@
 [settings]
 search = "Buscar ajustes"
 title = "Ajustes"
+revert = "Deshacer"
+
+[settings.apps]
+count = "Mostrando {shown} de {total} aplicaciones"
+no_icon = "(sin icono)"
+
+[settings.wallpaper]
+empty = "No hay imágenes en la biblioteca de fondos."
+no_match = "Ninguna imagen coincide con ese nombre."
+top_level = "Raíz de la biblioteca"
+clear = "Usar el fondo configurado"
+
+[settings.media]
+no_players = "Aún no se ha visto ningún reproductor: abre uno y vuelve a esta página para renombrarlo."
 
 [settings.section]
+library = "Biblioteca de fondos"
+battery_warnings = "Avisos de batería baja"
+idle_stages = "Etapas de inactividad"
+apps = "Aplicaciones instaladas"
+theme_colors = "Ajustes de paleta"
+media_aliases = "Nombres de reproductores"
+modules = "Ajustes por módulo"
+mixer = "Mezclador de volumen"
+wifi = "Wi-Fi"
+devices = "Dispositivos"
 animation = "Animación"
 about = "Acerca de hyprshell"
 visualiser = "Visualizador de audio"
@@ -49,6 +73,12 @@ utilities = "Panel de utilidades"
 sidebar = "Centro de notificaciones"
 
 [settings.save]
+apps = "Guardar aplicaciones"
+battery_warnings = "Guardar avisos"
+idle_stages = "Guardar etapas"
+theme_colors = "Guardar ajustes de paleta"
+media_aliases = "Guardar nombres de reproductores"
+modules = "Guardar ajustes por módulo"
 animation = "Guardar animación"
 visualiser = "Guardar visualizador"
 background_visualiser = "Guardar visualizador del escritorio"
@@ -93,7 +123,24 @@ recorder = "Guardar grabación"
 utilities = "Guardar utilidades"
 sidebar = "Guardar centro de notificaciones"
 
+[settings.list]
+add = "Añadir"
+
 [settings.field]
+search = "Buscar"
+palette = "Paleta"
+add_module = "Añadir un módulo"
+live_settings = "Aplicar cambios al editar"
+level = "Nivel de carga"
+title = "Título"
+message = "Mensaje"
+icon = "Icono"
+critical_urgency = "Urgencia crítica"
+timeout_seconds = "Tras (segundos)"
+action = "Acción"
+return_action = "Al despertar"
+variant_style = "Estilo del chip"
+open = "Se abre como"
 duration_scale = "Escala de duración"
 curve = "Curva del resorte"
 easing = "Suavizado"

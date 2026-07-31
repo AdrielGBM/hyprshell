@@ -1,8 +1,32 @@
 [settings]
 search = "Search settings"
 title = "Settings"
+revert = "Revert"
+
+[settings.apps]
+count = "Showing {shown} of {total} applications"
+no_icon = "(no icon)"
+
+[settings.wallpaper]
+empty = "No images in the wallpaper library."
+no_match = "No image matches that name."
+top_level = "Library root"
+clear = "Use the configured wallpaper"
+
+[settings.media]
+no_players = "No media player has been seen yet — start one and reopen this page to rename it."
 
 [settings.section]
+library = "Wallpaper library"
+battery_warnings = "Low-battery warnings"
+idle_stages = "Idle stages"
+apps = "Installed applications"
+theme_colors = "Palette overrides"
+media_aliases = "Player names"
+modules = "Per-module overrides"
+mixer = "Volume mixer"
+wifi = "Wi-Fi"
+devices = "Devices"
 animation = "Animation"
 about = "About hyprshell"
 visualiser = "Audio visualiser"
@@ -49,6 +73,12 @@ utilities = "Utilities panel"
 sidebar = "Notification centre"
 
 [settings.save]
+apps = "Save applications"
+battery_warnings = "Save warnings"
+idle_stages = "Save idle stages"
+theme_colors = "Save palette overrides"
+media_aliases = "Save player names"
+modules = "Save per-module overrides"
 animation = "Save animation"
 visualiser = "Save visualiser"
 background_visualiser = "Save desktop visualiser"
@@ -93,7 +123,24 @@ recorder = "Save screen recording"
 utilities = "Save utilities panel"
 sidebar = "Save notification centre"
 
+[settings.list]
+add = "Add"
+
 [settings.field]
+search = "Search"
+palette = "Palette"
+add_module = "Add a module"
+live_settings = "Apply changes as you edit"
+level = "Charge level"
+title = "Title"
+message = "Message"
+icon = "Icon"
+critical_urgency = "Critical urgency"
+timeout_seconds = "After (seconds)"
+action = "Action"
+return_action = "On wake"
+variant_style = "Chip style"
+open = "Opens as"
 duration_scale = "Duration scale"
 curve = "Spring curve"
 easing = "Easing"

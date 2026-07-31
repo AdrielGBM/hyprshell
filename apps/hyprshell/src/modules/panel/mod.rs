@@ -15,11 +15,23 @@ pub fn toggle_panel(module_id: &str) {
         tracing::warn!("no shell context yet; ignoring toggle of '{module_id}'");
         return;
     };
+    if is_panel_open(module_id) {
+        forget_settings_state(module_id);
+    }
     match env.config.open_mode_for(module_id) {
         OpenMode::Drawer => {
             shell::toggle_drawer(module_id, || drawer::open_drawer(&env, module_id))
         }
         OpenMode::Float => shell::toggle_window(module_id, || float::open_float(&env, module_id)),
+    }
+}
+
+/// The settings window remembers its page and its Revert snapshot across the reload its *own* save causes, and
+/// must not remember either across a user closing it. A reload never comes through here — it drops surfaces
+/// wholesale in `shell::close_all` — so this is exactly the "the user is done with it" signal.
+fn forget_settings_state(module_id: &str) {
+    if module_id == "settings" {
+        crate::modules::settings::forget_panel_state();
     }
 }
 
@@ -32,6 +44,7 @@ pub fn open_panel(module_id: &str) {
 
 /// Closes `module_id`'s panel; a no-op when it isn't open.
 pub fn close_panel(module_id: &str) {
+    forget_settings_state(module_id);
     shell::close(module_id);
 }
 

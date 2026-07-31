@@ -119,6 +119,7 @@ pub const PAGES: &[Page] = &[
         icon: "palette",
         sections: &[
             section!("theme", ["theme"], super::theme_section),
+            section!("theme_colors", ["theme"], super::theme_colors_section),
             section!("shape", ["shape"], super::shape_section),
             section!("corners", ["corners"], super::corners_section),
             section!("icons", ["icons"], super::icons_section),
@@ -130,6 +131,7 @@ pub const PAGES: &[Page] = &[
         icon: "layout-panel-top",
         sections: &[
             section!("bars", ["bars"], super::bars_section),
+            section!("modules", ["modules"], super::module_overrides_section),
             section!("panels", ["panels"], super::panels_section),
             section!("popouts", ["popouts"], super::popouts_section),
             section!("osd", ["osd"], super::osd_section),
@@ -147,6 +149,11 @@ pub const PAGES: &[Page] = &[
             ),
             section!("tray", ["tray"], super::tray_section),
             section!("battery", ["battery"], super::battery_section),
+            section!(
+                "battery_warnings",
+                ["battery"],
+                super::battery_warnings_section
+            ),
             section!("lock_status", ["lock_status"], super::lock_status_section),
             section!("temperature", ["temperature"], super::temperature_section),
         ],
@@ -155,30 +162,37 @@ pub const PAGES: &[Page] = &[
         label: "audio",
         icon: "volume-2",
         sections: &[
+            section!("mixer", ["audio"], super::mixer_live_section),
             section!("audio", ["audio"], super::audio_section),
             section!("visualiser", ["visualiser"], super::visualiser_section),
             section!("media", ["media"], super::media_section),
+            section!("media_aliases", ["media"], super::media_aliases_section),
             section!("lyrics", ["lyrics"], super::lyrics_section),
         ],
     },
     Page {
         label: "network",
         icon: "wifi",
-        sections: &[section!("network", ["network"], super::network_section)],
+        sections: &[
+            section!("wifi", ["network"], super::network_live_section),
+            section!("network", ["network"], super::network_section),
+        ],
     },
     Page {
         label: "bluetooth",
         icon: "bluetooth",
-        sections: &[section!(
-            "bluetooth",
-            ["bluetooth"],
-            super::bluetooth_section
-        )],
+        sections: &[
+            section!("devices", ["bluetooth"], super::bluetooth_live_section),
+            section!("bluetooth", ["bluetooth"], super::bluetooth_section),
+        ],
     },
     Page {
         label: "applications",
         icon: "layout-grid",
-        sections: &[section!("launcher", ["launcher"], super::launcher_section)],
+        sections: &[
+            section!("apps", ["launcher"], super::apps_section),
+            section!("launcher", ["launcher"], super::launcher_section),
+        ],
     },
     Page {
         label: "notifications",
@@ -199,12 +213,14 @@ pub const PAGES: &[Page] = &[
         sections: &[
             section!("lock", ["lock"], super::lock_section),
             section!("idle", ["idle"], super::idle_section),
+            section!("idle_stages", ["idle"], super::idle_stages_section),
         ],
     },
     Page {
         label: "wallpaper",
         icon: "image",
         sections: &[
+            section!("library", ["wallpaper"], super::wallpaper_browser_section),
             section!("background", ["background"], super::background_section),
             section!("wallpaper", ["wallpaper"], super::wallpaper_section),
             section!(
@@ -272,8 +288,8 @@ mod tests {
             .as_table()
             .expect("a table")
             .keys()
-            // `version` is the schema's own bookkeeping and `modules` is map-valued (K13); neither is a form.
-            .filter(|key| !matches!(key.as_str(), "version" | "modules"))
+            // `version` is the schema's own bookkeeping, not a form.
+            .filter(|key| key.as_str() != "version")
             .filter(|key| !placed.contains(&key.as_str()))
             .map(|key| key.as_str())
             .collect();
