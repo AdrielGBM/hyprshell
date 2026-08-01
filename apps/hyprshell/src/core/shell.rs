@@ -165,13 +165,36 @@ pub fn open_ids() -> Vec<String> {
     })
 }
 
+/// Surfaces that outlive a config reload.
+///
+/// The settings window is the one surface whose *job* is to cause reloads, and closing it on each one is what
+/// makes live preview unusable: a text field being typed into loses its caret every time a change lands. It is
+/// the only exception, and only because it is the only surface where the reload is the user's own edit rather
+/// than something that happened to it.
+///
+/// **Necessary and not yet sufficient.** Keeping the token here does stop *this* registry dropping the surface,
+/// and the test below proves that much — but on a real compositor the window still goes when a live change
+/// lands, so something else in the reload path takes it down. Before adding to this list, find out what: the
+/// answer is in `setup_shell`'s `reconcile`, not here.
+const SURVIVES_RELOAD: &[&str] = &["settings"];
+
+pub fn survives_reload(id: &str) -> bool {
+    SURVIVES_RELOAD.contains(&id)
+}
+
 /// Drops every open surface — used when the shell reloads, so panels built against the old config don't
-/// outlive it.
+/// outlive it. See [`SURVIVES_RELOAD`] for the one that does.
 pub fn close_all() {
     OPEN.with(|surfaces| {
         let mut surfaces = surfaces.borrow_mut();
-        surfaces.drawer = None;
-        surfaces.windows.clear();
+        if !surfaces
+            .drawer
+            .as_ref()
+            .is_some_and(|(id, _)| survives_reload(id))
+        {
+            surfaces.drawer = None;
+        }
+        surfaces.windows.retain(|id, _| survives_reload(id));
     });
 }
 
@@ -217,6 +240,19 @@ mod tests {
         Arc::new(toml::from_str(toml).unwrap())
     }
 
+    /// A token over a surface that was never opened: `open_surface` needs a driver, and these tests are about
+    /// the registry's bookkeeping rather than about anything on screen.
+    fn token() -> SurfaceToken {
+        struct Never;
+        impl telar::SurfaceControl for Never {
+            fn close(&self) {}
+            fn is_closing(&self) -> bool {
+                false
+            }
+        }
+        SurfaceToken::new(Box::new(Never))
+    }
+
     #[test]
     fn env_anchors_a_panel_to_the_bar_its_module_sits_on() {
         set_config(config_from(
@@ -232,6 +268,47 @@ mod tests {
             Edge::Top,
             "a module on no bar still opens somewhere sensible"
         );
+    }
+
+    /// The reload has to spare the settings window and nothing else.
+    ///
+    /// Sparing it is what makes live preview usable — the window that *caused* the reload must not be closed by
+    /// it — and sparing anything more would put a panel built against the outgoing config back on screen with a
+    /// stale theme and a dangling anchor, which is the reason `close_all` exists.
+    #[test]
+    fn a_reload_closes_every_surface_except_the_one_that_asked_for_it() {
+        OPEN.with(|surfaces| {
+            let mut surfaces = surfaces.borrow_mut();
+            surfaces.drawer = Some(("clock".to_string(), token()));
+            surfaces.windows.insert("settings".to_string(), token());
+            surfaces.windows.insert("launcher".to_string(), token());
+        });
+
+        close_all();
+
+        assert_eq!(
+            open_ids(),
+            vec!["settings".to_string()],
+            "the settings window survives its own reload; the drawer and the launcher do not"
+        );
+        close_all();
+        assert_eq!(
+            open_ids(),
+            vec!["settings".to_string()],
+            "and keeps surviving"
+        );
+    }
+
+    #[test]
+    fn a_settings_drawer_survives_a_reload_too() {
+        OPEN.with(|surfaces| {
+            let mut surfaces = surfaces.borrow_mut();
+            // `[modules.settings] open = "drawer"` is a supported presentation, and a drawer that vanished where a float stayed would make the fix depend on a setting the user chose for another reason.
+            surfaces.drawer = Some(("settings".to_string(), token()));
+            surfaces.windows.clear();
+        });
+        close_all();
+        assert_eq!(open_ids(), vec!["settings".to_string()]);
     }
 
     #[test]
