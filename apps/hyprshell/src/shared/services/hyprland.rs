@@ -828,22 +828,69 @@ pub fn subscribe_keyboard(tx: EventSender<KeyboardLayout>) {
     KEYBOARD.subscribe(tx);
 }
 
-/// Switching the keyboard layout is **not available** on Hyprland's Lua config API.
+/// The wire form of a layout switch: a bare top-level command with space-separated arguments, *not* a
+/// `dispatch` payload. Separated from the call so a test can hold the shape without switching anyone's keyboard.
+fn switch_layout_command(device: &str, to: &str) -> String {
+    format!("switchxkblayout {device} {to}")
+}
+
+/// Moves `device` to its next configured keyboard layout.
 ///
-/// `switchxkblayout` was a hyprlang dispatcher and was not carried over: as of 0.56 `hl.dsp` holds only
-/// `cursor, dpms, event, exec_cmd, exec_raw, exit, focus, force_idle, force_renderer_reload, global, group,
-/// layout, no_op, pass, release_input_capture, send_key_state, send_shortcut, submap, window, workspace`
-/// (`hl.dsp.layout` is the *tiling* layout), and `hyprctl keyword` refuses to run under the non-legacy parser.
-/// There is no device-level API either — `hl.device` returns nil for a keyboard name.
+/// **Not a dispatcher, which is why this looked impossible.** `switchxkblayout` was a hyprlang dispatcher and
+/// was not carried into the Lua API: `hl.dsp` has no keyboard entry on 0.56, and `hl.device` is a config setter
+/// that returns nothing for a keyboard name. It survives as a *top-level IPC command* — the same kind as
+/// `devices` or `keyword` — so it goes over the socket verbatim rather than through `dispatch`. Looking only at
+/// `hl.dsp` is what made this read as unsupported.
 ///
-/// So the `kblayout` module reads the active layout and does not offer a click. If a later Hyprland restores a
-/// dispatcher, wiring it back is a `dispatch()` call here plus an `.on_click(…)` in the registry — but it must
-/// be verified against `hyprctl repl 'for k in pairs(hl.dsp) do … end'` first, not assumed.
-pub const LAYOUT_SWITCHING_UNSUPPORTED: () = ();
+/// Verified against the running compositor rather than assumed, the same rule `set_dpms` follows: `next` and an
+/// explicit index both answer `ok`, and a name no keyboard has answers `device not found`. That last one is what
+/// makes the reply worth reading — a wrong device fails silently otherwise.
+///
+/// Nothing is read back here. The compositor emits `activelayout>>` on a real change, which the keyboard
+/// service already watches, so the chip follows a switch made from a keybind exactly as it follows this one.
+pub fn cycle_keyboard_layout(dir: &Path, device: &str) {
+    let command = switch_layout_command(device, "next");
+    match request(dir, &command) {
+        Ok(reply) if reply.trim().eq_ignore_ascii_case("ok") => {}
+        Ok(reply) => tracing::warn!("hyprshell: `{command}` -> {reply:?}"),
+        Err(e) => tracing::warn!("hyprshell: `{command}` failed: {e}"),
+    }
+}
+
+/// Cycles the layout of whichever keyboard [`keyboard_layout`] reports, for a caller that has no device in hand
+/// — a bar chip, a keybind. Resolved per call rather than remembered: the main keyboard is exactly the thing
+/// that changes when one is plugged in.
+pub fn cycle_main_keyboard_layout() {
+    let Some(dir) = socket_dir() else { return };
+    let Some(layout) = keyboard_layout(&dir) else {
+        tracing::warn!("hyprshell: no keyboard to switch the layout of");
+        return;
+    };
+    cycle_keyboard_layout(&dir, &layout.device);
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A layout switch is a top-level command, not a dispatch, and the difference is the whole feature.
+    ///
+    /// `switchxkblayout` was a hyprlang dispatcher and did not survive into the Lua API, which is what made this
+    /// read as impossible for a release: `hl.dsp` has no keyboard entry and `hl.device` answers nothing for a
+    /// keyboard name. It is still there as a bare IPC command, the same kind as `devices`. Wrapping it in
+    /// `dispatch …` — the shape every other mutation here takes — is the one plausible way to get this wrong,
+    /// and the compositor answers a Lua parse error rather than anything that looks like a missing feature.
+    #[test]
+    fn a_layout_switch_goes_over_the_socket_bare_rather_than_as_a_dispatch() {
+        let command = switch_layout_command("at-translated-set-2-keyboard", "next");
+        assert_eq!(command, "switchxkblayout at-translated-set-2-keyboard next");
+        assert!(
+            !command.contains("dispatch") && !command.contains("hl.dsp"),
+            "a dispatch payload would be answered with a Lua parse error, not a missing-feature error: {command}"
+        );
+        // An index is the other spelling the compositor takes, and the caller builds it the same way.
+        assert_eq!(switch_layout_command("kbd", "0"), "switchxkblayout kbd 0");
+    }
 
     #[test]
     fn event_filters_match_their_own_events_and_nothing_else() {

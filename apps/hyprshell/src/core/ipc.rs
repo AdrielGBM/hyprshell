@@ -1380,23 +1380,34 @@ static TARGETS: &[Target] = &[
             },
         ],
     },
-    // No `next`: Hyprland's Lua API has no keyboard-layout dispatcher to call
-    // (`hyprland::LAYOUT_SWITCHING_UNSUPPORTED`), and advertising a command that always errors is worse than
-    // not having one.
     Target {
         name: "keyboard",
-        commands: &[Command {
-            name: "layout",
-            args: "",
-            help: "the main keyboard's active layout",
-            run: |_| {
-                use crate::shared::services::hyprland;
-                let layout = hyprland::socket_dir()
-                    .and_then(|dir| hyprland::keyboard_layout(&dir))
-                    .ok_or("no keyboard reported")?;
-                Ok(layout.name)
+        commands: &[
+            Command {
+                name: "layout",
+                args: "",
+                help: "the main keyboard's active layout",
+                run: |_| {
+                    use crate::shared::services::hyprland;
+                    let layout = hyprland::socket_dir()
+                        .and_then(|dir| hyprland::keyboard_layout(&dir))
+                        .ok_or("no keyboard reported")?;
+                    Ok(layout.name)
+                },
             },
-        }],
+            Command {
+                name: "next",
+                args: "",
+                help: "switch the main keyboard to its next layout",
+                run: |_| {
+                    use crate::shared::services::hyprland;
+                    let dir = hyprland::socket_dir().ok_or("not running under Hyprland")?;
+                    let layout = hyprland::keyboard_layout(&dir).ok_or("no keyboard reported")?;
+                    hyprland::cycle_keyboard_layout(&dir, &layout.device);
+                    Ok("ok".to_string())
+                },
+            },
+        ],
     },
     Target {
         name: "brightness",
@@ -2203,6 +2214,7 @@ mod tests {
             ("record", "pause"),
             ("toast", "clear"),
             ("notifs", "center"),
+            ("keyboard", "next"),
         ];
         for (target, command) in ARGUMENTLESS_MUTATIONS {
             assert!(
