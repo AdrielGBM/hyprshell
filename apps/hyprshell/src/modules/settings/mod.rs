@@ -938,12 +938,18 @@ fn shape_section(
 #[derive(Clone)]
 struct BarSignals {
     size: RwSignal<String>,
+    persistent: RwSignal<bool>,
+    show_on_hover: RwSignal<bool>,
+    peek: RwSignal<String>,
     zones: ZoneEditor,
 }
 
 fn bar_signals(bar: &BarConfig) -> BarSignals {
     BarSignals {
         size: signal(bar.size.to_string()),
+        persistent: signal(bar.persistent),
+        show_on_hover: signal(bar.show_on_hover),
+        peek: signal(bar.peek.to_string()),
         zones: ZoneEditor::new(bar),
     }
 }
@@ -1075,6 +1081,22 @@ fn bar_rows(
             || telar::t!("settings.field.size"),
             s.size.clone(),
             "34",
+            theme,
+        )?,
+        toggle_field(
+            || telar::t!("settings.field.persistent"),
+            s.persistent.clone(),
+            theme,
+        )?,
+        toggle_field(
+            || telar::t!("settings.field.show_on_hover"),
+            s.show_on_hover.clone(),
+            theme,
+        )?,
+        text_field(
+            || telar::t!("settings.field.peek"),
+            s.peek.clone(),
+            "2",
             theme,
         )?,
     ];
@@ -1253,6 +1275,9 @@ fn bar_from(s: &BarSignals, base: &BarConfig) -> BarConfig {
         center: s.zones.entries(1),
         end: s.zones.entries(2),
         shape: base.shape,
+        persistent: s.persistent.peek(),
+        show_on_hover: s.show_on_hover.peek(),
+        peek: parse_u32(&s.peek.peek(), base.peek),
     }
 }
 

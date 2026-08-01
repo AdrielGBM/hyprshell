@@ -1023,11 +1023,14 @@ pub struct GeneralConfig {
     /// Apply a settings form as it is edited, a moment after the last keystroke, instead of waiting for its
     /// Save button. Revert (in the settings header) puts the file back to how it was when the window opened.
     ///
-    /// Off by default, and the reason is worth knowing before turning it on: applying writes `config.toml`,
-    /// and the shell's reload closes every surface built against the outgoing config — the settings window
-    /// among them. It reopens on the same page with the same search, but a text field being typed into loses
-    /// its caret when the change lands. Useful for the pages you *look* at (theme, shape, animation), less so
-    /// for the ones you type into.
+    /// Apply a settings form as it is edited, a moment after the last keystroke, instead of waiting for its
+    /// Save button. Revert (in the settings header) puts the file back to how it was when the window opened.
+    ///
+    /// Off by default, and worth knowing why before turning it on. Applying writes `config.toml`, so a look
+    /// around the settings with a nudged slider is a written config. And the window does not yet survive the
+    /// reload that follows: a text field being typed into loses its caret when the change lands. The reload
+    /// deliberately spares this surface (see `core::shell::SURVIVES_RELOAD`) and that is not sufficient —
+    /// something else in the reload path still takes it down.
     pub live_settings: bool,
     /// The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
     ///
@@ -2711,6 +2714,17 @@ pub struct BarConfig {
     pub center: Vec<ModuleEntry>,
     pub end: Vec<ModuleEntry>,
     pub shape: BarShape,
+    /// Keep the bar on screen at all times (the default). Switched off, it reserves no space and sits off its
+    /// own edge with only `peek` pixels showing, sliding in when the pointer reaches that strip and back out
+    /// when the pointer leaves.
+    pub persistent: bool,
+    /// Reveal a non-persistent bar when the pointer reaches its peek strip. Switched off, only a drag inward
+    /// past `[panels] drag_threshold` brings it in — which is what a touch screen wants, and what a pointer
+    /// that keeps brushing the screen edge on its way somewhere else does not.
+    pub show_on_hover: bool,
+    /// How many logical pixels of a hidden bar stay on screen, as the strip that reveals it. Too thin to hit
+    /// is worse than absent, so this is floored at 1.
+    pub peek: u32,
 }
 
 impl BarConfig {
@@ -2727,6 +2741,9 @@ impl Default for BarConfig {
             center: Vec::new(),
             end: Vec::new(),
             shape: BarShape::default(),
+            persistent: true,
+            show_on_hover: true,
+            peek: 2,
         }
     }
 }
@@ -3146,7 +3163,7 @@ impl Config {
                     start: vec![ModuleEntry::bare("workspaces")],
                     center: vec![ModuleEntry::bare("clock")],
                     end: vec![ModuleEntry::bare("notes")],
-                    shape: BarShape::default(),
+                    ..BarConfig::default()
                 },
                 ..BarsConfig::default()
             },
@@ -3463,8 +3480,45 @@ impl Config {
     }
 
     /// Space the bar reserves from its edge — its outer gap plus thickness — i.e. how far a panel or app must sit from the edge to clear it.
+    ///
+    /// An auto-hidden bar reserves nothing *of its own*, which is the whole meaning of `persistent = false`: a
+    /// bar that is not there most of the time must not carve a strip out of every window's idea of the screen.
+    /// Its peek strip is deliberately not counted either — reserving four pixels would tile every window four
+    /// pixels short for a sliver the user asked to be able to ignore.
+    ///
+    /// But the `[shape] frame` ring is not the bar. It is drawn on the background layer, so it is only visible
+    /// where no window covers it, and it is asked for on *every* edge at once. Reserving nothing at all for an
+    /// auto-hiding edge tiled the windows straight over that edge's ring — three sides framed and one not. So
+    /// an auto-hidden edge reserves exactly what it would with no bar on it at all.
     pub fn edge_reserved(&self, edge: Edge) -> u32 {
+        if !self.bar_is_persistent(edge) {
+            return match self.shape.frame {
+                true => self.edge_gap(edge) + self.shape.inactive_size,
+                false => 0,
+            };
+        }
         self.edge_gap(edge) + self.edge_thickness(edge)
+    }
+
+    /// Whether `edge`'s bar stays on screen. A bar with nothing on it is persistent by definition — there is no
+    /// bar to hide — so this only ever answers `false` for an edge that actually carries one.
+    pub fn bar_is_persistent(&self, edge: Edge) -> bool {
+        !self.edge_present(edge) || self.bars.get(edge).persistent
+    }
+
+    /// How many logical pixels of a hidden bar stay on screen. Floored at 1: a strip the pointer cannot land on
+    /// is a bar with no way back.
+    pub fn bar_peek(&self, edge: Edge) -> u32 {
+        self.bars.get(edge).peek.max(1)
+    }
+
+    /// The margin an auto-hidden bar sits at on its own anchored edge, so that exactly [`bar_peek`] pixels of it
+    /// are on screen. Negative, and measured from the screen edge rather than from the bar's usual gap: a bar
+    /// that is hiding has no gap to keep.
+    ///
+    /// [`bar_peek`]: Self::bar_peek
+    pub fn bar_hidden_offset(&self, edge: Edge) -> i32 {
+        self.bar_peek(edge) as i32 - self.edge_thickness(edge) as i32
     }
 
     /// The standard gap panels (drawers/floats) keep from the bar and the screen edges. A `[panels] gap` override wins; otherwise it's derived — the bar's own outer gap when it floats (so panels float in step with it), else a default so a hugging bar's panels still breathe. This is the "gaps_out"-style spacing that keeps a panel off the bar and off the corners.

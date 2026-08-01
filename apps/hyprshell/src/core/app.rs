@@ -7,7 +7,7 @@ use telar::{
 };
 
 use crate::core::config::{Config, Edge};
-use crate::modules::bar::build_bar;
+use crate::modules::bar::{AutoHide, build_bar};
 use crate::shared::module::{SurfaceEnv, default_registry, set_surface_env};
 
 /// Root component: full-surface container that re-layouts on WindowResized and forwards events, so widgets resolve correctly.
@@ -76,6 +76,17 @@ impl App for BarApp {
         let registry = default_registry();
         let bar =
             build_bar(&self.config, self.edge, accent, &registry, theme).expect("bar build failed");
+        // `persistent = false` moves the surface itself, so the wrapper goes here — around the whole bar, inside the surface root that drives it — rather than around any one zone.
+        let bar: Box<dyn LayoutItem> = if self.config.bar_is_persistent(self.edge) {
+            bar
+        } else {
+            Box::new(AutoHide::new(
+                bar,
+                &self.config,
+                self.edge,
+                crate::bar_margin_for(&self.config, self.edge),
+            ))
+        };
         Box::new(SurfaceRoot::new(bar).expect("bar layout failed"))
     }
 

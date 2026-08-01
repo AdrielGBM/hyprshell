@@ -1,3 +1,7 @@
+mod autohide;
+
+pub use autohide::{AutoHide, RevealMargins};
+
 use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, track_layout,

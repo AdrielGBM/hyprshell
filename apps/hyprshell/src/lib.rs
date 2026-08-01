@@ -102,11 +102,17 @@ impl AppPathsProvider for NullPaths {
 }
 
 /// Insets past the perpendicular bar's own gap+thickness (not the vertical bar's gap) so a floating perpendicular bar can't overlap a hugging vertical one.
+///
+/// Driven off what the perpendicular edge actually reserves rather than off whether it has a bar, so an
+/// auto-hidden one insets by its frame ring (which is still there) and not by the bar thickness (which is not).
+/// Insetting a full-height left bar past a top bar that is off screen would leave a permanent notch for
+/// something the user asked not to see; the cost is that a revealed auto-hidden bar overlaps the corner while
+/// it is out, which is the right way round — the notch would be there always, the overlap only under the
+/// pointer.
 fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
-    if config.edge_present(perp) {
-        config.edge_reserved(perp) as i32
-    } else {
-        own_gap
+    match config.edge_reserved(perp) {
+        0 => own_gap,
+        reserved => reserved as i32,
     }
 }
 
@@ -120,34 +126,45 @@ fn chrome_layer(config: &Config) -> Layer {
     }
 }
 
-/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
-fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
-    let thickness = config.edge_thickness(edge) as i32;
+/// The margin `edge`'s bar sits at while it is on screen, as `(top, right, bottom, left)`: its own outer gap on
+/// the edge it hangs off, plus — for a vertical bar — the insets that keep it clear of a perpendicular one.
+///
+/// Lifted out of [`layer_config_for`] because an auto-hiding bar needs the same answer from the other side: the
+/// surface is created at its *hidden* margin and animates back to this one, and the two deriving the gap
+/// separately is how a revealed bar ends up a few pixels off the position it was configured for.
+pub(crate) fn bar_margin_for(config: &Config, edge: Edge) -> (i32, i32, i32, i32) {
     let gap = config.edge_gap(edge) as i32;
     let top_inset = perpendicular_inset(config, Edge::Top, gap);
     let bottom_inset = perpendicular_inset(config, Edge::Bottom, gap);
-    // Margin tuple is (top, right, bottom, left).
-    let (anchor, surface_size, margin) = match edge {
-        Edge::Top => (
-            Anchor::TOP | Anchor::LEFT | Anchor::RIGHT,
-            (0, thickness as u32),
-            (gap, gap, 0, gap),
-        ),
+    match edge {
+        Edge::Top => (gap, gap, 0, gap),
+        Edge::Bottom => (0, gap, gap, gap),
+        Edge::Left => (top_inset, 0, bottom_inset, gap),
+        Edge::Right => (top_inset, gap, bottom_inset, 0),
+    }
+}
+
+/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
+///
+/// An auto-hidden bar is created at its hidden margin — off its own edge but for its peek strip — rather than
+/// being placed on screen and moved a frame later, which the user would see as a bar that flashes on at every
+/// reload before deciding to leave.
+fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
+    let thickness = config.edge_thickness(edge);
+    let (anchor, surface_size) = match edge {
+        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, thickness)),
         Edge::Bottom => (
             Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            (0, thickness as u32),
-            (0, gap, gap, gap),
+            (0, thickness),
         ),
-        Edge::Left => (
-            Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM,
-            (thickness as u32, 0),
-            (top_inset, 0, bottom_inset, gap),
-        ),
-        Edge::Right => (
-            Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM,
-            (thickness as u32, 0),
-            (top_inset, gap, bottom_inset, 0),
-        ),
+        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
+        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
+    };
+    let shown = bar_margin_for(config, edge);
+    let margin = if config.bar_is_persistent(edge) {
+        shown
+    } else {
+        crate::modules::bar::RevealMargins::new(config, edge, shown).hidden
     };
     LayerConfig {
         output,
@@ -456,9 +473,12 @@ fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
                         output: out.name.clone(),
                     },
                 ));
-                handles.push(platform_layershell::open_reservation(
-                    reservation_config_for(config, edge, out.name.clone()),
-                ));
+                // Driven off what the edge reserves rather than off whether its bar hides: an auto-hidden bar under `[shape] frame` still reserves its ring, and an edge that reserves nothing gets no strip at all rather than one sized zero — a mapped surface with an empty exclusive zone is still a surface for the compositor to configure and the driver to drive.
+                if config.edge_reserved(edge) > 0 {
+                    handles.push(platform_layershell::open_reservation(
+                        reservation_config_for(config, edge, out.name.clone()),
+                    ));
+                }
             }
         }
         if config.shape.frame {
