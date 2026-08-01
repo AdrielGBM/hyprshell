@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use platform_layershell::request_close;
+use platform_layershell::{request_close, request_size};
 use telar::{
     SurfaceFrameStyle, SurfacePlacement, SurfaceSize, SurfaceToken, open_surface, set_theme,
     surface_frame,
@@ -11,6 +11,11 @@ use crate::shared::module::SurfaceEnv;
 use crate::shared::theme::FontRole;
 
 /// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per its `[modules.<id>]` override or `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
+///
+/// `[modules.<id>]` (or `[panels.float]`) is the size the window *opens* at, not the size it is stuck at: the
+/// frame's corner grip renegotiates the layer surface as it is dragged. That size lasts as long as the window
+/// does and is deliberately not written back — persisting it would mean a config write per drag, and a config
+/// write closes every surface built against the outgoing config, this one included.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let theme = env.config.resolve_theme();
     let title = module_id.to_string();
@@ -37,7 +42,11 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
                 font_size: theme.font(FontRole::Title),
             };
             let close: Rc<dyn Fn()> = Rc::new(request_close);
-            surface_frame(title, style, close, body).expect("surface frame build failed")
+            // The grip hands back the size the *surface* should take; rounding up rather than down keeps a half-pixel drag from shrinking the window by one every frame it is held still.
+            let resize: Rc<dyn Fn(f32, f32)> =
+                Rc::new(|w: f32, h: f32| request_size(w.ceil() as u32, h.ceil() as u32));
+            surface_frame(title, style, close, body, Some(resize))
+                .expect("surface frame build failed")
         }),
     )
 }
@@ -76,7 +85,7 @@ mod tests {
                 radius: 14.0,
                 font_size: theme.font(FontRole::Title),
             };
-            let frame = surface_frame("Clock", style, std::rc::Rc::new(|| {}), body).unwrap();
+            let frame = surface_frame("Clock", style, std::rc::Rc::new(|| {}), body, None).unwrap();
             let root = SurfaceRoot::new(frame).expect("float surface root failed");
             let root = if self.animate {
                 root.animate_in()
