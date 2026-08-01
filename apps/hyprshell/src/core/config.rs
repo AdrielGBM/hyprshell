@@ -1020,18 +1020,6 @@ pub struct GeneralConfig {
     pub language: String,
     pub show_over_fullscreen: bool,
     pub logo: String,
-    /// Apply a settings form as it is edited, a moment after the last keystroke, instead of waiting for its
-    /// Save button. Revert (in the settings header) puts the file back to how it was when the window opened.
-    ///
-    /// Apply a settings form as it is edited, a moment after the last keystroke, instead of waiting for its
-    /// Save button. Revert (in the settings header) puts the file back to how it was when the window opened.
-    ///
-    /// Off by default, and worth knowing why before turning it on. Applying writes `config.toml`, so a look
-    /// around the settings with a nudged slider is a written config. And the window does not yet survive the
-    /// reload that follows: a text field being typed into loses its caret when the change lands. The reload
-    /// deliberately spares this surface (see `core::shell::SURVIVES_RELOAD`) and that is not sufficient —
-    /// something else in the reload path still takes it down.
-    pub live_settings: bool,
     /// The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
     ///
     /// Superseded by `[general.apps] terminal`, and still read when that one is unset — a config written

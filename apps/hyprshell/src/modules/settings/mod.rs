@@ -26,6 +26,7 @@ use crate::core::config::{
 };
 use crate::shared::icon::icon_view;
 use crate::shared::module::{icon_px, module_fg};
+use crate::shared::state::kept;
 use crate::shared::services::apps::{self, App};
 use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme, THEME_TOKENS};
 
@@ -36,6 +37,10 @@ const LANGUAGES: &[&str] = &["en", "es"];
 const MEDIA_SCROLLS: &[&str] = &["volume", "track", "seek", "none"];
 const CAPITALIZATIONS: &[&str] = &["none", "upper", "lower", "title"];
 const TEMPERATURE_UNITS: &[&str] = &["celsius", "fahrenheit"];
+/// This application's module id, which is also the id its surface is registered under — what a reload needs to
+/// know to leave the window that caused it alone (see [`crate::core::shell::authored_change`]).
+const MODULE: &str = "settings";
+
 const WEEKDAYS: &[&str] = &["monday", "sunday", "saturday"];
 const FULLSCREEN_POPUPS: &[&str] = &["on", "off", "never"];
 const MODES: &[&str] = &["auto", "dark", "light"];
@@ -86,27 +91,25 @@ pub fn settings_chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
 }
 
 /// The settings panel: an in-shell editor for `config.toml`. Each section's fields are seeded from the current
-/// file; its Save button writes just that section back with [`Config::save_section`] (format-preserving), which
-/// the running shell hot-reloads and applies live. With `[general] live_settings` on, a form applies itself a
-/// moment after the last edit and Revert (in the header) puts the file back to how it was when the window
-/// opened — see [`live_apply`].
+/// file, and a form applies itself a moment after the last edit — its Save button is the same write without the
+/// wait (see [`live_apply`]). Both go through [`Config::save_section`] (format-preserving), which the running
+/// shell hot-reloads and applies live; Revert (in the header) puts the file back to how it was when the window
+/// opened.
 pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let path = Arc::new(Config::default_path());
     let config = Arc::new(Config::load_or_default(&path));
     crate::shared::services::locale::attach(config.language());
 
-    // The selection and the query are the whole state of the application. Plain signals on this surface: a
-    // settings window reopened from the bar should start on the first page, not on wherever the last one was
-    // left, which is a preference nobody asked to have remembered. The one exception is the window reopening
-    // *itself* — a save or a revert reloads the shell, which closes every surface — and that carries its place
-    // across in `RESUME`, so applying a change reads as a blink rather than as the window disappearing.
-    let resumed = RESUME.with(|slot| slot.borrow_mut().take());
-    let selected = signal(resumed.as_ref().map(|r| r.page).unwrap_or(0));
-    let query = signal(resumed.map(|r| r.query).unwrap_or_default());
-    PANEL_STATE.with(|state| {
-        *state.borrow_mut() = Some((selected.read_only(), query.read_only()));
-    });
+    // The selection and the query are the whole state of the application, and they belong to the *surface*
+    // rather than to this build of it: an edit made from another window rebuilds this one, and a settings
+    // application that jumped back to its first page every time the config changed would be unusable.
+    let selected = kept("settings.page", || signal(0usize));
+    let query = kept("settings.query", || signal(String::new()));
+    // Bumped when the file stops being what the forms are showing — which is Revert, and only Revert. A form
+    // applying itself writes what it already holds, and re-seeding *that* is how the field being typed into
+    // loses its caret.
+    let reseed = kept("settings.reseed", || signal(0u64));
     // What Revert restores: the file as it was when the *user* opened this window, not as it was a reload ago.
     OPENED_WITH.with(|slot| {
         let mut slot = slot.borrow_mut();
@@ -125,6 +128,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
             page_stack(
                 selected.read_only(),
                 query.read_only(),
+                reseed.read_only(),
                 config,
                 Arc::clone(&path),
                 theme,
@@ -137,22 +141,21 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
             .flex_column()
             .gap(16.0)
             .width(SizeDimension::Percent(1.0)),
-        vec![header(query, path, theme)?, Box::new(body)],
+        vec![header(query, reseed, path, theme)?, Box::new(body)],
     )?;
     Ok(Box::new(panel))
 }
 
-/// Forgets the settings window's place and its Revert snapshot. Called when the panel is closed for real, so
-/// the next one opens on the first page against the file as it stands.
+/// Forgets the Revert snapshot. Called when the panel is closed for real, so the next window reverts to the
+/// file as *it* found it rather than to something a previous session opened against.
 pub fn forget_panel_state() {
-    RESUME.with(|slot| *slot.borrow_mut() = None);
     OPENED_WITH.with(|slot| *slot.borrow_mut() = None);
-    PANEL_STATE.with(|state| *state.borrow_mut() = None);
 }
 
 /// The title, the search box that reaches every page, and Revert.
 fn header(
     query: RwSignal<String>,
+    reseed: RwSignal<u64>,
     path: Arc<PathBuf>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -203,7 +206,12 @@ fn header(
         )?)],
     )?
     .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
-    .on_press(move || revert_to_opened(path.as_path()));
+    .on_press(move || {
+        revert_to_opened(path.as_path());
+        // Straight away rather than waiting for the reload the write triggers: Revert is the one moment the
+        // forms on screen are known to be wrong, and it is the user asking to see the file instead.
+        reseed.set(reseed.peek() + 1);
+    });
 
     Ok(Box::new(Container::new(
         LayoutStyle::new()
@@ -306,6 +314,7 @@ fn nav_row(
 fn page_stack(
     selected: telar::ReadSignal<usize>,
     query: telar::ReadSignal<String>,
+    reseed: telar::ReadSignal<u64>,
     config: Arc<Config>,
     path: Arc<PathBuf>,
     theme: NordTheme,
@@ -313,7 +322,8 @@ fn page_stack(
     let height = config.settings_page_height();
     // The nav is outside this scroll area on purpose: a nav pane that scrolls away with the page it selects is
     // a list of links you have to scroll back up to use.
-    let scroll = telar::LayoutScrollArea::new_with(
+    let scroll = telar::LayoutScrollArea::new_kept(
+        "settings.scroll",
         LayoutStyle::new()
             .flex_column()
             .flex_grow(1.0)
@@ -322,43 +332,71 @@ fn page_stack(
             // which is how the page area ends up wider than the surface it is in.
             .min_width(0.0)
             .height(height),
-        move |_viewport| {
-            let (_opened_with, path) = (config.clone(), path.clone());
-            // Re-read per rebuild rather than seeding every form from the snapshot taken when the window
-            // opened. A form rebuilt is a form re-seeded, which is what a user who has just saved another one
-            // — or pressed Revert — expects to see; the snapshot only decides how tall the page area is.
-            let config = Arc::new(Config::load_or_default(path.as_path()));
-            let source = move || {
-                // Both read out first: `visible` translates labels, which reads the locale signal, and a
-                // nested read inside another signal's borrow is the re-entrant panic that only fires when the
-                // widget is built.
-                let index = selected.get();
-                let text = query.get();
-                pages::visible(index, &text)
-                    .into_iter()
-                    .map(|section| (text.clone(), section))
-                    .collect()
-            };
-            let build = move |(_, section): (String, &'static pages::Section)| {
-                (section.build)(&config, &path, theme)
-            };
-            Ok(Box::new(ReactiveList::with_style(
-                LayoutStyle::new()
-                    .flex_column()
-                    .gap(20.0)
-                    .width(SizeDimension::Percent(1.0)),
-                source,
-                // Keyed on the query as well as the form, because narrowing changes which forms are here — and
-                // a form rebuilt is a form re-seeded from the file, which is what a user who has just saved
-                // another one expects to see.
-                |(query, section): &(String, &'static pages::Section)| {
-                    (query.clone(), section.label)
-                },
-                build,
-            )?) as Box<dyn LayoutItem>)
+        move |viewport| {
+            // A page is *replaced*, not resized: three screens down the Appearance page is not a place to be
+            // dropped into Network, and neither is three screens down the forms a search has just narrowed
+            // away. The scroll area puts a too-short page back in range on its own; only this knows that what
+            // is in the viewport is now a different thing rather than the same thing resized.
+            //
+            // Not on the first run, which is the effect being seeded rather than the user choosing a page —
+            // and on a rebuild that seeding run is exactly what would throw away the position being kept.
+            let (page, search) = (selected.clone(), query.clone());
+            let seeded = std::cell::Cell::new(false);
+            let follow_page = telar::effect(move || {
+                page.get();
+                search.get();
+                if seeded.replace(true) {
+                    viewport.scroll_to_top();
+                }
+            });
+            let page_area = build_page_area(selected, query, reseed, config, path, theme)?;
+            crate::shared::reactive::keeping(page_area, follow_page)
         },
     )?;
     Ok(Box::new(scroll))
+}
+
+/// The forms themselves: the sections the current page and search leave visible, each seeded from the file.
+fn build_page_area(
+    selected: telar::ReadSignal<usize>,
+    query: telar::ReadSignal<String>,
+    reseed: telar::ReadSignal<u64>,
+    config: Arc<Config>,
+    path: Arc<PathBuf>,
+    theme: NordTheme,
+) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    // The snapshot the window opened with decides how tall the page area is, and nothing else: every form is
+    // seeded from the file at the moment it is *built*, so a form rebuilt is a form re-seeded.
+    let (_opened_with, path) = (config, path);
+    let source = move || {
+        // All read out first: `visible` translates labels, which reads the locale signal, and a nested read
+        // inside another signal's borrow is the re-entrant panic that only fires when the widget is built.
+        let index = selected.get();
+        let text = query.get();
+        let at = reseed.get();
+        pages::visible(index, &text)
+            .into_iter()
+            .map(|section| (text.clone(), at, section))
+            .collect()
+    };
+    let build = move |(_, _, section): (String, u64, &'static pages::Section)| {
+        let config = Arc::new(Config::load_or_default(path.as_path()));
+        (section.build)(&config, &path, theme)
+    };
+    Ok(Box::new(ReactiveList::with_style(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(20.0)
+            .width(SizeDimension::Percent(1.0)),
+        source,
+        // Keyed on the query and the re-seed as well as the form: narrowing changes which forms are here, and
+        // Revert changes what they should be showing. Anything not in the key is a form the user may be
+        // typing into, which must survive its own applied changes.
+        |(query, at, section): &(String, u64, &'static pages::Section)| {
+            (query.clone(), *at, section.label)
+        },
+        build,
+    )?) as Box<dyn LayoutItem>)
 }
 
 fn general_section(
@@ -368,7 +406,6 @@ fn general_section(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let lang = signal(telar::current_locale().unwrap_or_else(|| config.language()));
     let over_fullscreen = signal(config.general.show_over_fullscreen);
-    let live = signal(config.general.live_settings);
     let logo = signal(config.general.logo.clone());
     let apps = config.general.apps.clone();
     // `[general.apps] terminal` is the field's home now; a config still carrying the older top-level key is
@@ -433,11 +470,6 @@ fn general_section(
             "xdg-open",
             theme,
         )?,
-        toggle_field(
-            || telar::t!("settings.field.live_settings"),
-            live.clone(),
-            theme,
-        )?,
     ];
 
     let path = path.to_path_buf();
@@ -452,7 +484,6 @@ fn general_section(
                 &GeneralConfig {
                     language: lang.peek(),
                     show_over_fullscreen: over_fullscreen.peek(),
-                    live_settings: live.peek(),
                     logo: logo.peek(),
                     terminal: legacy_terminal.clone(),
                     apps: AppsConfig {
@@ -5426,16 +5457,13 @@ fn record_field<T: Clone + PartialEq + 'static>(value: &RwSignal<T>) {
 
 /// Wires the recorded fields to `apply`, debounced — the second half of K14.
 ///
-/// Returns the subscriptions for the caller to hold, and `None` when live preview is off, in which case the
-/// recording is dropped and the form behaves exactly as it did before.
+/// Returns the subscriptions for the caller to hold. The window survives the reload its own write causes (the
+/// shell reconciles its surfaces in place rather than reopening them), so what the user is typing into is the
+/// same field it was before the change landed.
 fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
     let Some(recorder) = RECORDING.with(|recording| recording.borrow_mut().take()) else {
         return Vec::new();
     };
-    let on = crate::core::shell::config().is_some_and(|config| config.general.live_settings);
-    if !on {
-        return Vec::new();
-    }
     let FormRecorder {
         revision,
         mut subscriptions,
@@ -5452,7 +5480,6 @@ fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
         // its own timer running, so only the last one in a burst applies.
         platform_layershell::timeout(LIVE_DEBOUNCE, move || {
             if watched.peek() == at {
-                resume_after_apply();
                 apply();
             }
         });
@@ -5460,40 +5487,9 @@ fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
     subscriptions
 }
 
-/// What the settings window puts back when it reopens itself.
-///
-/// A config save reloads the shell, and a reload closes every surface built against the outgoing config — this
-/// window included. Restoring the page and the search is what turns that from "the settings window vanished"
-/// into "the settings window blinked". Deliberately *not* remembered across an ordinary reopen: a settings
-/// window opened from the bar should start on the first page, which is a preference nobody asked to have kept.
-struct Resume {
-    page: usize,
-    query: String,
-}
-
 thread_local! {
-    static RESUME: std::cell::RefCell<Option<Resume>> = const { std::cell::RefCell::new(None) };
     /// The file exactly as it was when this settings window first opened, which is what Revert restores.
     static OPENED_WITH: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
-}
-
-thread_local! {
-    /// Where the live panel's state is read from when it is about to reload itself.
-    static PANEL_STATE: std::cell::RefCell<Option<(telar::ReadSignal<usize>, telar::ReadSignal<String>)>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Snapshots the open panel's place so the reload about to happen can put it back.
-fn resume_after_apply() {
-    let state = PANEL_STATE.with(|state| state.borrow().clone());
-    let Some((page, query)) = state else {
-        return;
-    };
-    let resume = Resume {
-        page: page.get(),
-        query: query.get(),
-    };
-    RESUME.with(|slot| *slot.borrow_mut() = Some(resume));
 }
 
 /// Puts `config.toml` back to how it was when this settings window opened, and lets the config watcher apply
@@ -5507,13 +5503,16 @@ fn revert_to_opened(path: &Path) {
     let Some(text) = snapshot else {
         return;
     };
-    resume_after_apply();
+    // This window's own write, like a save — what it does to the forms it decides itself, below.
+    crate::core::shell::authored_change(MODULE);
     if let Err(e) = std::fs::write(path, text) {
         tracing::warn!("settings: could not revert {}: {e}", path.display());
     }
 }
 
 fn persist<T: Serialize>(path: &Path, name: &str, value: &T) {
+    // Written before the write, not after: the config watcher can notice the file inside the same turn.
+    crate::core::shell::authored_change(MODULE);
     if let Err(e) = Config::save_section(path, name, value) {
         tracing::warn!("settings: could not save [{name}]: {e}");
     }
@@ -5719,10 +5718,7 @@ fn save_button(
     )?
     .on_hover_style(move |_| RectStyle::filled(theme.accent.darken(0.08), 8.0))
     .on_active_style(move |_| RectStyle::filled(theme.accent.darken(0.16), 8.0))
-    .on_press(move || {
-        resume_after_apply();
-        on_press();
-    });
+    .on_press(move || on_press());
     if live.is_empty() {
         return Ok(Box::new(button));
     }
@@ -5958,6 +5954,133 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Switching pages puts the view back at the top — and leaves it free to move afterwards.
+    ///
+    /// The second half is the one that has to be asserted: "scroll back to the top when the page changes" is
+    /// an effect, and an effect that reads the offset it writes re-runs on every wheel tick and puts the view
+    /// straight back, which is a page that cannot be scrolled at all rather than one that starts at its top.
+    #[test]
+    fn a_page_switch_returns_to_the_top_and_the_page_still_scrolls() {
+        use telar::{ComponentList, Event, PointerSource, ScrollDelta};
+
+        telar::Scope::with(|| {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let panel = settings_panel().expect("settings panel");
+            let mut tree = ComponentList::new(SurfaceRoot::new(panel).expect("root"));
+            tree.on_event(&Event::WindowResized {
+                width: 900,
+                height: 600,
+            });
+
+            // The panel's own state, reached the way the panel reaches it: `kept` is scoped to the surface,
+            // and this test is that surface.
+            let page = kept("settings.page", || signal(0usize));
+            let (_, offset_y) = kept("settings.scroll", || (signal(0.0f32), signal(0.0f32)));
+
+            // Over the page area — right of the nav pane, below the header — and then a wheel down.
+            let wheel = |tree: &mut ComponentList| {
+                tree.on_event(&Event::PointerMoved {
+                    x: 600.0,
+                    y: 300.0,
+                    source: PointerSource::Mouse,
+                });
+                tree.on_event(&Event::Scrolled {
+                    delta: ScrollDelta::Pixels { x: 0.0, y: -120.0 },
+                });
+                telar::batch(|| {});
+                telar::relayout_if_dirty();
+            };
+
+            wheel(&mut tree);
+            assert!(
+                offset_y.peek() > 0.0,
+                "a page taller than its viewport scrolls, or the rest of this test proves nothing"
+            );
+
+            page.set(1);
+            telar::batch(|| {});
+            telar::relayout_if_dirty();
+            assert_eq!(
+                offset_y.peek(),
+                0.0,
+                "changing page is a different thing in the viewport, not the same thing resized"
+            );
+
+            wheel(&mut tree);
+            assert!(
+                offset_y.peek() > 0.0,
+                "and the new page scrolls like any other — the effect that put the view back at the top must \
+                 not have subscribed itself to the offset it wrote"
+            );
+        });
+    }
+
+    /// The same, in the tree the shell actually mounts: the window chrome around the panel, and the panel
+    /// reached the way a float reaches it. The plain-panel test above misses whatever the frame contributes.
+    #[test]
+    fn a_page_switch_still_scrolls_inside_the_window_frame() {
+        use telar::{ComponentList, Event, PointerSource, ScrollDelta, SurfaceFrameStyle};
+
+        telar::Scope::with(|| {
+            reset_layout_runtime();
+            let theme = NordTheme::new();
+            set_theme(theme);
+            crate::modules::drawer::set_content_radius(12.0);
+            let body =
+                crate::modules::drawer::module_panel(MODULE).expect("the settings panel builds");
+            let frame = telar::surface_frame(
+                MODULE.to_string(),
+                SurfaceFrameStyle {
+                    background: theme.surface,
+                    title_bar: theme.overlay,
+                    title_text: theme.text,
+                    close: theme.muted,
+                    radius: 12.0,
+                    font_size: theme.font(FontRole::Title),
+                },
+                std::rc::Rc::new(|| {}),
+                body,
+                None,
+            )
+            .expect("surface frame");
+            let mut tree = ComponentList::new(SurfaceRoot::new(frame).expect("root"));
+            tree.on_event(&Event::WindowResized {
+                width: 920,
+                height: 680,
+            });
+
+            let page = kept("settings.page", || signal(0usize));
+            let (_, offset_y) = kept("settings.scroll", || (signal(0.0f32), signal(0.0f32)));
+            let wheel = |tree: &mut ComponentList| {
+                tree.on_event(&Event::PointerMoved {
+                    x: 600.0,
+                    y: 400.0,
+                    source: PointerSource::Mouse,
+                });
+                tree.on_event(&Event::Scrolled {
+                    delta: ScrollDelta::Pixels { x: 0.0, y: -120.0 },
+                });
+                telar::batch(|| {});
+                telar::relayout_if_dirty();
+            };
+
+            wheel(&mut tree);
+            assert!(offset_y.peek() > 0.0, "the first page scrolls");
+
+            page.set(1);
+            telar::batch(|| {});
+            telar::relayout_if_dirty();
+            assert_eq!(offset_y.peek(), 0.0, "a page switch starts at the top");
+
+            wheel(&mut tree);
+            assert!(
+                offset_y.peek() > 0.0,
+                "and the page under the frame still scrolls afterwards"
+            );
+        });
     }
 
     /// K14's one subtle rule: an effect fires once when it is registered, and that run is the field being
