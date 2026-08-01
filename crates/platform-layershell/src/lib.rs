@@ -9,7 +9,7 @@ mod window;
 pub use capture::{Capture, CaptureArea, CaptureError, capture, screencopy_supported};
 pub use config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
 pub use idle::{IdleHandle, idle_notification, idle_supported};
-pub use link::Geometry;
+pub use link::SurfaceUpdate;
 pub use lock::{LockHandle, lock_session, lock_supported};
 pub use platform::{
     EventSender, LayerShellPlatform, SurfaceHandle, enumerate_outputs, interval, on_close,

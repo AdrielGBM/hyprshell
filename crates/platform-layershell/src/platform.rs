@@ -35,7 +35,7 @@ use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, Poin
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
-    LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
+    LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure, SurfaceKind,
 };
 use smithay_client_toolkit::shm::slot::{Buffer, SlotPool};
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
@@ -49,7 +49,7 @@ use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_s
 use wayland_client::{Connection, Proxy, QueueHandle};
 
 use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
-use crate::link::{ExitPlan, Geometry, SurfaceLink};
+use crate::link::{ExitPlan, SurfaceLink, SurfaceUpdate};
 use crate::lock::LockSession;
 use crate::window::LayerWindow;
 
@@ -149,7 +149,7 @@ pub fn request_close() {
 /// float's resize grip, say. Layer-shell sizes are logical pixels; `0` on an axis hands that axis back to the
 /// compositor.
 pub fn request_size(width: u32, height: u32) {
-    with_current_link(|link| link.request_geometry(Geometry::size(width, height)));
+    with_current_link(|link| link.request_update(SurfaceUpdate::size(width, height)));
 }
 
 /// Asks the compositor to move the *current* surface relative to the edges it is anchored to, as
@@ -157,7 +157,7 @@ pub fn request_size(width: u32, height: u32) {
 /// to, and a negative one pushes it off that edge — which is how an auto-hidden bar leaves only a hover strip
 /// on screen.
 pub fn request_margin(margin: (i32, i32, i32, i32)) {
-    with_current_link(|link| link.request_geometry(Geometry::margin(margin)));
+    with_current_link(|link| link.request_update(SurfaceUpdate::margin(margin)));
 }
 
 /// Registers what the *current* surface does when it is asked to close, and how long the driver keeps it mapped
@@ -413,13 +413,13 @@ impl SurfaceEntry {
         self.configured = true;
     }
 
-    /// Pushes any geometry the surface asked for since the last turn to the compositor. Only a layer surface has
-    /// geometry of its own to renegotiate; a lock surface's is the compositor's to decide, which is the whole
-    /// point of the protocol.
+    /// Pushes whatever the surface asked to renegotiate since the last turn to the compositor. Only a layer
+    /// surface has state of its own to renegotiate; a lock surface's is the compositor's to decide, which is the
+    /// whole point of the protocol.
     ///
     /// A size change comes back as a `configure` and from there as a `WindowResized`, so the content is never
     /// resized by this call directly — it learns its new size the same way it learns about a monitor's.
-    fn apply_geometry(&mut self, change: Geometry) {
+    fn apply_update(&mut self, change: SurfaceUpdate) {
         let Shell::Layer(layer) = &self.shell else {
             return;
         };
@@ -432,7 +432,46 @@ impl SurfaceEntry {
         if let Some(zone) = change.exclusive_zone {
             layer.set_exclusive_zone(zone);
         }
+        if let Some(anchor) = change.anchor {
+            layer.set_anchor(anchor);
+        }
+        if let Some(shell_layer) = change.layer {
+            // Restacking a mapped surface arrived in version 2 of the protocol, and sending a request an
+            // object does not implement is a protocol error — which kills the whole connection, not the one
+            // surface. On an older compositor the surface keeps the layer it was created on instead.
+            match layer.kind() {
+                SurfaceKind::Wlr(wlr) if wlr.version() >= 2 => layer.set_layer(shell_layer),
+                _ => tracing::warn!(
+                    "{}: this compositor's layer-shell cannot restack a mapped surface; \
+                     restart hyprshell for the change to take effect",
+                    self.namespace
+                ),
+            }
+        }
+        if let Some(keyboard) = change.keyboard_interactivity {
+            layer.set_keyboard_interactivity(keyboard);
+        }
         layer.commit();
+    }
+
+    /// Builds this surface's content again on the surface it is already on, and drops everything the outgoing
+    /// content had registered against the loop.
+    ///
+    /// Those registrations are the whole reason a rebuild is more than one call: `interval` and `watch` file
+    /// their sources against the surface, and the tree being replaced is about to register its own — so a
+    /// rebuild that kept them would leave a clock ticking twice and a service feeding a tree nobody draws. Same
+    /// for the exit transition, whose reactions animate widgets that no longer exist.
+    fn rebuild(&mut self, window: &LayerWindow, loop_handle: &LoopHandle<'static, Driver>) {
+        for token in self.sources.borrow_mut().drain(..) {
+            loop_handle.remove(token);
+        }
+        *self.exit.borrow_mut() = ExitPlan::default();
+        let link = self.link.clone();
+        let sources = Rc::clone(&self.sources);
+        let exit = Rc::clone(&self.exit);
+        if let Some(handler) = self.handler.as_mut() {
+            with_current(&link, &sources, &exit, || handler.remount(window));
+        }
     }
 
     /// Whether a surface that has been asked to close should be torn down *now*.
@@ -479,6 +518,9 @@ pub(crate) struct Driver {
     modifiers: ModifiersState,
     // The surface currently holding keyboard focus, so key events route to the right handler.
     keyboard_focus: Option<ObjectId>,
+    // The surface the pointer is currently over. Enter and leave are edges, not levels, so a surface that
+    // rebuilds its content between them has to be told where the pointer already is.
+    pointer_focus: Option<ObjectId>,
     pub(crate) surfaces: Vec<SurfaceEntry>,
     /// `None` where the compositor does not implement `ext-session-lock-v1`, which is what makes the shell
     /// refuse to lock rather than draw an overlay it cannot enforce.
@@ -662,6 +704,7 @@ where
         pointer: None,
         modifiers: ModifiersState::default(),
         keyboard_focus: None,
+        pointer_focus: None,
         surfaces: Vec::new(),
         lock_manager,
         lock: None,
@@ -763,6 +806,7 @@ where
         let Driver {
             surfaces,
             shm: shm_state,
+            pointer_focus,
             ..
         } = &mut driver;
         for (index, entry) in surfaces.iter_mut().enumerate() {
@@ -775,8 +819,8 @@ where
                 remove.push(index);
                 continue;
             }
-            if let Some(change) = entry.link.as_ref().and_then(|link| link.take_geometry()) {
-                entry.apply_geometry(change);
+            if let Some(change) = entry.link.as_ref().and_then(|link| link.take_update()) {
+                entry.apply_update(change);
             }
             if !entry.configured {
                 continue;
@@ -810,6 +854,10 @@ where
             }
             let window = entry.window.clone().expect("window built above");
 
+            // Taken whether or not it can be acted on: a rebuild asked for before the surface had ever been
+            // mounted *is* the mount below, whose first build already reads whatever the request was about.
+            let rebuild = entry.link.as_ref().is_some_and(|link| link.take_rebuild());
+
             if !entry.resumed {
                 let link = entry.link.clone();
                 let sources = Rc::clone(&entry.sources);
@@ -830,6 +878,14 @@ where
                     continue;
                 }
                 entry.resumed = true;
+            } else if rebuild {
+                entry.rebuild(&window, &loop_handle);
+                // The pointer does not enter a surface twice, so a rebuilt surface under it would otherwise
+                // never hear that it is hovered — an auto-hidden bar rebuilt while it was out would slide away
+                // under the cursor and stay there until the pointer left and came back.
+                if pointer_focus.as_ref() == Some(&entry.wl_id) {
+                    entry.events.push(Event::CursorEntered);
+                }
             }
 
             let link = entry.link.clone();
@@ -1021,22 +1077,39 @@ impl SurfaceHandle {
         self.link.is_closing()
     }
 
+    /// Builds the surface's content again, in place: the window, its renderer and its position are kept, and
+    /// only the tree is built anew — from whatever the app reads now.
+    ///
+    /// This is how a surface follows something that changed underneath it (a config file the user edited)
+    /// without being replaced by a new one. Non-blocking, and coalesced: several requests between two loop
+    /// turns are one rebuild.
+    pub fn rebuild(&self) {
+        self.link.request_rebuild();
+    }
+
+    /// Renegotiates any part of the surface's layer-shell state in one commit — the shape a caller
+    /// reconciling a surface against a changed configuration wants, rather than one request per field.
+    pub fn update(&self, change: SurfaceUpdate) {
+        self.link.request_update(change);
+    }
+
     /// Asks the compositor to renegotiate the surface's size. `0` on an axis hands that axis back to it.
     pub fn set_size(&self, width: u32, height: u32) {
-        self.link.request_geometry(Geometry::size(width, height));
+        self.link.request_update(SurfaceUpdate::size(width, height));
     }
 
     /// Moves the surface relative to the edges it is anchored to, as `(top, right, bottom, left)` logical
     /// pixels. Only an edge the surface is anchored to honours its margin; a negative value pushes it off that
     /// edge, which is how an auto-hidden bar keeps a hover strip on screen and nothing else.
     pub fn set_margin(&self, margin: (i32, i32, i32, i32)) {
-        self.link.request_geometry(Geometry::margin(margin));
+        self.link.request_update(SurfaceUpdate::margin(margin));
     }
 
     /// Changes how much of the screen the surface reserves for itself. `0` reserves nothing (windows tile under
     /// it), `-1` opts out of every other surface's reservation, and a positive value is a logical-pixel strip.
     pub fn set_exclusive_zone(&self, zone: i32) {
-        self.link.request_geometry(Geometry::exclusive_zone(zone));
+        self.link
+            .request_update(SurfaceUpdate::exclusive_zone(zone));
     }
 }
 
@@ -1052,6 +1125,9 @@ impl SurfaceControl for SurfaceHandle {
     }
     fn is_closing(&self) -> bool {
         SurfaceHandle::is_closing(self)
+    }
+    fn rebuild(&self) {
+        SurfaceHandle::rebuild(self);
     }
 }
 
@@ -1159,26 +1235,39 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
 /// scaffold (scrim + outside-dismiss) or a plain full-surface root, and arms an auto-dismiss timer when the
 /// placement asks for one. The auto-dismiss captures this surface's own close flag directly, so it fires
 /// regardless of which surface is current when the timer elapses.
+///
+/// What is held here rather than built per call is what belongs to the *surface* rather than to one build of
+/// its content, and it is what makes a rebuild a rebuild: the app outlives the tree, so an entrance played
+/// once stays played and a dismissal armed once stays armed.
 struct HostedSurfaceApp {
     placement: SurfacePlacement,
-    content: RefCell<Option<SurfaceContent>>,
+    content: SurfaceContent,
     link: Arc<SurfaceLink>,
+    transition: RefCell<Option<SurfaceTransition>>,
+    dismiss_armed: std::cell::Cell<bool>,
 }
 
 impl App for HostedSurfaceApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let content = self
-            .content
-            .borrow_mut()
-            .take()
-            .expect("hosted surface content factory taken twice")();
-        if let Some(delay) = self.placement.timeout {
+        let content = (self.content)();
+        // Armed once for the surface, not once per build: a rebuilt OSD still goes away when it was always
+        // going to, rather than starting its countdown over — or running two.
+        if let Some(delay) = self.placement.timeout
+            && !self.dismiss_armed.replace(true)
+        {
             let link = Arc::clone(&self.link);
             timeout(delay, move || link.request_close());
         }
         // One transition drives both halves: it runs to 1 as the surface opens, and `on_close` runs it back to 0 while the driver holds the surface mapped for exactly as long as that takes.
-        let transition = SurfaceTransition::enter();
+        //
+        // Kept across rebuilds, because rebuilding content is not a second arrival: a fresh transition would
+        // replay the slide-in, so every edit to the config would look like the panel closing and opening.
+        let transition = self
+            .transition
+            .borrow_mut()
+            .get_or_insert_with(SurfaceTransition::enter)
+            .clone();
         on_close(transition.duration(), {
             let transition = transition.clone();
             move || transition.leave()
@@ -1224,8 +1313,10 @@ impl SurfaceHost for LayerShellSurfaceHost {
         let link = Arc::new(SurfaceLink::default());
         let app = HostedSurfaceApp {
             placement,
-            content: RefCell::new(Some(content)),
+            content,
             link: Arc::clone(&link),
+            transition: RefCell::new(None),
+            dismiss_armed: std::cell::Cell::new(false),
         };
         let handler = build_surface_handler::<LayerWindow, _>(app, Box::new(NoPaths), "hyprshell");
         DYN_QUEUE.with(|q| {
@@ -1596,6 +1687,13 @@ impl PointerHandler for Driver {
                     },
                 },
             };
+            match event.kind {
+                PointerEventKind::Enter { .. } => self.pointer_focus = Some(id.clone()),
+                PointerEventKind::Leave { .. } if self.pointer_focus.as_ref() == Some(&id) => {
+                    self.pointer_focus = None
+                }
+                _ => {}
+            }
             if let Some(entry) = self.entry_mut(&id) {
                 if matches!(event.kind, PointerEventKind::Enter { .. }) {
                     entry.events.push(Event::CursorEntered);

@@ -1,29 +1,38 @@
 //! The control channel between a live surface and whoever holds it.
 //!
-//! A layer surface used to be something the driver decided on its own: configured at one size when it was
-//! created and never renegotiated, and closed by a flag that tore it down on the next loop turn. Both halves
-//! are here instead. A [`SurfaceLink`] is shared by the driver's surface entry and the `SurfaceHandle` its
-//! opener holds — one side asks, the other applies on its next turn — and an [`ExitPlan`] is what the surface's
-//! own content registered for the moment it is asked to close, together with how long the driver must keep it
-//! mapped for that to be seen.
+//! A layer surface used to be something the driver decided on its own: configured once when it was created and
+//! never renegotiated, and closed by a flag that tore it down on the next loop turn. All of it is here instead.
+//! A [`SurfaceLink`] is shared by the driver's surface entry and the `SurfaceHandle` its opener holds — one
+//! side asks, the other applies on its next turn — carrying three kinds of request: the [`SurfaceUpdate`] that
+//! renegotiates the surface's layer-shell state, a rebuild of its content, and the close. An [`ExitPlan`] is
+//! what the surface's own content registered for the moment it is asked to close, together with how long the
+//! driver must keep it mapped for that to be seen.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-/// A change to a live surface's layer-shell geometry. Every field is optional because the three are asked for
-/// independently: a bar sliding out of view retargets only its margin, a float being dragged wider only its
-/// size, and an auto-hiding bar gives up its exclusive zone without touching either.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Geometry {
+use crate::config::{Anchor, KeyboardInteractivity, Layer};
+
+/// A change to a live surface's layer-shell state — everything the protocol lets a mapped surface renegotiate.
+///
+/// Every field is optional because they are asked for independently: a bar sliding out of view retargets only
+/// its margin, a float being dragged wider only its size, and an auto-hiding bar gives up its exclusive zone
+/// without touching either. What is *not* here is what a surface is created with and cannot change: its
+/// output, its namespace, and whether its input region is carved from its content.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SurfaceUpdate {
     pub size: Option<(u32, u32)>,
     /// `(top, right, bottom, left)`, in logical pixels. Negative values push the surface off its own edge,
     /// which is what leaves a hover strip of an auto-hidden bar on screen.
     pub margin: Option<(i32, i32, i32, i32)>,
     pub exclusive_zone: Option<i32>,
+    pub anchor: Option<Anchor>,
+    pub layer: Option<Layer>,
+    pub keyboard_interactivity: Option<KeyboardInteractivity>,
 }
 
-impl Geometry {
+impl SurfaceUpdate {
     pub fn size(width: u32, height: u32) -> Self {
         Self {
             size: Some((width, height)),
@@ -53,19 +62,23 @@ impl Geometry {
     /// naming different fields have to *both* survive — a bar that gives up its exclusive zone and then slides
     /// out in the same loop turn must do both — and two naming the same field resolve to the newer, which is
     /// the whole point of coalescing an animation's frames into the one the driver will actually commit.
-    fn merge(&mut self, next: Geometry) {
+    fn merge(&mut self, next: SurfaceUpdate) {
         self.size = next.size.or(self.size);
         self.margin = next.margin.or(self.margin);
         self.exclusive_zone = next.exclusive_zone.or(self.exclusive_zone);
+        self.anchor = next.anchor.or(self.anchor);
+        self.layer = next.layer.or(self.layer);
+        self.keyboard_interactivity = next.keyboard_interactivity.or(self.keyboard_interactivity);
     }
 }
 
-/// The shared state behind a `SurfaceHandle`: whether the surface has been asked to close, and any geometry
-/// waiting to be pushed to the compositor.
+/// The shared state behind a `SurfaceHandle`: whether the surface has been asked to close or to rebuild its
+/// content, and any layer-shell state waiting to be pushed to the compositor.
 #[derive(Default)]
 pub(crate) struct SurfaceLink {
     closing: AtomicBool,
-    pending: Mutex<Geometry>,
+    rebuilding: AtomicBool,
+    pending: Mutex<SurfaceUpdate>,
 }
 
 impl SurfaceLink {
@@ -77,15 +90,26 @@ impl SurfaceLink {
         self.closing.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn request_geometry(&self, change: Geometry) {
+    /// Asks for the surface's content to be built again on the surface it is already running on. Idempotent:
+    /// several requests between two loop turns are one rebuild, which is what keeps a burst of config writes
+    /// from costing a burst of them.
+    pub(crate) fn request_rebuild(&self) {
+        self.rebuilding.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn take_rebuild(&self) -> bool {
+        self.rebuilding.swap(false, Ordering::Relaxed)
+    }
+
+    pub(crate) fn request_update(&self, change: SurfaceUpdate) {
         if let Ok(mut pending) = self.pending.lock() {
             pending.merge(change);
         }
     }
 
-    /// The geometry to commit this turn, if any. Taking it is what keeps a surface that asks for the same size
+    /// The state to commit this turn, if any. Taking it is what keeps a surface that asks for the same size
     /// every frame from committing one every frame.
-    pub(crate) fn take_geometry(&self) -> Option<Geometry> {
+    pub(crate) fn take_update(&self) -> Option<SurfaceUpdate> {
         let mut pending = self.pending.lock().ok()?;
         let taken = std::mem::take(&mut *pending);
         (!taken.is_empty()).then_some(taken)
@@ -134,13 +158,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_later_geometry_request_folds_over_the_one_still_waiting() {
+    fn a_later_update_folds_over_the_one_still_waiting() {
         let link = SurfaceLink::default();
-        link.request_geometry(Geometry::exclusive_zone(0));
-        link.request_geometry(Geometry::margin((-40, 0, 0, 0)));
-        link.request_geometry(Geometry::margin((-20, 0, 0, 0)));
+        link.request_update(SurfaceUpdate::exclusive_zone(0));
+        link.request_update(SurfaceUpdate::margin((-40, 0, 0, 0)));
+        link.request_update(SurfaceUpdate::margin((-20, 0, 0, 0)));
 
-        let taken = link.take_geometry().expect("three requests are one commit");
+        let taken = link.take_update().expect("three requests are one commit");
         assert_eq!(
             taken.exclusive_zone,
             Some(0),
@@ -153,8 +177,23 @@ mod tests {
             "an animation's intermediate frames coalesce to the one the driver will commit"
         );
         assert!(
-            link.take_geometry().is_none(),
+            link.take_update().is_none(),
             "taking it is what stops a surface asking for the same size every frame from committing every frame"
+        );
+    }
+
+    /// A burst of config writes — which is what typing into a settings field is — must cost one rebuild.
+    #[test]
+    fn several_rebuild_requests_between_two_turns_are_one_rebuild() {
+        let link = SurfaceLink::default();
+        assert!(!link.take_rebuild(), "nobody asked");
+
+        link.request_rebuild();
+        link.request_rebuild();
+        assert!(link.take_rebuild());
+        assert!(
+            !link.take_rebuild(),
+            "and it is not asked for again on its own"
         );
     }
 

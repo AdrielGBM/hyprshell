@@ -1,5 +1,7 @@
 pub use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
 
+use crate::link::SurfaceUpdate;
+
 #[derive(Clone)]
 pub struct LayerConfig {
     pub output: Option<String>,
@@ -18,6 +20,26 @@ pub struct LayerConfig {
     /// pointer input lands on pressable content, everything else falls through. For click-through overlays with
     /// tappable parts, such as notification popups. Takes precedence over `input_transparent`.
     pub interactive_input_region: bool,
+}
+
+impl LayerConfig {
+    /// What a live surface has to renegotiate to go from this configuration to `next` — only the fields that
+    /// actually differ, so a surface asking the compositor for the state it is already in never commits.
+    ///
+    /// The fields left out are the ones a surface is *created* with and cannot change: its output, its
+    /// namespace, whether it is a reservation strip, and how its input region is decided.
+    pub fn delta(&self, next: &LayerConfig) -> SurfaceUpdate {
+        SurfaceUpdate {
+            size: (self.size != next.size).then_some(next.size),
+            margin: (self.margin != next.margin).then_some(next.margin),
+            exclusive_zone: (self.exclusive_zone != next.exclusive_zone)
+                .then_some(next.exclusive_zone),
+            anchor: (self.anchor != next.anchor).then_some(next.anchor),
+            layer: (self.layer != next.layer).then_some(next.layer),
+            keyboard_interactivity: (self.keyboard_interactivity != next.keyboard_interactivity)
+                .then_some(next.keyboard_interactivity),
+        }
+    }
 }
 
 impl Default for LayerConfig {
