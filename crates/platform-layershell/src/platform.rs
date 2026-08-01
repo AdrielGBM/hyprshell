@@ -5,13 +5,14 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use telar::{
     App, Color, Component, Event, EventHandler, Key, KeyboardMode, ModifiersState,
     MultiSurfacePlatform, NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta,
     SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
-    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, WindowConfig,
+    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, SurfaceTransition,
+    WindowConfig,
     begin_batch, build_surface_handler, end_batch, reset_layout_runtime, set_surface_host,
 };
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
@@ -48,6 +49,7 @@ use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_s
 use wayland_client::{Connection, Proxy, QueueHandle};
 
 use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
+use crate::link::{ExitPlan, Geometry, SurfaceLink};
 use crate::lock::LockSession;
 use crate::window::LayerWindow;
 
@@ -61,14 +63,19 @@ pub(crate) type BoxedHandler = Box<dyn EventHandler<LayerWindow>>;
 /// borrowing the driver's `SurfaceEntry`.
 type SourceSink = Rc<RefCell<Vec<RegistrationToken>>>;
 
+/// Where `on_close` files a surface's exit transition while its handler runs, on the same terms as
+/// [`SourceSink`]: shared by `Rc` so the driver can read the plan back without borrowing its entry.
+type ExitSink = Rc<RefCell<ExitPlan>>;
+
 thread_local! {
     static LOOP_HANDLE: RefCell<Option<LoopHandle<'static, Driver>>> = const { RefCell::new(None) };
-    // The close flag of the surface whose handler is currently running, so `request_close` targets it (a bar
-    // has none; a dynamic drawer/OSD does). Set by the driver around each handler call.
-    static CURRENT_CLOSE: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
+    // The control channel of the surface whose handler is currently running, so `request_close` and `request_geometry` target it (a surface opened by `open_surface` has one; a lock surface does not). Set by the driver around each handler call.
+    static CURRENT_LINK: RefCell<Option<Arc<SurfaceLink>>> = const { RefCell::new(None) };
     // Where `interval`/`watch` file their registration tokens while a surface's handler runs, so the driver can
     // drop them with that surface. `None` outside a surface (app-level setup), where sources are process-lived.
     static CURRENT_SOURCES: RefCell<Option<SourceSink>> = const { RefCell::new(None) };
+    // Where `on_close` files what the current surface does on its way out. `None` outside a surface.
+    static CURRENT_EXIT: RefCell<Option<ExitSink>> = const { RefCell::new(None) };
     // Dynamic surfaces requested via `open_surface` on the UI thread; the driver drains and mounts them.
     static DYN_QUEUE: RefCell<Vec<PendingSurface>> = const { RefCell::new(Vec::new()) };
     // App-level setup to run once on the driver thread after the loop is up (see `run_on_start`).
@@ -100,31 +107,72 @@ struct PendingSurface {
     config: LayerConfig,
     // `None` for a reservation-only strip (no rsx handler, just its exclusive zone).
     handler: Option<BoxedHandler>,
-    close: Arc<AtomicBool>,
+    link: Arc<SurfaceLink>,
 }
 
-/// Runs the handler closure with `close` installed as the current surface's close flag (so `request_close` and
-/// any UI dismiss reach the right surface) and `sources` as the sink `interval`/`watch` file their registration
-/// tokens into (so the surface's timers and channels die with it), then restores both.
+/// Runs the handler closure with the current surface's worlds installed: `link` so `request_close` and
+/// `request_geometry` reach the right surface, `sources` as the sink `interval`/`watch` file their registration
+/// tokens into (so the surface's timers and channels die with it), and `exit` as the one `on_close` files its
+/// exit transition into. All three are restored afterwards.
 fn with_current<R>(
-    close: &Option<Arc<AtomicBool>>,
+    link: &Option<Arc<SurfaceLink>>,
     sources: &SourceSink,
+    exit: &ExitSink,
     f: impl FnOnce() -> R,
 ) -> R {
-    CURRENT_CLOSE.with(|c| *c.borrow_mut() = close.clone());
+    CURRENT_LINK.with(|c| *c.borrow_mut() = link.clone());
     CURRENT_SOURCES.with(|s| *s.borrow_mut() = Some(Rc::clone(sources)));
+    CURRENT_EXIT.with(|e| *e.borrow_mut() = Some(Rc::clone(exit)));
     let result = f();
-    CURRENT_CLOSE.with(|c| *c.borrow_mut() = None);
+    CURRENT_LINK.with(|c| *c.borrow_mut() = None);
     CURRENT_SOURCES.with(|s| *s.borrow_mut() = None);
+    CURRENT_EXIT.with(|e| *e.borrow_mut() = None);
     result
 }
 
+fn with_current_link(read: impl FnOnce(&Arc<SurfaceLink>)) {
+    CURRENT_LINK.with(|c| {
+        if let Some(link) = c.borrow().as_ref() {
+            read(link);
+        }
+    });
+}
+
 /// Asks the *current* surface to close — for a dynamic surface (drawer/OSD), flips its close flag so the driver
-/// tears it down on the next loop turn. No-op on a bar surface, which has no close flag.
+/// tears it down on the next loop turn, or plays out the exit transition it registered with [`on_close`] first.
+/// No-op on a surface the driver mounted itself (a lock surface), which has no control channel.
 pub fn request_close() {
-    CURRENT_CLOSE.with(|c| {
-        if let Some(flag) = c.borrow().as_ref() {
-            flag.store(true, Ordering::Relaxed);
+    with_current_link(|link| link.request_close());
+}
+
+/// Asks the compositor to renegotiate the *current* surface's size, from inside its own handler — the drag of a
+/// float's resize grip, say. Layer-shell sizes are logical pixels; `0` on an axis hands that axis back to the
+/// compositor.
+pub fn request_size(width: u32, height: u32) {
+    with_current_link(|link| link.request_geometry(Geometry::size(width, height)));
+}
+
+/// Asks the compositor to move the *current* surface relative to the edges it is anchored to, as
+/// `(top, right, bottom, left)` logical pixels. A margin only takes effect on an edge the surface is anchored
+/// to, and a negative one pushes it off that edge — which is how an auto-hidden bar leaves only a hover strip
+/// on screen.
+pub fn request_margin(margin: (i32, i32, i32, i32)) {
+    with_current_link(|link| link.request_geometry(Geometry::margin(margin)));
+}
+
+/// Registers what the *current* surface does when it is asked to close, and how long the driver keeps it mapped
+/// afterwards so that reaction can be seen — an exit transition, in other words.
+///
+/// Call it while the surface's content is being built, which is the one time the surface is current. More than
+/// one caller per surface is expected and additive: the hosted scaffold fades its scrim out while the panel
+/// content slides back toward its bar edge, and the driver waits for the longer of the two.
+///
+/// A zero `linger`, or no registration at all, is the original behaviour — the surface goes on the driver's next
+/// loop turn.
+pub fn on_close(linger: Duration, react: impl FnOnce() + 'static) {
+    CURRENT_EXIT.with(|e| {
+        if let Some(sink) = e.borrow().as_ref() {
+            sink.borrow_mut().push(linger, Box::new(react));
         }
     });
 }
@@ -290,12 +338,15 @@ pub(crate) struct SurfaceEntry {
     wl_id: ObjectId,
     window: Option<LayerWindow>,
     handler: Option<BoxedHandler>,
-    // `Some` for a dynamic surface (its `SurfaceHandle`/`request_close` flag); `None` for a static bar, which
-    // only closes on the shared shutdown.
-    close: Option<Arc<AtomicBool>>,
+    // `Some` for a surface opened through a `SurfaceHandle` (its close flag and geometry channel); `None` for one the driver mounted itself — a lock surface — which only goes on the shared shutdown.
+    link: Option<Arc<SurfaceLink>>,
     /// Timers and channel sources this surface registered (via `interval`/`watch`), removed from the loop when
     /// it is torn down so a closed drawer stops ticking instead of outliving its own signals.
     sources: SourceSink,
+    /// What this surface's content asked to happen on its way out (via `on_close`), and for how long.
+    exit: ExitSink,
+    /// When a started exit transition runs out and the surface is torn down. `None` until it is asked to close.
+    exit_deadline: Option<Instant>,
     /// The layer-shell namespace, so a diagnostic can name which surface an event reached.
     namespace: String,
     reserve_only: bool,
@@ -318,7 +369,7 @@ impl SurfaceEntry {
         shell: Shell,
         wl_id: ObjectId,
         handler: Option<BoxedHandler>,
-        close: Option<Arc<AtomicBool>>,
+        link: Option<Arc<SurfaceLink>>,
         namespace: String,
         scale: i32,
         logical_size: (u32, u32),
@@ -328,8 +379,10 @@ impl SurfaceEntry {
             wl_id,
             window: None,
             handler,
-            close,
+            link,
             sources: SourceSink::default(),
+            exit: ExitSink::default(),
+            exit_deadline: None,
             namespace,
             reserve_only: false,
             interactive_input_region: false,
@@ -358,6 +411,59 @@ impl SurfaceEntry {
             self.events.push(Event::WindowResized { width, height });
         }
         self.configured = true;
+    }
+
+    /// Pushes any geometry the surface asked for since the last turn to the compositor. Only a layer surface has
+    /// geometry of its own to renegotiate; a lock surface's is the compositor's to decide, which is the whole
+    /// point of the protocol.
+    ///
+    /// A size change comes back as a `configure` and from there as a `WindowResized`, so the content is never
+    /// resized by this call directly — it learns its new size the same way it learns about a monitor's.
+    fn apply_geometry(&mut self, change: Geometry) {
+        let Shell::Layer(layer) = &self.shell else {
+            return;
+        };
+        if let Some((width, height)) = change.size {
+            layer.set_size(width, height);
+        }
+        if let Some((top, right, bottom, left)) = change.margin {
+            layer.set_margin(top, right, bottom, left);
+        }
+        if let Some(zone) = change.exclusive_zone {
+            layer.set_exclusive_zone(zone);
+        }
+        layer.commit();
+    }
+
+    /// Whether a surface that has been asked to close should be torn down *now*.
+    ///
+    /// The first call is what starts its exit transition: the reactions its content registered with `on_close`
+    /// run, and the surface stays mapped until their linger is up. Without one — nothing registered, or the
+    /// user has animation switched off — this answers `true` immediately, which is what the driver did before
+    /// any exit transition existed.
+    fn exit_elapsed(&mut self) -> bool {
+        if let Some(deadline) = self.exit_deadline {
+            return Instant::now() >= deadline;
+        }
+        let plan = std::mem::take(&mut *self.exit.borrow_mut());
+        if plan.is_empty() {
+            return true;
+        }
+        self.exit_deadline = Some(Instant::now() + plan.linger());
+        let link = self.link.clone();
+        let sources = Rc::clone(&self.sources);
+        let exit = Rc::clone(&self.exit);
+        with_current(&link, &sources, &exit, || plan.run());
+        false
+    }
+
+    /// How long the driver may sleep while this surface is on its way out. An exit is usually carried by an
+    /// animation, which paces the loop on its own — but one that settles early (or never starts, because the
+    /// reaction moved nothing) would otherwise let the loop sleep straight past the deadline and leave a
+    /// closed surface on screen.
+    fn exit_timeout(&self) -> Option<Duration> {
+        self.exit_deadline
+            .map(|deadline| deadline.saturating_duration_since(Instant::now()))
     }
 }
 
@@ -457,7 +563,7 @@ fn create_surface_entry(
     qh: &QueueHandle<Driver>,
     config: &LayerConfig,
     handler: Option<BoxedHandler>,
-    close: Option<Arc<AtomicBool>>,
+    link: Option<Arc<SurfaceLink>>,
 ) {
     let output = config.output.as_deref().and_then(|name| {
         driver
@@ -503,7 +609,7 @@ fn create_surface_entry(
         Shell::Layer(layer),
         wl_id,
         handler,
-        close,
+        link,
         config.namespace.clone(),
         scale,
         (config.size.0.max(1), config.size.1.max(1)),
@@ -633,7 +739,7 @@ where
                 &qh,
                 &p.config,
                 p.handler,
-                Some(p.close),
+                Some(p.link),
             );
         }
 
@@ -660,14 +766,17 @@ where
             ..
         } = &mut driver;
         for (index, entry) in surfaces.iter_mut().enumerate() {
-            if entry.closed
-                || entry
-                    .close
-                    .as_ref()
-                    .is_some_and(|f| f.load(Ordering::Relaxed))
-            {
+            // The compositor closing the surface leaves nothing to play an exit onto, so that path skips the transition entirely: as far as the compositor is concerned the surface is already gone.
+            if entry.closed {
                 remove.push(index);
                 continue;
+            }
+            if entry.link.as_ref().is_some_and(|link| link.is_closing()) && entry.exit_elapsed() {
+                remove.push(index);
+                continue;
+            }
+            if let Some(change) = entry.link.as_ref().and_then(|link| link.take_geometry()) {
+                entry.apply_geometry(change);
             }
             if !entry.configured {
                 continue;
@@ -702,9 +811,10 @@ where
             let window = entry.window.clone().expect("window built above");
 
             if !entry.resumed {
-                let close = entry.close.clone();
+                let link = entry.link.clone();
                 let sources = Rc::clone(&entry.sources);
-                let ok = with_current(&close, &sources, || {
+                let exit = Rc::clone(&entry.exit);
+                let ok = with_current(&link, &sources, &exit, || {
                     let handler = entry
                         .handler
                         .as_mut()
@@ -722,10 +832,11 @@ where
                 entry.resumed = true;
             }
 
-            let close = entry.close.clone();
+            let link = entry.link.clone();
             let sources = Rc::clone(&entry.sources);
+            let exit = Rc::clone(&entry.exit);
             let events: Vec<Event> = entry.events.drain(..).collect();
-            entry.timeout = with_current(&close, &sources, || {
+            entry.timeout = with_current(&link, &sources, &exit, || {
                 let handler = entry
                     .handler
                     .as_mut()
@@ -752,6 +863,7 @@ where
                 );
             }
             min_timeout = merge_timeout(min_timeout, entry.timeout);
+            min_timeout = merge_timeout(min_timeout, entry.exit_timeout());
         }
 
         for index in remove.into_iter().rev() {
@@ -773,7 +885,8 @@ where
 pub(crate) fn tear_down(mut entry: SurfaceEntry, loop_handle: &LoopHandle<'static, Driver>) {
     if let Some(mut handler) = entry.handler.take() {
         let sources = Rc::clone(&entry.sources);
-        with_current(&entry.close, &sources, || handler.on_suspend());
+        let exit = Rc::clone(&entry.exit);
+        with_current(&entry.link, &sources, &exit, || handler.on_suspend());
     }
     for token in entry.sources.borrow_mut().drain(..) {
         loop_handle.remove(token);
@@ -892,25 +1005,44 @@ impl telar::AppPathsProvider for NoPaths {
 
 /// A live dynamically-opened surface. Dropping it — or calling [`close`](Self::close) — asks the driver to tear it down.
 pub struct SurfaceHandle {
-    close: Arc<AtomicBool>,
+    link: Arc<SurfaceLink>,
 }
 
 impl SurfaceHandle {
-    /// Asks the surface to close. Returns immediately; the driver tears it down on its next loop turn.
-    /// Deliberately non-blocking so a UI event handler can close a drawer without stalling.
+    /// Asks the surface to close. Returns immediately; the driver tears it down on its next loop turn, or once
+    /// the exit transition the surface registered with [`on_close`] has played out. Deliberately non-blocking so
+    /// a UI event handler can close a drawer without stalling.
     pub fn close(&self) {
-        self.close.store(true, Ordering::Relaxed);
+        self.link.request_close();
     }
 
     /// Whether this surface has been asked to close (by `close`, drop, or the surface closing itself via `request_close`). Lets the owner reconcile its own toggle state after a self-close.
     pub fn is_closing(&self) -> bool {
-        self.close.load(Ordering::Relaxed)
+        self.link.is_closing()
+    }
+
+    /// Asks the compositor to renegotiate the surface's size. `0` on an axis hands that axis back to it.
+    pub fn set_size(&self, width: u32, height: u32) {
+        self.link.request_geometry(Geometry::size(width, height));
+    }
+
+    /// Moves the surface relative to the edges it is anchored to, as `(top, right, bottom, left)` logical
+    /// pixels. Only an edge the surface is anchored to honours its margin; a negative value pushes it off that
+    /// edge, which is how an auto-hidden bar keeps a hover strip on screen and nothing else.
+    pub fn set_margin(&self, margin: (i32, i32, i32, i32)) {
+        self.link.request_geometry(Geometry::margin(margin));
+    }
+
+    /// Changes how much of the screen the surface reserves for itself. `0` reserves nothing (windows tile under
+    /// it), `-1` opts out of every other surface's reservation, and a positive value is a logical-pixel strip.
+    pub fn set_exclusive_zone(&self, zone: i32) {
+        self.link.request_geometry(Geometry::exclusive_zone(zone));
     }
 }
 
 impl Drop for SurfaceHandle {
     fn drop(&mut self) {
-        self.close.store(true, Ordering::Relaxed);
+        self.link.request_close();
     }
 }
 
@@ -926,31 +1058,31 @@ impl SurfaceControl for SurfaceHandle {
 /// Opens a new layer-shell surface at runtime. Builds the handler on the UI thread and enqueues it for the
 /// driver to mount on its next loop turn — no new thread, so it shares the one reactive runtime (M3).
 pub fn open_surface<A: App + 'static>(spec: LayerConfig, app: A) -> SurfaceHandle {
-    let close = Arc::new(AtomicBool::new(false));
+    let link = Arc::new(SurfaceLink::default());
     let handler = build_surface_handler::<LayerWindow, A>(app, Box::new(NoPaths), "hyprshell");
     DYN_QUEUE.with(|q| {
         q.borrow_mut().push(PendingSurface {
             config: spec,
             handler: Some(handler),
-            close: Arc::clone(&close),
+            link: Arc::clone(&link),
         })
     });
-    SurfaceHandle { close }
+    SurfaceHandle { link }
 }
 
 /// Opens a reservation-only strip (no rsx content — just its exclusive zone, an invisible transparent buffer),
 /// closeable like any dynamic surface. Used to reserve bar space so the strip and the visible bar are
 /// independent surfaces (see the bar/reservation split), reconcilable on config reload without a full teardown.
 pub fn open_reservation(spec: LayerConfig) -> SurfaceHandle {
-    let close = Arc::new(AtomicBool::new(false));
+    let link = Arc::new(SurfaceLink::default());
     DYN_QUEUE.with(|q| {
         q.borrow_mut().push(PendingSurface {
             config: spec,
             handler: None,
-            close: Arc::clone(&close),
+            link: Arc::clone(&link),
         })
     });
-    SurfaceHandle { close }
+    SurfaceHandle { link }
 }
 
 /// Maps rsx's backend-agnostic [`SurfaceAnchor`] to layer-shell edge flags. `Center` anchors to no edge, so
@@ -1030,7 +1162,7 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
 struct HostedSurfaceApp {
     placement: SurfacePlacement,
     content: RefCell<Option<SurfaceContent>>,
-    close: Arc<AtomicBool>,
+    link: Arc<SurfaceLink>,
 }
 
 impl App for HostedSurfaceApp {
@@ -1042,24 +1174,30 @@ impl App for HostedSurfaceApp {
             .take()
             .expect("hosted surface content factory taken twice")();
         if let Some(delay) = self.placement.timeout {
-            let close = Arc::clone(&self.close);
-            timeout(delay, move || close.store(true, Ordering::Relaxed));
+            let link = Arc::clone(&self.link);
+            timeout(delay, move || link.request_close());
         }
+        // One transition drives both halves: it runs to 1 as the surface opens, and `on_close` runs it back to 0 while the driver holds the surface mapped for exactly as long as that takes.
+        let transition = SurfaceTransition::enter();
+        on_close(transition.duration(), {
+            let transition = transition.clone();
+            move || transition.leave()
+        });
         if self.placement.needs_scaffold() {
             let dismiss: Option<Rc<dyn Fn()>> = self.placement.dismiss_on_outside.then(|| {
-                let close = Arc::clone(&self.close);
-                Rc::new(move || close.store(true, Ordering::Relaxed)) as Rc<dyn Fn()>
+                let link = Arc::clone(&self.link);
+                Rc::new(move || link.request_close()) as Rc<dyn Fn()>
             });
             Box::new(
                 SurfaceScaffold::new(&self.placement, content, dismiss)
                     .expect("surface scaffold build failed")
-                    .animate_in(),
+                    .animate(transition),
             )
         } else {
             Box::new(
                 SurfaceRoot::new(content)
                     .expect("surface root build failed")
-                    .animate_in(),
+                    .animate(transition),
             )
         }
     }
@@ -1083,21 +1221,21 @@ struct LayerShellSurfaceHost;
 impl SurfaceHost for LayerShellSurfaceHost {
     fn open(&self, placement: SurfacePlacement, content: SurfaceContent) -> SurfaceToken {
         let config = layer_config_for(&placement);
-        let close = Arc::new(AtomicBool::new(false));
+        let link = Arc::new(SurfaceLink::default());
         let app = HostedSurfaceApp {
             placement,
             content: RefCell::new(Some(content)),
-            close: Arc::clone(&close),
+            link: Arc::clone(&link),
         };
         let handler = build_surface_handler::<LayerWindow, _>(app, Box::new(NoPaths), "hyprshell");
         DYN_QUEUE.with(|q| {
             q.borrow_mut().push(PendingSurface {
                 config,
                 handler: Some(handler),
-                close: Arc::clone(&close),
+                link: Arc::clone(&link),
             })
         });
-        SurfaceToken::new(Box::new(SurfaceHandle { close }))
+        SurfaceToken::new(Box::new(SurfaceHandle { link }))
     }
 }
 
@@ -1547,6 +1685,48 @@ pub fn enumerate_outputs() -> Vec<OutputDescriptor> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `on_close`, `request_close` and `request_size` all name "the current surface", and outside one there is
+    /// no such thing. A silent no-op is the right answer — a preview render, a unit test and app-level setup all
+    /// run this code with no surface installed — but it has to be a no-op rather than a panic, and an exit
+    /// registered outside a surface must not leak into whichever surface runs next.
+    #[test]
+    fn asking_the_current_surface_for_anything_outside_one_does_nothing() {
+        request_close();
+        request_size(400, 300);
+        request_margin((0, 0, 0, 0));
+        on_close(Duration::from_millis(200), || {
+            panic!("an exit registered outside a surface has nothing to belong to")
+        });
+
+        let exit = ExitSink::default();
+        with_current(&None, &SourceSink::default(), &exit, || {});
+        assert!(
+            exit.borrow().is_empty(),
+            "the reaction registered before any surface was current must not be picked up by one"
+        );
+    }
+
+    /// Both halves of a hosted surface's exit — the scaffold fading its scrim, the panel content sliding back
+    /// toward its bar edge — register against the same surface, and the driver has to wait for the longer.
+    #[test]
+    fn every_exit_a_surface_registers_reaches_its_plan() {
+        let fired = Rc::new(RefCell::new(Vec::new()));
+        let exit = ExitSink::default();
+        with_current(&None, &SourceSink::default(), &exit, || {
+            for (name, ms) in [("scaffold", 200u64), ("panel", 320)] {
+                let fired = Rc::clone(&fired);
+                on_close(Duration::from_millis(ms), move || {
+                    fired.borrow_mut().push(name)
+                });
+            }
+        });
+
+        let plan = std::mem::take(&mut *exit.borrow_mut());
+        assert_eq!(plan.linger(), Duration::from_millis(320));
+        plan.run();
+        assert_eq!(*fired.borrow(), vec!["scaffold", "panel"]);
+    }
 
     #[test]
     fn editing_keysyms_map_to_named_keys() {
