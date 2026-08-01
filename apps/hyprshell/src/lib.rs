@@ -83,10 +83,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, LayerShellPlatform, SurfaceHandle,
-};
+use platform_layershell::LayerShellPlatform;
 use telar::{App, AppPathsProvider, run_multi_with_platform};
+
+use crate::core::surfaces::{Content, Surfaces};
 
 struct NullPaths;
 impl AppPathsProvider for NullPaths {
@@ -98,144 +98,6 @@ impl AppPathsProvider for NullPaths {
     }
     fn cache_dir(&self) -> Option<std::path::PathBuf> {
         None
-    }
-}
-
-/// Insets past the perpendicular bar's own gap+thickness (not the vertical bar's gap) so a floating perpendicular bar can't overlap a hugging vertical one.
-///
-/// Driven off what the perpendicular edge actually reserves rather than off whether it has a bar, so an
-/// auto-hidden one insets by its frame ring (which is still there) and not by the bar thickness (which is not).
-/// Insetting a full-height left bar past a top bar that is off screen would leave a permanent notch for
-/// something the user asked not to see; the cost is that a revealed auto-hidden bar overlaps the corner while
-/// it is out, which is the right way round — the notch would be there always, the overlap only under the
-/// pointer.
-fn perpendicular_inset(config: &Config, perp: Edge, own_gap: i32) -> i32 {
-    match config.edge_reserved(perp) {
-        0 => own_gap,
-        reserved => reserved as i32,
-    }
-}
-
-/// The layer the shell's own chrome sits on: `Overlay` keeps the bars above a fullscreen window when
-/// `[general] show_over_fullscreen` asks for it, `Top` (the default) lets fullscreen cover them.
-fn chrome_layer(config: &Config) -> Layer {
-    if config.general.show_over_fullscreen {
-        Layer::Overlay
-    } else {
-        Layer::Top
-    }
-}
-
-/// The margin `edge`'s bar sits at while it is on screen, as `(top, right, bottom, left)`: its own outer gap on
-/// the edge it hangs off, plus — for a vertical bar — the insets that keep it clear of a perpendicular one.
-///
-/// Lifted out of [`layer_config_for`] because an auto-hiding bar needs the same answer from the other side: the
-/// surface is created at its *hidden* margin and animates back to this one, and the two deriving the gap
-/// separately is how a revealed bar ends up a few pixels off the position it was configured for.
-pub(crate) fn bar_margin_for(config: &Config, edge: Edge) -> (i32, i32, i32, i32) {
-    let gap = config.edge_gap(edge) as i32;
-    let top_inset = perpendicular_inset(config, Edge::Top, gap);
-    let bottom_inset = perpendicular_inset(config, Edge::Bottom, gap);
-    match edge {
-        Edge::Top => (gap, gap, 0, gap),
-        Edge::Bottom => (0, gap, gap, gap),
-        Edge::Left => (top_inset, 0, bottom_inset, gap),
-        Edge::Right => (top_inset, gap, bottom_inset, 0),
-    }
-}
-
-/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
-///
-/// An auto-hidden bar is created at its hidden margin — off its own edge but for its peek strip — rather than
-/// being placed on screen and moved a frame later, which the user would see as a bar that flashes on at every
-/// reload before deciding to leave.
-fn layer_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
-    let thickness = config.edge_thickness(edge);
-    let (anchor, surface_size) = match edge {
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, thickness)),
-        Edge::Bottom => (
-            Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            (0, thickness),
-        ),
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-    };
-    let shown = bar_margin_for(config, edge);
-    let margin = if config.bar_is_persistent(edge) {
-        shown
-    } else {
-        crate::modules::bar::RevealMargins::new(config, edge, shown).hidden
-    };
-    LayerConfig {
-        output,
-        layer: chrome_layer(config),
-        anchor,
-        exclusive_zone: -1,
-        size: surface_size,
-        margin,
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: format!("hyprshell-{}", edge.as_str()),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: false,
-    }
-}
-
-/// Invisible reservation strip on Layer::Bottom: space-only, no need for Top's interactivity; order-independent.
-fn reservation_config_for(config: &Config, edge: Edge, output: Option<String>) -> LayerConfig {
-    let reserve = config.edge_reserved(edge);
-    let (anchor, size) = match edge {
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
-        Edge::Bottom => (Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (reserve, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (reserve, 0)),
-    };
-    LayerConfig {
-        output,
-        layer: Layer::Bottom,
-        anchor,
-        exclusive_zone: reserve as i32,
-        size,
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: format!("hyprshell-reserve-{}", edge.as_str()),
-        reserve_only: true,
-        input_transparent: true,
-        interactive_input_region: false,
-    }
-}
-
-/// Full-screen wallpaper on Layer::Background: click-through, spans the whole output (exclusive_zone -1 ignores bar reservations). Declared before the bars/frame so it stacks at the bottom of the background layer.
-fn wallpaper_layer_config(output: Option<String>) -> LayerConfig {
-    LayerConfig {
-        output,
-        layer: Layer::Background,
-        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        exclusive_zone: -1,
-        size: (0, 0),
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: String::from("hyprshell-wallpaper"),
-        reserve_only: false,
-        input_transparent: true,
-        interactive_input_region: false,
-    }
-}
-
-/// Full-screen frame on Layer::Background: not on Top since ring visibility depends on window z-order.
-fn frame_layer_config(output: Option<String>) -> LayerConfig {
-    LayerConfig {
-        output,
-        layer: Layer::Background,
-        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        exclusive_zone: -1,
-        size: (0, 0),
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: String::from("hyprshell-frame"),
-        reserve_only: false,
-        input_transparent: true,
-        interactive_input_region: false,
     }
 }
 
@@ -279,8 +141,8 @@ pub fn run() {
 }
 
 /// Runs on the driver thread once its loop is up (deferred via `run_on_start`): brings up the popup host and
-/// opens every surface, then watches the config file and reconciles the surface set on change — closing the old
-/// surfaces and opening the new ones — without tearing the driver, connection, popup or services down.
+/// the shell's own surfaces, then watches the config file and reconciles them on change — in place, without
+/// tearing the driver, the connection, the popup, the services or the surfaces themselves down.
 fn setup_shell(config_path: PathBuf) {
     let config = Arc::new(Config::load_or_default(&config_path));
     apply_config(&config);
@@ -289,62 +151,86 @@ fn setup_shell(config_path: PathBuf) {
         std::process::exit(1);
     }
 
-    // The popup host is long-lived: set up once, it persists across reloads (its edge/radius are read at
-    // startup; notification state lives in the daemon, so it need not be rebuilt on a bar-config change).
-    crate::modules::notifications::popup_host(Arc::clone(&config));
+    // The popup host is long-lived: set up once, it persists across reloads — it follows an edit in place
+    // like the rest of the chrome, and the notification state it shows lives in the daemon either way.
+    crate::modules::notifications::popup_host();
 
     // Toasts. The host holds no surface until something is posted; the watchers are installed by `apply_config`,
     // which has already run, so an event switched on later gets its watcher on the next reload.
     crate::modules::toast::toast_host();
 
-    let initial = open_surfaces(&config);
-    // Through tracing rather than `println!`: this runs on the driver thread, where a direct write to a pipe
-    // nobody is draining blocks forever. See `init_tracing`.
-    tracing::info!("{} surface(s) up", initial.len());
-    let handles = Rc::new(RefCell::new(initial));
+    let surfaces = Rc::new(RefCell::new(Surfaces::default()));
     // The config the shell is currently running. A reload that fails to parse keeps this one rather than
     // falling back to the starter bar, so a typo costs the user an error message, not their whole layout.
-    let live = Rc::new(RefCell::new(config));
+    let live = Rc::new(RefCell::new(Arc::clone(&config)));
 
-    // One reconciliation, shared by every trigger: re-read the config, close the old surfaces and open the set
-    // the current config and monitor layout call for. Driven by a config edit, by a monitor being plugged in or
-    // unplugged, and by `hyprshell shell reload` — all of which change which surfaces should exist.
+    // One reconciliation, shared by every trigger: re-read the config and bring the surfaces in line with it.
+    // Driven by a config edit, by a monitor being plugged in or unplugged, and by `hyprshell shell reload` —
+    // and it is the *same* pass at startup, so there is one description of what should be on screen rather
+    // than an opening path and a reloading path that can disagree.
     let reconcile = {
-        let handles = Rc::clone(&handles);
+        let surfaces = Rc::clone(&surfaces);
         let live = Rc::clone(&live);
         let config_path = config_path.clone();
-        move || {
-            let config = match Config::load(&config_path) {
-                Ok(config) => Arc::new(config),
+        move |content: Content| {
+            let (config, content) = match Config::load(&config_path) {
+                Ok(config) => (Arc::new(config), content),
                 Err(e) => {
                     report_config_error(&e);
-                    Arc::clone(&live.borrow())
+                    // The file that would have changed what the surfaces draw does not parse, so nothing about
+                    // them has changed: the last working config is reconciled for the surface *set* — a monitor
+                    // may still have arrived — and every tree already drawing it is left alone.
+                    (Arc::clone(&live.borrow()), Content::Keep)
                 }
             };
             apply_config(&config);
-            // Panels were built against the outgoing config; leaving one up would leave a stale theme and a
-            // dangling anchor on screen. The popout tracks what is showing, so it is reset rather than only dropped.
-            crate::modules::popout::close();
-            // The region picker is its own surface with its own frozen still, so a reload has to take it down too
-            // — a picker holding a picture of the old desktop would keep the screen covered.
-            crate::modules::capture::close_picker();
-            crate::core::shell::close_all();
-            for handle in handles.borrow_mut().drain(..) {
-                handle.close();
+            surfaces.borrow_mut().reconcile(
+                &config_path,
+                &config,
+                &platform_layershell::outputs(),
+                content,
+            );
+            if content == Content::Rebuild {
+                // Everything else that is on screen, in place and in the same pass: the panels the user
+                // opened over the chrome, and the notification popup that follows the focused screen. Each
+                // keeps its surface — and what the user was in the middle of — and takes the new config.
+                crate::core::shell::rebuild_all();
+                crate::modules::notifications::reconcile();
             }
-            *handles.borrow_mut() = open_surfaces(&config);
             *live.borrow_mut() = config;
-            // From here rather than from `apply_config`, which also runs at startup: a toast saying the config
-            // was reloaded is only true of a reload.
-            crate::modules::toast::config_reloaded();
         }
     };
     let reconcile = Rc::new(reconcile);
 
-    crate::core::shell::set_reload_hook({
+    surfaces.borrow_mut().reconcile(
+        &config_path,
+        &config,
+        &platform_layershell::outputs(),
+        Content::Rebuild,
+    );
+    // Through tracing rather than `println!`: this runs on the driver thread, where a direct write to a pipe
+    // nobody is draining blocks forever. See `init_tracing`.
+    tracing::info!("{} surface(s) up", surfaces.borrow().len());
+
+    // The config having changed, whoever noticed: the file watcher, `hyprshell shell reload`, a keybind. The
+    // toast belongs here rather than in the reconcile, which also runs at startup — a toast saying the config
+    // was reloaded is only true of a reload.
+    let on_config_change: Rc<dyn Fn()> = {
         let reconcile = Rc::clone(&reconcile);
-        move || reconcile()
+        Rc::new(move || {
+            reconcile(Content::Rebuild);
+            crate::modules::toast::config_reloaded();
+        })
+    };
+
+    crate::core::shell::set_reload_hook({
+        let on_config_change = Rc::clone(&on_config_change);
+        move || on_config_change()
     });
+
+    // Live language switching. At app level, so the subscription outlives the surface rebuilds a reload does —
+    // one taken out from inside a bar would be removed with that bar's sources on the first one.
+    crate::shared::services::locale::follow_switches();
 
     // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
     // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
@@ -387,12 +273,13 @@ fn setup_shell(config_path: PathBuf) {
     // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
     // so a saved `[idle]` re-arms without a second entry point that could disagree with it.
 
-    let on_config_change = Rc::clone(&reconcile);
     platform_layershell::watch(
         move |tx| watch_config_changes(config_path, tx),
         move |_| on_config_change(),
     );
-    platform_layershell::on_outputs_changed(move || reconcile());
+    // A monitor arriving or leaving changes which surfaces exist and nothing about what they draw, so the
+    // screens that were already there keep the trees they have.
+    platform_layershell::on_outputs_changed(move || reconcile(Content::Keep));
 }
 
 /// Everything a config change affects outside the surfaces themselves: the UI language, the process-wide font,
@@ -443,70 +330,6 @@ fn report_config_error(error: &crate::core::config::LoadError) {
         &telar::t!("config.error_title"),
         &message,
     );
-}
-
-/// Opens every bar / reservation / wallpaper / frame surface for the current config across all outputs and
-/// returns their handles — kept alive to keep the surfaces up; closing a handle tears its surface down.
-fn open_surfaces(config: &Arc<Config>) -> Vec<SurfaceHandle> {
-    let path = Config::default_path();
-    let mut handles = Vec::new();
-    for out in platform_layershell::outputs() {
-        // Every surface on this output resolves against the same merged config, so a per-monitor override reaches the bar, its reservation strip, the wallpaper and the frame together — a bar sized by one config and a reservation strip sized by another would carve the wrong zone out of the screen.
-        let config = &output_config(&path, config, out.name.as_deref());
-        // Declared first so it stacks at the bottom of the background layer, under the frame and bars.
-        if config.background.is_enabled() {
-            handles.push(platform_layershell::open_surface(
-                wallpaper_layer_config(out.name.clone()),
-                WallpaperApp {
-                    config: Arc::clone(config),
-                    output: out.name.clone(),
-                },
-            ));
-        }
-        for edge in Edge::ALL {
-            if config.edge_present(edge) && !config.bars.excludes(out.name.as_deref()) {
-                handles.push(platform_layershell::open_surface(
-                    layer_config_for(config, edge, out.name.clone()),
-                    BarApp {
-                        config: Arc::clone(config),
-                        edge,
-                        output: out.name.clone(),
-                    },
-                ));
-                // Driven off what the edge reserves rather than off whether its bar hides: an auto-hidden bar under `[shape] frame` still reserves its ring, and an edge that reserves nothing gets no strip at all rather than one sized zero — a mapped surface with an empty exclusive zone is still a surface for the compositor to configure and the driver to drive.
-                if config.edge_reserved(edge) > 0 {
-                    handles.push(platform_layershell::open_reservation(
-                        reservation_config_for(config, edge, out.name.clone()),
-                    ));
-                }
-            }
-        }
-        if config.shape.frame {
-            handles.push(platform_layershell::open_surface(
-                frame_layer_config(out.name.clone()),
-                FrameApp {
-                    config: Arc::clone(config),
-                },
-            ));
-        }
-    }
-    handles
-}
-
-/// The config `output` runs under: its `monitors/<output>/config.toml` merged over the global one, falling back
-/// to the global config when it has no override or that override will not parse. A broken per-monitor file
-/// costs that one screen its overrides and a log line, never the whole shell's layout.
-fn output_config(path: &Path, global: &Arc<Config>, output: Option<&str>) -> Arc<Config> {
-    let Some(output) = output else {
-        return Arc::clone(global);
-    };
-    match Config::for_output(path, Some(output)) {
-        Ok(config) => Arc::new(config),
-        Err(e) => {
-            tracing::warn!("monitor '{output}': {e}; using the global config");
-            Arc::clone(global)
-        }
-    }
 }
 
 /// The config-watch producer for `watch`: polls the config's mtimes (dependency-free, naturally debounced) and
@@ -588,104 +411,6 @@ fn warn_if_font_missing(family: Option<&str>) {
         tracing::warn!(
             "theme font_family '{family}' is not installed; using the default font. List exact names with `fc-list : family`."
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config(toml: &str) -> Config {
-        toml::from_str(toml).unwrap()
-    }
-
-    #[test]
-    fn visible_bars_reserve_nothing_and_pin_deterministically() {
-        let cfg = config("[bars.top]\ncenter=[\"clock\"]\n[bars.bottom]\nstart=[\"clock\"]\n");
-        for edge in [Edge::Top, Edge::Bottom] {
-            let lc = layer_config_for(&cfg, edge, None);
-            assert_eq!(lc.size, (0, 34), "{edge:?} leaves width free, pins height");
-            assert_eq!(lc.exclusive_zone, -1, "visible bar reserves nothing");
-            assert!(!lc.reserve_only);
-            assert_eq!(lc.margin, (0, 0, 0, 0));
-            assert!(lc.anchor.contains(Anchor::LEFT) && lc.anchor.contains(Anchor::RIGHT));
-        }
-        let top = layer_config_for(&cfg, Edge::Top, None).anchor;
-        assert!(top.contains(Anchor::TOP) && !top.contains(Anchor::BOTTOM));
-        assert!(
-            layer_config_for(&cfg, Edge::Bottom, None)
-                .anchor
-                .contains(Anchor::BOTTOM)
-        );
-    }
-
-    #[test]
-    fn reservation_strip_carves_thickness_along_full_edge() {
-        let cfg = config("[bars.left]\nsize=44\nstart=[\"workspaces\"]\n");
-        let r = reservation_config_for(&cfg, Edge::Left, None);
-        assert!(r.reserve_only);
-        assert!(
-            r.input_transparent,
-            "click-through so it never swallows the bar's input"
-        );
-        assert!(
-            matches!(r.layer, Layer::Bottom),
-            "spacers live below the bars, not on Top"
-        );
-        assert_eq!(r.exclusive_zone, 44, "reserves the bar thickness");
-        assert_eq!(r.size, (44, 0));
-        assert_eq!(r.margin, (0, 0, 0, 0));
-        assert!(r.anchor.contains(Anchor::TOP) && r.anchor.contains(Anchor::BOTTOM));
-    }
-
-    #[test]
-    fn floating_bar_gains_outer_and_end_margins_reservation_takes_gap() {
-        let cfg = config("[shape]\ngap=8\nradius=12\n[bars.top]\nsize=34\ncenter=[\"clock\"]\n");
-        let lc = layer_config_for(&cfg, Edge::Top, None);
-        assert_eq!(lc.margin, (8, 8, 0, 8));
-        assert_eq!(lc.exclusive_zone, -1);
-        let r = reservation_config_for(&cfg, Edge::Top, None);
-        assert_eq!(r.exclusive_zone, 34 + 8);
-    }
-
-    #[test]
-    fn vertical_bar_ends_inset_by_adjacent_bar_thickness() {
-        let cfg = config(
-            "[bars.top]\nsize=30\ncenter=[\"clock\"]\n\
-             [bars.bottom]\nsize=40\nstart=[\"clock\"]\n\
-             [bars.left]\nsize=44\nstart=[\"workspaces\"]\n",
-        );
-        let left = layer_config_for(&cfg, Edge::Left, None);
-        assert_eq!(left.margin, (30, 0, 40, 0));
-        let top = layer_config_for(&cfg, Edge::Top, None);
-        assert_eq!(top.margin, (0, 0, 0, 0));
-    }
-
-    #[test]
-    fn vertical_bar_inset_uses_the_adjacent_bar_gap_not_its_own() {
-        // Regression: a floating top bar (gap:8) ends at y=40, so a hugging left bar must inset by the top bar's gap+thickness, not its own — else it rides up over the top bar.
-        let cfg = config(
-            "[shape]\ngap=0\n\
-             [bars.top]\nsize=32\ncenter=[\"clock\"]\n[bars.top.shape]\ngap=8\n\
-             [bars.bottom]\nsize=64\nstart=[\"clock\"]\n\
-             [bars.left]\nsize=32\nstart=[\"workspaces\"]\n",
-        );
-        let left = layer_config_for(&cfg, Edge::Left, None);
-        assert_eq!(
-            left.margin,
-            (40, 0, 64, 0),
-            "top inset = top gap(8)+thickness(32); bottom inset = bottom gap(0)+thickness(64)"
-        );
-    }
-
-    #[test]
-    fn frame_forces_hug_even_with_gap() {
-        let cfg = config("[shape]\nframe=true\ngap=8\n[bars.top]\ncenter=[\"clock\"]\n");
-        let lc = layer_config_for(&cfg, Edge::Top, None);
-        assert_eq!(lc.margin, (0, 0, 0, 0));
-        assert_eq!(lc.exclusive_zone, -1);
-        let r = reservation_config_for(&cfg, Edge::Top, None);
-        assert_eq!(r.exclusive_zone, 34);
     }
 }
 

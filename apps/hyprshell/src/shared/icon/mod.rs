@@ -233,7 +233,7 @@ fn icons_config() -> crate::core::config::IconsConfig {
 /// **Must be called at app level, not from inside a surface build.** `watch` binds its channel to whichever
 /// surface is being built when it runs, and tears that channel down with the surface. The store is
 /// process-wide (one UI thread, one thread-local), so a worker owned by one surface dies the moment that
-/// surface is replaced — a monitor hotplug or a config reload rebuilds every bar — and because the store then
+/// surface's content is rebuilt — which a config reload does to every bar — and because the store then
 /// still exists with a matching config, [`ensure_store`] returns early and never starts another. Every icon
 /// requested afterwards would spin forever. Registering from the app level leaves `CURRENT_SOURCES` unset, so
 /// the channel is process-lived like the config watcher.

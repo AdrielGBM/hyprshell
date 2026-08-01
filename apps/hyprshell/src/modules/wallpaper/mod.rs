@@ -4,15 +4,18 @@
 //! says this screen should show, cover-cropped over the theme's base colour, and — when `[background.clock]`
 //! asks for it — a clock face on top.
 //!
-//! **The transition is why this surface is reactive rather than rebuilt.** Every other config change tears the
-//! surface down and opens a new one, which is fine for a bar and useless for a cross-fade: by the time the new
-//! surface exists there is nothing left of the old one to fade *from*. So a runtime wallpaper change arrives as
-//! an event on the live surface instead, carrying an image the service already decoded off the UI thread, and
-//! the two layers are simply ping-ponged.
+//! **The transition is why a wallpaper change is an event and not a rebuild.** A picture chosen at runtime is
+//! not a config edit — it is session state — and rebuilding the surface for it would be useless for a
+//! cross-fade anyway: a fresh tree has nothing left of the old image to fade *from*. So a runtime wallpaper
+//! change arrives as an event on the live surface, carrying an image the service already decoded off the UI
+//! thread, and the two layers are simply ping-ponged.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use telar::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
@@ -23,6 +26,7 @@ use telar::{
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Align, Config, WallpaperTransition};
+use crate::core::surfaces::LiveConfig;
 use crate::shared::reactive::{derive, fixed};
 use crate::shared::services::{clock, visualiser, wallpaper};
 use crate::shared::theme::FontRole;
@@ -37,7 +41,9 @@ type FadeControl = (Rc<dyn Fn() -> f32>, Box<dyn Fn(f32)>);
 
 /// Per-output wallpaper: a full-screen background surface painting the current image (cover-cropped, aspect preserved) over the theme's base colour, or just the base colour when no image resolves.
 pub struct WallpaperApp {
-    pub config: Arc<Config>,
+    /// Read at every build rather than held: the surface outlives the config it was first drawn from, and a
+    /// reload rebuilds it in place from whatever is in here now.
+    pub config: LiveConfig,
     /// The monitor this wallpaper covers, so a `[background.monitors]` entry can target it.
     pub output: Option<String>,
 }
@@ -45,14 +51,15 @@ pub struct WallpaperApp {
 impl App for WallpaperApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        set_theme(self.config.resolve_theme());
-        crate::shared::services::locale::attach(self.config.language());
-        Box::new(SurfaceRoot::new(self.content()).expect("wallpaper layout failed"))
+        let config = self.config.get();
+        set_theme(config.resolve_theme());
+        crate::shared::services::locale::attach(config.language());
+        Box::new(SurfaceRoot::new(self.content(&config)).expect("wallpaper layout failed"))
     }
 
     fn clear_color(&self) -> Option<Color> {
         // The base colour shows before/without an image (and behind any transparency), covering "theme base colour when there is no image".
-        Some(self.config.resolve_theme().base)
+        Some(self.config.get().resolve_theme().base)
     }
 
     fn window_config(&self) -> Option<WindowConfig> {
@@ -62,21 +69,21 @@ impl App for WallpaperApp {
 }
 
 impl WallpaperApp {
-    fn content(&self) -> Box<dyn LayoutItem> {
+    fn content(&self, config: &Config) -> Box<dyn LayoutItem> {
         let mut layers: Vec<Box<dyn LayoutItem>> = Vec::new();
-        match self.image_layers() {
+        match self.image_layers(config) {
             Ok(Some(images)) => layers.push(images),
             Ok(None) => {}
             Err(e) => tracing::warn!("wallpaper images: {e}"),
         }
-        if self.config.background.clock.enabled {
-            match clock_face(&self.config) {
+        if config.background.clock.enabled {
+            match clock_face(config) {
                 Ok(face) => layers.push(face),
                 Err(e) => tracing::warn!("desktop clock: {e}"),
             }
         }
-        if self.config.background.visualiser.enabled {
-            match visualiser_row(&self.config) {
+        if config.background.visualiser.enabled {
+            match visualiser_row(config) {
                 Ok(row) => layers.push(row),
                 Err(e) => tracing::warn!("background visualiser: {e}"),
             }
@@ -92,9 +99,11 @@ impl WallpaperApp {
     /// visible, and each new image lands in whichever slot is currently hidden. One animation, no bookkeeping
     /// about which layer is on the way out, and an interrupted transition — a second change arriving mid-fade —
     /// simply retargets from wherever it had got to instead of snapping.
-    fn image_layers(&self) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
-        let initial = wallpaper::current_image(&self.config, self.output.as_deref());
-        let first = initial.as_deref().and_then(crate::shared::picture::decode);
+    fn image_layers(&self, config: &Config) -> Result<Option<Box<dyn LayoutItem>>, LayoutError> {
+        let initial = wallpaper::current_image(config, self.output.as_deref());
+        let first = initial
+            .as_deref()
+            .and_then(|path| decoded(self.output.as_deref(), path));
         if first.is_none() && initial.is_some() {
             tracing::warn!(
                 "wallpaper '{}' could not be loaded; using the theme base colour",
@@ -105,10 +114,10 @@ impl WallpaperApp {
             );
         }
 
-        let slot_a = signal(first.map(Arc::new));
+        let slot_a = signal(first);
         let slot_b = signal(None::<Arc<ImageData>>);
-        let transition = self.config.background.transition;
-        let (read_fade, set_fade) = self.fade_control();
+        let transition = config.background.transition;
+        let (read_fade, set_fade) = Self::fade_control(config);
         let travel = self.output_width();
 
         let layer_a = image_layer(
@@ -150,10 +159,10 @@ impl WallpaperApp {
     /// switched off globally) drives a plain signal instead of an `Animated` with a zero-length tween, because a
     /// tween that has no duration to divide by is a division waiting to happen, and "no transition" should not
     /// go anywhere near the ticker.
-    fn fade_control(&self) -> FadeControl {
-        let instant = self.config.background.transition == WallpaperTransition::None
-            || !self.config.animation.enabled
-            || self.config.background.transition_ms == 0;
+    fn fade_control(config: &Config) -> FadeControl {
+        let instant = config.background.transition == WallpaperTransition::None
+            || !config.animation.enabled
+            || config.background.transition_ms == 0;
         if instant {
             let at = signal(0.0f32);
             let reading = at.read_only();
@@ -162,10 +171,9 @@ impl WallpaperApp {
                 Box::new(move |to| at.set(to)),
             );
         }
-        let tween = self
-            .config
+        let tween = config
             .animation
-            .tween_ms(self.config.background.transition_ms, 10_000);
+            .tween_ms(config.background.transition_ms, 10_000);
         let fade = Animated::new(0.0f32, tween);
         let reading = fade.clone();
         (
@@ -184,6 +192,42 @@ impl WallpaperApp {
             .filter(|width| *width > 0.0)
             .unwrap_or(FALLBACK_TRAVEL)
     }
+}
+
+/// The picture this screen opens on, decoded at most once per file.
+///
+/// A config reload rebuilds this surface's content, and a settings form applies itself while the user is still
+/// typing — so decoding the same file again on the UI thread would put a full image decode between every burst
+/// of keystrokes and the frame that answers it. One entry per screen, holding what that screen's live surface
+/// is already holding, and keyed by mtime as well as path so a picture overwritten in place still lands.
+///
+/// Only the *opening* image comes through here: a wallpaper chosen at runtime arrives already decoded, off the
+/// UI thread, from the wallpaper service.
+fn decoded(output: Option<&str>, path: &Path) -> Option<Arc<ImageData>> {
+    /// The picture a screen last opened on: which file, when it was written, and its pixels.
+    type Opened = (PathBuf, SystemTime, Arc<ImageData>);
+    thread_local! {
+        static LAST: RefCell<HashMap<Option<String>, Opened>> = RefCell::new(HashMap::new());
+    }
+    let stamp = std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
+    let key = output.map(str::to_string);
+    let hit = LAST.with(|last| {
+        last.borrow()
+            .get(&key)
+            .filter(|(cached, at, _)| cached == path && stamp == Some(*at))
+            .map(|(_, _, image)| Arc::clone(image))
+    });
+    if hit.is_some() {
+        return hit;
+    }
+    let image = Arc::new(crate::shared::picture::decode(path)?);
+    if let Some(stamp) = stamp {
+        LAST.with(|last| {
+            last.borrow_mut()
+                .insert(key, (path.to_path_buf(), stamp, Arc::clone(&image)))
+        });
+    }
+    Some(image)
 }
 
 /// A full-surface style, used for every layer so they stack rather than sit side by side.
@@ -505,7 +549,7 @@ mod tests {
 
     fn built(config: Config) -> Box<dyn Component> {
         WallpaperApp {
-            config: Arc::new(config),
+            config: Arc::new(config).into(),
             output: None,
         }
         .root()
@@ -666,7 +710,7 @@ mod tests {
         }
         crate::test_support::render_png(
             WallpaperApp {
-                config: Arc::new(config),
+                config: Arc::new(config).into(),
                 output: None,
             },
             640,

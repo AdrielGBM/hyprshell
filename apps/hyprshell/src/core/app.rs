@@ -6,7 +6,8 @@ use telar::{
     new_container, reset_layout_runtime, set_theme,
 };
 
-use crate::core::config::{Config, Edge};
+use crate::core::config::Edge;
+use crate::core::surfaces::LiveConfig;
 use crate::modules::bar::{AutoHide, build_bar};
 use crate::shared::module::{SurfaceEnv, default_registry, set_surface_env};
 
@@ -51,7 +52,9 @@ impl Component for SurfaceRoot {
 }
 
 pub struct BarApp {
-    pub config: Arc<Config>,
+    /// Read at every build rather than held: this surface outlives the config it was first drawn from, and a
+    /// reload rebuilds it in place from whatever is in here now.
+    pub config: LiveConfig,
     pub edge: Edge,
     /// The monitor this bar surface lives on; threaded into `SurfaceEnv` so its panels open on the same screen.
     pub output: Option<String>,
@@ -60,31 +63,30 @@ pub struct BarApp {
 impl App for BarApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = self.config.resolve_theme();
+        let config = self.config.get();
+        let theme = config.resolve_theme();
         set_theme(theme);
         // Apply the configured UI language on this surface's thread and subscribe it to live language switches.
-        crate::shared::services::locale::attach(self.config.language());
-        let bar_config = self.config.bars.get(self.edge);
-        // Thread-local context for .rsx modules to read orientation and bar config.
+        crate::shared::services::locale::attach(config.language());
+        let bar_config = config.bars.get(self.edge);
         set_surface_env(SurfaceEnv {
             edge: self.edge,
             bar_size: bar_config.size,
             output: self.output.clone(),
-            config: Arc::clone(&self.config),
+            config: Arc::clone(&config),
         });
         let accent = theme.accent;
         let registry = default_registry();
-        let bar =
-            build_bar(&self.config, self.edge, accent, &registry, theme).expect("bar build failed");
+        let bar = build_bar(&config, self.edge, accent, &registry, theme).expect("bar build failed");
         // `persistent = false` moves the surface itself, so the wrapper goes here — around the whole bar, inside the surface root that drives it — rather than around any one zone.
-        let bar: Box<dyn LayoutItem> = if self.config.bar_is_persistent(self.edge) {
+        let bar: Box<dyn LayoutItem> = if config.bar_is_persistent(self.edge) {
             bar
         } else {
             Box::new(AutoHide::new(
                 bar,
-                &self.config,
+                &config,
                 self.edge,
-                crate::bar_margin_for(&self.config, self.edge),
+                crate::core::surfaces::bar_margin_for(&config, self.edge),
             ))
         };
         Box::new(SurfaceRoot::new(bar).expect("bar layout failed"))
@@ -92,15 +94,16 @@ impl App for BarApp {
 
     fn clear_color(&self) -> Option<Color> {
         // Opaque bar fills entire surface; floating/sections/chips bar has gaps so surface must be transparent.
-        if self.config.bar_surface_opaque(self.edge) {
-            Some(self.config.resolve_theme().base)
+        let config = self.config.get();
+        if config.bar_surface_opaque(self.edge) {
+            Some(config.resolve_theme().base)
         } else {
             None
         }
     }
 
     fn window_config(&self) -> Option<WindowConfig> {
-        if self.config.bar_surface_opaque(self.edge) {
+        if self.config.get().bar_surface_opaque(self.edge) {
             None
         } else {
             Some(WindowConfig {

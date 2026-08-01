@@ -23,16 +23,16 @@ pub struct SurfaceEnv {
     pub config: Arc<Config>,
 }
 
+/// Per-surface context: resolves against this surface's own scope, so a module reading [`surface_env`] —
+/// including from an effect — gets THIS bar's env even though all surfaces share one UI thread under M3 (the
+/// reactive flush re-enters the surface). Written on every build, so a rebuilt bar's modules read the config
+/// the edit produced rather than the one the surface opened under.
 pub fn set_surface_env(env: SurfaceEnv) {
-    // Per-surface context (rsx `provide`): resolves against this surface's service scope, so a module reading
-    // `surface_env()` — including from an effect — gets THIS bar's env even though all surfaces share one UI
-    // thread under M3 (the reactive flush re-enters the surface). Provided once per surface build; a fresh
-    // surface per config reload means no duplicate registration.
-    let _ = telar::provide(env);
+    crate::shared::state::set_context(env);
 }
 
 pub fn surface_env() -> Option<SurfaceEnv> {
-    telar::try_inject::<SurfaceEnv>()
+    crate::shared::state::context::<SurfaceEnv>()
 }
 
 pub fn bar_edge() -> Edge {

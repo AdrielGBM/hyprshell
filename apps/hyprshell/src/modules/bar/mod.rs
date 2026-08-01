@@ -633,7 +633,7 @@ end = ["clock"]
         let (w, h) = size_for(edge, &config);
         render_png(
             BarApp {
-                config: Arc::new(config),
+                config: Arc::new(config).into(),
                 edge,
                 output: None,
             },

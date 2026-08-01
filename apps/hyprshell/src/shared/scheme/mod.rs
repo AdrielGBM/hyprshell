@@ -609,10 +609,11 @@ fn source_image(config: &Config) -> Option<PathBuf> {
 /// Re-derives the scheme for `config`'s current wallpaper off the UI thread. The one entry point for "the
 /// wallpaper changed" and "the mode changed" alike, so the two cannot drift into different behaviours.
 ///
-/// `settle` is how long to wait before publishing. Landing a palette *is* a reload, and a reload tears every
-/// surface down — including the wallpaper surface that is halfway through cross-fading to the very image the
-/// palette came from. Waiting out the transition means the colours arrive once the picture has, which is both
-/// what the eye expects and the only way the fade survives. Zero everywhere a transition is not running.
+/// `settle` is how long to wait before publishing. Landing a palette *is* a reload, and a reload rebuilds every
+/// surface's content — including the wallpaper surface that is halfway through cross-fading to the very image
+/// the palette came from, whose fade lives in the tree being replaced. Waiting out the transition means the
+/// colours arrive once the picture has, which is both what the eye expects and the only way the fade survives.
+/// Zero everywhere a transition is not running.
 /// Re-derives the palette after *the shell itself* changed the wallpaper, reading the running config for both the
 /// dynamic check and the transition to wait out.
 ///

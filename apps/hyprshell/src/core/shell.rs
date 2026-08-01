@@ -6,6 +6,10 @@
 //! **The registry** is what is open right now, so a panel toggled from a bar chip, from `hyprshell panel
 //! toggle`, and from a keybind are all the *same* surface rather than three stacked copies.
 //!
+//! What is in the registry is what the *user* opened. The surfaces the *config* describes — the bars, their
+//! reservation strips, the wallpaper, the frame — are [`crate::core::surfaces`]'s, and the split is what makes
+//! a reload safe to run at every keystroke: one side is reconciled against the file, the other is left alone.
+//!
 //! Both live on the driver thread, which is the one UI thread every surface shares, so they are plain
 //! thread-locals rather than locks.
 
@@ -24,6 +28,8 @@ thread_local! {
     // How to rebuild the shell. Owned by `setup_shell`, which is the only place that knows how to reconcile
     // surfaces; everything else — the config watcher, a monitor hotplug, `hyprshell shell reload` — asks here.
     static RELOAD: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
+    // The surface that wrote the config change now on its way back as a reload. See `authored_change`.
+    static AUTHOR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// What is on screen beyond the bars. A drawer is single-slot — it dims what's behind it, so showing two at
@@ -75,7 +81,11 @@ pub fn focused_output() -> Option<String> {
 /// hangs off the right edge and aligns to the right zone), falling back to the top edge for a module that is
 /// configured nowhere.
 pub fn env_for_module(module_id: &str) -> Option<SurfaceEnv> {
-    let config = config()?;
+    config()?;
+    let output = focused_output();
+    // The screen it will open on decides which config it resolves against, so a panel opened by a keybind
+    // reads the same per-monitor overrides as one opened from that screen's bar.
+    let config = crate::core::surfaces::config_for(output.as_deref());
     let edge = Edge::ALL
         .into_iter()
         .find(|edge| config.zone_of(*edge, module_id).is_some())
@@ -83,7 +93,7 @@ pub fn env_for_module(module_id: &str) -> Option<SurfaceEnv> {
     Some(SurfaceEnv {
         edge,
         bar_size: config.bars.get(edge).size,
-        output: focused_output(),
+        output,
         config,
     })
 }
@@ -165,36 +175,51 @@ pub fn open_ids() -> Vec<String> {
     })
 }
 
-/// Surfaces that outlive a config reload.
+/// Marks `id` as the surface whose own write is about to come back as a config reload, so that reload does not
+/// rebuild it.
 ///
-/// The settings window is the one surface whose *job* is to cause reloads, and closing it on each one is what
-/// makes live preview unusable: a text field being typed into loses its caret every time a change lands. It is
-/// the only exception, and only because it is the only surface where the reload is the user's own edit rather
-/// than something that happened to it.
+/// **A surface is not rebuilt by a change it made itself**, because it is already showing it. The settings
+/// window is the case that matters: it applies a form a moment after the last keystroke, and rebuilding the
+/// field being typed into would put the caret back at the start of it — the whole reason live editing was
+/// unusable. Authorship rather than an exemption list, because "the surface that caused this" is the actual
+/// rule; a settings window that did *not* cause the edit (someone ran `hyprshell` or edited the file) is
+/// rebuilt like everything else.
 ///
-/// **Necessary and not yet sufficient.** Keeping the token here does stop *this* registry dropping the surface,
-/// and the test below proves that much — but on a real compositor the window still goes when a live change
-/// lands, so something else in the reload path takes it down. Before adding to this list, find out what: the
-/// answer is in `setup_shell`'s `reconcile`, not here.
-const SURVIVES_RELOAD: &[&str] = &["settings"];
-
-pub fn survives_reload(id: &str) -> bool {
-    SURVIVES_RELOAD.contains(&id)
+/// Consumed by the next [`rebuild_all`], so it can never suppress more than the reload it was set for.
+pub fn authored_change(id: &str) {
+    AUTHOR.with(|author| *author.borrow_mut() = Some(id.to_string()));
 }
 
-/// Drops every open surface — used when the shell reloads, so panels built against the old config don't
-/// outlive it. See [`SURVIVES_RELOAD`] for the one that does.
+/// Asks every open surface to build its content again — what a config reload does to this registry.
+///
+/// Nothing is closed and nothing is reopened: each surface stays where it is, at the size it is, and builds
+/// its content from the config as it now stands. What the user was in the middle of survives because it is not
+/// in the tree being replaced — a panel keeps its search, its page and its transition in
+/// [`crate::shared::state`], which belongs to the surface rather than to any one build of it.
+pub fn rebuild_all() {
+    let author = AUTHOR.with(|author| author.borrow_mut().take());
+    let wrote_it = |id: &str| author.as_deref() == Some(id);
+    OPEN.with(|surfaces| {
+        let surfaces = surfaces.borrow();
+        if let Some((id, token)) = surfaces.drawer.as_ref()
+            && !wrote_it(id)
+        {
+            token.rebuild();
+        }
+        for (id, token) in surfaces.windows.iter() {
+            if !wrote_it(id) {
+                token.rebuild();
+            }
+        }
+    });
+}
+
+/// Drops every open surface. The shutdown path, and nothing else — a reload rebuilds them instead.
 pub fn close_all() {
     OPEN.with(|surfaces| {
         let mut surfaces = surfaces.borrow_mut();
-        if !surfaces
-            .drawer
-            .as_ref()
-            .is_some_and(|(id, _)| survives_reload(id))
-        {
-            surfaces.drawer = None;
-        }
-        surfaces.windows.retain(|id, _| survives_reload(id));
+        surfaces.drawer = None;
+        surfaces.windows.clear();
     });
 }
 
@@ -240,17 +265,28 @@ mod tests {
         Arc::new(toml::from_str(toml).unwrap())
     }
 
-    /// A token over a surface that was never opened: `open_surface` needs a driver, and these tests are about
-    /// the registry's bookkeeping rather than about anything on screen.
+    /// A token over a surface that was never opened, counting what it was asked to do: `open_surface` needs a
+    /// driver, and these tests are about the registry's bookkeeping rather than about anything on screen.
     fn token() -> SurfaceToken {
-        struct Never;
-        impl telar::SurfaceControl for Never {
+        counted().0
+    }
+
+    fn counted() -> (SurfaceToken, std::rc::Rc<std::cell::Cell<u32>>) {
+        struct Counting(std::rc::Rc<std::cell::Cell<u32>>);
+        impl telar::SurfaceControl for Counting {
             fn close(&self) {}
             fn is_closing(&self) -> bool {
                 false
             }
+            fn rebuild(&self) {
+                self.0.set(self.0.get() + 1);
+            }
         }
-        SurfaceToken::new(Box::new(Never))
+        let rebuilds = std::rc::Rc::new(std::cell::Cell::new(0));
+        (
+            SurfaceToken::new(Box::new(Counting(std::rc::Rc::clone(&rebuilds)))),
+            rebuilds,
+        )
     }
 
     #[test]
@@ -270,13 +306,43 @@ mod tests {
         );
     }
 
-    /// The reload has to spare the settings window and nothing else.
+    /// A reload reaches every open surface, and the one that caused it is the exception.
     ///
-    /// Sparing it is what makes live preview usable — the window that *caused* the reload must not be closed by
-    /// it — and sparing anything more would put a panel built against the outgoing config back on screen with a
-    /// stale theme and a dangling anchor, which is the reason `close_all` exists.
+    /// Not an exemption list: the settings window is spared *because it wrote the change*, so a settings
+    /// window that did not cause the edit is rebuilt like anything else. Rebuilding the one that did is how
+    /// the field being typed into loses its caret.
     #[test]
-    fn a_reload_closes_every_surface_except_the_one_that_asked_for_it() {
+    fn a_reload_rebuilds_every_surface_except_the_one_that_wrote_it() {
+        let (settings, settings_rebuilds) = counted();
+        let (launcher, launcher_rebuilds) = counted();
+        let (drawer, drawer_rebuilds) = counted();
+        OPEN.with(|surfaces| {
+            let mut surfaces = surfaces.borrow_mut();
+            surfaces.drawer = Some(("clock".to_string(), drawer));
+            surfaces.windows.insert("settings".to_string(), settings);
+            surfaces.windows.insert("launcher".to_string(), launcher);
+        });
+
+        authored_change("settings");
+        rebuild_all();
+        assert_eq!(
+            settings_rebuilds.get(),
+            0,
+            "the window that applied the change is already showing it"
+        );
+        assert_eq!((launcher_rebuilds.get(), drawer_rebuilds.get()), (1, 1));
+
+        rebuild_all();
+        assert_eq!(
+            settings_rebuilds.get(),
+            1,
+            "and authorship is spent on that one reload — the next edit reaches it like any other surface"
+        );
+    }
+
+    /// Shutting down takes everything with it, whatever kind of surface it is.
+    #[test]
+    fn quitting_closes_every_surface() {
         OPEN.with(|surfaces| {
             let mut surfaces = surfaces.borrow_mut();
             surfaces.drawer = Some(("clock".to_string(), token()));
@@ -286,29 +352,7 @@ mod tests {
 
         close_all();
 
-        assert_eq!(
-            open_ids(),
-            vec!["settings".to_string()],
-            "the settings window survives its own reload; the drawer and the launcher do not"
-        );
-        close_all();
-        assert_eq!(
-            open_ids(),
-            vec!["settings".to_string()],
-            "and keeps surviving"
-        );
-    }
-
-    #[test]
-    fn a_settings_drawer_survives_a_reload_too() {
-        OPEN.with(|surfaces| {
-            let mut surfaces = surfaces.borrow_mut();
-            // `[modules.settings] open = "drawer"` is a supported presentation, and a drawer that vanished where a float stayed would make the fix depend on a setting the user chose for another reason.
-            surfaces.drawer = Some(("settings".to_string(), token()));
-            surfaces.windows.clear();
-        });
-        close_all();
-        assert_eq!(open_ids(), vec!["settings".to_string()]);
+        assert!(open_ids().is_empty());
     }
 
     #[test]
