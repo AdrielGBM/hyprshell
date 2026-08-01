@@ -1,7 +1,7 @@
 use telar::motion::Animated;
 use telar::{
-    LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceAlign,
-    SurfaceAnchor, SurfacePlacement, SurfaceToken, open_surface, set_theme,
+    LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceAlign, SurfaceAnchor,
+    SurfacePlacement, SurfaceToken, open_surface, set_theme,
 };
 
 use crate::core::config::{AnimationConfig, DrawerConfig, Edge, Zone};
@@ -82,17 +82,20 @@ pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
     });
 }
 
-/// Slides and fades `content` in from the bar edge it hangs off, over `[animation] panel_duration_ms` and the
-/// configured easing.
+/// Slides and fades `content` in from the bar edge it hangs off, and back out to it when the surface is asked
+/// to close, over `[animation] panel_duration_ms` and the configured easing.
 ///
-/// The *enter* half of the panel transition. Exit is not here and cannot be: closing a surface flags it and
-/// the driver tears it down on its next loop turn, so by the time an out-animation would run there is nothing
-/// left to draw it on — see `platform-layershell`'s `SurfaceHandle::close`.
+/// One progress carries both halves — 1 is off the bar edge and transparent, 0 is settled — so the exit is the
+/// entrance reversed rather than a second animation that has to be kept in step with the first.
+///
+/// The exit only reaches the screen because the driver holds a closing surface mapped for as long as
+/// [`on_close`](platform_layershell::on_close) says to. Without that it would animate a surface that was torn
+/// down on the loop's next turn, which is exactly what this could not do before.
 ///
 /// Constructed away from its goal and retargeted at once, never at the goal: an `Animated` born settled never
 /// registers with the ticker, so nothing would schedule the frames that carry it in — the same trap the
 /// workspace indicator hit.
-pub fn enter_transition(
+pub fn panel_transition(
     content: Box<dyn LayoutItem>,
     edge: Edge,
     animation: &AnimationConfig,
@@ -105,6 +108,10 @@ pub fn enter_transition(
     let travel = 24.0;
     let progress = Animated::new(1.0f32, tween);
     progress.retarget(0.0);
+    platform_layershell::on_close(tween.duration, {
+        let progress = progress.clone();
+        move || progress.retarget(1.0)
+    });
     let slide = progress.clone();
     let fade = progress;
     let (dx, dy) = match edge {
@@ -113,17 +120,14 @@ pub fn enter_transition(
         Edge::Left => (-travel, 0.0),
         Edge::Right => (travel, 0.0),
     };
+    // Shrink-wrapped, and that is load-bearing rather than tidy: this box is the node the scaffold measures to decide what counts as "outside the panel", and it is the child the scaffold's `align_items` positions. A `width: 100%` here made both wrong at once — every press in the panel's whole horizontal band read as a press *on* it, and the panel sat at the start of a full-width box instead of at the end of the bar its module lives on.
     Ok(Box::new(
-        StyledContainer::new(
-            LayoutStyle::new().width(SizeDimension::Percent(1.0)),
-            |_| RectStyle::default(),
-            vec![content],
-        )?
-        .with_transform(move |_| {
-            let at = slide.get();
-            (at != 0.0).then_some([1.0, 0.0, 0.0, 1.0, dx * at, dy * at])
-        })
-        .with_opacity(move || 1.0 - fade.get()),
+        StyledContainer::new(LayoutStyle::new(), |_| RectStyle::default(), vec![content])?
+            .with_transform(move |_| {
+                let at = slide.get();
+                (at != 0.0).then_some([1.0, 0.0, 0.0, 1.0, dx * at, dy * at])
+            })
+            .with_opacity(move || 1.0 - fade.get()),
     ))
 }
 
@@ -186,7 +190,7 @@ pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
             set_theme(theme);
             set_drawer_ctx(module.clone(), drawer, radius);
             let panel = crate::drawer_panel().expect("drawer panel build failed");
-            enter_transition(panel, edge, &animation).expect("drawer transition build failed")
+            panel_transition(panel, edge, &animation).expect("drawer transition build failed")
         }),
     )
 }
@@ -206,8 +210,8 @@ mod transition_tests {
             telar::reset_layout_runtime();
             telar::set_theme(NordTheme::new());
             assert!(
-                enter_transition(content(), edge, &AnimationConfig::default()).is_ok(),
-                "the enter transition builds on {edge:?}"
+                panel_transition(content(), edge, &AnimationConfig::default()).is_ok(),
+                "the panel transition builds on {edge:?}"
             );
         }
 
@@ -219,7 +223,78 @@ mod transition_tests {
             ..AnimationConfig::default()
         };
         assert!(off.panel_tween().duration.is_zero());
-        assert!(enter_transition(content(), Edge::Top, &off).is_ok());
+        assert!(panel_transition(content(), Edge::Top, &off).is_ok());
+    }
+
+    /// The transition box is the node the scaffold measures, so its width is the drawer's dismiss area.
+    ///
+    /// It was `width: 100%`, which made two things wrong at once and neither of them visible: a press anywhere
+    /// in the panel's horizontal band read as a press *on* the panel, so the only way to dismiss a drawer was to
+    /// click above or below it — and the panel was positioned at the start of a full-width box rather than by
+    /// the scaffold's own alignment, which is what puts it at the end of the bar its module sits on.
+    ///
+    /// Building proves none of that; the wrapper builds happily either way. This lays out the real tree the
+    /// surface host mounts and presses next to the panel.
+    #[test]
+    fn a_press_beside_the_panel_dismisses_the_drawer() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        use telar::{
+            AvailableSpace, Component, Event, PointerButton, PointerSource, SurfaceAnchor,
+            SurfacePlacement, SurfaceScaffold, compute_layout,
+        };
+
+        const PANEL_WIDTH: f32 = 320.0;
+        const SURFACE: f32 = 1280.0;
+
+        for align in [SurfaceAlign::Start, SurfaceAlign::Center, SurfaceAlign::End] {
+            telar::reset_layout_runtime();
+            telar::set_theme(NordTheme::new());
+
+            let panel = telar::box_item(
+                telar::Container::new(LayoutStyle::new().width(PANEL_WIDTH).height(200.0), vec![])
+                    .unwrap(),
+            );
+            let wrapped = panel_transition(panel, Edge::Top, &AnimationConfig::default()).unwrap();
+
+            let dismissed = Rc::new(Cell::new(0u32));
+            let sink = Rc::clone(&dismissed);
+            let placement = SurfacePlacement::drawer(SurfaceAnchor::Top)
+                .align(align)
+                .margin((8, 8, 8, 8));
+            let mut scaffold = SurfaceScaffold::new(
+                &placement,
+                wrapped,
+                Some(Rc::new(move || sink.set(sink.get() + 1))),
+            )
+            .unwrap();
+            compute_layout(
+                scaffold.layout_node(),
+                AvailableSpace::Definite(SURFACE),
+                AvailableSpace::Definite(720.0),
+            )
+            .unwrap();
+            scaffold.on_event(&Event::WindowResized {
+                width: SURFACE as u32,
+                height: 720,
+            });
+
+            let press = |x: f64| Event::PointerPressed {
+                x,
+                y: 100.0,
+                button: PointerButton::Primary,
+                source: PointerSource::Mouse,
+            };
+            // One of the two far edges is always scrim whichever end the panel is aligned to, so pressing both and requiring one to dismiss holds for every alignment without restating the layout.
+            let before = dismissed.get();
+            scaffold.on_event(&press(16.0));
+            scaffold.on_event(&press(SURFACE as f64 - 16.0));
+            assert!(
+                dismissed.get() > before,
+                "{align:?}: a press beside the panel must dismiss the drawer — a full-width wrapper makes the \
+                 whole row read as the panel, leaving no way out but clicking past its top or bottom edge"
+            );
+        }
     }
 }
 
