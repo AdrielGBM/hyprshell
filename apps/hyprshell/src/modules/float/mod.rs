@@ -3,7 +3,7 @@ use std::rc::Rc;
 use platform_layershell::{request_close, request_size};
 use telar::{
     SurfaceFrameStyle, SurfacePlacement, SurfaceSize, SurfaceToken, open_surface, set_theme,
-    surface_frame,
+    surface_content, surface_frame,
 };
 
 use crate::modules::drawer::{module_panel, panel_wants_keyboard};
@@ -14,27 +14,30 @@ use crate::shared::theme::FontRole;
 ///
 /// `[modules.<id>]` (or `[panels.float]`) is the size the window *opens* at, not the size it is stuck at: the
 /// frame's corner grip renegotiates the layer surface as it is dragged. That size lasts as long as the window
-/// does and is deliberately not written back — persisting it would mean a config write per drag, and a config
-/// write closes every surface built against the outgoing config, this one included.
+/// does and is deliberately not written back — persisting it would mean a config write, and a reload, per drag.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
-    let theme = env.config.resolve_theme();
-    let title = module_id.to_string();
     let module = module_id.to_string();
+    let edge = env.edge;
+    let output = env.output.clone();
     let (width, height) = env.config.float_size_for(module_id);
-    let radius = env.config.panel_radius(env.edge);
     let placement = SurfacePlacement::float()
         .size(SurfaceSize::Fixed(width, height))
         .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     open_surface(
         placement,
-        Box::new(move || {
+        // Resolved per build rather than captured: the window outlives the config it opened under, and a
+        // rebuild is how it follows an edit. What is captured is which module it shows and where it is.
+        surface_content(move || {
+            let config = crate::core::surfaces::config_for(output.as_deref());
+            let theme = config.resolve_theme();
+            let radius = config.panel_radius(edge);
             set_theme(theme);
             // So panel content that rounds to the bar radius (e.g. notification cards) matches inside the float too.
             crate::modules::drawer::set_content_radius(radius);
             let body = module_panel(&module).expect("float panel build failed");
             let style = SurfaceFrameStyle {
-                background: crate::modules::drawer::panel_fill(),
+                background: config.panel_fill(),
                 title_bar: theme.overlay,
                 title_text: theme.text,
                 close: theme.muted,
@@ -45,7 +48,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
             // The grip hands back the size the *surface* should take; rounding up rather than down keeps a half-pixel drag from shrinking the window by one every frame it is held still.
             let resize: Rc<dyn Fn(f32, f32)> =
                 Rc::new(|w: f32, h: f32| request_size(w.ceil() as u32, h.ceil() as u32));
-            surface_frame(title, style, close, body, Some(resize))
+            surface_frame(module.clone(), style, close, body, Some(resize))
                 .expect("surface frame build failed")
         }),
     )

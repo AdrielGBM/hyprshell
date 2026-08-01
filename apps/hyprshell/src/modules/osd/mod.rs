@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use telar::{
     LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize,
-    SurfaceToken, open_surface, set_theme,
+    SurfaceToken, open_surface, set_theme, surface_content,
 };
 
 use crate::core::config::{Align, Edge};
@@ -48,14 +48,14 @@ struct OsdCtx {
 
 /// The kind the OSD being built reflects; read by `osd.rsx`.
 pub fn current_osd_kind() -> OsdKind {
-    telar::try_inject::<OsdCtx>()
+    crate::shared::state::context::<OsdCtx>()
         .map(|ctx| ctx.kind)
         .unwrap_or(OsdKind::Volume)
 }
 
 /// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
 pub fn current_osd_radius() -> f32 {
-    telar::try_inject::<OsdCtx>()
+    crate::shared::state::context::<OsdCtx>()
         .map(|ctx| ctx.radius)
         .unwrap_or(16.0)
 }
@@ -63,7 +63,7 @@ pub fn current_osd_radius() -> f32 {
 /// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
 pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
     set_theme(theme);
-    let _ = telar::provide(OsdCtx { kind, radius });
+    crate::shared::state::set_context(OsdCtx { kind, radius });
     crate::osd().expect("osd content build failed")
 }
 
@@ -83,19 +83,12 @@ pub fn show(kind: OsdKind) {
         .as_ref()
         .map(|e| Arc::clone(&e.config))
         .or_else(crate::core::shell::config);
-    let theme = config
-        .as_ref()
-        .map(|c| c.resolve_theme())
-        .unwrap_or_default();
     let osd = config.as_ref().map(|c| c.osd).unwrap_or_default();
     let output = match env.as_ref() {
         Some(env) => env.output.clone(),
         None => crate::core::shell::focused_output(),
     };
-    let radius = config
-        .as_ref()
-        .map(|c| c.panel_radius(osd.edge))
-        .unwrap_or(16.0);
+    let output_for = output.clone();
     // The shared panel gap. The surface's exclusive_zone=0 already clears the bar via the compositor, so this is only the extra gap beyond it — same rule the drawer and notifications use.
     let inset = config
         .as_ref()
@@ -115,7 +108,13 @@ pub fn show(kind: OsdKind) {
         *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
         let token = open_surface(
             placement,
-            Box::new(move || osd_content(kind, theme, radius)),
+            // The screen it landed on is fixed for its short life; its look is not, so it is resolved per
+            // build — an OSD still up when the theme changes is rebuilt in the new one rather than left
+            // behind in the old.
+            surface_content(move || {
+                let config = crate::core::surfaces::config_for(output_for.as_deref());
+                osd_content(kind, config.resolve_theme(), config.panel_radius(config.osd.edge))
+            }),
         );
         *slot.borrow_mut() = Some(token);
     });

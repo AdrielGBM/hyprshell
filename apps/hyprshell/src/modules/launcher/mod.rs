@@ -5,7 +5,7 @@ use std::rc::Rc;
 use telar::{
     AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text, box_item, memo,
-    open_surface, set_theme, signal,
+    open_surface, set_theme, signal, surface_content,
 };
 
 use crate::core::config::{LauncherAction, LauncherConfig};
@@ -15,6 +15,7 @@ use crate::shared::keynav::{self, Move};
 use crate::shared::reactive;
 use crate::shared::scheme;
 use crate::shared::search::{self, Mode};
+use crate::shared::state::kept;
 use crate::shared::services::apps::{self, App};
 use crate::shared::services::state;
 use crate::shared::services::wallpaper;
@@ -373,23 +374,19 @@ pub fn toggle() {
 }
 
 fn open() -> SurfaceToken {
-    let config = shell::config();
-    let theme = config
-        .as_ref()
-        .map(|c| c.resolve_theme())
-        .unwrap_or_default();
-    let launcher = config.map(|c| c.launcher.clone()).unwrap_or_default();
     let output = shell::focused_output();
 
     // No `.size(...)`: an overlay carries a scrim, so its *surface* is full-screen and the `SurfaceScaffold`
     // centres the panel inside it. The panel's own size is a layout property (see `panel`), not a surface one —
     // asking the surface to be 640×420 would shrink the scrim to that box and leave the rest of the screen live.
-    let placement = SurfacePlacement::overlay().output(output);
+    let placement = SurfacePlacement::overlay().output(output.clone());
     open_surface(
         placement,
-        Box::new(move || {
+        surface_content(move || {
+            let config = crate::core::surfaces::config_for(output.as_deref());
+            let theme = config.resolve_theme();
             set_theme(theme);
-            panel(theme, &launcher).expect("launcher build failed")
+            panel(theme, &config.launcher).expect("launcher build failed")
         }),
     )
 }
@@ -399,7 +396,9 @@ fn open() -> SurfaceToken {
 /// Wraps at both ends, so holding Down cycles rather than sticking at the bottom, and Up from the first result
 /// jumps to the last — which is how every launcher behaves and what the hand expects.
 fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let query = signal(String::new());
+    // Kept by the surface rather than built here: a config edit rebuilds this tree, and a launcher that lost
+    // the half-typed search it was showing would be a launcher the user has to start over in.
+    let query = kept("launcher.query", || signal(String::new()));
     let query_read = query.read_only();
     let config = config.clone();
 
@@ -410,18 +409,24 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let width = config.width as f32;
     let columns = memo(move || mode_of(&for_columns.get()).0.columns(width));
 
-    let selected = signal(0usize);
+    let selected = kept("launcher.selected", || signal(0usize));
     // Which row is armed, by key. A dangerous action needs a second Enter, and arming in place costs no extra
     // surface — the same rule the session menu's destructive tiles follow.
-    let armed = signal(String::new());
+    let armed = kept("launcher.armed", || signal(String::new()));
     // Typing changes the result set, so the old index would point at a different app — or past the end. Resetting
     // to the top on every query change keeps "type a few letters, press Enter" landing on the best match. It also
     // disarms: a row you have navigated away from must not still be one keystroke from running.
     let reset_on_query = selected.clone();
     let disarm_on_query = armed.clone();
     let query_watch = query.read_only();
+    // An effect fires once when it is registered, and on a rebuild that run is the *tree* being seeded, not the
+    // user typing — counting it would put the selection back to the top every time the config changed.
+    let seeded = std::cell::Cell::new(false);
     let follow_query = telar::effect(move || {
         query_watch.get();
+        if !seeded.replace(true) {
+            return;
+        }
         reset_on_query.set(0);
         disarm_on_query.set(String::new());
     });
@@ -620,9 +625,11 @@ fn result_list(
     height: f32,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    // Built through `new_with` so the rows can reach the viewport: moving the selection has to scroll the list
-    // to follow it, and only the viewport can do that.
-    let scroll = telar::LayoutScrollArea::new_with(
+    // Built through the viewport-taking constructor so the rows can reach it: moving the selection has to
+    // scroll the list to follow, and only the viewport can do that. Kept, so a config edit landing while the
+    // user is halfway down their results does not throw them back to the top of the list.
+    let scroll = telar::LayoutScrollArea::new_kept(
+        "launcher.results",
         LayoutStyle::new()
             .flex_column()
             .width(SizeDimension::Percent(1.0))

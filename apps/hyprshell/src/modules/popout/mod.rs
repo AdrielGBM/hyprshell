@@ -149,7 +149,6 @@ fn open(module_id: &str, chip: Rect, env: &SurfaceEnv) {
     STATE.with(|s| s.borrow_mut().target = Some(module_id.to_string()));
     let app = PopoutApp {
         module: module_id.to_string(),
-        config: Arc::clone(&env.config),
         edge: env.edge,
         bar_size: env.bar_size,
         output: env.output.clone(),
@@ -243,7 +242,6 @@ pub(crate) fn popout_content(
 
 struct PopoutApp {
     module: String,
-    config: Arc<Config>,
     edge: Edge,
     bar_size: u32,
     output: Option<String>,
@@ -252,17 +250,18 @@ struct PopoutApp {
 impl App for PopoutApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = self.config.resolve_theme();
+        let config = crate::core::surfaces::config_for(self.output.as_deref());
+        let theme = config.resolve_theme();
         set_theme(theme);
-        crate::shared::services::locale::attach(self.config.language());
+        crate::shared::services::locale::attach(config.language());
         // The card reads config through the same `surface_env` a bar module does, so both resolve the same settings.
         set_surface_env(SurfaceEnv {
             edge: self.edge,
             bar_size: self.bar_size,
             output: self.output.clone(),
-            config: Arc::clone(&self.config),
+            config: Arc::clone(&config),
         });
-        let content = popout_content(&self.module, &self.config, self.edge, theme)
+        let content = popout_content(&self.module, &config, self.edge, theme)
             .expect("popout content build failed");
         Box::new(SurfaceRoot::new(content).expect("popout surface root"))
     }
@@ -398,10 +397,12 @@ mod tests {
             config.popouts.card_width() as u32,
             config.popouts.card_height() as u32,
         );
+        // Published so the card resolves it exactly as it would on a live screen; a visual render has no
+        // reconcile to have put one there.
+        crate::core::shell::set_config(Arc::new(config));
         crate::test_support::render_png(
             PopoutApp {
                 module,
-                config: Arc::new(config),
                 edge: Edge::Top,
                 bar_size: 34,
                 output: None,

@@ -71,22 +71,20 @@ pub fn pick(then: impl Fn(Picked) + 'static) {
     if is_open() {
         return;
     }
-    let config = crate::core::shell::config();
-    let theme = config
-        .as_ref()
-        .map(|c| c.resolve_theme())
-        .unwrap_or_default();
-    let freeze = config.as_ref().is_some_and(|c| c.screenshot.freeze);
     let output = crate::core::shell::focused_output();
+    let config = crate::core::surfaces::config_for(output.as_deref());
     let screen = output_box(output.as_deref());
     // Taken before the surface exists, which is the only moment that answers "what was on screen when the user
-    // asked". Kept in an `Rc<RefCell<…>>` because the crop consumes it and `App::root` only borrows.
-    let frozen = freeze
+    // asked". Held on the app rather than in the tree, so it also survives a rebuild — a config change while a
+    // selection is being drawn must not throw away the picture the selection is being drawn on.
+    let frozen = config
+        .screenshot
+        .freeze
         .then(|| output.as_deref().and_then(frozen_output))
         .flatten();
 
     let app = PickerApp {
-        theme,
+        output: output.clone(),
         screen,
         frozen: Rc::new(RefCell::new(frozen)),
         then: Rc::new(then),
@@ -95,7 +93,7 @@ pub fn pick(then: impl Fn(Picked) + 'static) {
     OPEN.with(|slot| *slot.borrow_mut() = Some(handle));
 }
 
-/// Closes whatever picker is up. Called by the shell's own close paths (a reload, `hyprshell screenshot cancel`).
+/// Closes whatever picker is up (`hyprshell screenshot cancel`, or a second request replacing the first).
 pub fn close() {
     OPEN.with(|slot| *slot.borrow_mut() = None);
 }
@@ -152,7 +150,7 @@ fn frozen_output(name: &str) -> Option<screenshot::Image> {
 }
 
 struct PickerApp {
-    theme: NordTheme,
+    output: Option<String>,
     screen: Screen,
     frozen: Rc<RefCell<Option<screenshot::Image>>>,
     then: Rc<dyn Fn(Picked)>,
@@ -161,9 +159,10 @@ struct PickerApp {
 impl App for PickerApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        set_theme(self.theme);
+        let theme = crate::core::surfaces::config_for(self.output.as_deref()).resolve_theme();
+        set_theme(theme);
         let content = overlay(
-            self.theme,
+            theme,
             self.screen,
             Rc::clone(&self.frozen),
             Rc::clone(&self.then),

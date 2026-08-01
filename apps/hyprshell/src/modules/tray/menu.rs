@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, Rect, RectStyle,
-    SizeDimension, StyledContainer, Text, box_item, open_surface, set_theme,
+    SizeDimension, StyledContainer, Text, box_item, open_surface, set_theme, surface_content,
 };
 
 use crate::shared::anchor::chip_placement;
@@ -79,15 +79,16 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
             // Along a horizontal bar the menu's extent is its fixed width; along a vertical one it would be its height, which is content-derived and unknown before layout.
             let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
             let placement = chip_placement(&env, chip, span);
-            let theme = env.config.resolve_theme();
-            let radius = env.config.panel_radius(env.edge);
+            let (edge, output) = (env.edge, env.output.clone());
             let (bus, path) = (event_bus.clone(), event_path.clone());
             crate::core::shell::toggle_window(SURFACE_ID, move || {
                 open_surface(
                     placement,
-                    Box::new(move || {
+                    surface_content(move || {
+                        let config = crate::core::surfaces::config_for(output.as_deref());
+                        let theme = config.resolve_theme();
                         set_theme(theme);
-                        menu_view(&root, &bus, &path, theme, radius)
+                        menu_view(&root, &bus, &path, theme, config.panel_radius(edge))
                             .expect("tray menu build failed")
                     }),
                 )

@@ -1,11 +1,12 @@
 use telar::motion::Animated;
 use telar::{
     LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceAlign, SurfaceAnchor,
-    SurfacePlacement, SurfaceToken, open_surface, set_theme,
+    SurfacePlacement, SurfaceToken, open_surface, set_theme, surface_content,
 };
 
 use crate::core::config::{AnimationConfig, DrawerConfig, Edge, Zone};
 use crate::shared::module::SurfaceEnv;
+use crate::shared::state::kept;
 
 fn anchor_for(edge: Edge) -> SurfaceAnchor {
     match edge {
@@ -64,9 +65,9 @@ pub(crate) fn panel_wants_keyboard(module: &str) -> bool {
     matches!(module, "notes" | "settings" | "session")
 }
 
-/// The per-panel-surface context (which module, its config, and the bar-matching corner radius), provided into
-/// the drawer/float surface's scope so `drawer_panel.rsx` reads it via `inject` — scoped to the surface, not a
-/// global thread-local. Drawer and float are separate surfaces, so each provides its own.
+/// The per-panel-surface context (which module, its config, and the bar-matching corner radius), set on the
+/// drawer/float surface's own scope so `drawer_panel.rsx` reads it via `inject` — scoped to the surface, not a
+/// global thread-local. Drawer and float are separate surfaces, so each sets its own.
 #[derive(Clone)]
 struct DrawerCtx {
     module: String,
@@ -74,8 +75,12 @@ struct DrawerCtx {
     radius: f32,
 }
 
+fn ctx() -> Option<DrawerCtx> {
+    crate::shared::state::context::<DrawerCtx>()
+}
+
 pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
-    let _ = telar::provide(DrawerCtx {
+    crate::shared::state::set_context(DrawerCtx {
         module,
         config: drawer,
         radius,
@@ -95,6 +100,10 @@ pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
 /// Constructed away from its goal and retargeted at once, never at the goal: an `Animated` born settled never
 /// registers with the ticker, so nothing would schedule the frames that carry it in — the same trap the
 /// workspace indicator hit.
+///
+/// Kept across rebuilds ([`kept`]), because arriving is something the panel did once: a fresh `Animated` would
+/// start at 1 again and slide the panel back in, so every config edit would look like the drawer reopening.
+/// The one this finds on a rebuild has already settled at 0, which is exactly where the panel is.
 pub fn panel_transition(
     content: Box<dyn LayoutItem>,
     edge: Edge,
@@ -106,8 +115,11 @@ pub fn panel_transition(
     }
     // The distance is in the panel's own travel, not the screen's: a drawer arrives from the edge it hangs off.
     let travel = 24.0;
-    let progress = Animated::new(1.0f32, tween);
-    progress.retarget(0.0);
+    let progress = kept("drawer.transition", || {
+        let progress = Animated::new(1.0f32, tween);
+        progress.retarget(0.0);
+        progress
+    });
     platform_layershell::on_close(tween.duration, {
         let progress = progress.clone();
         move || progress.retarget(1.0)
@@ -142,55 +154,50 @@ pub fn panel_fill() -> telar::Color {
 
 /// The module whose panel the drawer being built shows; read by `drawer_panel.rsx`.
 pub fn current_drawer_module() -> String {
-    telar::try_inject::<DrawerCtx>()
-        .map(|ctx| ctx.module)
-        .unwrap_or_default()
+    ctx().map(|ctx| ctx.module).unwrap_or_default()
 }
 
 /// The drawer size (width / max height) for the drawer being built; read by `drawer_panel.rsx`.
 pub fn current_drawer_config() -> DrawerConfig {
-    telar::try_inject::<DrawerCtx>()
-        .map(|ctx| ctx.config)
-        .unwrap_or_default()
+    ctx().map(|ctx| ctx.config).unwrap_or_default()
 }
 
 /// The bar-matching corner radius of the panel currently being built (drawer or float); read by `drawer_panel.rsx` and by the notification history it hosts, so content rounds its corners like the bar regardless of which panel presents it.
 pub fn content_radius() -> f32 {
-    telar::try_inject::<DrawerCtx>()
-        .map(|ctx| ctx.radius)
-        .unwrap_or(0.0)
+    ctx().map(|ctx| ctx.radius).unwrap_or(0.0)
 }
 
 /// Provides a panel context carrying just the content radius (module/config defaulted) — used by a float
 /// presenting the same panel content as a drawer, so its cards carry the bar radius too.
 pub fn set_content_radius(radius: f32) {
-    let _ = telar::provide(DrawerCtx {
-        module: String::new(),
-        config: DrawerConfig::default(),
-        radius,
-    });
+    set_drawer_ctx(String::new(), DrawerConfig::default(), radius);
 }
 
 /// Opens `module_id`'s drawer as a scrimmed surface floating off the bar edge on the bar's own monitor, aligned to the same end of the bar as the module; the distance off the bar is the shared [`Config::panel_margin`](crate::Config), so every panel keeps the same config-controlled gap. The surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
 pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
-    let theme = env.config.resolve_theme();
     let placement = SurfacePlacement::drawer(anchor_for(env.edge))
         .align(align_for(env.config.zone_of(env.edge, module_id)))
         .margin(env.config.panel_margin(env.edge))
         .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     let module = module_id.to_string();
-    let drawer = env.config.panels.drawer;
-    let radius = env.config.panel_radius(env.edge);
-    let animation = env.config.animation.clone();
     let edge = env.edge;
+    let output = env.output.clone();
     open_surface(
         placement,
-        Box::new(move || {
-            set_theme(theme);
-            set_drawer_ctx(module.clone(), drawer, radius);
+        // What is captured is what the drawer *is* — which module, which edge, which screen. Everything the
+        // config decides is resolved here, on every build, so a rebuilt drawer is a drawer that followed the
+        // edit rather than one still drawing the config it opened under.
+        surface_content(move || {
+            let config = crate::core::surfaces::config_for(output.as_deref());
+            set_theme(config.resolve_theme());
+            set_drawer_ctx(
+                module.clone(),
+                config.panels.drawer,
+                config.panel_radius(edge),
+            );
             let panel = crate::drawer_panel().expect("drawer panel build failed");
-            panel_transition(panel, edge, &animation).expect("drawer transition build failed")
+            panel_transition(panel, edge, &config.animation).expect("drawer transition build failed")
         }),
     )
 }

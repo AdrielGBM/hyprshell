@@ -48,13 +48,7 @@ fn open_sidebar() -> SurfaceToken {
     let output = crate::core::shell::focused_output();
     // `open_surface` on the platform crate rather than `telar::open_surface`: this is a full-height docked surface
     // with its own layer and anchor, not one of the placements the surface host describes.
-    let handle = open_surface(
-        layer_config(&config, output.clone()),
-        SidebarApp {
-            config: Arc::clone(&config),
-            output,
-        },
-    );
+    let handle = open_surface(layer_config(&config, output.clone()), SidebarApp { output });
     // Wrapped as a token so the shell's own registry owns it like any other panel: `SurfaceHandle` already
     // implements the control trait the token wants, which is what lets a platform surface be toggled by id.
     SurfaceToken::new(Box::new(handle))
@@ -90,28 +84,26 @@ fn layer_config(config: &Config, output: Option<String>) -> LayerConfig {
 }
 
 struct SidebarApp {
-    config: Arc<Config>,
     output: Option<String>,
 }
 
 impl App for SidebarApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        let theme = self.config.resolve_theme();
+        let config = crate::core::surfaces::config_for(self.output.as_deref());
+        let theme = config.resolve_theme();
         set_theme(theme);
-        crate::shared::services::locale::attach(self.config.language());
+        crate::shared::services::locale::attach(config.language());
         // The panels this surface hosts read their settings off the surface env, exactly as they do inside a bar's
         // drawer — without it the history would fall back to defaults while the drawer used the user's config.
         set_surface_env(SurfaceEnv {
-            edge: self.config.sidebar.edge,
-            bar_size: self.config.bars.get(self.config.sidebar.edge).size,
+            edge: config.sidebar.edge,
+            bar_size: config.bars.get(config.sidebar.edge).size,
             output: self.output.clone(),
-            config: Arc::clone(&self.config),
+            config: Arc::clone(&config),
         });
-        crate::modules::drawer::set_content_radius(
-            self.config.panel_radius(self.config.sidebar.edge),
-        );
-        let content = body(&self.config).expect("sidebar build failed");
+        crate::modules::drawer::set_content_radius(config.panel_radius(config.sidebar.edge));
+        let content = body(&config).expect("sidebar build failed");
         Box::new(SurfaceRoot::new(content).expect("sidebar surface root"))
     }
 
@@ -147,12 +139,14 @@ fn body(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
         children,
     )?;
     // Scrolled, because a morning's notifications are taller than any screen — the one thing the bell drawer,
-    // which sizes to its content, cannot do.
-    let scroll = LayoutScrollArea::new(
+    // which sizes to its content, cannot do. Kept: this surface is rebuilt by any config edit, and a history
+    // that jumped back to the newest card each time would lose whatever the reader had scrolled down to.
+    let scroll = LayoutScrollArea::new_kept(
+        "sidebar.history",
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
             .height(SizeDimension::Percent(1.0)),
-        Box::new(column),
+        |_| Ok(Box::new(column) as Box<dyn LayoutItem>),
     )?;
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()

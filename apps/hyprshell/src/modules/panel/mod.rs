@@ -26,9 +26,9 @@ pub fn toggle_panel(module_id: &str) {
     }
 }
 
-/// The settings window remembers its page and its Revert snapshot across the reload its *own* save causes, and
-/// must not remember either across a user closing it. A reload never comes through here — it drops surfaces
-/// wholesale in `shell::close_all` — so this is exactly the "the user is done with it" signal.
+/// The settings window keeps its Revert snapshot for as long as it is open, and must not keep it across a user
+/// closing it. A reload never comes through here — it leaves open panels alone — so this is exactly the "the
+/// user is done with it" signal.
 fn forget_settings_state(module_id: &str) {
     if module_id == "settings" {
         crate::modules::settings::forget_panel_state();

@@ -56,32 +56,13 @@ pub fn toast_host() {
 }
 
 fn open_stack() -> SurfaceHandle {
-    let config = crate::core::shell::config();
-    let theme = config
-        .as_ref()
-        .map(|c| c.resolve_theme())
-        .unwrap_or_default();
-    let toasts = config
-        .as_ref()
-        .map(|c| c.toasts.clone())
-        .unwrap_or_default();
-    let radius = config
-        .as_ref()
-        .map(|c| c.panel_radius(toasts.edge))
-        .unwrap_or(14.0);
-    // The shared panel distance, so a toast clears the bar by exactly as much as a drawer or an OSD does.
-    let margin = config
-        .as_ref()
-        .map(|c| c.panel_margin(toasts.edge))
-        .unwrap_or((0, 0, 0, 0));
     let output = crate::core::shell::focused_output();
+    let config = crate::core::surfaces::config_for(output.as_deref());
+    // The shared panel distance, so a toast clears the bar by exactly as much as a drawer or an OSD does.
+    let margin = config.panel_margin(config.toasts.edge);
     open_surface(
-        layer_config(&toasts, margin, output),
-        ToastApp {
-            config: toasts,
-            theme,
-            radius,
-        },
+        layer_config(&config.toasts, margin, output.clone()),
+        ToastApp { output },
     )
 }
 
@@ -131,16 +112,16 @@ fn anchor(config: &ToastsConfig) -> Anchor {
 }
 
 struct ToastApp {
-    config: ToastsConfig,
-    theme: NordTheme,
-    radius: f32,
+    output: Option<String>,
 }
 
 impl App for ToastApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        set_theme(self.theme);
-        let content = stack(self.config.clone(), self.radius).expect("toast stack build failed");
+        let config = crate::core::surfaces::config_for(self.output.as_deref());
+        set_theme(config.resolve_theme());
+        let radius = config.panel_radius(config.toasts.edge);
+        let content = stack(config.toasts.clone(), radius).expect("toast stack build failed");
         Box::new(SurfaceRoot::new(content).expect("toast surface root"))
     }
 

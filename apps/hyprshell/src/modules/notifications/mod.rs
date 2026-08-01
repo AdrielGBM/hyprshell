@@ -17,7 +17,7 @@ use telar::{
 };
 
 use crate::core::app::SurfaceRoot;
-use crate::core::config::{Align, Config, Edge, FullscreenPopups, NotificationsConfig};
+use crate::core::config::{Align, Edge, FullscreenPopups, NotificationsConfig};
 use crate::shared::module::surface_env;
 use crate::shared::services::hyprland::{self, ActiveWindow, Client};
 use crate::shared::services::notifications::{
@@ -536,17 +536,18 @@ fn popup_content(
 }
 
 struct PopupApp {
-    cfg: NotificationsConfig,
-    theme: NordTheme,
-    radius: f32,
+    output: Option<String>,
 }
 
 impl App for PopupApp {
     fn root(&self) -> Box<dyn Component> {
         reset_layout_runtime();
-        set_theme(self.theme);
-        let content =
-            popup_content(self.cfg.clone(), self.theme, self.radius).expect("notification content");
+        let config = crate::core::surfaces::config_for(self.output.as_deref());
+        let theme = config.resolve_theme();
+        set_theme(theme);
+        let radius = config.panel_radius(config.notifications.edge);
+        let content = popup_content(config.notifications.clone(), theme, radius)
+            .expect("notification content");
         Box::new(SurfaceRoot::new(content).expect("notification surface root"))
     }
 
@@ -608,45 +609,78 @@ fn popup_anchor(cfg: &NotificationsConfig) -> Anchor {
     anchor
 }
 
-fn open_popup(
-    cfg: &NotificationsConfig,
-    theme: NordTheme,
-    margin: (i32, i32, i32, i32),
-    radius: f32,
+/// The popup surface: which screen it is on, what keeps it up, and the layer-shell state the compositor holds
+/// for it — the last so a config change can be renegotiated against it rather than opening a second surface.
+struct Popup {
     output: Option<String>,
-) -> SurfaceHandle {
-    open_surface(
-        popup_layer_config(cfg, margin, output),
+    handle: SurfaceHandle,
+    layer: LayerConfig,
+}
+
+thread_local! {
+    static POPUP: RefCell<Option<Popup>> = const { RefCell::new(None) };
+}
+
+/// The layer-shell configuration `output`'s popup should have, from the config that screen is running.
+fn popup_config(output: Option<&str>) -> LayerConfig {
+    let config = crate::core::surfaces::config_for(output);
+    let cfg = &config.notifications;
+    // The shared panel distance, so notifications clear the bar exactly like a drawer or an OSD does.
+    popup_layer_config(cfg, config.panel_margin(cfg.edge), output.map(str::to_string))
+}
+
+/// Puts the popup on `output`, replacing whatever screen it was on.
+fn show_on(output: Option<String>) {
+    let layer = popup_config(output.as_deref());
+    let handle = open_surface(
+        layer.clone(),
         PopupApp {
-            cfg: cfg.clone(),
-            theme,
-            radius,
+            output: output.clone(),
         },
-    )
+    );
+    POPUP.with(|popup| {
+        *popup.borrow_mut() = Some(Popup {
+            output,
+            handle,
+            layer,
+        })
+    });
+}
+
+/// Follows a config change: the popup takes the new edge, size and look where it stands.
+///
+/// It is chrome the config describes, like a bar, and it is reconciled like one — renegotiated and rebuilt in
+/// place. Reopening it would be invisible (the surface is empty until something is posted) and wrong for the
+/// same reason it is wrong for a bar: the popup that is up is the popup, and a notification arriving during a
+/// reload must not land on a surface that is halfway through being replaced.
+pub fn reconcile() {
+    POPUP.with(|popup| {
+        let mut popup = popup.borrow_mut();
+        let Some(popup) = popup.as_mut() else {
+            return;
+        };
+        let next = popup_config(popup.output.as_deref());
+        let change = popup.layer.delta(&next);
+        if !change.is_empty() {
+            popup.handle.update(change);
+        }
+        popup.layer = next;
+        popup.handle.rebuild();
+    });
 }
 
 /// Sets up the notification popup host on the driver thread (called from `setup_shell`): shows the popup on the
 /// focused monitor and moves it there whenever Hyprland's focus changes. The focus stream is read off-thread via
-/// `watch`. Long-lived — it persists across config reloads (notification state lives in the daemon).
-pub fn popup_host(config: Arc<Config>) {
-    let theme = config.resolve_theme();
-    let cfg = config.notifications.clone();
-    // The shared panel distance and bar-matching radius for the popup's edge, so notifications clear the bar and round their corners exactly like a drawer/OSD.
-    let margin = config.panel_margin(cfg.edge);
-    let radius = config.panel_radius(cfg.edge);
+/// `watch`. Long-lived — it persists across config reloads (notification state lives in the daemon, and the
+/// surface itself follows an edit through [`reconcile`] rather than being opened again).
+pub fn popup_host() {
     let dir = crate::shared::services::hyprland::socket_dir();
-
-    let output = dir
-        .as_deref()
-        .and_then(crate::shared::services::hyprland::focused_monitor);
-    // The live popup handle and its monitor, moved between screens by the focus watcher on the driver thread.
-    let state = Rc::new(RefCell::new((
-        output.clone(),
-        open_popup(&cfg, theme, margin, radius, output),
-    )));
+    show_on(
+        dir.as_deref()
+            .and_then(crate::shared::services::hyprland::focused_monitor),
+    );
 
     let producer_dir = dir.clone();
-    let cfg_watch = cfg.clone();
     watch(
         move |tx| {
             let Some(dir) = producer_dir else {
@@ -665,11 +699,15 @@ pub fn popup_host(config: Arc<Config>) {
             }
         },
         move |monitor: String| {
-            let mut state = state.borrow_mut();
-            if state.0.as_deref() != Some(monitor.as_str()) {
-                state.0 = Some(monitor.clone());
-                state.1.close();
-                state.1 = open_popup(&cfg_watch, theme, margin, radius, Some(monitor));
+            let elsewhere = POPUP.with(|popup| {
+                popup
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|popup| popup.output.as_deref() != Some(monitor.as_str()))
+            });
+            // A move between screens *is* a new surface: a layer surface names its output when it is created.
+            if elsewhere {
+                show_on(Some(monitor));
             }
         },
     );
