@@ -19,11 +19,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor, SurfaceHandle,
-};
+use platform_layershell::{Layer, LayerConfig, OutputDescriptor, SurfaceHandle};
 
 use crate::core::app::BarApp;
+use crate::core::placement::Placement;
 use crate::core::config::{Config, Edge};
 use crate::modules::frame::FrameApp;
 use crate::modules::wallpaper::WallpaperApp;
@@ -109,6 +108,13 @@ pub struct Surfaces {
     live: Vec<(Key, Live)>,
 }
 
+/// What adopting a surface actually did to it: renegotiated its layer-shell state with the compositor, rebuilt
+/// its content, both, or — for a strip that neither draws nor moved — neither.
+struct Adopted {
+    renegotiated: bool,
+    rebuilt: bool,
+}
+
 struct Live {
     handle: SurfaceHandle,
     /// The layer-shell state the compositor currently has for this surface, to diff the next plan against.
@@ -132,29 +138,47 @@ impl Surfaces {
     ) {
         let plan = plan(path, config, outputs);
         let wanted: HashSet<&Key> = plan.iter().map(|planned| &planned.key).collect();
+        let before = self.live.len();
         self.live.retain(|(key, _)| wanted.contains(key));
+        let closed = before - self.live.len();
 
         // Layer-shell stacks surfaces of one layer in the order they were created, so a surface created under
         // one that already exists would come out on top of it — a wallpaper switched on while the frame ring
         // is up would cover the ring. Whatever the plan puts *after* a newly created surface in the same layer
         // on the same screen is therefore created again, in its place in the order.
         let mut restacking: HashSet<(Option<String>, Layer)> = HashSet::new();
+        let (mut opened, mut renegotiated, mut rebuilt) = (0, 0, 0);
         for planned in plan {
             let stack = (planned.key.output.clone(), planned.layer.layer);
             match self.index_of(&planned.key) {
                 Some(index) if !restacking.contains(&stack) => {
-                    self.live[index].1.adopt(planned, content)
+                    let done = self.live[index].1.adopt(planned, content);
+                    renegotiated += done.renegotiated as usize;
+                    rebuilt += done.rebuilt as usize;
                 }
                 Some(index) => {
                     self.live.remove(index);
                     self.open(planned);
+                    opened += 1;
                 }
                 None => {
                     restacking.insert(stack);
                     self.open(planned);
+                    opened += 1;
                 }
             }
         }
+        // What the pass did to the screen, in one line, at a level the user already sees. A change that reaches
+        // the config but not the screen is either a surface that was not rebuilt or one the compositor did not
+        // act on, and those are indistinguishable without this. Per-surface detail is a `debug!` below.
+        tracing::info!(
+            surfaces = self.live.len(),
+            opened,
+            closed,
+            renegotiated,
+            rebuilt,
+            "surfaces reconciled"
+        );
     }
 
     /// How many surfaces are up. `hyprshell` logs it at startup and the tests read it.
@@ -228,15 +252,28 @@ impl Live {
 
     /// Takes on what the plan now says this surface should be: the config its content resolves against, the
     /// layer-shell state the compositor holds for it, and — for a config change — a rebuild of its content.
-    fn adopt(&mut self, planned: Planned, content: Content) {
+    fn adopt(&mut self, planned: Planned, content: Content) -> Adopted {
         self.config.set(planned.config);
         let change = self.layer.delta(&planned.layer);
-        if !change.is_empty() {
+        let renegotiated = !change.is_empty();
+        if renegotiated {
             self.handle.update(change);
         }
         self.layer = planned.layer;
-        if content == Content::Rebuild && planned.key.role.draws() {
+        let rebuilt = content == Content::Rebuild && planned.key.role.draws();
+        if rebuilt {
             self.handle.rebuild();
+        }
+        tracing::debug!(
+            role = ?planned.key.role,
+            size = ?self.layer.size,
+            renegotiated,
+            rebuilt,
+            "surface adopted"
+        );
+        Adopted {
+            renegotiated,
+            rebuilt,
         }
     }
 }
@@ -283,34 +320,37 @@ fn plan(path: &Path, config: &Arc<Config>, outputs: &[OutputDescriptor]) -> Vec<
 /// the background layer, then the bars and their strips, then the frame ring over the wallpaper.
 fn plan_output(config: &Arc<Config>, output: Option<&str>) -> Vec<Planned> {
     let mut planned = Vec::new();
-    let mut push = |role: Role, layer: LayerConfig| {
+    let mut push = |role: Role, placement: Placement| {
         planned.push(Planned {
             key: Key {
                 output: output.map(str::to_string),
                 role,
             },
-            layer,
+            layer: placement.layer_config(),
             config: Arc::clone(config),
         });
     };
     if config.background.is_enabled() {
-        push(Role::Wallpaper, wallpaper_layer_config(output));
+        push(
+            Role::Wallpaper,
+            backdrop_placement("hyprshell-wallpaper", output),
+        );
     }
     for edge in Edge::ALL {
         if !config.edge_present(edge) || config.bars.excludes(output) {
             continue;
         }
-        push(Role::Bar(edge), bar_layer_config(config, edge, output));
+        push(Role::Bar(edge), bar_placement(config, edge, output));
         // Driven off what the edge reserves rather than off whether its bar hides: an auto-hidden bar under
         // `[shape] frame` still reserves its ring, and an edge that reserves nothing gets no strip at all
         // rather than one sized zero — a mapped surface with an empty exclusive zone is still a surface for the
         // compositor to configure and the driver to drive.
         if config.edge_reserved(edge) > 0 {
-            push(Role::Reserve(edge), reservation_layer_config(config, edge, output));
+            push(Role::Reserve(edge), reservation_placement(config, edge, output));
         }
     }
     if config.shape.frame {
-        push(Role::Frame, frame_layer_config(output));
+        push(Role::Frame, backdrop_placement("hyprshell-frame", output));
     }
     planned
 }
@@ -374,104 +414,39 @@ pub(crate) fn bar_margin_for(config: &Config, edge: Edge) -> (i32, i32, i32, i32
     }
 }
 
-/// exclusive_zone = -1 pins position independent of surface-creation order; vertical bars inset at each end (Invariant 1) to keep corner cells clear.
+/// A bar: spans its edge, reserves nothing of its own (its strip does that), and sits on whichever layer
+/// `[general] show_over_fullscreen` asks for.
 ///
 /// An auto-hidden bar is created at its hidden margin — off its own edge but for its peek strip — rather than
 /// being placed on screen and moved a frame later, which the user would see as a bar that flashes on at every
 /// reload before deciding to leave.
-fn bar_layer_config(config: &Config, edge: Edge, output: Option<&str>) -> LayerConfig {
-    let thickness = config.edge_thickness(edge);
-    let (anchor, surface_size) = match edge {
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, thickness)),
-        Edge::Bottom => (
-            Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            (0, thickness),
-        ),
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-    };
+fn bar_placement(config: &Config, edge: Edge, output: Option<&str>) -> Placement {
     let shown = bar_margin_for(config, edge);
     let margin = if config.bar_is_persistent(edge) {
         shown
     } else {
         crate::modules::bar::RevealMargins::new(config, edge, shown).hidden
     };
-    LayerConfig {
-        output: output.map(str::to_string),
-        layer: chrome_layer(config),
-        anchor,
-        exclusive_zone: -1,
-        size: surface_size,
-        margin,
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: format!("hyprshell-{}", edge.as_str()),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: false,
-    }
+    Placement::bar(edge, config.edge_thickness(edge))
+        .layer(chrome_layer(config))
+        .margin(margin)
+        .output(output.map(str::to_string))
 }
 
-/// Invisible reservation strip on Layer::Bottom: space-only, no need for Top's interactivity; order-independent.
-fn reservation_layer_config(config: &Config, edge: Edge, output: Option<&str>) -> LayerConfig {
-    let reserve = config.edge_reserved(edge);
-    let (anchor, size) = match edge {
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
-        Edge::Bottom => (Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT, (0, reserve)),
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (reserve, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (reserve, 0)),
-    };
-    LayerConfig {
-        output: output.map(str::to_string),
-        layer: Layer::Bottom,
-        anchor,
-        exclusive_zone: reserve as i32,
-        size,
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: format!("hyprshell-reserve-{}", edge.as_str()),
-        reserve_only: true,
-        input_transparent: true,
-        interactive_input_region: false,
-    }
+fn reservation_placement(config: &Config, edge: Edge, output: Option<&str>) -> Placement {
+    Placement::reservation(edge, config.edge_reserved(edge)).output(output.map(str::to_string))
 }
 
-/// Full-screen wallpaper on Layer::Background: click-through, spans the whole output (exclusive_zone -1 ignores bar reservations). Planned before the frame so it stacks under it.
-fn wallpaper_layer_config(output: Option<&str>) -> LayerConfig {
-    LayerConfig {
-        output: output.map(str::to_string),
-        layer: Layer::Background,
-        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        exclusive_zone: -1,
-        size: (0, 0),
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: String::from("hyprshell-wallpaper"),
-        reserve_only: false,
-        input_transparent: true,
-        interactive_input_region: false,
-    }
-}
-
-/// Full-screen frame on Layer::Background: not on Top since ring visibility depends on window z-order.
-fn frame_layer_config(output: Option<&str>) -> LayerConfig {
-    LayerConfig {
-        output: output.map(str::to_string),
-        layer: Layer::Background,
-        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        exclusive_zone: -1,
-        size: (0, 0),
-        margin: (0, 0, 0, 0),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: String::from("hyprshell-frame"),
-        reserve_only: false,
-        input_transparent: true,
-        interactive_input_region: false,
-    }
+/// The wallpaper and the frame ring are the same shape — the whole screen, under the windows, click-through —
+/// and differ only in which of them is planned first, which is what puts the ring over the picture.
+fn backdrop_placement(namespace: &'static str, output: Option<&str>) -> Placement {
+    Placement::backdrop(namespace).output(output.map(str::to_string))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platform_layershell::Anchor;
 
     fn config(toml: &str) -> Arc<Config> {
         Arc::new(toml::from_str(toml).unwrap())
@@ -502,6 +477,38 @@ mod tests {
             roles(&dressed).last(),
             Some(&Role::Frame),
             "and the ring after it, so it is drawn over the picture rather than under it"
+        );
+    }
+
+    /// `[shape] inactive_size` is what an edge with nothing on it is worth: the strip it reserves, the surface
+    /// its empty bar takes, and the ring the frame draws there. All three follow an edit to it, or the space
+    /// the windows are kept out of and the ring painted in it disagree about where the screen ends.
+    #[test]
+    fn inactive_size_resizes_every_surface_on_an_empty_edge() {
+        let thin = config("[shape]\nframe=true\ninactive_size=8\n[bars.top]\ncenter=[\"clock\"]\n");
+        let thick =
+            config("[shape]\nframe=true\ninactive_size=20\n[bars.top]\ncenter=[\"clock\"]\n");
+        let planned = |cfg: &Arc<Config>, role: Role| {
+            plan_output(cfg, None)
+                .into_iter()
+                .find(|p| p.key.role == role)
+                .map(|p| p.layer)
+                .expect("the edge is planned")
+        };
+        assert_ne!(
+            planned(&thin, Role::Bar(Edge::Right)).size,
+            planned(&thick, Role::Bar(Edge::Right)).size,
+            "the empty edge's own surface is sized by inactive_size"
+        );
+        assert_ne!(
+            planned(&thin, Role::Reserve(Edge::Right)).exclusive_zone,
+            planned(&thick, Role::Reserve(Edge::Right)).exclusive_zone,
+            "and so is the strip it carves out of the screen"
+        );
+        assert_ne!(
+            thin.edge_thickness(Edge::Right),
+            thick.edge_thickness(Edge::Right),
+            "which is what the frame ring draws its inner edge from"
         );
     }
 
@@ -613,8 +620,8 @@ mod tests {
     fn only_what_changed_is_renegotiated() {
         let before = config("[bars.top]\nsize=34\ncenter=[\"clock\"]\n");
         let after = config("[bars.top]\nsize=48\ncenter=[\"clock\"]\n");
-        let change = bar_layer_config(&before, Edge::Top, None)
-            .delta(&bar_layer_config(&after, Edge::Top, None));
+        let change = bar_placement(&before, Edge::Top, None).layer_config()
+            .delta(&bar_placement(&after, Edge::Top, None).layer_config());
         assert_eq!(change.size, Some((0, 48)), "the bar got thicker");
         assert_eq!(
             (change.margin, change.exclusive_zone, change.anchor),
@@ -623,8 +630,8 @@ mod tests {
         );
 
         assert!(
-            bar_layer_config(&before, Edge::Top, None)
-                .delta(&bar_layer_config(&before, Edge::Top, None))
+            bar_placement(&before, Edge::Top, None).layer_config()
+                .delta(&bar_placement(&before, Edge::Top, None).layer_config())
                 .is_empty(),
             "an edit that misses this bar costs it no commit at all"
         );
@@ -636,7 +643,7 @@ mod tests {
         let under = config("[bars.top]\ncenter=[\"clock\"]\n");
         let over = config("[general]\nshow_over_fullscreen=true\n[bars.top]\ncenter=[\"clock\"]\n");
         let change =
-            bar_layer_config(&under, Edge::Top, None).delta(&bar_layer_config(&over, Edge::Top, None));
+            bar_placement(&under, Edge::Top, None).layer_config().delta(&bar_placement(&over, Edge::Top, None).layer_config());
         assert_eq!(change.layer, Some(Layer::Overlay));
     }
 
@@ -644,17 +651,17 @@ mod tests {
     fn visible_bars_reserve_nothing_and_pin_deterministically() {
         let cfg = config("[bars.top]\ncenter=[\"clock\"]\n[bars.bottom]\nstart=[\"clock\"]\n");
         for edge in [Edge::Top, Edge::Bottom] {
-            let lc = bar_layer_config(&cfg, edge, None);
+            let lc = bar_placement(&cfg, edge, None).layer_config();
             assert_eq!(lc.size, (0, 34), "{edge:?} leaves width free, pins height");
             assert_eq!(lc.exclusive_zone, -1, "visible bar reserves nothing");
             assert!(!lc.reserve_only);
             assert_eq!(lc.margin, (0, 0, 0, 0));
             assert!(lc.anchor.contains(Anchor::LEFT) && lc.anchor.contains(Anchor::RIGHT));
         }
-        let top = bar_layer_config(&cfg, Edge::Top, None).anchor;
+        let top = bar_placement(&cfg, Edge::Top, None).layer_config().anchor;
         assert!(top.contains(Anchor::TOP) && !top.contains(Anchor::BOTTOM));
         assert!(
-            bar_layer_config(&cfg, Edge::Bottom, None)
+            bar_placement(&cfg, Edge::Bottom, None).layer_config()
                 .anchor
                 .contains(Anchor::BOTTOM)
         );
@@ -663,7 +670,7 @@ mod tests {
     #[test]
     fn reservation_strip_carves_thickness_along_full_edge() {
         let cfg = config("[bars.left]\nsize=44\nstart=[\"workspaces\"]\n");
-        let r = reservation_layer_config(&cfg, Edge::Left, None);
+        let r = reservation_placement(&cfg, Edge::Left, None).layer_config();
         assert!(r.reserve_only);
         assert!(
             r.input_transparent,
@@ -682,10 +689,10 @@ mod tests {
     #[test]
     fn floating_bar_gains_outer_and_end_margins_reservation_takes_gap() {
         let cfg = config("[shape]\ngap=8\nradius=12\n[bars.top]\nsize=34\ncenter=[\"clock\"]\n");
-        let lc = bar_layer_config(&cfg, Edge::Top, None);
+        let lc = bar_placement(&cfg, Edge::Top, None).layer_config();
         assert_eq!(lc.margin, (8, 8, 0, 8));
         assert_eq!(lc.exclusive_zone, -1);
-        let r = reservation_layer_config(&cfg, Edge::Top, None);
+        let r = reservation_placement(&cfg, Edge::Top, None).layer_config();
         assert_eq!(r.exclusive_zone, 34 + 8);
     }
 
@@ -696,9 +703,9 @@ mod tests {
              [bars.bottom]\nsize=40\nstart=[\"clock\"]\n\
              [bars.left]\nsize=44\nstart=[\"workspaces\"]\n",
         );
-        let left = bar_layer_config(&cfg, Edge::Left, None);
+        let left = bar_placement(&cfg, Edge::Left, None).layer_config();
         assert_eq!(left.margin, (30, 0, 40, 0));
-        let top = bar_layer_config(&cfg, Edge::Top, None);
+        let top = bar_placement(&cfg, Edge::Top, None).layer_config();
         assert_eq!(top.margin, (0, 0, 0, 0));
     }
 
@@ -711,7 +718,7 @@ mod tests {
              [bars.bottom]\nsize=64\nstart=[\"clock\"]\n\
              [bars.left]\nsize=32\nstart=[\"workspaces\"]\n",
         );
-        let left = bar_layer_config(&cfg, Edge::Left, None);
+        let left = bar_placement(&cfg, Edge::Left, None).layer_config();
         assert_eq!(
             left.margin,
             (40, 0, 64, 0),
@@ -722,10 +729,10 @@ mod tests {
     #[test]
     fn frame_forces_hug_even_with_gap() {
         let cfg = config("[shape]\nframe=true\ngap=8\n[bars.top]\ncenter=[\"clock\"]\n");
-        let lc = bar_layer_config(&cfg, Edge::Top, None);
+        let lc = bar_placement(&cfg, Edge::Top, None).layer_config();
         assert_eq!(lc.margin, (0, 0, 0, 0));
         assert_eq!(lc.exclusive_zone, -1);
-        let r = reservation_layer_config(&cfg, Edge::Top, None);
+        let r = reservation_placement(&cfg, Edge::Top, None).layer_config();
         assert_eq!(r.exclusive_zone, 34);
     }
 }

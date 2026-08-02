@@ -202,15 +202,15 @@ fn setup_shell(config_path: PathBuf) {
     };
     let reconcile = Rc::new(reconcile);
 
+    // Reports what it did itself, at startup and at every reload alike — through tracing rather than
+    // `println!`, because this runs on the driver thread where a direct write to a pipe nobody is draining
+    // blocks forever. See `init_tracing`.
     surfaces.borrow_mut().reconcile(
         &config_path,
         &config,
         &platform_layershell::outputs(),
         Content::Rebuild,
     );
-    // Through tracing rather than `println!`: this runs on the driver thread, where a direct write to a pipe
-    // nobody is draining blocks forever. See `init_tracing`.
-    tracing::info!("{} surface(s) up", surfaces.borrow().len());
 
     // The config having changed, whoever noticed: the file watcher, `hyprshell shell reload`, a keybind. The
     // toast belongs here rather than in the reconcile, which also runs at startup — a toast saying the config
