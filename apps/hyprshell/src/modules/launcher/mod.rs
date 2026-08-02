@@ -4,11 +4,12 @@ use std::rc::Rc;
 
 use telar::{
     AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, StyledContainer, SurfacePlacement, SurfaceToken, Text, box_item, memo,
+    SizeDimension, StyledContainer, SurfaceToken, Text, box_item, memo,
     open_surface, set_theme, signal, surface_content,
 };
 
 use crate::core::config::{LauncherAction, LauncherConfig};
+use crate::core::placement::Placement;
 use crate::core::shell;
 use crate::shared::calc;
 use crate::shared::keynav::{self, Move};
@@ -376,10 +377,12 @@ pub fn toggle() {
 fn open() -> SurfaceToken {
     let output = shell::focused_output();
 
-    // No `.size(...)`: an overlay carries a scrim, so its *surface* is full-screen and the `SurfaceScaffold`
-    // centres the panel inside it. The panel's own size is a layout property (see `panel`), not a surface one —
-    // asking the surface to be 640×420 would shrink the scrim to that box and leave the rest of the screen live.
-    let placement = SurfacePlacement::overlay().output(output.clone());
+    // No `.size(...)`: a modal carries a scrim, so its *surface* is full-screen and the scaffold centres the
+    // panel inside it. The panel's own size is a layout property (see `panel`), not a surface one — asking the
+    // surface to be 640×420 would shrink the scrim to that box and leave the rest of the screen live.
+    let placement = Placement::modal()
+        .output(output.clone())
+        .hosted_placement();
     open_surface(
         placement,
         surface_content(move || {
@@ -439,7 +442,7 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let list = result_list(
         shown.clone(),
         columns.clone(),
-        selected.read_only(),
+        selected.clone(),
         armed.read_only(),
         list_height,
         theme,
@@ -496,9 +499,12 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
                 shell::close(ID);
             }
             Move::Cancel => {
-                // Escape disarms first, so backing out of a confirmation doesn't also dismiss the launcher.
-                // With nothing armed the surface's own dismiss handles it, so this does nothing.
-                if !keys_armed.peek().is_empty() {
+                // Escape backs out of one thing at a time: an armed confirmation first, the launcher itself
+                // once there is nothing left to back out of. Closed here rather than left to the surface's own
+                // Escape handling because the search field is focused and claims the key before it gets there.
+                if keys_armed.peek().is_empty() {
+                    shell::close(ID);
+                } else {
                     keys_armed.set(String::new());
                 }
             }
@@ -566,7 +572,11 @@ fn search_field(
             .height(theme.font(FontRole::Title) * 1.8),
         move || theme.text_style(FontRole::Title, theme.text),
     )?
-    .placeholder(telar::t!("launcher.placeholder"));
+    .placeholder(telar::t!("launcher.placeholder"))
+    // A launcher exists *because* someone wants to type: it opens on a keybind and the next keystroke is
+    // already its first search character. Without this the field has to be clicked into first, which is the
+    // one thing a launcher must never ask for.
+    .autofocus();
 
     let boxed = StyledContainer::new(
         LayoutStyle::new()
@@ -620,7 +630,7 @@ fn lines(entries: Vec<Entry>, columns: usize) -> Vec<Line> {
 fn result_list(
     matches: telar::Memo<Vec<Entry>>,
     columns: telar::Memo<usize>,
-    selected: telar::ReadSignal<usize>,
+    selected: telar::RwSignal<usize>,
     armed: telar::ReadSignal<String>,
     height: f32,
     theme: NordTheme,
@@ -660,11 +670,12 @@ fn result_list(
                         // A row highlights when it *is* the selection, resolved by key rather than by position, so
                         // the reactive list can reorder rows without the highlight following the wrong one.
                         let is_selected =
-                            selection_is(matches.clone(), selected.clone(), keys.clone());
+                            selection_is(matches.clone(), selected.read_only(), keys.clone());
                         let armed_key = entry.key();
                         let armed = armed.clone();
                         let is_armed = move || armed.get() == armed_key;
-                        row(entry, theme, is_selected, is_armed)?
+                        let select = select_onto(matches.clone(), selected.clone(), entry.key());
+                        row(entry, theme, is_selected, is_armed, select)?
                     }
                     Line::Tiles(entries) => tile_row(
                         entries,
@@ -681,7 +692,7 @@ fn result_list(
                 // effect that outlived one would keep revealing a node that is gone.
                 let node = item.layout_node();
                 let viewport = viewport.clone();
-                let holds_selection = selection_is(matches.clone(), selected.clone(), keys);
+                let holds_selection = selection_is(matches.clone(), selected.read_only(), keys);
                 let follow_selection = telar::effect(move || {
                     if holds_selection() {
                         viewport.reveal(node, 4.0);
@@ -702,6 +713,28 @@ fn result_list(
         },
     )?;
     Ok(Box::new(scroll))
+}
+
+/// Moves the selection onto `key`, which is what hovering an entry does.
+///
+/// The pointer and the keyboard drive the same selection rather than each painting a highlight of its own. Two
+/// highlights in the same colour said two different things at once — one for what a click would open and one for
+/// what Enter would — and left a stale one behind when the pointer moved off the list entirely.
+fn select_onto(
+    matches: telar::Memo<Vec<Entry>>,
+    selected: telar::RwSignal<usize>,
+    key: String,
+) -> Rc<dyn Fn()> {
+    Rc::new(move || {
+        let at = matches.with(|list| list.iter().position(|entry| entry.key() == key));
+        // Out of the list's borrow before the selection is read, and read with `peek`: a pointer moving within
+        // one row must not re-run the effect that scrolls the selection into view on every event.
+        if let Some(at) = at
+            && selected.peek() != at
+        {
+            selected.set(at);
+        }
+    })
 }
 
 /// Whether the selected entry is one of `keys`.
@@ -730,7 +763,7 @@ fn selection_is(
 fn tile_row(
     entries: Vec<Entry>,
     matches: telar::Memo<Vec<Entry>>,
-    selected: telar::ReadSignal<usize>,
+    selected: telar::RwSignal<usize>,
     columns: usize,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -740,8 +773,10 @@ fn tile_row(
         .unwrap_or(DEFAULT_PANEL_WIDTH);
     let mut children: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(entries.len());
     for entry in entries {
-        let is_selected = selection_is(matches.clone(), selected.clone(), vec![entry.key()]);
-        children.push(tile(entry, columns, theme, is_selected)?);
+        let is_selected =
+            selection_is(matches.clone(), selected.read_only(), vec![entry.key()]);
+        let select = select_onto(matches.clone(), selected.clone(), entry.key());
+        children.push(tile(entry, columns, theme, is_selected, select)?);
     }
     let row = Container::new(
         LayoutStyle::new()
@@ -790,6 +825,7 @@ fn tile(
     columns: usize,
     theme: NordTheme,
     is_selected: impl Fn() -> bool + Clone + 'static,
+    select: Rc<dyn Fn()>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let (name, _) = row_text(&entry);
     let panel_width = shell::config()
@@ -848,7 +884,11 @@ fn tile(
         },
         vec![picture, box_item(label)],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover(move |hovering| {
+        if hovering {
+            select();
+        }
+    })
     .on_press(move || {
         choose(&chosen);
         shell::close(ID);
@@ -915,6 +955,7 @@ fn row(
     theme: NordTheme,
     is_selected: impl Fn() -> bool + Clone + 'static,
     is_armed: impl Fn() -> bool + Clone + 'static,
+    select: Rc<dyn Fn()>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let icon = row_icon(&entry, theme)?;
     let (name, description) = row_text(&entry);
@@ -997,7 +1038,14 @@ fn row(
         },
         children,
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    // Hovering selects rather than painting a highlight of its own, so what the pointer is on and what Enter
+    // would open are the same row — and an armed row keeps its warning colour under the pointer instead of
+    // being repainted as a plain selection.
+    .on_hover(move |hovering| {
+        if hovering {
+            select();
+        }
+    })
     .on_press(move || {
         if dangerous && !armed_press() {
             return;
@@ -1572,7 +1620,7 @@ mod tests {
             tile_row(
                 images.clone(),
                 shown.clone(),
-                selected.read_only(),
+                selected.clone(),
                 3,
                 NordTheme::new(),
             )
@@ -1585,6 +1633,40 @@ mod tests {
         assert!(holds(), "the tile holding the selected entry knows it does");
         let elsewhere = selection_is(shown, selected.read_only(), vec![images[0].key()]);
         assert!(!elsewhere());
+    }
+
+    /// Hovering moves the one selection instead of painting a second highlight beside it.
+    ///
+    /// The pointer used to paint its own hover fill in the same colour as the selection, so two entries looked
+    /// chosen at once — one that a click would open and one that Enter would — and the pointer's stayed lit after
+    /// it had moved off the list. There is one selection now, and the pointer is one of the two things that moves
+    /// it.
+    #[test]
+    fn hovering_an_entry_moves_the_selection_onto_it() {
+        telar::reset_layout_runtime();
+        telar::set_theme(NordTheme::new());
+        let images: Vec<Entry> = library().into_iter().map(Entry::Wallpaper).collect();
+        let source = signal(images.clone());
+        let read = source.read_only();
+        let shown = memo(move || read.get());
+        let selected = signal(0usize);
+
+        let hover_second = select_onto(shown.clone(), selected.clone(), images[1].key());
+        hover_second();
+        assert_eq!(selected.peek(), 1, "the hovered entry becomes the selection");
+
+        let holds = selection_is(shown.clone(), selected.read_only(), vec![images[1].key()]);
+        let elsewhere = selection_is(shown.clone(), selected.read_only(), vec![images[0].key()]);
+        assert!(holds(), "and is the entry that reads as selected");
+        assert!(
+            !elsewhere(),
+            "while the one the keyboard had left goes back to unselected — one highlight, not two"
+        );
+
+        // An entry the query has since filtered out cannot be selected by pointing at where it used to be.
+        let gone = select_onto(shown, selected.clone(), "wallpaper:/nowhere.png".to_string());
+        gone();
+        assert_eq!(selected.peek(), 1, "an entry that is not in the list is not a selection");
     }
 
     /// The regression this exists for: a scroll area is a layout *leaf* — its content is laid out as its own root,
@@ -1606,7 +1688,7 @@ mod tests {
         let list = result_list(
             shown,
             columns,
-            selected.read_only(),
+            selected.clone(),
             armed.read_only(),
             260.0,
             NordTheme::new(),
@@ -1670,7 +1752,7 @@ mod tests {
                 result_list(
                     shown,
                     columns,
-                    selected.read_only(),
+                    selected.clone(),
                     armed.read_only(),
                     300.0,
                     NordTheme::new(),
@@ -1720,7 +1802,7 @@ mod tests {
             let list = result_list(
                 shown,
                 columns,
-                selected.read_only(),
+                selected.clone(),
                 armed.read_only(),
                 260.0,
                 theme,
