@@ -15,9 +15,7 @@ pub use events::{config_reloaded, watch_events};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, watch,
-};
+use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, watch};
 use telar::{
     AlignItems, App, Color, Component, Container, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, WindowConfig, box_item,
@@ -25,7 +23,8 @@ use telar::{
 };
 
 use crate::core::app::SurfaceRoot;
-use crate::core::config::{Align, Edge, ToastsConfig};
+use crate::core::config::{Edge, ToastsConfig};
+use crate::core::placement::Placement;
 use crate::shared::services::toaster::{self, Toast};
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -33,6 +32,7 @@ use crate::shared::theme::{FontRole, NordTheme};
 /// to name a size before it knows what it will hold.
 const CARD_HEIGHT: u32 = 64;
 const ICON: f32 = 22.0;
+const NAMESPACE: &str = "hyprshell-toasts";
 
 /// Watches the toaster and keeps exactly one toast surface up while anything is showing. Called once from
 /// `setup_shell`, on the driver thread, and long-lived: a config reload changes what the next surface looks like,
@@ -66,50 +66,22 @@ fn open_stack() -> SurfaceHandle {
     )
 }
 
+/// Where the stack sits. The surface and the cards inside it come from this one placement, so the column packs
+/// against the very edge the surface is pinned to.
+fn placement(config: &ToastsConfig) -> Placement {
+    let height = config.visible() as u32 * (CARD_HEIGHT + config.gap.max(0.0) as u32);
+    Placement::stack(NAMESPACE, config.edge, config.align)
+        .size(config.width.max(120.0) as u32, height.max(CARD_HEIGHT))
+}
+
 fn layer_config(
     config: &ToastsConfig,
     margin: (i32, i32, i32, i32),
     output: Option<String>,
 ) -> LayerConfig {
-    let height = config.visible() as u32 * (CARD_HEIGHT + config.gap.max(0.0) as u32);
-    LayerConfig {
-        output,
-        layer: Layer::Overlay,
-        anchor: anchor(config),
-        exclusive_zone: 0,
-        size: (config.width.max(120.0) as u32, height.max(CARD_HEIGHT)),
-        margin,
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: "hyprshell-toasts".to_string(),
-        reserve_only: false,
-        input_transparent: false,
-        // Only the cards take the pointer; the gaps around them fall through to whatever the user is working in.
-        interactive_input_region: true,
-    }
+    placement(config).margin(margin).output(output).layer_config()
 }
 
-fn anchor(config: &ToastsConfig) -> Anchor {
-    let mut anchor = match config.edge {
-        Edge::Top => Anchor::TOP,
-        Edge::Bottom => Anchor::BOTTOM,
-        Edge::Left => Anchor::LEFT,
-        Edge::Right => Anchor::RIGHT,
-    };
-    if config.edge.is_horizontal() {
-        match config.align {
-            Align::Start => anchor |= Anchor::LEFT,
-            Align::End => anchor |= Anchor::RIGHT,
-            Align::Center => {}
-        }
-    } else {
-        match config.align {
-            Align::Start => anchor |= Anchor::TOP,
-            Align::End => anchor |= Anchor::BOTTOM,
-            Align::Center => {}
-        }
-    }
-    anchor
-}
 
 struct ToastApp {
     output: Option<String>,
@@ -155,7 +127,8 @@ fn stack_of(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let bottom_up = config.edge == Edge::Bottom;
-    let list = ReactiveList::with_gap(
+    let list = ReactiveList::with_style(
+        placement(&config).column(config.gap),
         move || {
             let mut live = source.get();
             // Anchored to the bottom, the newest card belongs nearest the edge the stack grows from — otherwise
@@ -167,7 +140,6 @@ fn stack_of(
         },
         |toast: &Toast| toast.key(),
         move |toast: Toast| card(&toast, theme, radius),
-        config.gap,
     )?;
     Ok(Box::new(list))
 }
@@ -245,29 +217,8 @@ fn card(toast: &Toast, theme: NordTheme, radius: f32) -> Result<Box<dyn LayoutIt
 mod tests {
     use super::*;
 
-    fn config(edge: Edge, align: Align) -> ToastsConfig {
-        ToastsConfig {
-            edge,
-            align,
-            ..ToastsConfig::default()
-        }
-    }
-
-    #[test]
-    fn the_stack_anchors_to_its_edge_on_all_four_of_them() {
-        assert!(anchor(&config(Edge::Top, Align::Center)).contains(Anchor::TOP));
-        assert!(anchor(&config(Edge::Bottom, Align::Center)).contains(Anchor::BOTTOM));
-        assert!(anchor(&config(Edge::Left, Align::Center)).contains(Anchor::LEFT));
-        assert!(anchor(&config(Edge::Right, Align::Center)).contains(Anchor::RIGHT));
-
-        // Along a horizontal edge, alignment picks a side; along a vertical one it picks an end. The same word
-        // means a different anchor, which is why this is not one match arm.
-        let top_end = anchor(&config(Edge::Top, Align::End));
-        assert!(top_end.contains(Anchor::RIGHT) && !top_end.contains(Anchor::BOTTOM));
-        let left_end = anchor(&config(Edge::Left, Align::End));
-        assert!(left_end.contains(Anchor::BOTTOM) && !left_end.contains(Anchor::RIGHT));
-    }
-
+    /// Where a stack anchors is [`Placement::stack`]'s to answer, and it is asserted there. What is this
+    /// module's own is the size it asks for and what it does with the pointer.
     #[test]
     fn the_surface_only_takes_input_where_a_card_is() {
         let layer = layer_config(&ToastsConfig::default(), (0, 0, 0, 0), None);
@@ -276,7 +227,6 @@ mod tests {
             "a toast must not swallow the click that follows it"
         );
         assert_eq!(layer.exclusive_zone, 0, "a toast reserves no space");
-        assert!(matches!(layer.layer, Layer::Overlay));
         assert!(layer.size.1 >= CARD_HEIGHT, "room for at least one card");
     }
 

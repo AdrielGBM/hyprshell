@@ -6,9 +6,7 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, watch,
-};
+use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, watch};
 use telar::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
@@ -17,7 +15,8 @@ use telar::{
 };
 
 use crate::core::app::SurfaceRoot;
-use crate::core::config::{Align, Edge, FullscreenPopups, NotificationsConfig};
+use crate::core::placement::Placement;
+use crate::core::config::{FullscreenPopups, NotificationsConfig};
 use crate::shared::module::surface_env;
 use crate::shared::services::hyprland::{self, ActiveWindow, Client};
 use crate::shared::services::notifications::{
@@ -506,13 +505,13 @@ fn card_stack(
     let width = cfg.width;
     // The gap belongs on the list itself (it lays out the cards); a gap on a wrapper holding the single list
     // node separates nothing. This spacing is also what falls through the popup's carved input region.
-    let list = ReactiveList::with_gap(
+    let list = ReactiveList::with_style(
+        popup_placement(&cfg).column(gap),
         source,
         card_key,
         move |n: Notification| {
             notification_card(&n, width.into(), style, Some(notifications::expire))
         },
-        gap,
     )?;
     // No outer padding: the surface's layer margin (`Config::panel_margin`) already floats the stack off the
     // bar and edges, so the cards sit exactly the shared panel distance from the screen — same as a drawer.
@@ -569,44 +568,18 @@ fn popup_layer_config(
     margin: (i32, i32, i32, i32),
     output: Option<String>,
 ) -> LayerConfig {
-    let width = cfg.width as u32;
-    let height = (cfg.max_visible.max(1) * 132).min(4000);
-    LayerConfig {
-        output,
-        layer: Layer::Overlay,
-        anchor: popup_anchor(cfg),
-        exclusive_zone: 0,
-        size: (width, height),
-        margin,
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: "hyprshell-notifications".to_string(),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: true,
-    }
+    popup_placement(cfg)
+        .margin(margin)
+        .output(output)
+        .layer_config()
 }
 
-fn popup_anchor(cfg: &NotificationsConfig) -> Anchor {
-    let mut anchor = match cfg.edge {
-        Edge::Top => Anchor::TOP,
-        Edge::Bottom => Anchor::BOTTOM,
-        Edge::Left => Anchor::LEFT,
-        Edge::Right => Anchor::RIGHT,
-    };
-    if cfg.edge.is_horizontal() {
-        match cfg.align {
-            Align::Start => anchor |= Anchor::LEFT,
-            Align::End => anchor |= Anchor::RIGHT,
-            Align::Center => {}
-        }
-    } else {
-        match cfg.align {
-            Align::Start => anchor |= Anchor::TOP,
-            Align::End => anchor |= Anchor::BOTTOM,
-            Align::Center => {}
-        }
-    }
-    anchor
+/// Where the popup stack sits. The surface and the column of cards inside it come from this one placement, so a
+/// stack holding fewer cards than it is sized for still hugs the edge it is pinned to.
+fn popup_placement(cfg: &NotificationsConfig) -> Placement {
+    let width = cfg.width as u32;
+    let height = (cfg.max_visible.max(1) * 132).min(4000);
+    Placement::stack("hyprshell-notifications", cfg.edge, cfg.align).size(width, height)
 }
 
 /// The popup surface: which screen it is on, what keeps it up, and the layer-shell state the compositor holds
