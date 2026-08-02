@@ -1,28 +1,26 @@
 use telar::motion::Animated;
 use telar::{
-    LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceAlign, SurfaceAnchor,
-    SurfacePlacement, SurfaceToken, open_surface, set_theme, surface_content,
+    LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceToken,
+    open_surface, set_theme, surface_content,
 };
 
-use crate::core::config::{AnimationConfig, DrawerConfig, Edge, Zone};
+use crate::core::config::{Align, AnimationConfig, DrawerConfig, Edge, Zone};
+use telar::KeyboardMode;
+use crate::core::placement::Placement;
 use crate::shared::module::SurfaceEnv;
 use crate::shared::state::kept;
 
-fn anchor_for(edge: Edge) -> SurfaceAnchor {
-    match edge {
-        Edge::Top => SurfaceAnchor::Top,
-        Edge::Bottom => SurfaceAnchor::Bottom,
-        Edge::Left => SurfaceAnchor::Left,
-        Edge::Right => SurfaceAnchor::Right,
-    }
-}
-
-/// A drawer aligns to the same end of the bar as the module that opened it (§4); a module in no zone centres.
-fn align_for(zone: Option<Zone>) -> SurfaceAlign {
-    match zone {
-        Some(Zone::Start) => SurfaceAlign::Start,
-        Some(Zone::End) => SurfaceAlign::End,
-        _ => SurfaceAlign::Center,
+/// A drawer aligns to the same end of the bar as the chip that opened it (§4).
+///
+/// The chip that was pressed is the answer, and the config is only the fallback for a panel opened without one —
+/// IPC, a keybind. Looking the module up instead would be wrong twice over: an id placed in more than one zone
+/// resolves to whichever the search reaches first, and a `[corners]` module is in no zone at all despite being
+/// laid out at a very definite end of its bar.
+fn align_for(origin: Option<Zone>) -> Align {
+    match origin {
+        Some(Zone::Start) => Align::Start,
+        Some(Zone::End) => Align::End,
+        _ => Align::Center,
     }
 }
 
@@ -61,8 +59,11 @@ pub(crate) fn module_panel(module: &str) -> Result<Box<dyn LayoutItem>, LayoutEr
 ///
 /// Kept beside [`module_panel`] so the two lists cannot drift: a panel that gains a text field, or keyboard
 /// navigation, must appear here.
-pub(crate) fn panel_wants_keyboard(module: &str) -> bool {
-    matches!(module, "notes" | "settings" | "session")
+pub(crate) fn panel_wants_keyboard(module: &str) -> KeyboardMode {
+    match module {
+        "notes" | "settings" | "session" => KeyboardMode::OnDemand,
+        _ => KeyboardMode::None,
+    }
 }
 
 /// The per-panel-surface context (which module, its config, and the bar-matching corner radius), set on the
@@ -173,13 +174,15 @@ pub fn set_content_radius(radius: f32) {
     set_drawer_ctx(String::new(), DrawerConfig::default(), radius);
 }
 
-/// Opens `module_id`'s drawer as a scrimmed surface floating off the bar edge on the bar's own monitor, aligned to the same end of the bar as the module; the distance off the bar is the shared [`Config::panel_margin`](crate::Config), so every panel keeps the same config-controlled gap. The surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
-pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
-    let placement = SurfacePlacement::drawer(anchor_for(env.edge))
-        .align(align_for(env.config.zone_of(env.edge, module_id)))
+/// Opens `module_id`'s drawer as a scrimmed surface floating off the bar edge on the bar's own monitor, aligned to `origin` — the zone of the chip that was pressed, or the module's own zone when nothing pressed it; the distance off the bar is the shared [`Config::panel_margin`](crate::Config), so every panel keeps the same config-controlled gap. The surface/scrim/slide-in come from the rsx surface host, the panel from `drawer_panel.rsx`. Toggle/close is the caller's job ([`crate::toggle_panel`]) via the returned token.
+pub(crate) fn open_drawer(env: &SurfaceEnv, module_id: &str, origin: Option<Zone>) -> SurfaceToken {
+    let placement = Placement::sheet(env.edge, panel_wants_keyboard(module_id))
+        .align(align_for(
+            origin.or_else(|| env.config.zone_of(env.edge, module_id)),
+        ))
         .margin(env.config.panel_margin(env.edge))
-        .keyboard(panel_wants_keyboard(module_id))
-        .output(env.output.clone());
+        .output(env.output.clone())
+        .hosted_placement();
     let module = module_id.to_string();
     let edge = env.edge;
     let output = env.output.clone();
@@ -247,14 +250,14 @@ mod transition_tests {
         use std::cell::Cell;
         use std::rc::Rc;
         use telar::{
-            AvailableSpace, Component, Event, PointerButton, PointerSource, SurfaceAnchor,
-            SurfacePlacement, SurfaceScaffold, compute_layout,
+            AvailableSpace, Component, Event, PointerButton, PointerSource, SurfaceScaffold,
+            compute_layout,
         };
 
         const PANEL_WIDTH: f32 = 320.0;
         const SURFACE: f32 = 1280.0;
 
-        for align in [SurfaceAlign::Start, SurfaceAlign::Center, SurfaceAlign::End] {
+        for align in [telar::SurfaceAlign::Start, telar::SurfaceAlign::Center, telar::SurfaceAlign::End] {
             telar::reset_layout_runtime();
             telar::set_theme(NordTheme::new());
 
@@ -266,9 +269,10 @@ mod transition_tests {
 
             let dismissed = Rc::new(Cell::new(0u32));
             let sink = Rc::clone(&dismissed);
-            let placement = SurfacePlacement::drawer(SurfaceAnchor::Top)
-                .align(align)
-                .margin((8, 8, 8, 8));
+            let placement = Placement::sheet(Edge::Top, KeyboardMode::None)
+                .margin((8, 8, 8, 8))
+                .hosted_placement()
+                .align(align);
             let mut scaffold = SurfaceScaffold::new(
                 &placement,
                 wrapped,
@@ -306,15 +310,53 @@ mod transition_tests {
 }
 
 #[cfg(test)]
+mod alignment_tests {
+    use super::align_for;
+    use crate::core::config::{Align, Config, Edge, Zone};
+
+    /// The chip that was pressed decides, and the config is only the fallback — because as a lookup it answers
+    /// the wrong question twice over.
+    #[test]
+    fn a_drawer_follows_the_chip_that_opened_it_not_the_config() {
+        let cfg: Config = toml::from_str(
+            "[shape]\nframe=true\n\
+             [bars.top]\nstart=[\"notifications\"]\ncenter=[\"clock\"]\nend=[\"notifications\"]\n\
+             [corners]\ntop_left=\"clock\"\n",
+        )
+        .unwrap();
+
+        // A module placed in more than one zone: the lookup can only name the first, so the chip at the other
+        // end of the bar would open its drawer at the wrong end.
+        assert_eq!(cfg.zone_of(Edge::Top, "notifications"), Some(Zone::Start));
+        assert_eq!(align_for(Some(Zone::End)), Align::End);
+
+        // A `[corners]` module is in no zone at all, though the bar lays it out at a very definite end of
+        // itself — routed there as the leading entry of the owning bar's start zone.
+        assert_eq!(cfg.zone_of(Edge::Top, "clock"), Some(Zone::Center));
+        assert_eq!(cfg.corner_modules_for(Edge::Top).0, Some("clock"));
+        assert_eq!(align_for(Some(Zone::Start)), Align::Start);
+
+        // With no chip — IPC, a keybind — the config is all there is, and centring is the honest answer to a
+        // module it cannot place.
+        assert_eq!(align_for(None), Align::Center);
+    }
+}
+
+#[cfg(test)]
 mod keyboard_tests {
     use super::panel_wants_keyboard;
+    use telar::KeyboardMode;
+
+    fn wants(module: &str) -> bool {
+        panel_wants_keyboard(module) != KeyboardMode::None
+    }
 
     #[test]
     fn only_panels_that_read_keys_ask_for_the_keyboard() {
-        assert!(panel_wants_keyboard("notes"), "notes are edited in place");
-        assert!(panel_wants_keyboard("settings"), "settings has text fields");
+        assert!(wants("notes"), "notes are edited in place");
+        assert!(wants("settings"), "settings has text fields");
         assert!(
-            panel_wants_keyboard("session"),
+            wants("session"),
             "the session tiles are arrow-navigable, which is the other reason to want the keyboard"
         );
         for display_only in [
@@ -327,7 +369,7 @@ mod keyboard_tests {
             "logo",
         ] {
             assert!(
-                !panel_wants_keyboard(display_only),
+                !wants(display_only),
                 "'{display_only}' only shows readings; taking keyboard focus from the window would make the \
                  compositor re-focus it on close, moving the viewport under a focus-following layout"
             );
@@ -338,12 +380,13 @@ mod keyboard_tests {
 #[cfg(test)]
 mod tests {
     use super::set_drawer_ctx;
-    use crate::core::config::DrawerConfig;
+    use crate::core::config::{DrawerConfig, Edge};
+    use crate::core::placement::Placement;
     use crate::shared::theme::NordTheme;
     use crate::test_support::render_png;
     use telar::{
-        App, Color, Component, SurfaceAnchor, SurfacePlacement, SurfaceScaffold, WindowConfig,
-        reset_layout_runtime, set_theme,
+        App, Color, Component, KeyboardMode, SurfaceScaffold, WindowConfig, reset_layout_runtime,
+        set_theme,
     };
 
     /// The real drawer panel (`drawer_panel.rsx`) inside a scrimmed scaffold, the same tree the surface host mounts.
@@ -355,7 +398,9 @@ mod tests {
             set_theme(NordTheme::new());
             set_drawer_ctx("clock".to_string(), DrawerConfig::default(), 14.0);
             let panel = crate::drawer_panel().expect("drawer panel build failed");
-            let placement = SurfacePlacement::drawer(SurfaceAnchor::Top).inset(48);
+            let placement = Placement::sheet(Edge::Top, KeyboardMode::None)
+                .inset(48)
+                .hosted_placement();
             Box::new(SurfaceScaffold::new(&placement, panel, None).expect("scaffold build failed"))
         }
         fn window_config(&self) -> Option<WindowConfig> {

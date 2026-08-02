@@ -15,9 +15,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, open_surface, timeout,
-};
+use platform_layershell::{LayerConfig, open_surface, timeout};
 use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, Rect, SizeDimension, SurfaceToken, WindowConfig, reset_layout_runtime, set_theme,
@@ -30,7 +28,7 @@ pub use content::has_popout;
 
 use crate::core::app::SurfaceRoot;
 use crate::core::config::{Config, Edge};
-use crate::shared::anchor::chip_margin;
+use crate::core::placement::Placement;
 use crate::shared::module::{SurfaceEnv, set_surface_env};
 use crate::shared::theme::NordTheme;
 
@@ -141,8 +139,23 @@ fn open(module_id: &str, chip: Rect, env: &SurfaceEnv) {
     if !content::has_popout(module_id) {
         return;
     }
-    // The delay is long enough for a config reload to land inside it, and a card built against the outgoing config would carry a stale theme onto a screen the rest of the shell has already left.
-    if !crate::core::shell::config().is_some_and(|live| Arc::ptr_eq(&live, &env.config)) {
+    // The module's own panel is already showing what the card would preview, and two of it — one hanging off the
+    // chip, one over it — is harder to read than either alone. Checked here rather than at the hover, because
+    // the delay is long enough for the panel to open inside it: pressing a chip the pointer is already resting
+    // on schedules the card first and opens the panel second.
+    if crate::is_panel_open(module_id) {
+        return;
+    }
+    // The delay is long enough for a config reload to land inside it, and a card built against the outgoing
+    // config would carry a stale theme onto a screen the rest of the shell has already left.
+    //
+    // Compared against *this screen's* config, not the global one: they are different `Arc`s whenever the
+    // compositor names its outputs — which is always — so the global one never matched and the popout never
+    // opened at all.
+    if !Arc::ptr_eq(
+        &crate::core::surfaces::config_for(env.output.as_deref()),
+        &env.config,
+    ) {
         return;
     }
     close();
@@ -159,18 +172,6 @@ fn open(module_id: &str, chip: Rect, env: &SurfaceEnv) {
     });
 }
 
-/// The two edges the popout pins itself to: the bar's own, so it hangs off it, and the one it runs along, so
-/// the margin that lines it up with the chip means something. A layer surface only honours a margin on an edge
-/// it is anchored to.
-fn anchor_flags(edge: Edge) -> Anchor {
-    match edge {
-        Edge::Top => Anchor::TOP | Anchor::LEFT,
-        Edge::Bottom => Anchor::BOTTOM | Anchor::LEFT,
-        Edge::Left => Anchor::LEFT | Anchor::TOP,
-        Edge::Right => Anchor::RIGHT | Anchor::TOP,
-    }
-}
-
 /// The surface is the tallest a popout may be, not the size of this card: a layer surface pinned to two edges
 /// has to name a size, and a card's height is content-derived. `interactive_input_region` is what makes that
 /// affordable — the compositor is handed only the card's own rect, so the surplus stays click-through.
@@ -182,20 +183,9 @@ fn layer_config(env: &SurfaceEnv, chip: Rect) -> LayerConfig {
     } else {
         width
     };
-    let off_bar = env.config.panel_gap(env.edge) as f32;
-    LayerConfig {
-        output: env.output.clone(),
-        layer: Layer::Overlay,
-        anchor: anchor_flags(env.edge),
-        exclusive_zone: 0,
-        size: (width.ceil() as u32, height.ceil() as u32),
-        margin: chip_margin(env, chip, off_bar, Some(span)),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: "hyprshell-popout".to_string(),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: true,
-    }
+    Placement::card("hyprshell-popout", env, chip, Some(span))
+        .size(width.ceil() as u32, height.ceil() as u32)
+        .layer_config()
 }
 
 /// Which corner of its surface the card sits in — the one the surface is anchored to, so the card lands
@@ -281,6 +271,7 @@ impl App for PopoutApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platform_layershell::KeyboardInteractivity;
 
     fn env(edge: Edge) -> SurfaceEnv {
         SurfaceEnv {
@@ -304,15 +295,13 @@ mod tests {
     fn the_surface_pins_itself_to_the_bar_edge_and_the_one_it_runs_along() {
         // A margin only positions a layer surface on an edge it is anchored to, so pinning the bar edge alone would centre the popout on screen instead of lining it up with its chip.
         for edge in Edge::ALL {
-            let flags = anchor_flags(edge);
+            let anchor = layer_config(&env(edge), chip()).anchor;
             assert_eq!(
-                flags.iter().count(),
+                anchor.iter().count(),
                 2,
                 "{edge:?} must pin both the off-bar and the along-bar axis"
             );
         }
-        assert!(anchor_flags(Edge::Top).contains(Anchor::TOP));
-        assert!(anchor_flags(Edge::Right).contains(Anchor::RIGHT));
     }
 
     #[test]

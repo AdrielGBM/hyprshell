@@ -7,10 +7,10 @@ use telar::{
     SizeDimension, StyledContainer, track_layout,
 };
 
-use crate::core::config::{Config, Edge, ModuleEntry, ResolvedShape, Shape};
+use crate::core::config::{Config, Edge, ModuleEntry, ResolvedShape, Shape, Zone};
 use crate::shared::module::{
-    ChipStyle, DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, module_foreground,
-    module_shell, set_module_fg,
+    ChipStyle, DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, from_zone,
+    module_foreground, module_shell, set_module_fg,
 };
 use crate::shared::theme::NordTheme;
 
@@ -38,9 +38,9 @@ pub fn build_bar(
     let mut end: Vec<ModuleEntry> = bar.end.clone();
     end.extend(trail.map(ModuleEntry::bare));
     let zones: Zones = [
-        (start.as_slice(), JustifyContent::START),
-        (bar.center.as_slice(), JustifyContent::CENTER),
-        (end.as_slice(), JustifyContent::END),
+        (start.as_slice(), Zone::Start),
+        (bar.center.as_slice(), Zone::Center),
+        (end.as_slice(), Zone::End),
     ];
     let chrome = Chrome { edge, shape, theme };
     match shape.mode {
@@ -57,8 +57,16 @@ pub fn build_bar(
     }
 }
 
-/// A bar's three zones, each the entries placed in it and how they pack along the bar.
-type Zones<'a> = [(&'a [ModuleEntry], JustifyContent); 3];
+/// A bar's three zones, each the entries placed in it.
+type Zones<'a> = [(&'a [ModuleEntry], Zone); 3];
+
+fn justify(zone: Zone) -> JustifyContent {
+    match zone {
+        Zone::Start => JustifyContent::START,
+        Zone::Center => JustifyContent::CENTER,
+        Zone::End => JustifyContent::END,
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Chrome {
@@ -83,17 +91,24 @@ fn build_whole_bar(
     let Chrome { edge, shape, theme } = *chrome;
     let spacing = shape.spacing;
     let mut slots = Vec::with_capacity(3);
-    for (entries, justify) in zones {
+    for (entries, in_zone) in zones {
         // Modules blend into the shared surface (transparent rest); STRETCH makes every chip the bar's height so text pills and icon chips line up. The hover/press (and Filled) highlight rounds at the theme's chip radius, matching chip mode.
         let items = build_items(
             config,
             entries,
+            *in_zone,
             registry,
             ctx,
             Color::TRANSPARENT,
             shape.chip_radius(),
         )?;
-        slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, items)?);
+        slots.push(zone(
+            edge,
+            justify(*in_zone),
+            spacing,
+            AlignItems::STRETCH,
+            items,
+        )?);
     }
     let radius = shape.radius;
     let style = axis(
@@ -127,8 +142,8 @@ fn build_units(
         Granularity::Chip => (theme.surface, shape.chip_radius()),
     };
     let mut slots = Vec::with_capacity(3);
-    for (entries, justify) in zones {
-        let items = build_items(config, entries, registry, ctx, rest, shell_radius)?;
+    for (entries, in_zone) in zones {
+        let items = build_items(config, entries, *in_zone, registry, ctx, rest, shell_radius)?;
         let content: Vec<Box<dyn LayoutItem>> = if items.is_empty() {
             Vec::new()
         } else {
@@ -141,7 +156,13 @@ fn build_units(
             }
         };
         // STRETCH ensures height is parent-driven by bar size, not content-driven.
-        slots.push(zone(edge, *justify, spacing, AlignItems::STRETCH, content)?);
+        slots.push(zone(
+            edge,
+            justify(*in_zone),
+            spacing,
+            AlignItems::STRETCH,
+            content,
+        )?);
     }
     let style = axis(
         LayoutStyle::new()
@@ -242,7 +263,12 @@ fn chip_wrapper(
 ///
 /// Only a module whose click *opens a panel* gets one: dragging a volume chip has nothing to open, and arming
 /// a gesture that can only do nothing would still cancel the tap that does something.
-fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge) -> Option<DragOpen> {
+fn drag_open_for(
+    id: &str,
+    def: Option<&ModuleDef>,
+    edge: Edge,
+    zone: Zone,
+) -> Option<DragOpen> {
     if !matches!(def?.click, Some(ModuleClick::Panel)) {
         return None;
     }
@@ -253,6 +279,7 @@ fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge) -> Option<DragOp
     Some(DragOpen {
         module: id.to_string(),
         edge,
+        zone,
         threshold,
     })
 }
@@ -271,6 +298,7 @@ fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
 fn build_items(
     config: &Config,
     entries: &[ModuleEntry],
+    in_zone: Zone,
     registry: &ModuleRegistry,
     ctx: &ModuleCtx,
     rest: Color,
@@ -310,12 +338,17 @@ fn build_items(
             }
             continue;
         }
+        // Wrapped so whatever the press opens knows which zone it was pressed from, `Panel` and `Action` alike — a drawer aligns to the end of the bar its chip sits at, and only the bar knows which that is.
         let on_press: Option<Box<dyn Fn()>> = match def.and_then(|d| d.click) {
             Some(ModuleClick::Panel) => {
                 let id = id.clone();
-                Some(Box::new(move || crate::toggle_panel(&id)))
+                Some(Box::new(move || {
+                    from_zone(in_zone, || crate::toggle_panel(&id))
+                }))
             }
-            Some(ModuleClick::Action(action)) => Some(Box::new(action)),
+            Some(ModuleClick::Action(action)) => {
+                Some(Box::new(move || from_zone(in_zone, action)))
+            }
             None => None,
         };
         let style = ChipStyle {
@@ -331,7 +364,7 @@ fn build_items(
             style,
             on_press,
             def.and_then(|d| d.scroll),
-            drag_open_for(id, def, ctx.edge),
+            drag_open_for(id, def, ctx.edge, in_zone),
         )?;
         // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
         items.push(if popout {

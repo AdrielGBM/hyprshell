@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use telar::{
     StyledContainer, signal,
 };
 
-use crate::core::config::{Config, Edge, Variant};
+use crate::core::config::{Config, Edge, Variant, Zone};
 use crate::shared::theme::NordTheme;
 
 /// What a module needs to know about its bar; carried into the parameterless `.rsx` module entrypoints as
@@ -37,6 +37,32 @@ pub fn surface_env() -> Option<SurfaceEnv> {
 
 pub fn bar_edge() -> Edge {
     surface_env().map(|e| e.edge).unwrap_or(Edge::Top)
+}
+
+thread_local! {
+    static PRESS_ORIGIN: Cell<Option<Zone>> = const { Cell::new(None) };
+}
+
+/// Runs `act` — a chip's press or drag-open handler — with the chip's own zone in scope.
+///
+/// The zone is what a drawer aligns to, and only the bar knows it: the same module id can sit in all three zones
+/// at once, and a `[corners]` module sits in none of them, so looking the id up in the config answers the wrong
+/// question (the first zone that mentions it) or no question at all (centre). What opened the drawer is the chip
+/// that was pressed, and this is how that travels the closures between the press and [`crate::open_panel`].
+///
+/// Ambient rather than a parameter because the handler that reads it may be a `ModuleClick::Action` — a bare
+/// `fn()` that opens someone else's panel — which no signature change reaches. Scoped strictly to the
+/// synchronous dispatch, so nothing can read a stale origin afterwards.
+pub fn from_zone<R>(zone: Zone, act: impl FnOnce() -> R) -> R {
+    let previous = PRESS_ORIGIN.with(|origin| origin.replace(Some(zone)));
+    let done = act();
+    PRESS_ORIGIN.with(|origin| origin.set(previous));
+    done
+}
+
+/// The zone of the chip whose press is being dispatched, if a press is what is running.
+pub fn press_origin() -> Option<Zone> {
+    PRESS_ORIGIN.with(|origin| origin.get())
 }
 
 pub fn bar_is_vertical() -> bool {
@@ -115,6 +141,8 @@ pub struct DragOpen {
     pub module: String,
     /// The bar's edge, which is what says which direction "away from the bar" is.
     pub edge: Edge,
+    /// The chip's own zone, so a dragged-open panel aligns exactly where a tapped-open one would.
+    pub zone: Zone,
     /// How far the pointer must travel inwards before letting go opens the panel, in px.
     pub threshold: f32,
 }
@@ -189,7 +217,7 @@ pub fn module_shell(
             .on_drag_end(move |x, y| {
                 let from = start.borrow_mut().take().unwrap_or((x, y));
                 if drag.travel(from, (x, y)) >= drag.threshold {
-                    crate::modules::panel::open_panel(&drag.module);
+                    from_zone(drag.zone, || crate::modules::panel::open_panel(&drag.module));
                 }
             });
     }
@@ -470,6 +498,7 @@ mod tests {
         let gesture = |edge| DragOpen {
             module: "clock".to_string(),
             edge,
+            zone: Zone::Start,
             threshold: 48.0,
         };
         // "Away from the bar" is a different direction on each edge, and the sign is what decides.

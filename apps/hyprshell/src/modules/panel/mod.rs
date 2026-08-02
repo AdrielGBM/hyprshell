@@ -1,7 +1,7 @@
 use crate::core::config::OpenMode;
 use crate::core::shell;
-use crate::modules::{drawer, float};
-use crate::shared::module::surface_env;
+use crate::modules::{drawer, float, popout};
+use crate::shared::module::{press_origin, surface_env};
 
 /// Toggles the panel for `module_id`, opening it as a drawer or a floating window per the module's
 /// `[modules.<id>] open` config (drawer by default). The single entry point every panel-opening chip calls, so
@@ -9,7 +9,8 @@ use crate::shared::module::surface_env;
 /// [`crate::core::shell`], not here, so a panel toggled from a chip, from IPC and from a keybind is one surface.
 ///
 /// The environment comes from the bar surface in scope when a chip was clicked, and is derived from the running
-/// config when there is none (IPC, keybind).
+/// config when there is none (IPC, keybind); the drawer's alignment likewise comes from the pressed chip's zone
+/// ([`press_origin`]) when a chip opened it.
 pub fn toggle_panel(module_id: &str) {
     let Some(env) = surface_env().or_else(|| shell::env_for_module(module_id)) else {
         tracing::warn!("no shell context yet; ignoring toggle of '{module_id}'");
@@ -18,9 +19,14 @@ pub fn toggle_panel(module_id: &str) {
     if is_panel_open(module_id) {
         forget_settings_state(module_id);
     }
+    // A panel and the hover card of the same chip say the same thing twice, overlapping, and the card is the
+    // one the user did not ask for: it opened by resting the pointer somewhere. So a panel takes the screen
+    // from it, and `popout::open` refuses to bring it back for as long as the panel is up.
+    popout::close();
+    let origin = press_origin();
     match env.config.open_mode_for(module_id) {
         OpenMode::Drawer => {
-            shell::toggle_drawer(module_id, || drawer::open_drawer(&env, module_id))
+            shell::toggle_drawer(module_id, || drawer::open_drawer(&env, module_id, origin))
         }
         OpenMode::Float => shell::toggle_window(module_id, || float::open_float(&env, module_id)),
     }
