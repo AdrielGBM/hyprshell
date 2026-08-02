@@ -2,10 +2,10 @@ use std::rc::Rc;
 
 use platform_layershell::{request_close, request_size};
 use telar::{
-    SurfaceFrameStyle, SurfacePlacement, SurfaceSize, SurfaceToken, open_surface, set_theme,
-    surface_content, surface_frame,
+    SurfaceFrameStyle, SurfaceToken, open_surface, set_theme, surface_content, surface_frame,
 };
 
+use crate::core::placement::Placement;
 use crate::modules::drawer::{module_panel, panel_wants_keyboard};
 use crate::shared::module::SurfaceEnv;
 use crate::shared::theme::FontRole;
@@ -20,10 +20,9 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let edge = env.edge;
     let output = env.output.clone();
     let (width, height) = env.config.float_size_for(module_id);
-    let placement = SurfacePlacement::float()
-        .size(SurfaceSize::Fixed(width, height))
-        .keyboard(panel_wants_keyboard(module_id))
-        .output(env.output.clone());
+    let placement = Placement::window((width, height), panel_wants_keyboard(module_id))
+        .output(env.output.clone())
+        .hosted_placement();
     open_surface(
         placement,
         // Resolved per build rather than captured: the window outlives the config it opened under, and a

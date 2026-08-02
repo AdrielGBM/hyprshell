@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use platform_layershell::{Anchor, KeyboardInteractivity, Layer, LayerConfig, open_surface};
+use platform_layershell::{LayerConfig, open_surface};
 use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutScrollArea, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceToken, Text,
@@ -16,7 +16,8 @@ use telar::{
 };
 
 use crate::core::app::SurfaceRoot;
-use crate::core::config::{Config, Edge};
+use crate::core::config::Config;
+use crate::core::placement::Placement;
 use crate::shared::module::{SurfaceEnv, set_surface_env};
 use crate::shared::theme::{FontRole, NordTheme};
 
@@ -54,33 +55,15 @@ fn open_sidebar() -> SurfaceToken {
     SurfaceToken::new(Box::new(handle))
 }
 
+/// A dock: spans its edge over the windows, at the shared panel margin off them. The zone a dock takes is
+/// zero, not -1 — the compositor has already cleared the bars, and the margin is the only extra distance a
+/// panel of any kind puts between itself and them.
 fn layer_config(config: &Config, output: Option<String>) -> LayerConfig {
     let sidebar = &config.sidebar;
-    let thickness = sidebar.thickness();
-    let (anchor, size) = match sidebar.edge {
-        Edge::Left => (Anchor::LEFT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-        Edge::Right => (Anchor::RIGHT | Anchor::TOP | Anchor::BOTTOM, (thickness, 0)),
-        Edge::Top => (Anchor::TOP | Anchor::LEFT | Anchor::RIGHT, (0, thickness)),
-        Edge::Bottom => (
-            Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-            (0, thickness),
-        ),
-    };
-    LayerConfig {
-        output,
-        layer: Layer::Overlay,
-        anchor,
-        // Zero, not -1: the compositor has already cleared the bars for us, and the shared panel margin is the
-        // only extra distance a panel of any kind puts between itself and them.
-        exclusive_zone: 0,
-        size,
-        margin: config.panel_margin(sidebar.edge),
-        keyboard_interactivity: KeyboardInteractivity::None,
-        namespace: "hyprshell-sidebar".to_string(),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: false,
-    }
+    Placement::dock("hyprshell-sidebar", sidebar.edge, sidebar.thickness())
+        .margin(config.panel_margin(sidebar.edge))
+        .output(output)
+        .layer_config()
 }
 
 struct SidebarApp {
@@ -203,6 +186,8 @@ fn header(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::Edge;
+    use platform_layershell::KeyboardInteractivity;
 
     fn config(edge: Edge) -> Config {
         Config {

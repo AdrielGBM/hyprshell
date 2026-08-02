@@ -18,9 +18,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use platform_layershell::{
-    Anchor, KeyboardInteractivity, Layer, LayerConfig, SurfaceHandle, open_surface, request_close,
-};
+use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, request_close};
 use telar::{
     AlignItems, App, Canvas, Color, Component, Container, Image, ImageData, ImageFilter,
     JustifyContent, Key, LayoutError, LayoutItem, LayoutStyle, NamedKey, ObjectFit, PathData,
@@ -29,6 +27,7 @@ use telar::{
 };
 
 use crate::core::app::SurfaceRoot;
+use crate::core::placement::Placement;
 use crate::shared::services::hyprland::{self, Client};
 use crate::shared::services::screenshot::{self, Area};
 use crate::shared::theme::{FontRole, NordTheme};
@@ -98,23 +97,13 @@ pub fn close() {
     OPEN.with(|slot| *slot.borrow_mut() = None);
 }
 
+/// The whole screen, over everything — including a fullscreen window, because the user asked to select a
+/// region of what they can *see* — and holding the keyboard, so Escape arrives without the overlay having to
+/// be clicked into first. Both are what [`Placement::screen`] means.
 fn layer_config(output: Option<String>) -> LayerConfig {
-    LayerConfig {
-        output,
-        // Over everything, including a fullscreen window: the user asked to select a region of what they can
-        // see, and a picker under the window they are pointing at is a picker they cannot use.
-        layer: Layer::Overlay,
-        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
-        exclusive_zone: -1,
-        size: (0, 0),
-        margin: (0, 0, 0, 0),
-        // Exclusive, so Escape arrives without the overlay having to be clicked into first.
-        keyboard_interactivity: KeyboardInteractivity::Exclusive,
-        namespace: "hyprshell-picker".to_string(),
-        reserve_only: false,
-        input_transparent: false,
-        interactive_input_region: false,
-    }
+    Placement::screen("hyprshell-picker")
+        .output(output)
+        .layer_config()
 }
 
 /// Where the picker's screen is and how big it is, in the compositor's logical coordinates. The origin is what
@@ -502,6 +491,7 @@ fn snapped(drawn: Area, rects: &[Area]) -> Area {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platform_layershell::{KeyboardInteractivity, Layer};
 
     fn rects() -> Vec<Area> {
         vec![

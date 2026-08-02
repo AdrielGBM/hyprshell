@@ -733,7 +733,7 @@ impl BackgroundConfig {
 /// Where on the screen a widget on the background surface sits.
 #[derive(Deserialize, Serialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Placement {
+pub enum ClockPlacement {
     TopLeft,
     TopCenter,
     TopRight,
@@ -746,35 +746,35 @@ pub enum Placement {
     BottomRight,
 }
 
-impl Placement {
-    pub const ALL: [Placement; 9] = [
-        Placement::TopLeft,
-        Placement::TopCenter,
-        Placement::TopRight,
-        Placement::CenterLeft,
-        Placement::Center,
-        Placement::CenterRight,
-        Placement::BottomLeft,
-        Placement::BottomCenter,
-        Placement::BottomRight,
+impl ClockPlacement {
+    pub const ALL: [ClockPlacement; 9] = [
+        ClockPlacement::TopLeft,
+        ClockPlacement::TopCenter,
+        ClockPlacement::TopRight,
+        ClockPlacement::CenterLeft,
+        ClockPlacement::Center,
+        ClockPlacement::CenterRight,
+        ClockPlacement::BottomLeft,
+        ClockPlacement::BottomCenter,
+        ClockPlacement::BottomRight,
     ];
 
     pub fn id(self) -> &'static str {
         match self {
-            Placement::TopLeft => "top_left",
-            Placement::TopCenter => "top_center",
-            Placement::TopRight => "top_right",
-            Placement::CenterLeft => "center_left",
-            Placement::Center => "center",
-            Placement::CenterRight => "center_right",
-            Placement::BottomLeft => "bottom_left",
-            Placement::BottomCenter => "bottom_center",
-            Placement::BottomRight => "bottom_right",
+            ClockPlacement::TopLeft => "top_left",
+            ClockPlacement::TopCenter => "top_center",
+            ClockPlacement::TopRight => "top_right",
+            ClockPlacement::CenterLeft => "center_left",
+            ClockPlacement::Center => "center",
+            ClockPlacement::CenterRight => "center_right",
+            ClockPlacement::BottomLeft => "bottom_left",
+            ClockPlacement::BottomCenter => "bottom_center",
+            ClockPlacement::BottomRight => "bottom_right",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        Placement::ALL
+        ClockPlacement::ALL
             .into_iter()
             .find(|placement| placement.id() == id.trim().to_ascii_lowercase().replace('-', "_"))
     }
@@ -782,13 +782,13 @@ impl Placement {
     /// The row and column this placement occupies, as `flex` alignment values.
     pub fn alignment(self) -> (Align, Align) {
         let vertical = match self {
-            Placement::TopLeft | Placement::TopCenter | Placement::TopRight => Align::Start,
-            Placement::CenterLeft | Placement::Center | Placement::CenterRight => Align::Center,
+            ClockPlacement::TopLeft | ClockPlacement::TopCenter | ClockPlacement::TopRight => Align::Start,
+            ClockPlacement::CenterLeft | ClockPlacement::Center | ClockPlacement::CenterRight => Align::Center,
             _ => Align::End,
         };
         let horizontal = match self {
-            Placement::TopLeft | Placement::CenterLeft | Placement::BottomLeft => Align::Start,
-            Placement::TopCenter | Placement::Center | Placement::BottomCenter => Align::Center,
+            ClockPlacement::TopLeft | ClockPlacement::CenterLeft | ClockPlacement::BottomLeft => Align::Start,
+            ClockPlacement::TopCenter | ClockPlacement::Center | ClockPlacement::BottomCenter => Align::Center,
             _ => Align::End,
         };
         (vertical, horizontal)
@@ -880,7 +880,7 @@ impl BackgroundVisualiserConfig {
 pub struct DesktopClockConfig {
     pub enabled: bool,
     /// One of the nine positions: `top_left` … `bottom_right`, `center` being the default.
-    pub position: Placement,
+    pub position: ClockPlacement,
     /// Multiplies the theme's display size, so the face can be made as large as the screen allows.
     pub scale: f32,
     /// How far the face is kept from the screen edges, in px.
@@ -907,7 +907,7 @@ impl Default for DesktopClockConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            position: Placement::Center,
+            position: ClockPlacement::Center,
             scale: 3.0,
             margin: 48,
             invert: false,

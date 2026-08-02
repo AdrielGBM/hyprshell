@@ -2,12 +2,10 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
-use telar::{
-    LayoutItem, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize,
-    SurfaceToken, open_surface, set_theme, surface_content,
-};
+use telar::{LayoutItem, SurfaceToken, open_surface, set_theme, surface_content};
 
-use crate::core::config::{Align, Edge};
+
+use crate::core::placement::Placement;
 use crate::shared::theme::NordTheme;
 
 const OSD_W: u32 = 280;
@@ -19,23 +17,6 @@ pub enum OsdKind {
     Volume,
     Brightness,
     Microphone,
-}
-
-fn osd_anchor(edge: Edge) -> SurfaceAnchor {
-    match edge {
-        Edge::Top => SurfaceAnchor::Top,
-        Edge::Bottom => SurfaceAnchor::Bottom,
-        Edge::Left => SurfaceAnchor::Left,
-        Edge::Right => SurfaceAnchor::Right,
-    }
-}
-
-fn osd_align(align: Align) -> SurfaceAlign {
-    match align {
-        Align::Start => SurfaceAlign::Start,
-        Align::Center => SurfaceAlign::Center,
-        Align::End => SurfaceAlign::End,
-    }
 }
 
 /// The per-OSD-surface context (which state it reflects, and the bar-matching corner radius), provided into the
@@ -94,16 +75,16 @@ pub fn show(kind: OsdKind) {
         .as_ref()
         .map(|c| c.panel_gap(osd.edge) as i32)
         .unwrap_or(crate::core::config::DEFAULT_PANEL_GAP as i32);
-    let mut placement = SurfacePlacement::new(SurfaceRole::Osd, osd_anchor(osd.edge))
-        .align(osd_align(osd.align))
-        .input_transparent(true)
-        .size(SurfaceSize::Fixed(OSD_W, OSD_H))
-        .inset(inset)
-        .output(output);
-    // 0 ms disables auto-dismiss; the OSD then stays until replaced by the next trigger.
-    if osd.timeout_ms > 0 {
-        placement = placement.timeout(Duration::from_millis(osd.timeout_ms));
-    }
+    // A zero timeout disables the auto-dismiss; the OSD then stays until the next trigger replaces it.
+    let placement = Placement::flash(
+        osd.edge,
+        osd.align,
+        Duration::from_millis(osd.timeout_ms),
+    )
+    .size(OSD_W, OSD_H)
+    .inset(inset)
+    .output(output)
+    .hosted_placement();
     OPEN_OSD.with(|slot| {
         *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
         let token = open_surface(

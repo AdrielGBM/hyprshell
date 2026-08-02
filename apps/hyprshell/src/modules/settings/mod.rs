@@ -18,7 +18,7 @@ use crate::core::config::{
     DashboardConfig, DesktopClockConfig, DrawerConfig, Edge, FloatConfig, FullscreenPopups,
     GeneralConfig, GpuConfig, IconsConfig, IdleConfig, IdleStage, KeyNavConfig, LauncherConfig,
     LockStatusConfig, LyricsConfig, MediaConfig, MediaScroll, ModuleEntry, ModuleOverride,
-    NetworkConfig, NotificationsConfig, OpenMode, OsdConfig, PanelsConfig, PathsConfig, Placement,
+    ClockPlacement, NetworkConfig, NotificationsConfig, OpenMode, OsdConfig, PanelsConfig, PathsConfig,
     PopoutsConfig, RecorderConfig, ScaleConfig, ScreenshotConfig, Shape, ShapeConfig,
     SidebarConfig, StatusIconsConfig, TemperatureConfig, TemperatureUnit, ThemeConfig, ToastEvents,
     ToastsConfig, TrayConfig, UtilitiesConfig, Variant, VisualiserConfig, WallpaperConfig,
@@ -5187,7 +5187,7 @@ fn desktop_clock_section(
         move || {
             let clock = DesktopClockConfig {
                 enabled: enabled.peek(),
-                position: Placement::from_id(&position.peek()).unwrap_or_default(),
+                position: ClockPlacement::from_id(&position.peek()).unwrap_or_default(),
                 scale: parse_f32(&scale.peek(), base.clock.scale),
                 margin: parse_u32(&margin.peek(), base.clock.margin),
                 invert: invert.peek(),

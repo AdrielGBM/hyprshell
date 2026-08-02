@@ -545,7 +545,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::core::config::{Config, DesktopClockConfig, Placement};
+    use crate::core::config::{ClockPlacement, Config, DesktopClockConfig};
 
     fn built(config: Config) -> Box<dyn Component> {
         WallpaperApp {
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn the_clock_builds_in_every_position_and_with_every_decoration() {
-        for position in Placement::ALL {
+        for position in ClockPlacement::ALL {
             let mut config = Config::starter();
             config.background.clock = DesktopClockConfig {
                 enabled: true,
@@ -669,7 +669,7 @@ mod tests {
 
     #[test]
     fn the_nine_positions_map_onto_distinct_corners() {
-        let corners: Vec<(Align, Align)> = Placement::ALL
+        let corners: Vec<(Align, Align)> = ClockPlacement::ALL
             .into_iter()
             .map(|placement| placement.alignment())
             .collect();
@@ -679,15 +679,15 @@ mod tests {
             }
         }
         assert_eq!(
-            Placement::TopLeft.alignment(),
+            ClockPlacement::TopLeft.alignment(),
             (Align::Start, Align::Start),
             "the row is the vertical axis and the column the horizontal one"
         );
         assert_eq!(
-            Placement::from_id("bottom-right"),
-            Some(Placement::BottomRight)
+            ClockPlacement::from_id("bottom-right"),
+            Some(ClockPlacement::BottomRight)
         );
-        assert_eq!(Placement::from_id("nowhere"), None);
+        assert_eq!(ClockPlacement::from_id("nowhere"), None);
     }
 
     /// Renders the wallpaper surface end-to-end (real decode + cover-crop). Point it at an image to eyeball the crop:
