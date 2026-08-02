@@ -1,81 +1,9 @@
-telar::rsx_modules!(crate::shared::theme::NordTheme);
+telar::rsx_modules!(::config::theme::NordTheme);
 
-/// Renders a hyprshell `App` headless and writes a PNG for eyeballing; inlined here (not a `src/*.rs` file) so the auto-module scan doesn't pull its dev-only deps (`platform-headless`, `image`) into non-test builds.
-#[cfg(test)]
-mod test_support {
-    use std::sync::{Arc, Mutex};
-
-    use platform_headless::{FrameSink, HeadlessPlatform};
-    use telar::{App, AppConfig, AppPathsProvider, run_with_platform};
-
-    pub(crate) struct NullPaths;
-
-    impl AppPathsProvider for NullPaths {
-        fn config_dir(&self) -> Option<std::path::PathBuf> {
-            None
-        }
-        fn data_dir(&self) -> Option<std::path::PathBuf> {
-            None
-        }
-        fn cache_dir(&self) -> Option<std::path::PathBuf> {
-            None
-        }
-    }
-
-    pub(crate) fn render_png<A: App + 'static>(app: A, w: u32, h: u32, out: &str) {
-        render_png_frames(app, w, h, out, 2);
-    }
-
-    /// Drives `frames` renders before capturing; the headless platform paces at a real 60fps, so ~13 frames covers a 200ms enter animation settling.
-    pub(crate) fn render_png_frames<A: App + 'static>(
-        app: A,
-        w: u32,
-        h: u32,
-        out: &str,
-        frames: u32,
-    ) {
-        let sink: FrameSink = Arc::new(Mutex::new(None));
-        let platform = HeadlessPlatform::new(w, h)
-            .with_frames(frames)
-            .capture_into(sink.clone());
-        run_with_platform::<_, _, ()>(
-            platform,
-            AppConfig::default(),
-            Box::new(NullPaths) as Box<dyn AppPathsProvider>,
-            app,
-            "hyprshell-visual",
-        )
-        .expect("headless run failed");
-        let pixels = sink.lock().unwrap().take().expect("no frame captured");
-        let img = image::RgbaImage::from_raw(w, h, pixels).expect("rgba length matches w*h*4");
-        img.save(out).expect("write PNG");
-        eprintln!("wrote {out} ({w}x{h})");
-    }
-}
-
-pub use crate::core::app::BarApp;
-pub use crate::core::config::{
-    AudioConfig, BarConfig, BarsConfig, BrightnessConfig, Capitalize, Config, Corner, DrawerConfig,
-    Edge, FloatConfig, LockStatusConfig, ModuleOverride, OpenMode, PanelsConfig, PopoutsConfig,
-    TemperatureConfig, TemperatureUnit, ThemeConfig, TrayConfig, Variant,
-};
-pub use crate::core::ipc::{
-    call as ipc_call, describe as ipc_describe, dispatch as ipc_dispatch, socket_path,
-};
-pub use crate::core::schema::render as config_schema;
-pub use crate::modules::bar::build_bar;
-pub use crate::modules::frame::FrameApp;
-pub use crate::modules::notes::{notes_chip, notes_panel};
-pub use crate::modules::osd::OsdKind;
-pub use crate::modules::panel::{close_panel, is_panel_open, open_panel, toggle_panel};
-pub use crate::modules::wallpaper::WallpaperApp;
-pub use crate::shared::icon::{icon_picker_overlay, icon_view};
-pub use crate::shared::module::{
-    ModuleBuilder, ModuleCtx, ModuleDef, ModuleRegistry, SurfaceEnv, bar_edge, bar_is_vertical,
-    bar_thickness, chip_radius, default_registry, icon_px, module_fg, module_foreground,
-    module_shell, set_module_fg, set_surface_env, surface_env,
-};
-pub use crate::shared::theme::{BUILT_IN_THEMES, FontRole, NordTheme, ThemeMeta};
+// What the `hyprshell` binary reaches for; everything else now belongs to the crate that owns it.
+pub use crate::core::commands::describe as ipc_describe;
+pub use crate::core::ipc::call as ipc_call;
+pub use config::schema::render as config_schema;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -83,10 +11,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use config::Config;
 use platform_layershell::LayerShellPlatform;
 use telar::{App, AppPathsProvider, run_multi_with_platform};
 
-use crate::core::surfaces::{Content, Surfaces};
+use surfaces::reconcile::{Content, Surfaces};
 
 struct NullPaths;
 impl AppPathsProvider for NullPaths {
@@ -118,11 +47,11 @@ pub fn run() {
     // `run_once` on the driver thread — notification state lives in the daemon, so recreating it loses nothing.
     let initial = Arc::new(Config::load_or_default(&config_path));
     // Seed the shared UI-language source so every surface starts in the configured locale and stays live.
-    crate::shared::services::locale::init(initial.language());
+    services::locale::init(initial.language());
     // Process-wide so every surface — bars, drawers, popups, OSD — renders in the theme's font family.
     // `run_once` re-applies (and warns) on every reload, so the popup host spawned here also gets it.
     telar::set_default_font_family(initial.theme.font_family.clone());
-    crate::shared::services::notifications::init(notification_policy(&initial));
+    services::notifications::init(notification_policy(&initial));
 
     // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
     // (via `setup_shell`, deferred with `run_on_start`) and reconciled on config change, so a reload never tears
@@ -144,6 +73,7 @@ pub fn run() {
 /// the shell's own surfaces, then watches the config file and reconciles them on change — in place, without
 /// tearing the driver, the connection, the popup, the services or the surfaces themselves down.
 fn setup_shell(config_path: PathBuf) {
+    install_hooks();
     let config = Arc::new(Config::load_or_default(&config_path));
     apply_config(&config);
     if platform_layershell::outputs().is_empty() {
@@ -153,11 +83,11 @@ fn setup_shell(config_path: PathBuf) {
 
     // The popup host is long-lived: set up once, it persists across reloads — it follows an edit in place
     // like the rest of the chrome, and the notification state it shows lives in the daemon either way.
-    crate::modules::notifications::popup_host();
+    modules::notifications::popup_host();
 
     // Toasts. The host holds no surface until something is posted; the watchers are installed by `apply_config`,
     // which has already run, so an event switched on later gets its watcher on the next reload.
-    crate::modules::toast::toast_host();
+    modules::toast::toast_host();
 
     let surfaces = Rc::new(RefCell::new(Surfaces::default()));
     // The config the shell is currently running. A reload that fails to parse keeps this one rather than
@@ -194,8 +124,8 @@ fn setup_shell(config_path: PathBuf) {
                 // Everything else that is on screen, in place and in the same pass: the panels the user
                 // opened over the chrome, and the notification popup that follows the focused screen. Each
                 // keeps its surface — and what the user was in the middle of — and takes the new config.
-                crate::core::shell::rebuild_all();
-                crate::modules::notifications::reconcile();
+                surfaces::shell::rebuild_all();
+                modules::notifications::reconcile();
             }
             *live.borrow_mut() = config;
         }
@@ -219,57 +149,42 @@ fn setup_shell(config_path: PathBuf) {
         let reconcile = Rc::clone(&reconcile);
         Rc::new(move || {
             reconcile(Content::Rebuild);
-            crate::modules::toast::config_reloaded();
+            modules::toast::config_reloaded();
         })
     };
 
-    crate::core::shell::set_reload_hook({
+    config::set_reload_hook({
         let on_config_change = Rc::clone(&on_config_change);
         move || on_config_change()
     });
 
     // Live language switching. At app level, so the subscription outlives the surface rebuilds a reload does —
     // one taken out from inside a bar would be removed with that bar's sources on the first one.
-    crate::shared::services::locale::follow_switches();
+    services::locale::follow_switches();
 
     // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
     // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
     platform_layershell::watch(crate::core::ipc::serve, crate::core::ipc::handle);
     // The same request path as the socket, fed by the desktop portal instead: a bound shortcut runs exactly what `hyprshell …` would, without the process launch per keypress. Silently absent with no portal.
-    platform_layershell::watch(
-        crate::shared::services::shortcuts::serve,
-        crate::core::ipc::handle,
-    );
+    platform_layershell::watch(services::shortcuts::serve, crate::core::ipc::handle);
 
     // A wallpaper-derived palette landing. At app level because it rebuilds every surface, and because the
     // extraction outlives any one of them: a scheme asked for while a panel was open must still arrive after
     // that panel has closed. The first delivery is what startup already resolved, so it reloads nothing.
-    platform_layershell::watch(
-        crate::shared::scheme::subscribe,
-        crate::shared::scheme::on_change,
-    );
+    platform_layershell::watch(config::scheme::subscribe, config::scheme::on_change);
 
     // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
     // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live
     // config, which only the driver thread can read. Costs nothing on a desktop — the producer retires when
     // there is no battery to read.
-    platform_layershell::watch(
-        crate::shared::services::battery::subscribe,
-        crate::shared::services::battery::on_reading,
-    );
+    platform_layershell::watch(services::battery::subscribe, services::battery::on_reading);
 
     // The session lock. All three at app level and in this order: the performer must be listening before
     // anything can ask for a lock, and logind's signals are how `loginctl lock-session` and a suspend reach it.
     // None of them is torn down by a reload — a lock that dropped when the user saved their config would put
     // the desktop back on screen.
-    platform_layershell::watch(
-        crate::shared::services::lock::subscribe,
-        crate::shared::services::lock::on_state,
-    );
-    platform_layershell::watch(
-        crate::shared::services::session::watch,
-        crate::shared::services::session::on_event,
-    );
+    platform_layershell::watch(services::lock::subscribe, services::lock::on_state);
+    platform_layershell::watch(services::session::watch, services::session::on_event);
     // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
     // so a saved `[idle]` re-arms without a second entry point that could disagree with it.
 
@@ -282,38 +197,69 @@ fn setup_shell(config_path: PathBuf) {
     platform_layershell::on_outputs_changed(move || reconcile(Content::Keep));
 }
 
+/// The three answers the layers below cannot reach on their own, handed to them once on the driver thread.
+///
+/// Each is a case of something low in the stack needing something high in it: the config derives a palette from
+/// a wallpaper only the wallpaper *service* can name; a service that runs `[idle]` actions needs the command
+/// table, which lives with the socket above it; and the lock service owns *when* the session is locked, never
+/// what the covered screen draws. Installed before the first config is applied, since applying one derives a
+/// scheme and arms the idle stages.
+fn install_hooks() {
+    config::set_wallpaper_source(|config| {
+        let focused = surfaces::shell::focused_output();
+        services::wallpaper::current_image(config, focused.as_deref())
+    });
+    services::command::set_runner(
+        |line| crate::core::commands::dispatch(line),
+        crate::core::commands::resolves,
+    );
+    services::lock::set_session_opener(|| {
+        let config = config::config();
+        platform_layershell::lock_session(move |output| modules::lock::LockApp {
+            config: config.clone(),
+            output,
+        })
+    });
+    ui::module::set_panel_opener(surfaces::panel::open_panel);
+    // Published together because they check each other: a chip is wired for a hover card from the card list, and one that opens a panel is checked against the panel list.
+    let popouts = crate::core::popouts::default_popouts();
+    ui::module::install(crate::core::registry::default_registry(&popouts));
+    ui::popouts::install(popouts);
+    ui::panels::install(crate::core::panels::default_panels());
+}
+
 /// Everything a config change affects outside the surfaces themselves: the UI language, the process-wide font,
 /// the icon store, and the context that code reached from outside a surface resolves against.
 ///
 /// Called from the driver thread at app level — deliberately not from inside a surface build, since the icon
 /// store's download worker must outlive any single surface (see [`shared::icon::init_store`]).
 fn apply_config(config: &Arc<Config>) {
-    crate::shared::services::locale::init(config.language());
+    services::locale::init(config.language());
     warn_if_font_missing(config.theme.font_family.as_deref());
     telar::set_default_font_family(config.theme.font_family.clone());
-    crate::core::shell::set_config(Arc::clone(config));
-    crate::shared::icon::init_store(&config.icons);
+    config::set_config(Arc::clone(config));
+    ui::icon::init_store(&config.icons);
     // After `set_config`: deriving a palette needs to know which wallpaper is up, and that answer comes from the
     // config that was just published. Cheap when the palette is already cached, which is every start after the
     // first; a miss quantises the image on a thread of its own and lands through the scheme watcher below.
-    crate::shared::scheme::init(config);
+    config::scheme::init(config);
     // The surfaces this reload is about to open will carry whatever `init` just resolved, so the watcher must
     // not read the delivery that follows as a change and ask for a second, identical reload.
-    crate::shared::scheme::mark_painted();
+    config::scheme::mark_painted();
     // After `set_config`, so the stages are armed from the config that was just published rather than the one
     // they were armed from last time.
-    crate::shared::services::idle::reconcile();
+    services::idle::reconcile();
     // The daemon outlives every reload, so an edited `[notifications]` reaches it this way rather than by restarting it — which would drop the bus name and the history with it.
-    crate::shared::services::notifications::set_policy(notification_policy(config));
+    services::notifications::set_policy(notification_policy(config));
     // The toast watchers a switched-on event needs. Additive and idempotent: a subscription cannot be undone, so
     // this installs what is missing and leaves the rest — an event switched *off* is silenced by the toaster's own
     // gate rather than by tearing its watcher down.
-    crate::modules::toast::watch_events(config);
+    modules::toast::watch_events(config);
 }
 
 /// The daemon's slice of `[notifications]`, resolved in one place so startup and reload agree on it.
-fn notification_policy(config: &Config) -> crate::shared::services::notifications::Policy {
-    crate::shared::services::notifications::Policy {
+fn notification_policy(config: &Config) -> services::notifications::Policy {
+    services::notifications::Policy {
         timeout: Duration::from_millis(config.notifications.timeout_ms),
         critical_sticky: config.notifications.critical_sticky,
         sound: config.notifications.sound.clone(),
@@ -322,14 +268,10 @@ fn notification_policy(config: &Config) -> crate::shared::services::notification
 
 /// Tells the user their edit didn't take, through the shell's own notification daemon so the message lands on
 /// screen rather than in a log they aren't reading. Falls back to stderr when the daemon isn't up yet.
-fn report_config_error(error: &crate::core::config::LoadError) {
+fn report_config_error(error: &config::LoadError) {
     let message = error.to_string();
     tracing::warn!("{message}; keeping the last working config");
-    crate::shared::services::notifications::notify_local(
-        "hyprshell",
-        &telar::t!("config.error_title"),
-        &message,
-    );
+    services::notifications::notify_local("hyprshell", &telar::t!("config.error_title"), &message);
 }
 
 /// The config-watch producer for `watch`: polls the config's mtimes (dependency-free, naturally debounced) and
@@ -416,17 +358,13 @@ fn warn_if_font_missing(family: Option<&str>) {
 
 #[cfg(test)]
 mod i18n_tests {
-    // The baked catalog resolves hyprshell's keys and switching the locale changes the output — the same
-    // reactive `t!` calls back every migrated label, so a live locale switch re-renders them.
+    /// The shell's own catalog resolves, and a locale switch changes what it answers. The modules' catalogs are
+    /// checked in their own crate — a `t!` key is resolved against the catalog of the crate that writes it.
     #[test]
     fn catalog_translates_and_switches() {
         telar::set_locale("en");
-        assert_eq!(telar::t!("settings.title"), "Settings");
-        assert_eq!(telar::t!("common.on"), "On");
-        assert_eq!(telar::t!("battery.remaining", time = "5m"), "5m remaining");
+        assert_eq!(telar::t!("config.error_title"), "Configuration not applied");
         telar::set_locale("es");
-        assert_eq!(telar::t!("settings.title"), "Ajustes");
-        assert_eq!(telar::t!("common.on"), "Sí");
-        assert_eq!(telar::t!("battery.remaining", time = "5m"), "5m restante");
+        assert_eq!(telar::t!("config.error_title"), "Configuración no aplicada");
     }
 }

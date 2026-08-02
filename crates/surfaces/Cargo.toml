@@ -1,0 +1,18 @@
+[package]
+name = "hyprshell-surfaces"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+config = { workspace = true }
+platform-layershell = { workspace = true }
+services = { workspace = true }
+telar = { workspace = true, features = ["dynamic-svg", "async-assets"] }
+tracing = { workspace = true }
+ui = { workspace = true }
+util = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
+visual = { workspace = true }

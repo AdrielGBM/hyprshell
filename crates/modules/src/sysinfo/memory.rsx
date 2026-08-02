@@ -1,0 +1,38 @@
+[logic]
+use ::services::resources::{self, Resources};
+use ::config::theme::{FontRole, NordTheme};
+
+fn pressure_color(percent: f32, fg: Color) -> Color {
+    let t = use_theme::<NordTheme>();
+    if percent >= 90.0 {
+        t.red
+    } else if percent >= 75.0 {
+        t.yellow
+    } else {
+        fg
+    }
+}
+
+let initial = resources::current().unwrap_or_default();
+let used = signal(initial.memory.used_percent());
+let used_text = used.read_only();
+let used_tint = used.read_only();
+
+platform_layershell::watch(resources::subscribe, move |r: Resources| {
+    used.set(r.memory.used_percent())
+});
+
+let fg = ui::module::module_fg();
+let fg_tint = fg.clone();
+let body = use_theme::<NordTheme>().font(FontRole::Body);
+let percent = memo(move || format!("{:.0}%", used_text.get()));
+let icon = ui::icon::icon_view(
+    || "memory-stick".to_string(),
+    move || pressure_color(used_tint.get(), fg_tint.get()),
+    ui::module::icon_px(),
+)?;
+
+[view]
+row align:center gap:6
+    widget "icon"
+    text "{$percent}" size:body color:$fg

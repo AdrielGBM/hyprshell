@@ -1,0 +1,3 @@
+[battery.warning]
+title = "Batería baja"
+body = "Queda {level}% — conecta el cargador."

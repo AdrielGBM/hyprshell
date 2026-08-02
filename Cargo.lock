@@ -1204,8 +1204,63 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 name = "hyprshell"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "fontdb",
+ "hyprshell-config",
+ "hyprshell-modules",
+ "hyprshell-services",
+ "hyprshell-settings",
+ "hyprshell-surfaces",
+ "hyprshell-ui",
+ "hyprshell-util",
+ "hyprshell-visual",
+ "platform-layershell",
+ "telar",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hyprshell-config"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hyprshell-util",
+ "image",
+ "platform-layershell",
+ "serde",
+ "serde_json",
+ "telar",
+ "toml",
+ "toml_edit",
+ "tracing",
+]
+
+[[package]]
+name = "hyprshell-modules"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hyprshell-config",
+ "hyprshell-services",
+ "hyprshell-surfaces",
+ "hyprshell-ui",
+ "hyprshell-util",
+ "hyprshell-visual",
+ "platform-layershell",
+ "serde",
+ "telar",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "hyprshell-services"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hyprshell-config",
+ "hyprshell-util",
  "image",
  "libc",
  "libloading 0.9.0",
@@ -1215,14 +1270,80 @@ dependencies = [
  "serde",
  "serde_json",
  "telar",
- "telar-platform-headless",
  "toml",
- "toml_edit",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "ureq",
  "zbus",
+]
+
+[[package]]
+name = "hyprshell-settings"
+version = "0.1.0"
+dependencies = [
+ "hyprshell-config",
+ "hyprshell-services",
+ "hyprshell-surfaces",
+ "hyprshell-ui",
+ "hyprshell-util",
+ "hyprshell-visual",
+ "platform-layershell",
+ "serde",
+ "telar",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "hyprshell-surfaces"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "hyprshell-config",
+ "hyprshell-services",
+ "hyprshell-ui",
+ "hyprshell-util",
+ "hyprshell-visual",
+ "platform-layershell",
+ "telar",
+ "toml",
+ "tracing",
+]
+
+[[package]]
+name = "hyprshell-ui"
+version = "0.1.0"
+dependencies = [
+ "hyprshell-config",
+ "hyprshell-services",
+ "hyprshell-util",
+ "hyprshell-visual",
+ "image",
+ "platform-layershell",
+ "serde",
+ "serde_json",
+ "telar",
+ "toml",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
+name = "hyprshell-util"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "platform-layershell",
+ "telar",
+ "tracing",
+]
+
+[[package]]
+name = "hyprshell-visual"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "telar",
+ "telar-platform-headless",
 ]
 
 [[package]]
@@ -3435,9 +3556,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.54"
+version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e1d5e639ff6bab73cb6885cc7e7b1de96c3f32c68ec55f3952614bec1092244"
+checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
  "num-conv",

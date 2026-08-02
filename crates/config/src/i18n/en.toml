@@ -1,0 +1,3 @@
+[battery.warning]
+title = "Battery low"
+body = "{level}% left — plug in the charger."

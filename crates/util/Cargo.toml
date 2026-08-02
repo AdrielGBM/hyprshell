@@ -1,0 +1,10 @@
+[package]
+name = "hyprshell-util"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+image = { workspace = true }
+platform-layershell = { workspace = true }
+telar = { workspace = true }
+tracing = { workspace = true }

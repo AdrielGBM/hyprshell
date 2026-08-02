@@ -1,0 +1,11 @@
+[battery]
+charging = "Cargando"
+on_battery = "Con batería"
+full = "Carga completa"
+empty = "Vacía"
+pending = "Pendiente"
+unknown = "Desconocido"
+none = "Sin batería"
+remaining = "{time} restante"
+until_full = "Cargando · {time} para completar"
+

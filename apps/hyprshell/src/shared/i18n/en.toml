@@ -1,7 +1,0 @@
-[common]
-unknown = "Unknown"
-on = "On"
-off = "Off"
-
-[config]
-error_title = "Configuration not applied"

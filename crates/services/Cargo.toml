@@ -1,0 +1,22 @@
+[package]
+name = "hyprshell-services"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+config = { workspace = true }
+platform-layershell = { workspace = true }
+telar = { workspace = true }
+util = { workspace = true }
+chrono = { workspace = true }
+image = { workspace = true }
+libc = { workspace = true }
+libloading = { workspace = true }
+rustfft = { workspace = true }
+rustix = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+ureq = { workspace = true }
+zbus = { workspace = true }

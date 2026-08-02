@@ -1,0 +1,16 @@
+[package]
+name = "hyprshell-config"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+platform-layershell = { workspace = true }
+telar = { workspace = true }
+util = { workspace = true }
+chrono = { workspace = true }
+image = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+tracing = { workspace = true }

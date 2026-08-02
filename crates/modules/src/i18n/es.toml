@@ -1,0 +1,4 @@
+[common]
+unknown = "Desconocido"
+on = "Sí"
+off = "No"

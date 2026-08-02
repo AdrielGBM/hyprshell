@@ -1,7 +1,7 @@
 [package]
 name = "hyprshell"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [lib]
 
@@ -12,22 +12,17 @@ path = "src/main.rs"
 [dependencies]
 telar = { workspace = true, features = ["dynamic-svg", "async-assets"] }
 platform-layershell = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-toml = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-tracing = "0.1"
+config = { workspace = true }
+services = { workspace = true }
+ui = { workspace = true }
+surfaces = { workspace = true }
+modules = { workspace = true }
+settings = { workspace = true }
+util = { workspace = true }
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde_json = "1.0.150"
-zbus = "5.17.0"
-ureq = "3.3.0"
 fontdb = "0.23"
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
-toml_edit = "0.25.13"
-rustix = { version = "1.1.4", features = ["fs"] }
 tracing-appender = "0.2.5"
-libloading = "0.9.0"
-libc = "0.2.189"
-rustfft = "6.4.1"
 
 [dev-dependencies]
-platform-headless = { path = "../../../telar/crates/platform/platform-headless", package = "telar-platform-headless" }
+visual = { workspace = true }
