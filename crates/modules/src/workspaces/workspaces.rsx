@@ -1,7 +1,7 @@
 [logic]
 use crate::workspaces::{Pill, PillStyle, grid, pills};
-use ::services::hyprland::{self, Snapshot};
 use ::config::theme::NordTheme;
+use ::services::hyprland::{self, Snapshot};
 
 // Resolving the socket dir per click keeps the handler capture-free (it takes only the workspace id).
 fn focus(id: i32) {

@@ -1,6 +1,6 @@
 [logic]
-use ::services::battery::{self, BatteryDetails, ChargeState};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::battery::{self, BatteryDetails, ChargeState};
 
 // The panel echoes the chip's colour language: warning tints at low charge, the theme's green while charging, otherwise the plain text colour.
 fn level_color(level: i32, charging: bool, fg: Color) -> Color {
@@ -58,7 +58,10 @@ let init = battery::details();
 
 let level = signal(init.map(|d| d.level).unwrap_or(0));
 let charging = signal(init.map(|d| d.state.is_charging()).unwrap_or(false));
-let status = signal(init.map(|d| status_text(&d)).unwrap_or_else(|| telar::t!("battery.none")));
+let status = signal(
+    init.map(|d| status_text(&d))
+        .unwrap_or_else(|| telar::t!("battery.none")),
+);
 let rate = signal(init.map(|d| rate_text(&d)).unwrap_or_default());
 
 let level_pct = level.read_only();

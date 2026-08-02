@@ -1,7 +1,7 @@
 [logic]
 use crate::media::{glyph, label, marquee, marquee_ticks, overflows};
-use ::services::mpris::{self, Player};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::mpris::{self, Player};
 
 let config = ui::module::surface_env()
     .map(|e| e.config.media.clone())
@@ -45,7 +45,11 @@ let text_empty = text_view.clone();
 let fg = ui::module::module_fg();
 let fg_icon = fg.clone();
 let body = use_theme::<NordTheme>().font(FontRole::Body);
-let icon = ui::icon::icon_view(move || icon_view.get(), move || fg_icon.get(), ui::module::icon_px())?;
+let icon = ui::icon::icon_view(
+    move || icon_view.get(),
+    move || fg_icon.get(),
+    ui::module::icon_px(),
+)?;
 let show_text = memo(move || !vertical && !text_empty.get().is_empty());
 
 [view]

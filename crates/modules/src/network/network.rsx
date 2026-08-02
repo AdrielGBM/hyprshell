@@ -1,6 +1,6 @@
 [logic]
-use ::ui::glyph;
 use ::services::network::{self, Network};
+use ::ui::glyph;
 
 let state = signal(network::read());
 let read = state.read_only();

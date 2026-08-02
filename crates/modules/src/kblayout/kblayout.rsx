@@ -1,6 +1,6 @@
 [logic]
-use ::services::hyprland::{self, KeyboardLayout};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::hyprland::{self, KeyboardLayout};
 
 // Hyprland names layouts in full ("English (US)"); a bar has room for the two-letter code people actually scan
 // for, so this takes the initials of the leading words — "English (US)" → "EN", "Spanish" → "ES".
@@ -24,9 +24,12 @@ let initial = hyprland::socket_dir()
 let code = signal(short_name(&initial));
 let code_view = code.read_only();
 
-platform_layershell::watch(hyprland::subscribe_keyboard, move |layout: KeyboardLayout| {
-    code.set(short_name(&layout));
-});
+platform_layershell::watch(
+    hyprland::subscribe_keyboard,
+    move |layout: KeyboardLayout| {
+        code.set(short_name(&layout));
+    },
+);
 
 let fg = ui::module::module_fg();
 let body = use_theme::<NordTheme>().font(FontRole::Body);

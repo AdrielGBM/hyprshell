@@ -1,7 +1,7 @@
 [logic]
 use crate::lockstatus::{indicator, shown};
-use ::services::lockkeys::{self, LockKeys};
 use ::config::theme::NordTheme;
+use ::services::lockkeys::{self, LockKeys};
 
 let config = ui::module::surface_env()
     .map(|env| env.config.lock_status)

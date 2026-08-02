@@ -1,7 +1,7 @@
 [logic]
 use ::config::TemperatureConfig;
-use ::services::resources::{self, Resources};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::resources::{self, Resources};
 
 fn heat_color(celsius: Option<f32>, config: &TemperatureConfig, fg: Color) -> Color {
     let t = use_theme::<NordTheme>();

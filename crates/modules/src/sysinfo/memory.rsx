@@ -1,6 +1,6 @@
 [logic]
-use ::services::resources::{self, Resources};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::resources::{self, Resources};
 
 fn pressure_color(percent: f32, fg: Color) -> Color {
     let t = use_theme::<NordTheme>();

@@ -1,6 +1,6 @@
 [logic]
-use ::services::resources::{self, Resources};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::resources::{self, Resources};
 
 // The chip tints as load climbs, so a busy machine is visible without reading the number.
 fn load_color(percent: f32, fg: Color) -> Color {

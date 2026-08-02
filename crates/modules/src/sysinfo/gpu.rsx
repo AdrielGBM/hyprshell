@@ -1,7 +1,7 @@
 [logic]
-use ::ui::glyph;
-use ::services::gpu::{self, Gpu};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::gpu::{self, Gpu};
+use ::ui::glyph;
 
 // The same load ramp the CPU chip uses, so two readouts side by side mean the same thing at the same colour.
 fn load_color(percent: Option<f32>, fg: Color) -> Color {

@@ -1,7 +1,7 @@
 [logic]
 use crate::tray::{tray_icon, visible};
-use ::services::tray::{self, TrayItem};
 use ::config::theme::NordTheme;
+use ::services::tray::{self, TrayItem};
 
 let config = ui::module::surface_env()
     .map(|env| env.config.tray.clone())
@@ -23,7 +23,11 @@ let fg = ui::module::module_fg();
 let theme = use_theme::<NordTheme>();
 let size = ui::module::icon_px();
 let radius = ui::module::chip_radius();
-let gap = if config.compact { 0.0 } else { (size * 0.15).round() };
+let gap = if config.compact {
+    0.0
+} else {
+    (size * 0.15).round()
+};
 
 [view]
 row align:center gap:gap

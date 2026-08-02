@@ -1,8 +1,11 @@
 [logic]
-use ::ui::glyph;
 use ::services::volume::{self, Volume};
+use ::ui::glyph;
 
-let state = signal(volume::current_mic().unwrap_or(Volume { level: 0, muted: true }));
+let state = signal(volume::current_mic().unwrap_or(Volume {
+    level: 0,
+    muted: true,
+}));
 let read = state.read_only();
 let fg = ui::module::module_fg();
 

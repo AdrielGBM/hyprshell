@@ -1,8 +1,8 @@
 [logic]
 use crate::osd::{OsdKind, current_osd_kind, current_osd_radius};
-use ::ui::glyph;
 use ::config::theme::NordTheme;
 use ::services::{brightness, volume};
+use ::ui::glyph;
 
 const TRACK_W: f32 = 172.0;
 const TRACK_H: f32 = 6.0;
@@ -21,7 +21,11 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
             level: 0,
             muted: false,
         });
-        (glyph::volume(v), v.level.clamp(0, 100) as f32 / 100.0, v.muted)
+        (
+            glyph::volume(v),
+            v.level.clamp(0, 100) as f32 / 100.0,
+            v.muted,
+        )
     }
     OsdKind::Brightness => {
         let level = brightness::osd_level().unwrap_or(0).clamp(0, 100);

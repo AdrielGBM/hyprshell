@@ -1,6 +1,6 @@
 [logic]
-use ::services::netspeed::{self, NetSpeed, format_rate};
 use ::config::theme::{FontRole, NordTheme};
+use ::services::netspeed::{self, NetSpeed, format_rate};
 
 let initial = netspeed::current().unwrap_or_default();
 let down = signal(format_rate(initial.down));
@@ -20,7 +20,11 @@ let caption = use_theme::<NordTheme>().font(FontRole::Caption);
 // Half-height arrows stacked in the chip: two rates need two lines to stay readable at bar size, and the
 // direction glyph says which is which without a label.
 let arrow_size = (ui::module::icon_px() * 0.55).round();
-let down_icon = ui::icon::icon_view(|| "arrow-down".to_string(), move || fg_down.get(), arrow_size)?;
+let down_icon = ui::icon::icon_view(
+    || "arrow-down".to_string(),
+    move || fg_down.get(),
+    arrow_size,
+)?;
 let up_icon = ui::icon::icon_view(|| "arrow-up".to_string(), move || fg_up.get(), arrow_size)?;
 
 [view]

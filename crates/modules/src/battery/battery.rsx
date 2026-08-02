@@ -1,7 +1,7 @@
 [logic]
-use ::ui::glyph;
-use ::services::battery;
 use ::config::theme::NordTheme;
+use ::services::battery;
+use ::ui::glyph;
 
 let init = battery::read();
 let level = signal(init.map(|b| b.level).unwrap_or(0));

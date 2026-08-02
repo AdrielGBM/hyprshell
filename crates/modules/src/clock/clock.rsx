@@ -1,8 +1,8 @@
 [logic]
 // No-op under a headless test (the clock shows its initial value there).
 use ::config::ClockConfig;
-use ::services::clock;
 use ::config::theme::{FontRole, NordTheme};
+use ::services::clock;
 
 // `strftime` patterns come from config, so a user can have seconds, a weekday or a 12-hour clock without the
 // shell enumerating presets.

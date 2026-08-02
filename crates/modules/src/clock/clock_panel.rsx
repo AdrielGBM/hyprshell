@@ -1,6 +1,6 @@
 [logic]
-use ::services::clock;
 use ::config::theme::{FontRole, NordTheme};
+use ::services::clock;
 
 fn now_time() -> String {
     chrono::Local::now().format("%H:%M:%S").to_string()
