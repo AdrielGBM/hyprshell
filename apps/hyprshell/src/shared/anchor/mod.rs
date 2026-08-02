@@ -5,9 +5,11 @@
 //! the surface sits along the bar, and the bar's edge decides which side it hangs off. No platform capability
 //! beyond an anchor and a margin is involved, which is why both work on all four edges unchanged.
 
-use telar::{Rect, SurfaceAlign, SurfaceAnchor, SurfacePlacement, SurfaceRole, SurfaceSize};
+use telar::{Rect, SurfaceAnchor};
 
-use crate::core::config::Edge;
+use crate::core::placement::{Input, Placement};
+
+use crate::core::config::{Align, Edge};
 use crate::shared::module::SurfaceEnv;
 
 /// Stand-in for an output the compositor has not reported a logical size for yet. Only ever feeds the clamp
@@ -36,25 +38,34 @@ pub fn anchor_for(edge: Edge) -> SurfaceAnchor {
     }
 }
 
-/// How far along the bar the surface starts, clamped so it stays on the output.
+/// How far along the bar the surface starts, in the coordinates its margin is measured in.
 ///
 /// A horizontal bar centres the surface on its chip, which is what a menu hanging under an icon should do. A
 /// vertical one lines the surface's top up with the chip's instead: `span` there is the surface's *height*,
 /// which is content-derived for a menu and therefore often unknown, and a centre that cannot be computed is
 /// worse than an edge that can.
+///
+/// Two conversions stand between the chip and that margin, and leaving either out puts the surface off screen.
+/// The chip's rect is relative to the bar surface, which sits at its own gap off the screen edge. The margin is
+/// relative to the *usable* area, because this surface asks for no exclusive zone of its own and so is placed
+/// inside everyone else's — the perpendicular bars and, under `[shape] frame`, the ring. Clamping against the
+/// whole output instead is what pushed the popout on a bar's last chip past the far edge of the screen.
 fn along(env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> f32 {
-    let gap = env.config.panel_gap(env.edge) as f32;
+    let config = &env.config;
+    let gap = config.panel_gap(env.edge) as f32;
+    let span = span.unwrap_or_default();
     let (width, height) = output_size(env);
-    let (start, extent) = if env.edge.is_vertical() {
-        (chip.y, height)
+    let (bar_top, _, _, bar_left) = crate::core::surfaces::bar_margin_for(config, env.edge);
+    let (start, extent, lead, trail, off_screen_edge) = if env.edge.is_vertical() {
+        (chip.y, height, Edge::Top, Edge::Bottom, bar_top as f32)
     } else {
-        (
-            chip.x + chip.width / 2.0 - span.unwrap_or_default() / 2.0,
-            width,
-        )
+        let centred = chip.x + chip.width / 2.0 - span / 2.0;
+        (centred, width, Edge::Left, Edge::Right, bar_left as f32)
     };
-    let far = (extent - span.unwrap_or_default() - gap).max(gap);
-    start.clamp(gap, far)
+    let leading = config.edge_reserved(lead) as f32;
+    let usable = (extent - leading - config.edge_reserved(trail) as f32).max(0.0);
+    let far = (usable - span - gap).max(gap);
+    (start + off_screen_edge - leading).clamp(gap, far)
 }
 
 /// The margin `(top, right, bottom, left)` for a surface hanging `off_bar` px off the bar and lined up with
@@ -82,14 +93,11 @@ pub fn chip_margin(
 /// The distance off the bar is the shared [`panel_gap`](crate::Config::panel_gap) and nothing more: the
 /// surface underneath uses `exclusive_zone = 0`, so the compositor has already positioned it past the bar's
 /// reserved zone, exactly as a drawer is positioned.
-pub fn chip_placement(env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> SurfacePlacement {
-    let off_bar = env.config.panel_gap(env.edge) as f32;
-    SurfacePlacement::new(SurfaceRole::Drawer, anchor_for(env.edge))
-        .align(SurfaceAlign::Start)
-        .size(SurfaceSize::Auto)
-        .margin(chip_margin(env, chip, off_bar, span))
-        .dismiss_on_outside(true)
-        .output(env.output.clone())
+pub fn chip_placement(env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> Placement {
+    Placement::card("hyprshell-drawer", env, chip, span)
+        .align(Align::Start)
+        .dismissable()
+        .input(Input::Solid)
 }
 
 #[cfg(test)]
@@ -144,6 +152,47 @@ mod tests {
         );
     }
 
+    /// The margin is measured from the usable area, not from the screen, because the surface takes no exclusive
+    /// zone and the compositor places it inside everyone else's. Under `[shape] frame` that area is inset on
+    /// every edge at once, so a clamp against the output overshoots by the whole ring — which is exactly how the
+    /// popout on the last chip of a top bar ended up hanging past the right edge of the screen.
+    #[test]
+    fn a_popout_stays_inside_the_frame_ring_not_merely_inside_the_screen() {
+        let framed = SurfaceEnv {
+            edge: Edge::Top,
+            bar_size: 32,
+            output: None,
+            config: Arc::new(
+                toml::from_str(
+                    "[shape]\nframe=true\ngap=0\ninactive_size=8\n\
+                     [bars.top]\nsize=32\nend=[\"network\"]\n\
+                     [bars.left]\nsize=32\nstart=[\"workspaces\"]\n",
+                )
+                .unwrap(),
+            ),
+        };
+        let (width, _) = output_size(&framed);
+        let inner_left = framed.config.edge_reserved(Edge::Left) as f32;
+        let inner_right = width - framed.config.edge_reserved(Edge::Right) as f32;
+        assert!(inner_left > 0.0, "the left bar reserves a strip to clear");
+
+        let (_, _, _, left) = chip_margin(&framed, chip(width - 40.0, 0.0), 8.0, Some(SPAN));
+        // The margin is relative to the usable area's left edge, so this is where the surface actually lands.
+        let placed = inner_left + left as f32;
+        assert!(
+            placed + SPAN <= inner_right,
+            "a popout on the last chip runs past the ring: {placed} + {SPAN} > {inner_right}"
+        );
+
+        // And the near end is measured in the same space: a popout on the first chip clears the ring rather
+        // than starting under it.
+        let (_, _, _, near) = chip_margin(&framed, chip(inner_left + 4.0, 0.0), 8.0, Some(SPAN));
+        assert!(
+            near >= 0,
+            "a popout at the start of the bar sits inside the usable area, not before it"
+        );
+    }
+
     #[test]
     fn a_bottom_bar_puts_its_surface_above_itself() {
         let env = env(Edge::Bottom);
@@ -175,12 +224,13 @@ mod tests {
     fn the_placement_carries_the_bar_edge_and_dismisses_on_an_outside_press() {
         for edge in Edge::ALL {
             let env = env(edge);
-            let placement = chip_placement(&env, chip(200.0, 200.0), Some(SPAN));
-            assert_eq!(placement.anchor, anchor_for(edge));
-            assert_eq!(placement.align, SurfaceAlign::Start);
+            let hosted = chip_placement(&env, chip(200.0, 200.0), Some(SPAN)).hosted_placement();
+            assert_eq!(hosted.anchor, anchor_for(edge));
+            assert_eq!(hosted.align, telar::SurfaceAlign::Start);
+            assert!(hosted.dismiss_on_outside, "a click outside closes a menu");
             assert!(
-                placement.dismiss_on_outside,
-                "a click outside closes a menu"
+                !hosted.scrim,
+                "and does it without dimming the screen: a context menu is not a modal"
             );
         }
     }

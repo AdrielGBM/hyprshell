@@ -78,7 +78,7 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
             };
             // Along a horizontal bar the menu's extent is its fixed width; along a vertical one it would be its height, which is content-derived and unknown before layout.
             let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
-            let placement = chip_placement(&env, chip, span);
+            let placement = chip_placement(&env, chip, span).hosted_placement();
             let (edge, output) = (env.edge, env.output.clone());
             let (bus, path) = (event_bus.clone(), event_path.clone());
             crate::core::shell::toggle_window(SURFACE_ID, move || {
