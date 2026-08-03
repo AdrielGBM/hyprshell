@@ -800,11 +800,30 @@ impl Theme for NordTheme {
 }
 
 impl ThemeTokens for NordTheme {
+    /// The metrics as well as the colours. Without these four a catalogue component sizes itself from the
+    /// trait's own defaults — 4px radius, 8px spacing, 14px text — which is a different design from the one the
+    /// user configured, on the same screen as the bars that follow it.
+    fn radius(&self) -> f32 {
+        self.radius
+    }
+    fn spacing(&self) -> f32 {
+        self.spacing
+    }
+    fn font_size(&self) -> f32 {
+        self.font_size
+    }
+    fn icon_size(&self) -> f32 {
+        self.icon_size
+    }
+
     fn primary(&self) -> Color {
         self.accent
     }
+    /// Whichever of the theme's two foregrounds reads on the accent, rather than always the dark one: a light
+    /// accent takes `base`, a dark one takes `text`. A component that fills with `primary` and writes with
+    /// `on_primary` is otherwise unreadable on half the palettes this shell ships.
     fn on_primary(&self) -> Color {
-        self.base
+        self.accent.most_readable(&[self.text, self.base])
     }
     fn muted(&self) -> Color {
         self.muted
@@ -815,8 +834,14 @@ impl ThemeTokens for NordTheme {
     fn ink(&self) -> Color {
         self.text
     }
-    fn surface_alt(&self) -> Color {
+    /// What a floating catalogue panel — a dropdown, a dialog, a drawer sheet — sits on. Unanswered it is the
+    /// trait's opaque white, which on this shell is a white slab in the middle of a dark panel.
+    fn surface(&self) -> Color {
         self.surface
+    }
+    /// The quieter tone under a chip or a tag: the raised overlay, not the panel it is raised *on*.
+    fn surface_alt(&self) -> Color {
+        self.overlay
     }
     fn border(&self) -> Color {
         self.muted
@@ -847,6 +872,42 @@ impl ThemeTokens for NordTheme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A catalogue component asks the theme its questions through `ThemeTokens`, not through `NordTheme`, so a
+    /// metric this shell configures has to be answerable there — otherwise a `text_field` dropped into the
+    /// settings float rounds and spaces itself to telar's defaults while every bar on screen follows the theme.
+    #[test]
+    fn the_token_contract_answers_with_this_theme_s_own_metrics() {
+        let theme = NordTheme::rose_pine();
+        assert_eq!(ThemeTokens::radius(&theme), theme.radius);
+        assert_eq!(ThemeTokens::spacing(&theme), theme.spacing);
+        assert_eq!(ThemeTokens::font_size(&theme), theme.font_size);
+        assert_eq!(ThemeTokens::icon_size(&theme), theme.icon_size);
+        assert_ne!(
+            ThemeTokens::radius(&theme),
+            4.0,
+            "rose-pine rounds to 10px, so a default answer here would be silently wrong"
+        );
+    }
+
+    /// Filling with `primary` and writing with `on_primary` has to stay readable on every palette, so the ink
+    /// is the more contrasting of the theme's two foregrounds rather than always its `base`.
+    #[test]
+    fn on_primary_is_whichever_foreground_reads_on_the_accent() {
+        for name in ["nord", "rose-pine-dawn", "catppuccin-latte", "gruvbox"] {
+            let theme = NordTheme::named(name);
+            let ink = ThemeTokens::on_primary(&theme);
+            assert!(
+                ink == theme.text || ink == theme.base,
+                "{name}: the ink is one of the theme's own foregrounds"
+            );
+            assert_eq!(
+                ink,
+                theme.accent.most_readable(&[theme.text, theme.base]),
+                "{name}: and it is the one that reads on the accent"
+            );
+        }
+    }
 
     /// The two halves of the token table have to name the same tokens. A swatch drawn from a name `token`
     /// does not know reads the accent, which is a preview that quietly shows the wrong colour rather than a
