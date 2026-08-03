@@ -14,5 +14,5 @@ platform_layershell::watch(volume::subscribe, move |v: volume::Volume| state.set
 [view]
 icon_glyph name(move || glyph::volume(read.get()).to_string()) tint(move || fg.get()) size:(ui::module::icon_px())
 
-[preview "Volume"]
+[preview "Volume" fixture:ui::preview::bar_chip]
 volume

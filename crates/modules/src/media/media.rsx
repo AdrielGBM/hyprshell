@@ -53,5 +53,5 @@ row align:center gap:6
     if $show_text
         text "{$text_view}" size:body color:$fg
 
-[preview "Media"]
+[preview "Media" fixture:ui::preview::bar_chip]
 media

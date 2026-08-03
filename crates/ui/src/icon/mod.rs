@@ -118,6 +118,9 @@ struct IconStore {
     signals: RefCell<HashMap<IconId, RwSignal<AssetState<Arc<SvgData>>>>>,
     attempts: RefCell<HashMap<IconId, u32>>,
     requests: Sender<IconId>,
+    /// Where the worker keeps what it has already downloaded, so a request nobody will answer can still be
+    /// resolved here — see [`IconStore::svg`].
+    cache_dir: PathBuf,
     default_set: String,
     /// The `[icons]` config this store was built from. All surfaces share the UI thread, so the store is
     /// process-wide; recording its config is what lets a reload notice the endpoint or default set changed.
@@ -129,7 +132,14 @@ impl AssetSource for IconStore {
         let icon_id = IconId::parse(id, &self.default_set);
         let mut signals = self.signals.borrow_mut();
         let handle = signals.entry(icon_id.clone()).or_insert_with(|| {
-            let _ = self.requests.send(icon_id.clone());
+            // A closed channel means no worker is listening — `watch` starts none without a layer-shell event
+            // loop, which is every `[preview]` and every headless test. The glyph is then read from the disk
+            // cache here or never at all, so a preview shows real icons instead of a page of spinners.
+            if self.requests.send(icon_id.clone()).is_err()
+                && let Some(svg) = cached_icon(&icon_id, &self.cache_dir)
+            {
+                return signal(AssetState::Ready(svg));
+            }
             signal(AssetState::Loading)
         });
         handle.read_only()
@@ -259,6 +269,7 @@ pub fn init_store(icons: &config::IconsConfig) {
             signals: RefCell::new(HashMap::new()),
             attempts: RefCell::new(HashMap::new()),
             requests,
+            cache_dir: cache_dir(),
             default_set: icons.default_set.clone(),
             config: icons.clone(),
         });
@@ -343,13 +354,17 @@ fn run_worker(incoming: Receiver<IconId>, fetch: FetchConfig, sender: EventSende
     }
 }
 
+/// The glyph as a previous download left it on disk, or `None` when it was never fetched.
+fn cached_icon(id: &IconId, cache_dir: &Path) -> Option<Arc<SvgData>> {
+    let text = fs::read_to_string(id.cache_path(cache_dir)).ok()?;
+    SvgData::from_str(&text).ok().map(Arc::new)
+}
+
 fn load_icon(id: &IconId, fetch: &FetchConfig, agent: &ureq::Agent) -> Option<Arc<SvgData>> {
-    let path = id.cache_path(&fetch.cache_dir);
-    if let Ok(cached) = fs::read_to_string(&path)
-        && let Ok(svg) = SvgData::from_str(&cached)
-    {
-        return Some(Arc::new(svg));
+    if let Some(svg) = cached_icon(id, &fetch.cache_dir) {
+        return Some(svg);
     }
+    let path = id.cache_path(&fetch.cache_dir);
 
     let body = agent
         .get(&id.url(&fetch.provider))
@@ -517,11 +532,36 @@ mod tests {
     }
 
     #[test]
-    fn icon_state_is_loading_without_a_surface_or_network() {
+    fn icon_state_is_loading_without_a_surface_a_network_or_a_cached_copy() {
         assert!(
-            matches!(icon_state("bell"), AssetState::Loading),
-            "with no event loop the icon has nothing to resolve from, so it stays on its spinner"
+            matches!(
+                icon_state("hyprshell-test:nothing-was-ever-cached-here"),
+                AssetState::Loading
+            ),
+            "with no event loop and nothing on disk the icon has nothing to resolve from, so it stays on its spinner"
         );
+    }
+
+    /// The other half of that: a glyph a previous run already downloaded is readable without the worker, which
+    /// is what makes a `[preview]` — where `watch` starts none — draw real icons instead of a page of spinners.
+    #[test]
+    fn a_cached_glyph_resolves_with_no_worker_to_ask() {
+        let root = std::env::temp_dir().join(format!("hyprshell-icon-{}", std::process::id()));
+        let id = IconId::parse("mdi:home", "lucide");
+        let path = id.cache_path(&root);
+        fs::create_dir_all(path.parent().expect("the cache path has a set directory")).unwrap();
+        fs::write(
+            &path,
+            r#"<svg viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#,
+        )
+        .unwrap();
+
+        assert!(cached_icon(&id, &root).is_some(), "read back off disk");
+        assert!(
+            cached_icon(&IconId::parse("mdi:absent", "lucide"), &root).is_none(),
+            "and a glyph nobody downloaded is still a miss"
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]

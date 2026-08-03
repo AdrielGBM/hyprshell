@@ -27,5 +27,5 @@ row align:center gap:gap
     for lock in $indicators key *lock
         build "indicator(lock, tint.clone(), fg.clone(), idle, size)?"
 
-[preview "Lockstatus"]
+[preview "Lockstatus" fixture:ui::preview::bar_chip]
 lockstatus

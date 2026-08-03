@@ -32,5 +32,5 @@ row align:center gap:6
     icon_glyph name(|| "memory-stick".to_string()) tint(move || pressure_color(used_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
     text "{$percent}" size:body color:$fg
 
-[preview "Memory"]
+[preview "Memory" fixture:ui::preview::bar_chip]
 memory

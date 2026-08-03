@@ -87,6 +87,12 @@ pub fn current_mic() -> Option<Volume> {
     MIC.current()
 }
 
+/// Stands a reading in for the graph's, without starting the PipeWire listener — what a `[preview]` draws its
+/// meter from. See [`util::broadcast::Service::seed`].
+pub fn seed(volume: Volume) {
+    VOLUME.seed(volume);
+}
+
 /// The running `[audio]` settings, or the defaults outside a started shell (a unit test, a service thread —
 /// [`config::config`] lives on the driver thread, which is where every caller of this runs).
 pub fn settings() -> AudioConfig {

@@ -641,6 +641,12 @@ pub fn current() -> Option<Vec<TrayItem>> {
     TRAY.current()
 }
 
+/// Hands the module a list of items without starting the host — no D-Bus name is claimed and no thread runs, so
+/// what a `[preview]` seeds is what it draws. See [`util::broadcast::Service::seed`].
+pub fn seed(items: Vec<TrayItem>) {
+    TRAY.seed(items);
+}
+
 /// Calls `method` on an item, off the UI thread. Every tray interaction is a round-trip to another application,
 /// which may be busy; none of them may run on the frame.
 fn invoke(item: &TrayItem, method: &'static str, args: (i32, i32)) {

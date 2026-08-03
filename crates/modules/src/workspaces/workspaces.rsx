@@ -20,7 +20,13 @@ let output = env.as_ref().and_then(|e| e.output.clone());
 let occupied_background = config.occupied_background;
 let indicator = config.indicator;
 
-let list = signal(Vec::<Pill>::new());
+// Seeded from the last snapshot rather than left empty until the first event lands: the subscription below
+// delivers it, but only on the next turn of the loop, so the bar's first frame would draw an empty row.
+let list = signal(
+    hyprland::current_workspaces()
+        .map(|snap| pills(&snap, &config, output.as_deref()))
+        .unwrap_or_default(),
+);
 let items = list.read_only();
 // Subscribe to the single shared workspaces source; the consumer writes the signal on this surface's thread.
 platform_layershell::watch(hyprland::subscribe, move |snap: Snapshot| {
@@ -44,5 +50,5 @@ let row = grid(items, style, focus)?;
 [view]
 widget "row"
 
-[preview "Workspaces"]
+[preview "Workspaces" fixture:crate::preview::workspaces]
 workspaces

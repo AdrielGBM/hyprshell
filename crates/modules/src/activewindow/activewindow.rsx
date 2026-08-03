@@ -55,5 +55,5 @@ row align:center gap:8
     if trailing
         build "crate::activewindow::icon_slot(&class, size)?"
 
-[preview "Activewindow"]
+[preview "Activewindow" fixture:ui::preview::bar_chip]
 activewindow

@@ -110,6 +110,18 @@ impl<T: Clone + Send + 'static> Service<T> {
     pub fn current(&'static self) -> Option<T> {
         self.started().current()
     }
+
+    /// Records `value` as the current reading *without* starting the producer, so a reader sees it and the
+    /// thread that would have read the system never runs.
+    ///
+    /// What a `[preview]` fixture seeds a service with. [`publish`](Self::publish) is the wrong door for that:
+    /// it starts the producer, which for the tray means claiming a D-Bus name and then overwriting the seeded
+    /// reading with the machine's own — so a preview would draw whatever happens to be running.
+    pub fn seed(&'static self, value: T) {
+        self.cell
+            .get_or_init(|| Arc::new(Broadcast::new()))
+            .publish(value);
+    }
 }
 
 /// A producerless shared value: the same one-writer/N-reader fan-out as [`Service`], for state the shell itself
@@ -181,9 +193,27 @@ impl<T: Clone + Send + 'static> Store<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
 
     static COUNTER: Store<u32> = Store::new(|| 7);
+
+    static PRODUCER_RAN: AtomicBool = AtomicBool::new(false);
+    static SEEDED: Service<u32> = Service::new("test-seeded", |broadcast| {
+        PRODUCER_RAN.store(true, Ordering::SeqCst);
+        broadcast.publish(0);
+    });
+
+    #[test]
+    fn a_seeded_service_answers_readers_without_starting_its_producer() {
+        SEEDED.seed(9);
+        assert_eq!(SEEDED.current(), Some(9), "a reader sees the seeded value");
+        assert!(
+            !PRODUCER_RAN.load(Ordering::SeqCst),
+            "the thread that would read the system never started"
+        );
+    }
 
     #[test]
     fn store_seeds_from_init_and_updates_in_place() {

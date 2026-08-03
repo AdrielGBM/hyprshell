@@ -33,5 +33,5 @@ platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
 [view]
 chip_label text:$now_view
 
-[preview "Clock"]
+[preview "Clock" fixture:ui::preview::bar_chip]
 clock

@@ -10,5 +10,5 @@ platform_layershell::watch(network::subscribe, move |net: Network| state.set(net
 [view]
 icon_glyph name(move || glyph::network(read.get()).to_string()) tint(move || fg.get()) size:(ui::module::icon_px())
 
-[preview "Network"]
+[preview "Network" fixture:ui::preview::bar_chip]
 network

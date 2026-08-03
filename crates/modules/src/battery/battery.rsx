@@ -20,5 +20,5 @@ platform_layershell::watch(battery::subscribe, move |b| {
 [view]
 icon_glyph name(move || glyph::battery(charging_glyph.get()).to_string()) tint(move || glyph::battery_tint(level_tint.get(), charging_tint.get(), theme, fg.get())) size:(ui::module::icon_px())
 
-[preview "Battery"]
+[preview "Battery" fixture:ui::preview::bar_chip]
 battery

@@ -30,5 +30,5 @@ col justify:center gap:1
         icon_glyph name(|| "arrow-up".to_string()) tint(move || fg_up.get()) size:(arrow_size)
         text "{$up_view}" size:caption color:$fg
 
-[preview "Netspeed"]
+[preview "Netspeed" fixture:ui::preview::bar_chip]
 netspeed

@@ -60,6 +60,9 @@ let settle = drag.map(|drag| {
 row align:center justify:center pad_x:inset_x pad_y:inset_y shrink:0 fill:base radius:radius hover_style(fill:hover) active_style(fill:active) on_press(press) on_scroll(scroll) on_drag(arm) on_drag_end(settle)
     children
 
-[preview "Module chip"]
-module_shell radius:8 square:true rest:(use_theme::<::config::theme::NordTheme>().overlay)
-    icon_glyph name(|| "cpu".to_string()) size:18
+[preview "Module chip" fixture:crate::preview::bar_chip]
+// Wrapped in a row so the chip keeps its own width: on the preview page's column it would stretch the full
+// width instead, which is the one shape a bar never gives it.
+row
+    module_shell radius:8 square:true rest:(use_theme::<::config::theme::NordTheme>().overlay)
+        icon_glyph name(|| "cpu".to_string()) size:18

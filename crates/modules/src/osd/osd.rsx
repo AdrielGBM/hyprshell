@@ -53,5 +53,5 @@ box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100
     box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:3
         box width:fill_w height:TRACK_H fill:accent radius:3
 
-[preview "Osd"]
+[preview "Osd" fixture:crate::preview::osd]
 osd

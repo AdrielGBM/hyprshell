@@ -25,5 +25,5 @@ let glyph = memo(move || bright_glyph(level_glyph.get()));
 [view]
 icon_glyph name(move || glyph.get().to_string()) tint(move || fg.get()) size:(ui::module::icon_px())
 
-[preview "Brightness"]
+[preview "Brightness" fixture:ui::preview::bar_chip]
 brightness

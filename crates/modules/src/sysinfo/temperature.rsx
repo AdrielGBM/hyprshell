@@ -47,5 +47,5 @@ row align:center gap:6
     icon_glyph name(|| "thermometer".to_string()) tint(move || heat_color(temp_tint.get(), &tint_config, fg_tint.get())) size:(ui::module::icon_px())
     text "{$reading}" size:body color:$fg
 
-[preview "Temperature"]
+[preview "Temperature" fixture:ui::preview::bar_chip]
 temperature

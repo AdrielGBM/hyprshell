@@ -31,5 +31,5 @@ row align:center gap:6
     icon_glyph name(|| "cpu".to_string()) tint(move || load_color(load_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
     text "{$percent}" size:body color:$fg
 
-[preview "Cpu"]
+[preview "Cpu" fixture:ui::preview::bar_chip]
 cpu

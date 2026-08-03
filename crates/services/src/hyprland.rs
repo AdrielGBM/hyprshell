@@ -555,6 +555,12 @@ pub fn subscribe(tx: EventSender<Snapshot>) {
     WORKSPACES.subscribe(tx);
 }
 
+/// Stands `snapshot` in for the compositor's own, without starting the listener — so a `[preview]` draws the
+/// workspaces it describes whether or not Hyprland is running. See [`util::broadcast::Service::seed`].
+pub fn seed_workspaces(snapshot: Snapshot) {
+    WORKSPACES.seed(snapshot);
+}
+
 /// Whether a line reports something that could have changed which window has focus, or its title.
 fn affects_active_window(line: &str) -> bool {
     const PREFIXES: &[&str] = &[

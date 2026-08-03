@@ -15,5 +15,5 @@ platform_layershell::watch(volume::subscribe_mic, move |mic: Volume| state.set(m
 [view]
 icon_glyph name(move || glyph::microphone(read.get()).to_string()) tint(move || fg.get()) size:(icon)
 
-[preview "Mic"]
+[preview "Mic" fixture:ui::preview::bar_chip]
 mic
