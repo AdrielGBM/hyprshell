@@ -6,7 +6,7 @@ use telar::{LayoutError, LayoutItem, LayoutStyle, RwSignal, Text, box_item, sign
 
 use crate::form::*;
 use config::theme::{FontRole, NordTheme};
-use config::{AudioConfig, LyricsConfig, MediaConfig, VisualiserConfig};
+use config::{AudioConfig, MediaConfig, VisualiserConfig};
 
 pub(crate) fn media_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let (config, path) = crate::form::source();
@@ -84,41 +84,6 @@ pub(crate) fn media_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
         },
     )?;
     section(|| telar::t!("settings.section.media"), rows, save, theme)
-}
-
-pub(crate) fn lyrics_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let l = &config.lyrics;
-    let enabled = signal(l.enabled);
-    let online = signal(l.online);
-
-    // The folder is `[paths] lyrics`, edited with the other paths rather than duplicated here.
-    let rows = vec![
-        toggle_field(
-            || telar::t!("settings.field.enabled"),
-            enabled.clone(),
-            theme,
-        )?,
-        toggle_field(
-            || telar::t!("settings.field.lyrics_online"),
-            online.clone(),
-            theme,
-        )?,
-    ];
-
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.lyrics"),
-        move || {
-            let value = LyricsConfig {
-                enabled: enabled.peek(),
-                online: online.peek(),
-            };
-            persist(&path, "lyrics", &value);
-        },
-    )?;
-    section(|| telar::t!("settings.section.lyrics"), rows, save, theme)
 }
 
 pub(crate) fn audio_section() -> Result<Box<dyn LayoutItem>, LayoutError> {

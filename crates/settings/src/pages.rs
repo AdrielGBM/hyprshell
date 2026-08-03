@@ -220,7 +220,7 @@ pub const PAGES: &[Page] = &[
                 ["media"],
                 crate::sections::audio::media_aliases_section
             ),
-            section!("lyrics", ["lyrics"], crate::sections::audio::lyrics_section),
+            section!("lyrics", ["lyrics"], crate::lyrics),
         ],
     },
     Page {
