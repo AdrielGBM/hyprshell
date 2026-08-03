@@ -196,6 +196,25 @@ pub(crate) fn source() -> (Config, PathBuf) {
 }
 
 thread_local! {
+    /// The page area's scroll window, for the one form that draws more rows than fit in it. Ambient for the
+    /// same reason the source file is: a section takes no arguments, and threading a viewport through every
+    /// one of them to reach a single list is the shape `Build` exists not to have.
+    static VIEWPORT: std::cell::RefCell<Option<telar::ScrollViewport>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Names the scroll window the forms on this page sit in.
+pub(crate) fn set_viewport(viewport: telar::ScrollViewport) {
+    VIEWPORT.with(|slot| *slot.borrow_mut() = Some(viewport));
+}
+
+/// The scroll window, or `None` for a form built outside a page — a preview or a test, where there is nothing
+/// to virtualise against and a plain list is the right answer.
+pub(crate) fn viewport() -> Option<telar::ScrollViewport> {
+    VIEWPORT.with(|slot| slot.borrow().clone())
+}
+
+thread_local! {
     /// The file exactly as it was when this settings window first opened, which is what Revert restores.
     static OPENED_WITH: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }

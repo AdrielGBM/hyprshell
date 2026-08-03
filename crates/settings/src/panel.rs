@@ -272,6 +272,8 @@ fn page_stack(
             .min_width(0.0)
             .height(height),
         move |viewport| {
+            crate::form::set_viewport(viewport.clone());
+
             // A page is *replaced*, not resized: three screens down the Appearance page is not a place to be
             // dropped into Network, and neither is three screens down the forms a search has just narrowed
             // away. The scroll area puts a too-short page back in range on its own; only this knows that what

@@ -5,7 +5,7 @@
 
 use telar::{
     AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
-    RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
+    RwSignal, SizeDimension, StyledContainer, Text, VirtualList, box_item, signal,
 };
 
 use crate::form::*;
@@ -15,10 +15,20 @@ use config::theme::{FontRole, NordTheme};
 use services::apps::{self, App};
 use ui::icon::icon_view;
 
-/// How many applications the database page draws at once. `ReactiveList` builds a widget per row up front, so
-/// a machine with two thousand entries would spend the UI thread before the page appeared — the same bound,
-/// and the same reason, as the launcher's wallpaper grid. The search box is what reaches past it.
-const APP_ROWS: usize = 200;
+/// How many rows either side of the window are built ahead, so a fast scroll does not show a blank strip
+/// while the next batch is constructed.
+const OVERSCAN: usize = 6;
+
+/// The space between two rows, carried as each row's own bottom margin rather than as a gap on the list: a
+/// container gap makes the real pitch `height + gap`, which is not the number the window is divided by.
+const ROW_GAP: f32 = 6.0;
+
+/// One row's exact pitch, which a virtualised list divides by to decide what is on screen — so the row is
+/// *given* this height rather than assumed to have it. Its parts are the icon field (a `Body` line at 1.6
+/// leading, plus its own 4px above and below), the row's 6px above and below, and the gap under it.
+fn row_pitch(theme: NordTheme) -> f32 {
+    theme.font(FontRole::Body) * 1.6 + 8.0 + 12.0 + ROW_GAP
+}
 
 /// K7: the installed applications, as the launcher sees them.
 ///
@@ -49,38 +59,51 @@ pub(crate) fn apps_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let source_query = query.read_only();
     let source_favourites = favourites.read_only();
     let source_hidden = hidden.read_only();
-    let list = ReactiveList::with_gap(
-        move || {
-            // Every signal read out before any of them is mapped: `matching` does no reactive work, but a
-            // `with` over one while reading the next is the borrow panic this file keeps documenting.
-            let apps = source_apps.get();
-            let query = source_query.get();
-            let favourites = source_favourites.get();
-            let hidden = source_hidden.get();
-            matching(&apps, &query)
-                .into_iter()
-                .map(|app| AppRow {
-                    favourite: favourites.contains(&app.id),
-                    hidden: hidden.contains(&app.id),
-                    app,
-                })
-                .collect()
-        },
-        |row: &AppRow| format!("{}|{}|{}", row.app.id, row.favourite, row.hidden),
-        {
-            let (favourites, hidden, icons) = (favourites.clone(), hidden.clone(), icons.clone());
-            move |row: AppRow| {
-                app_row(
-                    row,
-                    favourites.clone(),
-                    hidden.clone(),
-                    icons.clone(),
-                    theme,
-                )
-            }
-        },
-        6.0,
-    )?;
+    let rows = move || {
+        // Every signal read out before any of them is mapped: `matching` does no reactive work, but a
+        // `with` over one while reading the next is the borrow panic this file keeps documenting.
+        let apps = source_apps.get();
+        let query = source_query.get();
+        let favourites = source_favourites.get();
+        let hidden = source_hidden.get();
+        matching(&apps, &query)
+            .into_iter()
+            .map(|app| AppRow {
+                favourite: favourites.contains(&app.id),
+                hidden: hidden.contains(&app.id),
+                app,
+            })
+            .collect()
+    };
+    let key = |row: &AppRow| format!("{}|{}|{}", row.app.id, row.favourite, row.hidden);
+    let build = {
+        let (favourites, hidden, icons) = (favourites.clone(), hidden.clone(), icons.clone());
+        move |row: AppRow| {
+            app_row(
+                row,
+                favourites.clone(),
+                hidden.clone(),
+                icons.clone(),
+                theme,
+            )
+        }
+    };
+
+    // Every application the machine has, not a capped slice of them: a list this long only ever shows a dozen
+    // rows, so it builds the dozen. Outside a page — a preview, a test — there is no scroll window to compute
+    // one against, and a plain list is both correct and what the caller can see anyway.
+    let list = match crate::form::viewport() {
+        Some(viewport) => VirtualList::new(
+            LayoutStyle::new().flex_column(),
+            viewport,
+            row_pitch(theme),
+            OVERSCAN,
+            rows,
+            key,
+            move |_index, row| build(row),
+        )?,
+        None => ReactiveList::new(rows, key, build)?,
+    };
 
     let count_apps = installed.read_only();
     let count_query = query.read_only();
@@ -128,7 +151,7 @@ struct AppRow {
     hidden: bool,
 }
 
-/// The applications a query narrows to, capped. Sorted by name rather than left in scan order, because the
+/// The applications a query narrows to. Sorted by name rather than left in scan order, because the
 /// directories are read most-specific-first and a user browsing a list expects an alphabet.
 fn matching(apps: &[App], query: &str) -> Vec<App> {
     let needle = query.trim().to_lowercase();
@@ -142,7 +165,6 @@ fn matching(apps: &[App], query: &str) -> Vec<App> {
         .cloned()
         .collect();
     found.sort_by_key(|app| app.name.to_lowercase());
-    found.truncate(APP_ROWS);
     found
 }
 
@@ -253,6 +275,8 @@ fn app_row(
             .gap(10.0)
             .padding_horizontal(10.0)
             .padding_vertical(6.0)
+            .height(row_pitch(theme) - ROW_GAP)
+            .margin_bottom(ROW_GAP)
             .width(SizeDimension::Percent(1.0)),
         move |_r| RectStyle::filled(theme.base, 8.0),
         vec![
@@ -272,7 +296,7 @@ fn app_row(
 mod tests {
     use super::*;
     #[test]
-    fn the_application_list_narrows_alphabetically_and_stops_at_the_cap() {
+    fn the_application_list_narrows_alphabetically_and_keeps_every_match() {
         let app = |id: &str, name: &str, keyword: &str| apps::App {
             id: id.to_string(),
             name: name.to_string(),
@@ -304,9 +328,12 @@ mod tests {
         );
         assert!(names("zzz-no-such-app").is_empty());
 
-        let many: Vec<apps::App> = (0..APP_ROWS + 50)
+        // No bound: the list is virtualised, so a machine with thousands of entries costs the dozen rows that
+        // are on screen rather than one widget per application. A cap here used to be the only defence, and
+        // it made the entries past it unreachable by anything but a search.
+        let many: Vec<apps::App> = (0..2_000)
             .map(|i| app(&format!("app{i}"), &format!("App {i:04}"), ""))
             .collect();
-        assert_eq!(matching(&many, "").len(), APP_ROWS);
+        assert_eq!(matching(&many, "").len(), 2_000);
     }
 }
