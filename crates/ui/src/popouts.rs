@@ -78,5 +78,5 @@ pub fn build(
             .as_ref()
             .and_then(|registry| registry.cards.get(module).copied())
     })?;
-    Some(build(config, theme).build(theme))
+    Some(build(config, theme).build())
 }

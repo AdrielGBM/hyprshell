@@ -1,6 +1,5 @@
 [logic]
 use crate::icon::icon_state;
-use telar::{AssetState, Color};
 use ::config::theme::NordTheme;
 
 pub struct Props {

@@ -18,12 +18,13 @@ use std::sync::Arc;
 use platform_layershell::{LayerConfig, open_surface, timeout};
 use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
-    LayoutStyle, Rect, SizeDimension, SurfaceToken, WindowConfig, reset_layout_runtime, set_theme,
+    LayoutStyle, Rect, SizeDimension, Slots, SurfaceToken, WindowConfig, reset_layout_runtime,
+    set_theme,
 };
 
 use config::theme::NordTheme;
 use config::{Config, Edge};
-use ui::card;
+use ui::CardFrameProps;
 use ui::module::{SurfaceEnv, set_surface_env};
 use ui::placement::Placement;
 use ui::popouts;
@@ -213,12 +214,16 @@ pub fn popout_content(
         Some(card) => card?,
         None => return Ok(Box::new(Container::new(LayoutStyle::new(), vec![])?)),
     };
-    let framed = card::frame(
-        inner,
-        config.panel_fill(),
-        config.popouts.card_width(),
-        config.panel_radius(edge),
-        keep_open,
+    let mut content = Slots::new();
+    content.push(None, inner);
+    let framed = ui::card_frame(
+        CardFrameProps {
+            fill: config.panel_fill(),
+            width: config.popouts.card_width(),
+            radius: config.panel_radius(edge),
+            on_hover: Box::new(keep_open),
+        },
+        content,
     )?;
     Ok(Box::new(Container::new(corner_style(edge), vec![framed])?))
 }
