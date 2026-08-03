@@ -31,4 +31,7 @@ platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
 });
 
 [view]
-text "{$now_view}" size:body color:$fg
+chip_label text:$now_view
+
+[preview "Clock"]
+clock
