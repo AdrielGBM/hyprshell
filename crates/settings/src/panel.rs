@@ -320,7 +320,8 @@ fn build_page_area(
     };
     // Each form re-reads the file for itself (`form::source`), which is what makes a form rebuilt a form
     // re-seeded — the panel only says which file that is, once, before any of them is built.
-    let build = move |(_, _, section): (String, u64, &'static crate::pages::Section)| (section.build)();
+    let build =
+        move |(_, _, section): (String, u64, &'static crate::pages::Section)| (section.build)();
     Ok(Box::new(ReactiveList::with_style(
         LayoutStyle::new()
             .flex_column()

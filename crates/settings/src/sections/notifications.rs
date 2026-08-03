@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-
 use telar::{LayoutError, LayoutItem, signal};
 
 use crate::form::*;

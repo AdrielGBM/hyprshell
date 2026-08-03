@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-
 use telar::{
     AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
     RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
@@ -10,8 +9,8 @@ use telar::{
 
 use crate::form::*;
 use crate::table::*;
-use config::theme::{FontRole, NordTheme};
 use config::LauncherConfig;
+use config::theme::{FontRole, NordTheme};
 use services::apps::{self, App};
 use ui::icon::icon_view;
 
