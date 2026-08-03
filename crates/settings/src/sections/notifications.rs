@@ -120,7 +120,6 @@ pub(crate) fn notifications_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.notifications"),
-        theme,
         move || {
             let value = NotificationsConfig {
                 edge: parse_edge(&edge.peek()),
@@ -279,7 +278,6 @@ pub(crate) fn toasts_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.toasts"),
-        theme,
         move || {
             let value = ToastsConfig {
                 enabled: enabled.peek(),
@@ -350,7 +348,6 @@ pub(crate) fn sidebar_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.sidebar"),
-        theme,
         move || {
             let value = SidebarConfig {
                 edge: parse_edge(&edge.peek()),

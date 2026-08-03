@@ -73,7 +73,6 @@ pub(crate) fn media_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.media"),
-        theme,
         move || {
             let value = MediaConfig {
                 preferred_player: preferred.peek(),
@@ -117,7 +116,6 @@ pub(crate) fn lyrics_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.lyrics"),
-        theme,
         move || {
             let value = LyricsConfig {
                 enabled: enabled.peek(),
@@ -156,7 +154,6 @@ pub(crate) fn audio_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.audio"),
-        theme,
         move || {
             let value = AudioConfig {
                 increment: parse_i32(&increment.peek(), a.increment),
@@ -223,7 +220,6 @@ pub(crate) fn visualiser_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.visualiser"),
-        theme,
         move || {
             let value = VisualiserConfig {
                 bars: parse_u32(&bars.peek(), v.bars),
@@ -295,7 +291,6 @@ pub(crate) fn media_aliases_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.media_aliases"),
-        theme,
         move || {
             let aliases: std::collections::HashMap<String, String> = fields
                 .iter()

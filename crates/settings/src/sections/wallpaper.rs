@@ -81,7 +81,6 @@ pub(crate) fn background_visualiser_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.background_visualiser"),
-        theme,
         move || {
             let visualiser = BackgroundVisualiserConfig {
                 enabled: enabled.peek(),
@@ -200,7 +199,6 @@ pub(crate) fn wallpaper_browser_section(
 
     let clear = save_button(
         || telar::t!("settings.wallpaper.clear"),
-        theme,
         || services::wallpaper::clear(None),
     )?;
 
@@ -448,7 +446,6 @@ pub(crate) fn background_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.background"),
-        theme,
         move || {
             let monitors = monitors
                 .iter()
@@ -523,7 +520,6 @@ pub(crate) fn wallpaper_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.wallpaper"),
-        theme,
         move || {
             let value = WallpaperConfig {
                 enabled: enabled.peek(),
@@ -630,7 +626,6 @@ pub(crate) fn desktop_clock_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.desktop_clock"),
-        theme,
         move || {
             let clock = DesktopClockConfig {
                 enabled: enabled.peek(),

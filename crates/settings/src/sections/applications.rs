@@ -67,7 +67,6 @@ pub(crate) fn launcher_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.launcher"),
-        theme,
         move || {
             // Merged into the file as it is now, because the applications page below owns the other half of
             // this same `[launcher]` table. A snapshot taken when the form was built would quietly revert a
@@ -182,7 +181,6 @@ pub(crate) fn apps_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.apps"),
-        theme,
         move || {
             persist_with(&path, "launcher", |current| LauncherConfig {
                 favourites: favourites.peek(),

@@ -94,7 +94,6 @@ pub(crate) fn general_section(
     let legacy_terminal = config.general.terminal.clone();
     let save = save_button(
         || telar::t!("settings.save.general"),
-        theme,
         move || {
             persist(
                 &path,
@@ -185,7 +184,6 @@ pub(crate) fn brightness_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.brightness"),
-        theme,
         move || {
             let value = BrightnessConfig {
                 increment: parse_i32(&increment.peek(), b.increment),
@@ -235,7 +233,6 @@ pub(crate) fn gpu_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.gpu"),
-        theme,
         move || {
             let value = GpuConfig {
                 enabled: enabled.peek(),
@@ -303,7 +300,6 @@ pub(crate) fn weather_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.weather"),
-        theme,
         move || {
             // A blank coordinate is "not set", not zero: a stray empty field must fall back to the place name
             // rather than pinning the forecast to the Gulf of Guinea.
@@ -371,7 +367,6 @@ pub(crate) fn dashboard_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.dashboard"),
-        theme,
         move || {
             let value = DashboardConfig {
                 tabs: split_csv(&tabs.peek()),
@@ -445,7 +440,6 @@ pub(crate) fn paths_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.paths"),
-        theme,
         move || {
             let value = PathsConfig {
                 wallpapers: wallpapers.peek(),
@@ -499,7 +493,6 @@ pub(crate) fn network_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.network"),
-        theme,
         move || {
             let value = NetworkConfig {
                 enabled: enabled.peek(),
@@ -551,7 +544,6 @@ pub(crate) fn bluetooth_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.bluetooth"),
-        theme,
         move || {
             let value = BluetoothConfig {
                 enabled: enabled.peek(),
@@ -622,7 +614,6 @@ pub(crate) fn screenshot_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.screenshot"),
-        theme,
         move || {
             let value = ScreenshotConfig {
                 copy: copy.peek(),
@@ -693,7 +684,6 @@ pub(crate) fn recorder_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.recorder"),
-        theme,
         move || {
             let value = RecorderConfig {
                 backend: backend.peek(),
@@ -757,7 +747,6 @@ pub(crate) fn utilities_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.utilities"),
-        theme,
         move || {
             let value = UtilitiesConfig {
                 toggles: split_csv(&toggles.peek()),
@@ -791,7 +780,6 @@ pub(crate) fn keynav_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.keynav"),
-        theme,
         move || {
             persist(&path, "keynav", &KeyNavConfig { vim: vim.peek() });
         },

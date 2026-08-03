@@ -69,7 +69,6 @@ pub(crate) fn idle_stages_section(
         let list = Rc::clone(&list);
         save_button(
             || telar::t!("settings.list.add"),
-            theme,
             move || list.add(IdleStage::default()),
         )?
     };
@@ -78,7 +77,6 @@ pub(crate) fn idle_stages_section(
     let saved = Rc::clone(&list);
     let save = save_button(
         || telar::t!("settings.save.idle_stages"),
-        theme,
         move || {
             persist_with(&path, "idle", |current| IdleConfig {
                 stages: saved.collect(),
@@ -175,7 +173,6 @@ pub(crate) fn lock_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.lock"),
-        theme,
         move || {
             let value = config::LockConfig {
                 pam_service: pam_service.peek().trim().to_string(),
@@ -237,7 +234,6 @@ pub(crate) fn idle_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.idle"),
-        theme,
         move || {
             let value = config::IdleConfig {
                 enabled: enabled.peek(),

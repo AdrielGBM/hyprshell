@@ -358,7 +358,6 @@ pub(crate) fn theme_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.theme"),
-        theme,
         move || {
             let value = ThemeConfig {
                 name: name.peek(),
@@ -439,7 +438,6 @@ pub(crate) fn shape_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.shape"),
-        theme,
         move || {
             let value = ShapeConfig {
                 mode: parse_shape(&mode.peek()),
@@ -489,7 +487,6 @@ pub(crate) fn icons_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.icons"),
-        theme,
         move || {
             let value = IconsConfig {
                 provider: provider.peek(),
@@ -546,7 +543,6 @@ pub(crate) fn theme_colors_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.theme_colors"),
-        theme,
         move || {
             let colors: std::collections::HashMap<String, String> = fields
                 .iter()
@@ -617,7 +613,6 @@ pub(crate) fn animation_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.animation"),
-        theme,
         move || {
             let value = AnimationConfig {
                 enabled: enabled.peek(),
@@ -678,7 +673,6 @@ pub(crate) fn corners_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.corners"),
-        theme,
         move || {
             let value = CornersConfig {
                 top_left: opt_string(&tl.peek()),

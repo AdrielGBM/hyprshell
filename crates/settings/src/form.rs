@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use serde::Serialize;
 use telar::{
-    AlignItems, Container, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    RwSignal, SizeDimension, StyledContainer, Text, box_item, signal,
+    AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, RectStyle, RwSignal,
+    SizeDimension, StyledContainer, Text, box_item, signal,
 };
 
 use config::theme::{FontRole, NordTheme};
@@ -276,50 +276,27 @@ pub(crate) fn text_field(
     labelled(label, Box::new(boxed), theme)
 }
 
+/// A switch. The catalogue's `toggle` carries its own label, which this form has already drawn in the row's
+/// left column — so it takes an empty one and the row stays the shape every other field is.
 pub(crate) fn toggle_field(
     label: impl Fn() -> String + 'static,
     value: RwSignal<bool>,
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     record_field(&value);
-    let on_fg = theme.accent.most_readable(&[theme.text, theme.base]);
-    let value_text = value.read_only();
-    let value_fill = value.read_only();
-    let value_color = value.read_only();
-    let text = Text::auto(
-        move || {
-            if value_text.get() {
-                telar::t!("common.on")
-            } else {
-                telar::t!("common.off")
-            }
-        },
-        LayoutStyle::new(),
-        move || {
-            let fg = if value_color.get() { on_fg } else { theme.text };
-            theme.text_style(FontRole::Caption, fg).with_weight(700)
-        },
-    )?;
-    let control = StyledContainer::new(
-        LayoutStyle::new()
-            .width(56.0)
-            .padding_vertical(5.0)
-            .justify_content(JustifyContent::CENTER),
-        move |_| {
-            let fill = if value_fill.get() {
-                theme.accent
-            } else {
-                theme.overlay
-            };
-            RectStyle::filled(fill, 8.0)
-        },
-        vec![box_item(text)],
-    )?
-    .on_press(move || value.set(!value.peek()));
-    labelled(label, Box::new(control), theme)
+    let control = telar::toggle(telar::ToggleProps {
+        checked: Some(value),
+        color: Box::new(move || theme.accent),
+        ..Default::default()
+    })?;
+    labelled(label, control, theme)
 }
 
-/// A cycle control: shows the current option; each press advances to the next.
+/// A picker: the current option, and a panel of all of them on press.
+///
+/// The catalogue's `select`, bound to this form's `String` signal through an index — the sections speak in the
+/// value they write to `config.toml`, and the widget speaks in positions. The two are kept in step both ways,
+/// because a Revert writes the string back and the trigger has to follow it.
 pub(crate) fn enum_field(
     label: impl Fn() -> String + 'static,
     value: RwSignal<String>,
@@ -327,27 +304,31 @@ pub(crate) fn enum_field(
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     record_field(&value);
-    let value_text = value.read_only();
-    let text = Text::auto(
-        move || value_text.get(),
-        LayoutStyle::new(),
-        move || theme.text_style(FontRole::Body, theme.text),
-    )?;
-    let control = StyledContainer::new(
-        LayoutStyle::new()
-            .flex_grow(1.0)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
-        vec![box_item(text)],
-    )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
-    .on_press(move || {
-        let current = value.peek();
-        let index = options.iter().position(|o| *o == current).unwrap_or(0);
-        value.set(options[(index + 1) % options.len()].to_string());
+    let index_of = |current: &str| options.iter().position(|o| *o == current).unwrap_or(0) as u32;
+    let picked = signal(index_of(&value.peek()));
+
+    let follow_value = value.read_only();
+    let follow_index = picked.clone();
+    let follow = telar::effect(move || {
+        let at = index_of(&follow_value.get());
+        if follow_index.peek() != at {
+            follow_index.set(at);
+        }
     });
-    labelled(label, Box::new(control), theme)
+
+    let control = telar::select(telar::SelectProps {
+        selected: Some(picked),
+        options: options.to_vec(),
+        color: Box::new(move || theme.accent),
+        fill: true,
+        on_select: Some(Box::new(move |at| {
+            let next = options[at as usize].to_string();
+            if value.peek() != next {
+                value.set(next);
+            }
+        })),
+    })?;
+    util::reactive::keeping_all(labelled(label, control, theme)?, vec![follow])
 }
 
 /// A form's action button — and, with live preview on, where that form's fields get wired to it.
@@ -357,31 +338,22 @@ pub(crate) fn enum_field(
 /// feed. The alternative was a fortieth argument on forty functions.
 pub(crate) fn save_button(
     label: impl Fn() -> String + 'static,
-    theme: NordTheme,
     on_press: impl Fn() + 'static,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let on_press: Rc<dyn Fn()> = Rc::new(on_press);
     let live = live_apply(Rc::clone(&on_press));
 
-    let fg = theme.accent.most_readable(&[theme.text, theme.base]);
-    let text = Text::auto(label, LayoutStyle::new(), move || {
-        theme.text_style(FontRole::Body, fg).with_weight(700)
+    // The catalogue's button with no `fill` of its own: unset means "the theme's `primary`", which is this
+    // theme's accent, darkened on hover — the three states this form used to spell out by hand.
+    let button = telar::button(telar::ButtonProps {
+        label: Box::new(label),
+        on_press: Box::new(move || on_press()),
+        ..Default::default()
     })?;
-    let button = StyledContainer::new(
-        LayoutStyle::new()
-            .padding_horizontal(14.0)
-            .padding_vertical(8.0)
-            .justify_content(JustifyContent::CENTER),
-        move |_| RectStyle::filled(theme.accent, 8.0),
-        vec![box_item(text)],
-    )?
-    .on_hover_style(move |_| RectStyle::filled(theme.accent.darken(0.08), 8.0))
-    .on_active_style(move |_| RectStyle::filled(theme.accent.darken(0.16), 8.0))
-    .on_press(move || on_press());
     if live.is_empty() {
-        return Ok(Box::new(button));
+        return Ok(button);
     }
-    util::reactive::keeping_all(Box::new(button), live)
+    util::reactive::keeping_all(button, live)
 }
 
 pub(crate) fn opt_num<T: ToString>(value: Option<T>) -> String {

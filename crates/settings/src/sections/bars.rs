@@ -402,7 +402,6 @@ pub(crate) fn bars_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.bars"),
-        theme,
         move || {
             let value = BarsConfig {
                 // Carried through unchanged: the panel edits the four zones, and rewriting the section must not drop a screen exclusion it has no field for.
@@ -481,7 +480,6 @@ pub(crate) fn panels_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.panels"),
-        theme,
         move || {
             let value = PanelsConfig {
                 gap: opt_u32(&gap.peek()),
@@ -549,7 +547,6 @@ pub(crate) fn popouts_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.popouts"),
-        theme,
         move || {
             let value = PopoutsConfig {
                 enabled: enabled.peek(),
@@ -599,7 +596,6 @@ pub(crate) fn osd_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.osd"),
-        theme,
         move || {
             let value = OsdConfig {
                 edge: parse_edge(&edge.peek()),
@@ -654,7 +650,6 @@ pub(crate) fn clock_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.clock"),
-        theme,
         move || {
             let typed = format.peek();
             let value = ClockConfig {
@@ -771,7 +766,6 @@ pub(crate) fn workspaces_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.workspaces"),
-        theme,
         move || {
             let typed = label.peek();
             let value = WorkspacesConfig {
@@ -850,7 +844,6 @@ pub(crate) fn temperature_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.temperature"),
-        theme,
         move || {
             let value = TemperatureConfig {
                 unit: parse_temperature_unit(&unit.peek()),
@@ -945,7 +938,6 @@ pub(crate) fn module_overrides_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.modules"),
-        theme,
         move || {
             let overrides: std::collections::HashMap<String, ModuleOverride> = fields
                 .iter()
@@ -1053,7 +1045,6 @@ pub(crate) fn battery_warnings_section(
         let list = Rc::clone(&list);
         save_button(
             || telar::t!("settings.list.add"),
-            theme,
             move || list.add(BatteryWarning::default()),
         )?
     };
@@ -1062,7 +1053,6 @@ pub(crate) fn battery_warnings_section(
     let saved = Rc::clone(&list);
     let save = save_button(
         || telar::t!("settings.save.battery_warnings"),
-        theme,
         move || {
             persist_with(&path, "battery", |current| BatteryConfig {
                 warn_levels: saved.collect(),
@@ -1115,7 +1105,6 @@ pub(crate) fn battery_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.battery"),
-        theme,
         move || {
             let value = BatteryConfig {
                 enabled: enabled.peek(),
@@ -1152,7 +1141,6 @@ pub(crate) fn lock_status_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.lock_status"),
-        theme,
         move || {
             let value = LockStatusConfig {
                 caps: caps.peek(),
@@ -1198,7 +1186,6 @@ pub(crate) fn status_icons_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.status_icons"),
-        theme,
         move || {
             let value = StatusIconsConfig {
                 icons: split_csv(&icons.peek()),
@@ -1260,7 +1247,6 @@ pub(crate) fn tray_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.tray"),
-        theme,
         move || {
             let value = TrayConfig {
                 enabled: enabled.peek(),
@@ -1321,7 +1307,6 @@ pub(crate) fn active_window_section(
     let path = path.to_path_buf();
     let save = save_button(
         || telar::t!("settings.save.active_window"),
-        theme,
         move || {
             let value = ActiveWindowConfig {
                 compact: compact.peek(),
