@@ -1,11 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::rc::Rc;
 
-use telar::{
-    AlignItems, Color, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReadSignal, RectStyle,
-    StyledContainer, signal,
-};
+use telar::{Color, LayoutError, LayoutItem, ReadSignal, signal};
 
 use config::theme::NordTheme;
 use config::{Edge, Variant, Zone};
@@ -53,7 +49,7 @@ pub fn set_panel_opener(open: impl Fn(&str) + 'static) {
     OPEN_PANEL.with(|hook| *hook.borrow_mut() = Some(Box::new(open)));
 }
 
-fn open_panel(module: &str) {
+pub(crate) fn open_panel(module: &str) {
     OPEN_PANEL.with(|hook| {
         if let Some(open) = hook.borrow().as_ref() {
             open(module);
@@ -106,7 +102,7 @@ pub fn chip_radius() -> f32 {
 }
 
 /// Chosen so the chip's width (icon ≈ 0.75·thickness + two of these ≈ 0.25·thickness) equals the bar thickness, so a chip stretched to the bar's height comes out square.
-fn chip_pad() -> f32 {
+pub(crate) fn chip_pad() -> f32 {
     (bar_thickness() * 0.125).round().max(1.0)
 }
 
@@ -116,19 +112,6 @@ pub fn module_foreground(variant: Variant, accent: Color, theme: NordTheme) -> C
         Variant::Default => theme.text,
         Variant::Filled => accent.most_readable(&[theme.text, theme.base]),
     }
-}
-
-/// How a chip paints itself: everything [`module_shell`] needs that isn't behaviour.
-#[derive(Clone, Copy)]
-pub struct ChipStyle {
-    pub variant: Variant,
-    /// The resting background: transparent when blending into the bar, the surface token as a free-standing chip.
-    pub rest: Color,
-    pub accent: Color,
-    pub theme: NordTheme,
-    pub radius: f32,
-    /// A square icon chip that scales with the bar, rather than a content-width text pill.
-    pub square: bool,
 }
 
 /// A chip's drag-to-open gesture: pulling it away from the bar opens the panel it would otherwise toggle.
@@ -146,7 +129,7 @@ pub struct DragOpen {
 impl DragOpen {
     /// How far a drag has travelled *away from the bar*, from a press at `from` to a pointer now at `to`.
     /// Negative is back towards the bar, which is the direction that closes rather than opens.
-    fn travel(&self, from: (f32, f32), to: (f32, f32)) -> f32 {
+    pub(crate) fn travel(&self, from: (f32, f32), to: (f32, f32)) -> f32 {
         match self.edge {
             Edge::Top => to.1 - from.1,
             Edge::Bottom => from.1 - to.1,
@@ -154,70 +137,6 @@ impl DragOpen {
             Edge::Right => from.0 - to.0,
         }
     }
-}
-
-/// The base container every simple module sits in: a rounded, pressable box with hover/press feedback.
-/// `Filled` overrides the resting background with a solid accent.
-pub fn module_shell(
-    content: Box<dyn LayoutItem>,
-    style: ChipStyle,
-    on_press: Option<Box<dyn Fn()>>,
-    on_scroll: Option<fn(f32, f32)>,
-    drag_open: Option<DragOpen>,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let ChipStyle {
-        variant,
-        rest,
-        accent,
-        theme,
-        radius,
-        square,
-    } = style;
-    let (base, hover, active) = match variant {
-        Variant::Default => (rest, theme.overlay, theme.overlay.darken(0.14)),
-        Variant::Filled => (accent, accent.darken(0.08), accent.darken(0.16)),
-    };
-    let style = LayoutStyle::new()
-        .flex_row()
-        .align_items(AlignItems::CENTER)
-        .justify_content(JustifyContent::CENTER)
-        // Excess modules overflow the bar rather than every chip being compressed into an unreadable sliver.
-        .flex_shrink(0.0);
-    // An icon module is a square chip: it stretches to the bar's thickness, and symmetric padding around a bar-proportional icon (see `icon_px`) makes the other side match.
-    let style = if square {
-        style.padding_all(chip_pad())
-    } else {
-        style.padding_horizontal(8.0).padding_vertical(2.0)
-    };
-    let mut shell = StyledContainer::new(
-        style,
-        move |_r| RectStyle::filled(base, radius),
-        vec![content],
-    )?
-    .on_hover_style(move |_r| RectStyle::filled(hover, radius))
-    .on_active_style(move |_r| RectStyle::filled(active, radius));
-    if let Some(cb) = on_press {
-        shell = shell.on_press(cb);
-    }
-    if let Some(cb) = on_scroll {
-        shell = shell.on_scroll(cb);
-    }
-    // On the same box as the tap, not on a wrapper around it: a child hit-tests first, so a drag registered outside the pressable chip would never arm — the chip would swallow the press. The two gestures coexist because the tap cancels itself once the pointer travels past the slop, which is exactly the point a drag becomes a drag.
-    if let Some(drag) = drag_open {
-        let start: Rc<RefCell<Option<(f32, f32)>>> = Rc::new(RefCell::new(None));
-        let began = Rc::clone(&start);
-        shell = shell
-            .on_drag(move |x, y| {
-                began.borrow_mut().get_or_insert((x, y));
-            })
-            .on_drag_end(move |x, y| {
-                let from = start.borrow_mut().take().unwrap_or((x, y));
-                if drag.travel(from, (x, y)) >= drag.threshold {
-                    from_zone(drag.zone, || open_panel(&drag.module));
-                }
-            });
-    }
-    Ok(Box::new(shell))
 }
 
 pub type ModuleBuilder = fn(&ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError>;
@@ -231,7 +150,7 @@ pub enum ModuleClick {
 
 pub struct ModuleDef {
     pub builder: ModuleBuilder,
-    /// If true, the bar places the module bare instead of wrapping it in [`module_shell`] (e.g. the workspaces grid).
+    /// If true, the bar places the module bare instead of wrapping it in [`crate::module_shell`] (e.g. the workspaces grid).
     pub self_managed: bool,
     /// If true, the container is a square chip that scales with the bar instead of a content-width text pill.
     pub icon: bool,

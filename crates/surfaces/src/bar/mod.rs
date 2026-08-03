@@ -6,15 +6,16 @@ pub use autohide::{AutoHide, RevealMargins};
 
 use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, StyledContainer, track_layout,
+    SizeDimension, Slots, StyledContainer, track_layout,
 };
 
 use config::theme::NordTheme;
 use config::{Config, Edge, ModuleEntry, ResolvedShape, Shape, Zone};
 use ui::module::{
-    ChipStyle, DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, from_zone,
-    module_foreground, module_shell, set_module_fg,
+    DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, from_zone, module_foreground,
+    set_module_fg,
 };
+use ui::{ModuleShellProps, module_shell};
 
 /// Builds the content tree for the bar, branching on its resolved `mode` (bar/sections/chips); visual properties come from gap/spacing/radius, not mode.
 pub fn build_bar(
@@ -343,20 +344,22 @@ fn build_items(
             Some(ModuleClick::Action(action)) => Some(Box::new(move || from_zone(in_zone, action))),
             None => None,
         };
-        let style = ChipStyle {
-            variant,
-            rest,
-            accent,
-            theme: ctx.theme,
-            radius,
-            square: def.is_some_and(|d| d.icon),
-        };
+        let mut inner = Slots::new();
+        inner.push(None, content);
         let chip = module_shell(
-            content,
-            style,
-            on_press,
-            def.and_then(|d| d.scroll),
-            drag_open_for(id, def, ctx.edge, in_zone),
+            ModuleShellProps {
+                variant,
+                rest,
+                accent,
+                radius,
+                square: def.is_some_and(|d| d.icon),
+                on_press,
+                on_scroll: def
+                    .and_then(|d| d.scroll)
+                    .map(|wheel| Box::new(wheel) as Box<dyn Fn(f32, f32)>),
+                drag_open: drag_open_for(id, def, ctx.edge, in_zone),
+            },
+            inner,
         )?;
         // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
         items.push(if popout {
@@ -401,7 +404,10 @@ mod tests {
         let clicked = Rc::new(Cell::new(false));
         let sink = Rc::clone(&clicked);
         reset_layout_runtime();
-        let chip = module_shell(
+        set_theme(NordTheme::new());
+        let mut inner = Slots::new();
+        inner.push(
+            None,
             dummy(&ModuleCtx {
                 theme: NordTheme::new(),
                 accent: NordTheme::new().accent,
@@ -409,17 +415,18 @@ mod tests {
                 edge: Edge::Top,
             })
             .unwrap(),
-            ChipStyle {
+        );
+        let chip = module_shell(
+            ModuleShellProps {
                 variant: config::Variant::Default,
                 rest: Color::TRANSPARENT,
                 accent: NordTheme::new().accent,
-                theme: NordTheme::new(),
                 radius: 8.0,
                 square: true,
+                on_press: Some(Box::new(move || sink.set(true))),
+                ..Default::default()
             },
-            Some(Box::new(move || sink.set(true))),
-            None,
-            None,
+            inner,
         )
         .unwrap();
         let mut wrapped =
@@ -458,6 +465,7 @@ mod tests {
             );
             let cfg: Config = toml::from_str(&toml).unwrap();
             reset_layout_runtime();
+            set_theme(NordTheme::new());
             let bar = build_bar(
                 &cfg,
                 Edge::Top,
@@ -477,6 +485,7 @@ mod tests {
             ))
             .unwrap();
             reset_layout_runtime();
+            set_theme(NordTheme::new());
             let bar = build_bar(
                 &cfg,
                 Edge::Top,
@@ -495,6 +504,7 @@ mod tests {
         )
         .unwrap();
         reset_layout_runtime();
+        set_theme(NordTheme::new());
         assert!(
             build_bar(
                 &cfg,
@@ -515,6 +525,7 @@ mod tests {
             );
             let cfg: Config = toml::from_str(&toml).unwrap();
             reset_layout_runtime();
+            set_theme(NordTheme::new());
             assert!(
                 build_bar(
                     &cfg,
