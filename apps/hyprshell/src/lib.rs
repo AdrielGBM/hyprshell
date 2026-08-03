@@ -30,7 +30,45 @@ impl AppPathsProvider for NullPaths {
     }
 }
 
+/// Every crate's `rsx_modules!` emits its own `telar_all_preview_entries`, so the list is per crate rather than
+/// per process and the app is the only place that has all eight.
+fn preview_entries() -> Vec<telar::PreviewEntry> {
+    let mut entries = telar_all_preview_entries();
+    for crate_entries in [
+        config::telar_all_preview_entries,
+        modules::telar_all_preview_entries,
+        services::telar_all_preview_entries,
+        settings::telar_all_preview_entries,
+        surfaces::telar_all_preview_entries,
+        ui::telar_all_preview_entries,
+        util::telar_all_preview_entries,
+    ] {
+        entries.extend(crate_entries());
+    }
+    entries
+}
+
+/// The ambient world a `[preview]` builds against: config, locale, font, icon store and theme. Deliberately not
+/// `apply_config` — that also arms the idle stages, the notification policy and the toast watchers, which reach
+/// the machine and have no business running to render a component.
+fn seed_preview_world() {
+    let config = Arc::new(Config::load_or_default(&Config::default_path()));
+    services::locale::init(config.language());
+    telar::set_default_font_family(config.theme.font_family.clone());
+    ui::icon::init_store(&config.icons);
+    telar::set_theme(config.resolve_theme());
+    config::set_config(config);
+}
+
 pub fn run() {
+    // `cargo telar preview`/`test` has to answer while a shell is already up, so this precedes the single-instance check below — it opens no surface and takes no bus name.
+    if telar::dev_entry(
+        preview_entries,
+        telar::AppConfig::default(),
+        seed_preview_world,
+    ) {
+        return;
+    }
     // One shell per compositor instance: a second one would fight over the notification bus name and the IPC
     // socket, and the user would see two of every bar. Checked before anything is opened so the failure is a
     // clean message rather than a half-started shell.

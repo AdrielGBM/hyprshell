@@ -3190,6 +3190,7 @@ dependencies = [
 name = "telar"
 version = "0.1.0"
 dependencies = [
+ "image",
  "libc",
  "raw-window-handle",
  "serde",
@@ -3201,6 +3202,7 @@ dependencies = [
  "telar-motion-core",
  "telar-platform-android",
  "telar-platform-core",
+ "telar-platform-headless",
  "telar-reactive-core",
  "telar-renderer-assets",
  "telar-renderer-core",

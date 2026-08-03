@@ -10,7 +10,11 @@ name = "hyprshell"
 path = "src/main.rs"
 
 [dependencies]
-telar = { workspace = true, features = ["dynamic-svg", "async-assets"] }
+telar = { workspace = true, features = [
+    "dynamic-svg",
+    "async-assets",
+    "preview-headless",
+] }
 platform-layershell = { workspace = true }
 config = { workspace = true }
 services = { workspace = true }
