@@ -72,26 +72,69 @@ thread_local! {
 /// is one apply rather than nine, short enough to read as a preview rather than as a delay.
 const LIVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(700);
 
-/// Registers `value` as one of the current form's fields. Called by every field helper.
-pub(crate) fn record_field<T: Clone + PartialEq + 'static>(value: &RwSignal<T>) {
-    let watched = value.read_only();
+/// Hands `effect` to the form being built, which keeps it alive until its button is gone.
+fn park(build: impl FnOnce(RwSignal<u64>) -> telar::Effect) {
     RECORDING.with(|recording| {
         let mut recording = recording.borrow_mut();
         let recorder = recording.get_or_insert_with(|| FormRecorder {
             revision: signal(0u64),
             subscriptions: Vec::new(),
         });
-        let revision = recorder.revision.clone();
+        let effect = build(recorder.revision.clone());
+        recorder.subscriptions.push(effect);
+    });
+}
+
+/// Registers `value` as one of the current form's fields. Called by every field helper.
+pub(crate) fn record_field<T: Clone + PartialEq + 'static>(value: &RwSignal<T>) {
+    let watched = value.read_only();
+    park(move |revision| {
         // An effect fires once when it is registered, and that first run is the field being *seeded* — not a
         // user changing anything. Reporting it would make every form apply itself the moment it was drawn.
         let seeded = std::cell::Cell::new(false);
-        recorder.subscriptions.push(telar::effect(move || {
+        telar::effect(move || {
             let _ = watched.get();
             if seeded.replace(true) {
                 revision.set(revision.peek() + 1);
             }
-        }));
+        })
     });
+}
+
+/// Binds a form's `String` field to the index the catalogue's `select` speaks in, and records it.
+///
+/// The sections speak in the value they write to `config.toml`, the widget in positions. The two are kept in
+/// step both ways, because a Revert writes the string back and the trigger has to follow it — an effect the
+/// form keeps, since a `.rsx` component cannot hold one of its own past the call that builds it.
+pub(crate) fn option_index(
+    value: RwSignal<String>,
+    options: &'static [&'static str],
+) -> RwSignal<u32> {
+    record_field(&value);
+    let index_of = |current: &str| options.iter().position(|o| *o == current).unwrap_or(0) as u32;
+    let picked = signal(index_of(&value.peek()));
+    let follow_value = value.read_only();
+    let follow_index = picked.clone();
+    park(move |_| {
+        telar::effect(move || {
+            let at = index_of(&follow_value.get());
+            if follow_index.peek() != at {
+                follow_index.set(at);
+            }
+        })
+    });
+    picked
+}
+
+/// Writes the option at `at` back to the field it came from.
+///
+/// Guarded because a signal notifies on every write: re-picking what is already selected is not an edit, and
+/// counting it would apply the whole form.
+pub(crate) fn pick_option(value: &RwSignal<String>, options: &'static [&'static str], at: u32) {
+    let next = options[at as usize].to_string();
+    if value.peek() != next {
+        value.set(next);
+    }
 }
 
 /// Wires the recorded fields to `apply`, debounced — the second half of K14.
@@ -319,42 +362,21 @@ pub(crate) fn toggle_field(
 }
 
 /// A picker: the current option, and a panel of all of them on press.
-///
-/// The catalogue's `select`, bound to this form's `String` signal through an index — the sections speak in the
-/// value they write to `config.toml`, and the widget speaks in positions. The two are kept in step both ways,
-/// because a Revert writes the string back and the trigger has to follow it.
 pub(crate) fn enum_field(
     label: impl Fn() -> String + 'static,
     value: RwSignal<String>,
     options: &'static [&'static str],
     theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    record_field(&value);
-    let index_of = |current: &str| options.iter().position(|o| *o == current).unwrap_or(0) as u32;
-    let picked = signal(index_of(&value.peek()));
-
-    let follow_value = value.read_only();
-    let follow_index = picked.clone();
-    let follow = telar::effect(move || {
-        let at = index_of(&follow_value.get());
-        if follow_index.peek() != at {
-            follow_index.set(at);
-        }
-    });
-
+    let picked = option_index(value.clone(), options);
     let control = telar::select(telar::SelectProps {
         selected: Some(picked),
         options: options.to_vec(),
         color: Box::new(move || theme.accent),
         fill: true,
-        on_select: Some(Box::new(move |at| {
-            let next = options[at as usize].to_string();
-            if value.peek() != next {
-                value.set(next);
-            }
-        })),
+        on_select: Some(Box::new(move |at| pick_option(&value, options, at))),
     })?;
-    util::reactive::keeping_all(labelled(label, control, theme)?, vec![follow])
+    labelled(label, control, theme)
 }
 
 /// A form's action button — and, with live preview on, where that form's fields get wired to it.

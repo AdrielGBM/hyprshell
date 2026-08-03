@@ -1,6 +1,6 @@
 [logic]
 use crate::form::record_field;
-use ::config::theme::{FontRole, NordTheme};
+use ::config::theme::FontRole;
 
 /// A labelled text field, bound to the signal a section seeds from `config.toml` and writes back on save.
 ///
@@ -9,7 +9,7 @@ use ::config::theme::{FontRole, NordTheme};
 pub struct Props {
     pub label: Box<dyn Fn() -> String> = Box::new(String::new),
     pub value: RwSignal<String> = signal(String::new()),
-    pub placeholder: String = String::new(),
+    pub placeholder: Box<dyn Fn() -> String> = Box::new(String::new),
 }
 
 let value = props.value;
@@ -20,4 +20,4 @@ let label = props.label;
 [view]
 field_row label(move || label())
     box grow:1 pad_x:8 pad_y:4 fill:base radius:8
-        input value:$value placeholder:placeholder.clone() color:text size:theme.font(FontRole::Body)
+        input value:$value placeholder:placeholder() color:text size:theme.font(FontRole::Body)

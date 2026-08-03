@@ -1,5 +1,5 @@
 [logic]
-use ::config::theme::{FontRole, NordTheme};
+use ::config::theme::FontRole;
 
 /// One form row: its label in the left column, whatever control the caller puts in the slot on the right.
 ///
