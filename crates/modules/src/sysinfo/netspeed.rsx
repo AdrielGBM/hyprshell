@@ -35,3 +35,6 @@ col justify:center gap:1
     row align:center gap:4
         widget "up_icon"
         text "{$up_view}" size:caption color:$fg
+
+[preview "Netspeed"]
+netspeed

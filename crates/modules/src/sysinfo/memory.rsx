@@ -36,3 +36,6 @@ let icon = ui::icon::icon_view(
 row align:center gap:6
     widget "icon"
     text "{$percent}" size:body color:$fg
+
+[preview "Memory"]
+memory

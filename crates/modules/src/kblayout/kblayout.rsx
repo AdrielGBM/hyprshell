@@ -36,3 +36,6 @@ let body = use_theme::<NordTheme>().font(FontRole::Body);
 
 [view]
 text "{$code_view}" size:body color:$fg
+
+[preview "Kblayout"]
+kblayout

@@ -19,3 +19,6 @@ let icon = ui::icon::icon_view(
 
 [view]
 widget "icon"
+
+[preview "Mic"]
+mic

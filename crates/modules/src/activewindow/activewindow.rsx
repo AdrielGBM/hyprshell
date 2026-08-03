@@ -54,3 +54,6 @@ row align:center gap:8
     text "{$title_view}" size:body color:$fg
     if trailing
         build "crate::activewindow::icon_slot(&class, size)?"
+
+[preview "Activewindow"]
+activewindow

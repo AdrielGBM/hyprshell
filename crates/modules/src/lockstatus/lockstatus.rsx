@@ -26,3 +26,6 @@ let gap = (size * 0.25).round();
 row align:center gap:gap
     for lock in $indicators key *lock
         build "indicator(lock, tint.clone(), fg.clone(), idle, size)?"
+
+[preview "Lockstatus"]
+lockstatus

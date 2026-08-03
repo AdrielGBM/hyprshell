@@ -43,3 +43,6 @@ let icon = ui::icon::icon_view(
 row align:center gap:6
     widget "icon"
     text "{$reading}" size:body color:$fg
+
+[preview "Gpu"]
+gpu

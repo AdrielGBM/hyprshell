@@ -33,3 +33,6 @@ let gap = if config.compact {
 row align:center gap:gap
     for item in $listed key item.key.clone()
         build "tray_icon(item, config.clone(), fg.clone(), theme, size, radius)?"
+
+[preview "Tray"]
+tray

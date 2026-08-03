@@ -15,3 +15,6 @@ let icon = ui::icon::icon_view(
 
 [view]
 widget "icon"
+
+[preview "Network"]
+network

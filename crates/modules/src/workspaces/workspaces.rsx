@@ -43,3 +43,6 @@ let row = grid(items, style, focus)?;
 
 [view]
 widget "row"
+
+[preview "Workspaces"]
+workspaces
