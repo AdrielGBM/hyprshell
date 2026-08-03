@@ -41,6 +41,9 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let path = Arc::new(Config::default_path());
     let config = Arc::new(Config::load_or_default(&path));
     services::locale::attach(config.language());
+    // Which file the forms on this window edit, said once here rather than handed to each of them — see
+    // `form::source`.
+    crate::form::set_source((*path).clone());
 
     // The selection and the query are the whole state of the application, and they belong to the *surface*
     // rather than to this build of it: an edit made from another window rebuilds this one, and a settings
@@ -299,11 +302,11 @@ fn build_page_area(
     reseed: telar::ReadSignal<u64>,
     config: Arc<Config>,
     path: Arc<PathBuf>,
-    theme: NordTheme,
+    _theme: NordTheme,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // The snapshot the window opened with decides how tall the page area is, and nothing else: every form is
     // seeded from the file at the moment it is *built*, so a form rebuilt is a form re-seeded.
-    let (_opened_with, path) = (config, path);
+    let (_opened_with, _path) = (config, path);
     let source = move || {
         // All read out first: `visible` translates labels, which reads the locale signal, and a nested read
         // inside another signal's borrow is the re-entrant panic that only fires when the widget is built.
@@ -315,10 +318,9 @@ fn build_page_area(
             .map(|section| (text.clone(), at, section))
             .collect()
     };
-    let build = move |(_, _, section): (String, u64, &'static crate::pages::Section)| {
-        let config = Arc::new(Config::load_or_default(path.as_path()));
-        (section.build)(&config, &path, theme)
-    };
+    // Each form re-reads the file for itself (`form::source`), which is what makes a form rebuilt a form
+    // re-seeded — the panel only says which file that is, once, before any of them is built.
+    let build = move |(_, _, section): (String, u64, &'static crate::pages::Section)| (section.build)();
     Ok(Box::new(ReactiveList::with_style(
         LayoutStyle::new()
             .flex_column()
@@ -384,14 +386,15 @@ mod tests {
     /// a nested signal read shipped as long as it was not on Appearance. Which is most of them.
     #[test]
     fn every_section_on_every_page_builds() {
-        let config = Config::starter();
-        let path = std::path::PathBuf::from("/nonexistent/hyprshell-test.toml");
+        // A path that does not exist, so every form seeds from `Config::default` rather than from whatever
+        // config the machine running the test happens to have.
+        crate::form::set_source(std::path::PathBuf::from("/nonexistent/hyprshell-test.toml"));
         for page in crate::pages::PAGES {
             for section in page.sections {
                 reset_layout_runtime();
                 set_theme(NordTheme::new());
                 assert!(
-                    (section.build)(&config, &path, NordTheme::new()).is_ok(),
+                    (section.build)().is_ok(),
                     "{}/{} does not build",
                     page.label,
                     section.label

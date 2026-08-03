@@ -2,7 +2,7 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use telar::{
     Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, RwSignal, SizeDimension,
@@ -17,11 +17,9 @@ use config::{
     UtilitiesConfig, WeatherConfig,
 };
 
-pub(crate) fn general_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn general_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let lang = signal(telar::current_locale().unwrap_or_else(|| config.language()));
     let over_fullscreen = signal(config.general.show_over_fullscreen);
     let logo = signal(config.general.logo.clone());
@@ -158,11 +156,9 @@ fn language_name(code: &str) -> String {
     }
 }
 
-pub(crate) fn brightness_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn brightness_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let b = config.brightness;
     let increment = signal(b.increment.to_string());
     let external = signal(b.external);
@@ -200,11 +196,9 @@ pub(crate) fn brightness_section(
     )
 }
 
-pub(crate) fn gpu_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn gpu_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let g = &config.gpu;
     let enabled = signal(g.enabled);
     let backend = signal(g.backend.clone());
@@ -245,11 +239,9 @@ pub(crate) fn gpu_section(
     section(|| telar::t!("settings.section.gpu"), rows, save, theme)
 }
 
-pub(crate) fn weather_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn weather_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let w = &config.weather;
     let enabled = signal(w.enabled);
     let location = signal(w.location.clone());
@@ -318,11 +310,9 @@ pub(crate) fn weather_section(
     section(|| telar::t!("settings.section.weather"), rows, save, theme)
 }
 
-pub(crate) fn dashboard_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn dashboard_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let d = &config.dashboard;
     let tabs = signal(join_csv(&d.tabs));
     let media = signal(d.media_update_interval.to_string());
@@ -389,11 +379,9 @@ pub(crate) fn dashboard_section(
     )
 }
 
-pub(crate) fn paths_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn paths_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let p = &config.paths;
     let wallpapers = signal(p.wallpapers.clone());
     let lyrics = signal(p.lyrics.clone());
@@ -454,11 +442,9 @@ pub(crate) fn paths_section(
     section(|| telar::t!("settings.section.paths"), rows, save, theme)
 }
 
-pub(crate) fn network_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn network_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let n = config.network;
     let enabled = signal(n.enabled);
     let rescan = signal(n.rescan_seconds.to_string());
@@ -506,11 +492,9 @@ pub(crate) fn network_section(
     section(|| telar::t!("settings.section.network"), rows, save, theme)
 }
 
-pub(crate) fn bluetooth_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn bluetooth_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let b = config.bluetooth;
     let enabled = signal(b.enabled);
     let scan_on_open = signal(b.scan_on_open);
@@ -562,11 +546,9 @@ pub(crate) fn bluetooth_section(
     )
 }
 
-pub(crate) fn screenshot_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn screenshot_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let s = &config.screenshot;
     let copy = signal(s.copy);
     let save_to_disk = signal(s.save);
@@ -636,11 +618,9 @@ pub(crate) fn screenshot_section(
     )
 }
 
-pub(crate) fn recorder_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn recorder_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let r = &config.recorder;
     let backend = signal(r.backend.clone());
     let audio = signal(r.audio);
@@ -700,11 +680,9 @@ pub(crate) fn recorder_section(
     section(|| telar::t!("settings.section.recorder"), rows, save, theme)
 }
 
-pub(crate) fn utilities_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn utilities_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let u = &config.utilities;
     let toggles = signal(join_csv(&u.toggles));
     let show_capture = signal(u.show_capture);
@@ -766,11 +744,9 @@ pub(crate) fn utilities_section(
     )
 }
 
-pub(crate) fn keynav_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn keynav_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let vim = signal(config.keynav.vim);
     let rows = vec![toggle_field(
         || telar::t!("settings.field.vim"),
@@ -791,11 +767,8 @@ pub(crate) fn keynav_section(
 ///
 /// Readings, not fields — so it has no Save. The compositor and session lines are what a bug report needs
 /// first and what a user otherwise has to leave the shell to find.
-pub(crate) fn about_section(
-    _config: &Config,
-    _path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn about_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = telar::use_theme::<NordTheme>();
     let rows = vec![
         reading_row(
             || telar::t!("settings.field.version"),

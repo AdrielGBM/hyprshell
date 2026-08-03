@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 use std::rc::Rc;
 
 use telar::{Container, LayoutError, LayoutItem, LayoutStyle, signal};
@@ -10,15 +9,13 @@ use telar::{Container, LayoutError, LayoutItem, LayoutStyle, signal};
 use crate::form::*;
 use crate::table::*;
 use config::theme::NordTheme;
-use config::{Config, IdleConfig, IdleStage};
+use config::{IdleConfig, IdleStage};
 
 /// The `[[idle.stages]]` editor. `hyprshell --list` is what the action fields accept; the placeholders name
 /// the three a user reaches for.
-pub(crate) fn idle_stages_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn idle_stages_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let list = Rc::new(TableList::new(config.idle.stages.clone()));
 
     let rows = {
@@ -93,11 +90,9 @@ pub(crate) fn idle_stages_section(
     )
 }
 
-pub(crate) fn lock_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn lock_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let l = &config.lock;
     let pam_service = signal(l.pam_service.clone());
     let max_tries = signal(l.max_tries.to_string());
@@ -194,11 +189,9 @@ pub(crate) fn lock_section(
     section(|| telar::t!("settings.section.lock"), rows, save, theme)
 }
 
-pub(crate) fn idle_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn idle_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let i = &config.idle;
     let enabled = signal(i.enabled);
     let inhibit_when_audio = signal(i.inhibit_when_audio);

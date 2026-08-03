@@ -2,19 +2,16 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 
 use telar::{LayoutError, LayoutItem, LayoutStyle, RwSignal, Text, box_item, signal};
 
 use crate::form::*;
 use config::theme::{FontRole, NordTheme};
-use config::{AudioConfig, Config, LyricsConfig, MediaConfig, VisualiserConfig};
+use config::{AudioConfig, LyricsConfig, MediaConfig, VisualiserConfig};
 
-pub(crate) fn media_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn media_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let m = &config.media;
     let preferred = signal(m.preferred_player.clone());
     let max_chars = signal(m.max_chars.to_string());
@@ -90,11 +87,9 @@ pub(crate) fn media_section(
     section(|| telar::t!("settings.section.media"), rows, save, theme)
 }
 
-pub(crate) fn lyrics_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn lyrics_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let l = &config.lyrics;
     let enabled = signal(l.enabled);
     let online = signal(l.online);
@@ -127,11 +122,9 @@ pub(crate) fn lyrics_section(
     section(|| telar::t!("settings.section.lyrics"), rows, save, theme)
 }
 
-pub(crate) fn audio_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn audio_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let a = config.audio;
     let increment = signal(a.increment.to_string());
     let max_volume = signal(a.max_volume.to_string());
@@ -165,11 +158,9 @@ pub(crate) fn audio_section(
     section(|| telar::t!("settings.section.audio"), rows, save, theme)
 }
 
-pub(crate) fn visualiser_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn visualiser_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let v = config.visualiser;
     let bars = signal(v.bars.to_string());
     let smoothing = signal(v.smoothing.to_string());
@@ -254,11 +245,9 @@ fn player_keys(configured: &std::collections::HashMap<String, String>) -> Vec<St
     keys
 }
 
-pub(crate) fn media_aliases_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn media_aliases_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let keys = player_keys(&config.media.aliases);
     let fields: Vec<(String, RwSignal<String>)> = keys
         .iter()

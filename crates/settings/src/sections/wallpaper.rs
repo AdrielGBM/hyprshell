@@ -12,15 +12,13 @@ use telar::{
 use crate::form::*;
 use config::theme::{FontRole, NordTheme};
 use config::{
-    BackgroundConfig, BackgroundVisualiserConfig, ClockPlacement, Config, DesktopClockConfig,
+    BackgroundConfig, BackgroundVisualiserConfig, ClockPlacement, DesktopClockConfig,
     WallpaperConfig, WallpaperTransition,
 };
 
-pub(crate) fn background_visualiser_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn background_visualiser_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let v = config.background.visualiser;
     let enabled = signal(v.enabled);
     let edge = signal(v.edge.as_str().to_string());
@@ -127,11 +125,9 @@ const WALL_TILES: usize = 150;
 /// forms below already edit. What neither of them is, is a way to *see* the library, and choosing a picture
 /// from a list of paths is choosing it by its file name. Pressing a tile sets it on every screen, which is the
 /// rule the wallpaper commands already follow: a mutation with no target named means all of them.
-pub(crate) fn wallpaper_browser_section(
-    config: &Config,
-    _path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn wallpaper_browser_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, _path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let query = signal(String::new());
 
     let library = signal(services::wallpaper::all());
@@ -142,7 +138,7 @@ pub(crate) fn wallpaper_browser_section(
 
     // Which tile reads as the current one. The runtime choice first, then whatever `[background]` resolves to,
     // so a fresh session with nothing chosen at runtime still marks the picture actually on screen.
-    let configured = services::wallpaper::current_image(config, None);
+    let configured = services::wallpaper::current_image(&config, None);
     let current = signal(services::wallpaper::assignment().global.or(configured));
     let current_sink = current.clone();
     platform_layershell::watch(
@@ -373,11 +369,9 @@ fn monitor_keys(configured: &std::collections::HashMap<String, PathBuf>) -> Vec<
     names
 }
 
-pub(crate) fn background_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn background_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let b = &config.background;
     let enabled = signal(b.enabled);
     let image = signal(
@@ -473,11 +467,9 @@ pub(crate) fn background_section(
     )
 }
 
-pub(crate) fn wallpaper_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn wallpaper_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let w = &config.wallpaper;
     let enabled = signal(w.enabled);
     let recursive = signal(w.recursive);
@@ -541,11 +533,9 @@ pub(crate) fn wallpaper_section(
 
 /// The clock drawn on the wallpaper. Its own section rather than rows inside `[background]`: it is a nested
 /// table, and one Save writing both would mean every clock tweak rewrote the wallpaper settings with it.
-pub(crate) fn desktop_clock_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn desktop_clock_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let c = &config.background.clock;
     let enabled = signal(c.enabled);
     let position = signal(c.position.id().to_string());

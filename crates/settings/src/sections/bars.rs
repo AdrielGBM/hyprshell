@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 use std::rc::Rc;
 
 use telar::{
@@ -14,7 +13,7 @@ use crate::form::*;
 use crate::table::*;
 use config::theme::{FontRole, NordTheme};
 use config::{
-    ActiveWindowConfig, BarConfig, BarsConfig, BatteryConfig, BatteryWarning, ClockConfig, Config,
+    ActiveWindowConfig, BarConfig, BarsConfig, BatteryConfig, BatteryWarning, ClockConfig,
     DrawerConfig, FloatConfig, LockStatusConfig, ModuleEntry, ModuleOverride, OpenMode, OsdConfig,
     PanelsConfig, PopoutsConfig, StatusIconsConfig, TemperatureConfig, TrayConfig, Variant,
     WorkspacesConfig,
@@ -365,11 +364,9 @@ fn bar_from(s: &BarSignals, base: &BarConfig) -> BarConfig {
     }
 }
 
-pub(crate) fn bars_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn bars_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let bars = &config.bars;
     let top = bar_signals(&bars.top);
     let bottom = bar_signals(&bars.bottom);
@@ -417,11 +414,9 @@ pub(crate) fn bars_section(
     section(|| telar::t!("settings.section.bars"), rows, save, theme)
 }
 
-pub(crate) fn panels_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn panels_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let p = &config.panels;
     let gap = signal(opt_num(p.gap));
     let drag_threshold = signal(p.drag_threshold.to_string());
@@ -500,11 +495,9 @@ pub(crate) fn panels_section(
     section(|| telar::t!("settings.section.panels"), rows, save, theme)
 }
 
-pub(crate) fn popouts_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn popouts_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let p = config.popouts;
     let enabled = signal(p.enabled);
     let open_delay = signal(p.open_delay.to_string());
@@ -561,11 +554,9 @@ pub(crate) fn popouts_section(
     section(|| telar::t!("settings.section.popouts"), rows, save, theme)
 }
 
-pub(crate) fn osd_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn osd_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let o = &config.osd;
     let edge = signal(edge_str(o.edge).to_string());
     let align = signal(align_str(o.align).to_string());
@@ -608,11 +599,9 @@ pub(crate) fn osd_section(
     section(|| telar::t!("settings.section.osd"), rows, save, theme)
 }
 
-pub(crate) fn clock_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn clock_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let c = &config.clock;
     let twelve_hour = signal(c.twelve_hour);
     // An empty field means "no override", which is what `Option<String>` carries; the placeholder shows what
@@ -671,11 +660,9 @@ pub(crate) fn clock_section(
     section(|| telar::t!("settings.section.clock"), rows, save, theme)
 }
 
-pub(crate) fn workspaces_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn workspaces_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let w = &config.workspaces;
     let shown = signal(w.shown.to_string());
     let per_monitor = signal(w.per_monitor);
@@ -802,11 +789,9 @@ pub(crate) fn workspaces_section(
     )
 }
 
-pub(crate) fn temperature_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn temperature_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let t = &config.temperature;
     let unit = signal(temperature_unit_str(t.unit).to_string());
     let sensor = signal(t.sensor.clone());
@@ -867,11 +852,9 @@ pub(crate) fn temperature_section(
 /// Keyed on the registry rather than on what the bars currently use, so a module can be styled before it is
 /// placed — the alternative would be a user having to add a chip, save, reopen the page and only then be able
 /// to give it an accent.
-pub(crate) fn module_overrides_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn module_overrides_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let mut ids: Vec<String> = ui::module::with_registry(|registry| registry.ids());
     for configured in config.modules.keys() {
         if !ids.contains(configured) {
@@ -973,11 +956,9 @@ fn is_default_override(value: &ModuleOverride) -> bool {
 }
 
 /// The `[[battery.warn_levels]]` editor: one card per warning, with Add and Remove.
-pub(crate) fn battery_warnings_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn battery_warnings_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let list = Rc::new(TableList::new(config.battery.warn_levels.clone()));
 
     let rows = {
@@ -1069,11 +1050,9 @@ pub(crate) fn battery_warnings_section(
     )
 }
 
-pub(crate) fn battery_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn battery_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let b = &config.battery;
     let enabled = signal(b.enabled);
     let critical_level = signal(b.critical_level.to_string());
@@ -1118,11 +1097,9 @@ pub(crate) fn battery_section(
     section(|| telar::t!("settings.section.battery"), rows, save, theme)
 }
 
-pub(crate) fn lock_status_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn lock_status_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let l = config.lock_status;
     let caps = signal(l.caps);
     let num = signal(l.num);
@@ -1158,11 +1135,9 @@ pub(crate) fn lock_status_section(
     )
 }
 
-pub(crate) fn status_icons_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn status_icons_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let s = &config.status_icons;
     let icons = signal(join_csv(&s.icons));
     let spacing = signal(s.spacing.to_string());
@@ -1202,11 +1177,9 @@ pub(crate) fn status_icons_section(
     )
 }
 
-pub(crate) fn tray_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn tray_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let t = &config.tray;
     let enabled = signal(t.enabled);
     let compact = signal(t.compact);
@@ -1269,11 +1242,9 @@ pub(crate) fn tray_section(
     section(|| telar::t!("settings.section.tray"), rows, save, theme)
 }
 
-pub(crate) fn active_window_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn active_window_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let w = config.active_window;
     let compact = signal(w.compact);
     let show_icon = signal(w.show_icon);

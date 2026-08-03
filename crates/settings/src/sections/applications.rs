@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 
 use telar::{
     AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
@@ -12,15 +11,13 @@ use telar::{
 use crate::form::*;
 use crate::table::*;
 use config::theme::{FontRole, NordTheme};
-use config::{Config, LauncherConfig};
+use config::LauncherConfig;
 use services::apps::{self, App};
 use ui::icon::icon_view;
 
-pub(crate) fn launcher_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn launcher_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let l = &config.launcher;
     let width = signal(l.width.to_string());
     let height = signal(l.height.to_string());
@@ -103,11 +100,9 @@ const APP_ROWS: usize = 200;
 /// software by desktop-entry id — the CSV fields these replace asked them to type `org.gnome.Nautilus` from
 /// memory. Here the list is the control: every application it found, each with the two switches and the icon
 /// override that are the only per-app settings there are.
-pub(crate) fn apps_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn apps_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let query = signal(String::new());
     let favourites = signal(config.launcher.favourites.clone());
     let hidden = signal(config.launcher.hidden.clone());

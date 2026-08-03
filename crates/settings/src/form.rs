@@ -4,7 +4,7 @@
 //! write-back to `config.toml`, and the recorder that tells a button whether anything under it moved — so the
 //! sections themselves are a description of *which* fields they have rather than of how a field behaves.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use serde::Serialize;
@@ -124,6 +124,32 @@ pub(crate) fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
         });
     }));
     subscriptions
+}
+
+thread_local! {
+    /// Which `config.toml` the forms on this window read and write. Ambient rather than an argument threaded
+    /// through all fifty-one of them: a form is not given a file, it edits *the* file, and the panel is the
+    /// only thing that ever chose one. A test points it at a scratch copy the same way.
+    static SOURCE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Names the file the forms edit, for as long as this surface lives.
+pub(crate) fn set_source(path: PathBuf) {
+    SOURCE.with(|slot| *slot.borrow_mut() = Some(path));
+}
+
+/// The file the forms edit, defaulting to the running shell's own.
+pub(crate) fn source_path() -> PathBuf {
+    SOURCE.with(|slot| slot.borrow().clone().unwrap_or_else(Config::default_path))
+}
+
+/// What a form seeds itself from: the file as it stands *now*, and where it is.
+///
+/// Read per form rather than once per window, because a form rebuilt is a form re-seeded — that is how Revert
+/// and an edit made by hand reach a page that is already open.
+pub(crate) fn source() -> (Config, PathBuf) {
+    let path = source_path();
+    (Config::load_or_default(&path), path)
 }
 
 thread_local! {

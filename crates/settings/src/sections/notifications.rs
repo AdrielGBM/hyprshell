@@ -2,19 +2,16 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 
 use telar::{LayoutError, LayoutItem, signal};
 
 use crate::form::*;
 use config::theme::NordTheme;
-use config::{Config, NotificationsConfig, SidebarConfig, ToastEvents, ToastsConfig};
+use config::{NotificationsConfig, SidebarConfig, ToastEvents, ToastsConfig};
 
-pub(crate) fn notifications_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn notifications_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let n = &config.notifications;
     let edge = signal(edge_str(n.edge).to_string());
     let align = signal(align_str(n.align).to_string());
@@ -154,11 +151,9 @@ pub(crate) fn notifications_section(
 /// The event matrix is a nested table (`[toasts.events]`) with a fixed set of keys, so it is edited here rather
 /// than left to the TOML — the same reason `background.monitors` came off the map-editing list: the keys are
 /// enumerable, so the panel can name them all.
-pub(crate) fn toasts_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn toasts_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let t = &config.toasts;
     let enabled = signal(t.enabled);
     let edge = signal(edge_str(t.edge).to_string());
@@ -308,11 +303,9 @@ pub(crate) fn toasts_section(
     section(|| telar::t!("settings.section.toasts"), rows, save, theme)
 }
 
-pub(crate) fn sidebar_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn sidebar_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let s = &config.sidebar;
     let edge = signal(edge_str(s.edge).to_string());
     let size = signal(s.size.to_string());

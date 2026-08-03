@@ -26,12 +26,10 @@ pub fn label(prefix: &str, name: &str) -> String {
     )
 }
 
-/// A section's builder: the same signature all forty of them already have.
-pub type Build = fn(
-    &config::Config,
-    &std::path::Path,
-    config::theme::NordTheme,
-) -> Result<Box<dyn telar::LayoutItem>, telar::LayoutError>;
+/// A section's builder. It takes nothing: the file a form edits is ambient (`form::source`), and so is the
+/// theme it draws in — they were parameters only because the panel had them in hand when it called down, and
+/// carrying them made every section a shape no `.rsx` component can have.
+pub type Build = fn() -> Result<Box<dyn telar::LayoutItem>, telar::LayoutError>;
 
 /// One form on a page.
 pub struct Section {

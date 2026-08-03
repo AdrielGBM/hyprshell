@@ -2,7 +2,6 @@
 //!
 //! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
 
-use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
@@ -238,11 +237,9 @@ fn accent_swatches(
     labelled(|| telar::t!("settings.field.accent"), Box::new(row), theme)
 }
 
-pub(crate) fn theme_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn theme_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let t = &config.theme;
     let name = signal(t.name.clone());
     let mode = signal(t.mode.clone());
@@ -264,7 +261,7 @@ pub(crate) fn theme_section(
     // to, not the one the shell is currently wearing. A swatch row showing the saved theme while the user is
     // choosing another one is a preview of the wrong thing.
     let pending = pending_palette(
-        config,
+        &config,
         name.read_only(),
         mode.read_only(),
         accent.read_only(),
@@ -388,11 +385,9 @@ pub(crate) fn theme_section(
     section(|| telar::t!("settings.section.theme"), rows, save, theme)
 }
 
-pub(crate) fn shape_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn shape_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let s = &config.shape;
     let mode = signal(shape_str(s.mode).to_string());
     let frame = signal(s.frame);
@@ -453,11 +448,9 @@ pub(crate) fn shape_section(
     section(|| telar::t!("settings.section.shape"), rows, save, theme)
 }
 
-pub(crate) fn icons_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn icons_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let i = &config.icons;
     let provider = signal(i.provider.clone());
     let default_set = signal(i.default_set.clone());
@@ -514,11 +507,9 @@ pub(crate) fn icons_section(
 ///
 /// A row per key with the *resolved* value as its placeholder, so an empty field reads as "whatever the theme
 /// says" rather than as a value that got lost.
-pub(crate) fn theme_colors_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn theme_colors_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let resolved = config.resolve_theme();
     let fields: Vec<(&'static str, RwSignal<String>)> = THEME_TOKENS
         .iter()
@@ -565,11 +556,9 @@ pub(crate) fn theme_colors_section(
     )
 }
 
-pub(crate) fn animation_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn animation_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let a = &config.animation;
     let enabled = signal(a.enabled);
     let scale = signal(a.duration_scale.to_string());
@@ -632,11 +621,9 @@ pub(crate) fn animation_section(
     )
 }
 
-pub(crate) fn corners_section(
-    config: &Config,
-    path: &Path,
-    theme: NordTheme,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
+pub(crate) fn corners_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let (config, path) = crate::form::source();
+    let theme = telar::use_theme::<NordTheme>();
     let c = &config.corners;
     let tl = signal(c.top_left.clone().unwrap_or_default());
     let tr = signal(c.top_right.clone().unwrap_or_default());
