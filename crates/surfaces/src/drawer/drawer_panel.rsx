@@ -17,5 +17,5 @@ box width:dw pad:16 fill:panel_fill() radius:rad
     scroll width:100% height:dmh keep:"drawer.body"
         widget "content"
 
-[preview "Drawer" fixture:crate::preview::drawer]
+[preview "Drawer" fixture:crate::preview::drawer surface:520x420]
 drawer_panel

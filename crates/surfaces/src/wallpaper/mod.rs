@@ -83,13 +83,9 @@ pub(crate) fn preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
         config: Arc::new(config.clone()).into(),
         output: None,
     };
-    // Given a screen to be, rather than left to size itself: the image layers are absolutely positioned to fill
-    // the surface, so they contribute nothing to a content-sized parent and a preview page would lay them out
-    // at zero height — the picture would be in the tree and nowhere on the page.
-    Ok(Box::new(Container::new(
-        LayoutStyle::new().width(880.0).height(495.0),
-        vec![app.content(&config)],
-    )?))
+    // No box of its own: the entry declares a `PreviewSurface`, which is what gives the image layers — absolutely
+    // positioned to fill their surface — something to fill.
+    Ok(app.content(&config))
 }
 
 impl WallpaperApp {

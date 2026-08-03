@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use telar::PreviewEntry;
+use telar::{PreviewEntry, PreviewSurface};
 
 use services::hyprland::{Snapshot, Workspace};
 use services::tray::{Pixmap, Status, TrayItem};
@@ -23,31 +23,40 @@ pub fn entries() -> Vec<PreviewEntry> {
             component_name: "notifications",
             preview_name: "Popup stack",
             build: crate::notifications::popups_preview,
+            surface: Some(PreviewSurface::new(
+                ::config::NotificationsConfig::default().width,
+                360.0,
+            )),
         },
         PreviewEntry {
             component_name: "notifications",
             preview_name: "History panel",
             build: crate::notifications::panel_preview,
+            surface: Some(PreviewSurface::new(340.0, 360.0)),
         },
         PreviewEntry {
             component_name: "toast",
             preview_name: "Toast stack",
             build: crate::toast::stack_preview,
+            surface: Some(PreviewSurface::new(300.0, 200.0)),
         },
         PreviewEntry {
             component_name: "utilities",
             preview_name: "Utilities panel",
             build: crate::utilities::panel_preview,
+            surface: Some(PreviewSurface::new(420.0, 520.0)),
         },
         PreviewEntry {
             component_name: "launcher",
             preview_name: "Wallpaper grid",
             build: crate::launcher::wallpaper_grid_preview,
+            surface: Some(PreviewSurface::new(640.0, 320.0)),
         },
         PreviewEntry {
             component_name: "lock",
             preview_name: "Lock screen",
             build: crate::lock::screen_preview,
+            surface: Some(PreviewSurface::new(960.0, 600.0)),
         },
     ]
 }

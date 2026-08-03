@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use telar::PreviewEntry;
+use telar::{PreviewEntry, PreviewSurface};
 
 use config::{Config, Edge, SurfaceEnv, set_surface_env};
 
@@ -23,11 +23,13 @@ pub fn entries() -> Vec<PreviewEntry> {
             component_name: "icon_picker",
             preview_name: "Glyph grid",
             build: crate::icon::grid_preview,
+            surface: Some(PreviewSurface::new(304.0, 280.0)),
         },
         PreviewEntry {
             component_name: "spectrum",
             preview_name: "Sweep",
             build: crate::widget::spectrum_preview,
+            surface: Some(PreviewSurface::new(520.0, 480.0)),
         },
     ]
 }
