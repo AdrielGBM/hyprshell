@@ -25,15 +25,10 @@ let fg = ui::module::module_fg();
 let fg_tint = fg.clone();
 let body = use_theme::<NordTheme>().font(FontRole::Body);
 let percent = memo(move || format!("{:.0}%", load_text.get()));
-let icon = ui::icon::icon_view(
-    || "cpu".to_string(),
-    move || load_color(load_tint.get(), fg_tint.get()),
-    ui::module::icon_px(),
-)?;
 
 [view]
 row align:center gap:6
-    widget "icon"
+    icon_glyph name(|| "cpu".to_string()) tint(move || load_color(load_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
     text "{$percent}" size:body color:$fg
 
 [preview "Cpu"]

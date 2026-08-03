@@ -33,15 +33,10 @@ let fg = ui::module::module_fg();
 let fg_tint = fg.clone();
 let body = use_theme::<NordTheme>().font(FontRole::Body);
 let reading = memo(move || load_text(load_text_source.get()));
-let icon = ui::icon::icon_view(
-    || glyph::gpu().to_string(),
-    move || load_color(load_tint.get(), fg_tint.get()),
-    ui::module::icon_px(),
-)?;
 
 [view]
 row align:center gap:6
-    widget "icon"
+    icon_glyph name(|| glyph::gpu().to_string()) tint(move || load_color(load_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
     text "{$reading}" size:body color:$fg
 
 [preview "Gpu"]

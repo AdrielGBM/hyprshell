@@ -17,14 +17,8 @@ platform_layershell::watch(battery::subscribe, move |b| {
     charging.set(b.charging);
 });
 
-let icon = ui::icon::icon_view(
-    move || glyph::battery(charging_glyph.get()).to_string(),
-    move || glyph::battery_tint(level_tint.get(), charging_tint.get(), theme, fg.get()),
-    ui::module::icon_px(),
-)?;
-
 [view]
-widget "icon"
+icon_glyph name(move || glyph::battery(charging_glyph.get()).to_string()) tint(move || glyph::battery_tint(level_tint.get(), charging_tint.get(), theme, fg.get())) size:(ui::module::icon_px())
 
 [preview "Battery"]
 battery

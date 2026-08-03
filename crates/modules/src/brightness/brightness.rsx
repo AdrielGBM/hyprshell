@@ -21,14 +21,9 @@ platform_layershell::watch(
 );
 
 let glyph = memo(move || bright_glyph(level_glyph.get()));
-let icon = ui::icon::icon_view(
-    move || glyph.get().to_string(),
-    move || fg.get(),
-    ui::module::icon_px(),
-)?;
 
 [view]
-widget "icon"
+icon_glyph name(move || glyph.get().to_string()) tint(move || fg.get()) size:(ui::module::icon_px())
 
 [preview "Brightness"]
 brightness

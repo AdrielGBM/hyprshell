@@ -46,11 +46,10 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);
 let rad = current_osd_radius();
 let icon_sz = use_theme::<NordTheme>().icon_size;
-let icon = ui::icon::icon_view(move || glyph.to_string(), move || osd_tint(dimmed), icon_sz)?;
 
 [view]
 box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100% height:100% fill:surface radius:rad
-    widget "icon"
+    icon_glyph name(move || glyph.to_string()) tint(move || osd_tint(dimmed)) size:(icon_sz)
     box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:3
         box width:fill_w height:TRACK_H fill:accent radius:3
 
