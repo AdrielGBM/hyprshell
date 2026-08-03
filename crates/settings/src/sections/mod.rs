@@ -1,14 +1,13 @@
-//! The forms, grouped the way the nav groups them.
+//! The forms. One `.rsx` component per form, plus the few this directory still keeps in Rust.
 //!
-//! Each file is one area of the shell rather than one page: a page is a list in [`crate::pages`], and two of
-//! them that configure the same thing — the network page and the Bluetooth page both being one form over one
-//! service — would otherwise be two files of fifty lines.
+//! The split is what a form's rows are: a fixed sequence of fields is a component, and a sequence the machine
+//! decides the length of — every installed application, every folder in a wallpaper library, every module in
+//! the registry — is not, because a `.rsx` view lists its children in the source. Those stay grouped by area
+//! rather than by page, so two pages over one service are one file.
 
 pub mod appearance;
 pub mod applications;
 pub mod audio;
 pub mod bars;
 pub mod lock;
-pub mod notifications;
-pub mod system;
 pub mod wallpaper;

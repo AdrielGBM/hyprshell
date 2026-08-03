@@ -1,8 +1,8 @@
 //! Which settings live on which page, and how a search finds them.
 //!
-//! The forms themselves are unchanged — every `*_section` in the parent module still owns one `[toml]` section
-//! and still saves it on its own. What this file adds is the *shape* of the application over them: a page is a
-//! nav entry and the ordered list of sections it shows, so grouping is a table rather than the order of a
+//! Each form owns one `[toml]` section and saves it on its own, whether it is an `.rsx` component or one of
+//! the handful still written in Rust. What this file adds is the *shape* of the application over them: a page
+//! is a nav entry and the ordered list of sections it shows, so grouping is a table rather than the order of a
 //! forty-item `Vec`.
 //!
 //! **Search is answered from the schema, not from the widgets.** Every field a form draws is a key on a config
@@ -126,26 +126,10 @@ pub const PAGES: &[Page] = &[
                 ["theme"],
                 crate::sections::appearance::theme_colors_section
             ),
-            section!(
-                "shape",
-                ["shape"],
-                crate::sections::appearance::shape_section
-            ),
-            section!(
-                "corners",
-                ["corners"],
-                crate::sections::appearance::corners_section
-            ),
-            section!(
-                "icons",
-                ["icons"],
-                crate::sections::appearance::icons_section
-            ),
-            section!(
-                "animation",
-                ["animation"],
-                crate::sections::appearance::animation_section
-            ),
+            section!("shape", ["shape"], crate::shape),
+            section!("corners", ["corners"], crate::corners),
+            section!("icons", ["icons"], crate::icons),
+            section!("animation", ["animation"], crate::animation),
         ],
     },
     Page {
@@ -158,63 +142,31 @@ pub const PAGES: &[Page] = &[
                 ["modules"],
                 crate::sections::bars::module_overrides_section
             ),
-            section!("panels", ["panels"], crate::sections::bars::panels_section),
-            section!(
-                "popouts",
-                ["popouts"],
-                crate::sections::bars::popouts_section
-            ),
-            section!("osd", ["osd"], crate::sections::bars::osd_section),
-            section!("clock", ["clock"], crate::sections::bars::clock_section),
-            section!(
-                "active_window",
-                ["active_window"],
-                crate::sections::bars::active_window_section
-            ),
-            section!(
-                "workspaces",
-                ["workspaces"],
-                crate::sections::bars::workspaces_section
-            ),
-            section!(
-                "status_icons",
-                ["status_icons"],
-                crate::sections::bars::status_icons_section
-            ),
-            section!("tray", ["tray"], crate::sections::bars::tray_section),
-            section!(
-                "battery",
-                ["battery"],
-                crate::sections::bars::battery_section
-            ),
+            section!("panels", ["panels"], crate::panels),
+            section!("popouts", ["popouts"], crate::popouts),
+            section!("osd", ["osd"], crate::osd),
+            section!("clock", ["clock"], crate::clock),
+            section!("active_window", ["active_window"], crate::active_window),
+            section!("workspaces", ["workspaces"], crate::workspaces),
+            section!("status_icons", ["status_icons"], crate::status_icons),
+            section!("tray", ["tray"], crate::tray),
+            section!("battery", ["battery"], crate::battery),
             section!(
                 "battery_warnings",
                 ["battery"],
                 crate::sections::bars::battery_warnings_section
             ),
-            section!(
-                "lock_status",
-                ["lock_status"],
-                crate::sections::bars::lock_status_section
-            ),
-            section!(
-                "temperature",
-                ["temperature"],
-                crate::sections::bars::temperature_section
-            ),
+            section!("lock_status", ["lock_status"], crate::lock_status),
+            section!("temperature", ["temperature"], crate::temperature),
         ],
     },
     Page {
         label: "audio",
         icon: "volume-2",
         sections: &[
-            section!("audio", ["audio"], crate::sections::audio::audio_section),
-            section!(
-                "visualiser",
-                ["visualiser"],
-                crate::sections::audio::visualiser_section
-            ),
-            section!("media", ["media"], crate::sections::audio::media_section),
+            section!("audio", ["audio"], crate::audio),
+            section!("visualiser", ["visualiser"], crate::visualiser),
+            section!("media", ["media"], crate::media),
             section!(
                 "media_aliases",
                 ["media"],
@@ -226,20 +178,12 @@ pub const PAGES: &[Page] = &[
     Page {
         label: "network",
         icon: "wifi",
-        sections: &[section!(
-            "network",
-            ["network"],
-            crate::sections::system::network_section
-        )],
+        sections: &[section!("network", ["network"], crate::network)],
     },
     Page {
         label: "bluetooth",
         icon: "bluetooth",
-        sections: &[section!(
-            "bluetooth",
-            ["bluetooth"],
-            crate::sections::system::bluetooth_section
-        )],
+        sections: &[section!("bluetooth", ["bluetooth"], crate::bluetooth)],
     },
     Page {
         label: "applications",
@@ -250,40 +194,24 @@ pub const PAGES: &[Page] = &[
                 ["launcher"],
                 crate::sections::applications::apps_section
             ),
-            section!(
-                "launcher",
-                ["launcher"],
-                crate::sections::applications::launcher_section
-            ),
+            section!("launcher", ["launcher"], crate::launcher),
         ],
     },
     Page {
         label: "notifications",
         icon: "bell",
         sections: &[
-            section!(
-                "notifications",
-                ["notifications"],
-                crate::sections::notifications::notifications_section
-            ),
-            section!(
-                "toasts",
-                ["toasts"],
-                crate::sections::notifications::toasts_section
-            ),
-            section!(
-                "sidebar",
-                ["sidebar"],
-                crate::sections::notifications::sidebar_section
-            ),
+            section!("notifications", ["notifications"], crate::notifications),
+            section!("toasts", ["toasts"], crate::toasts),
+            section!("sidebar", ["sidebar"], crate::sidebar),
         ],
     },
     Page {
         label: "lock",
         icon: "lock",
         sections: &[
-            section!("lock", ["lock"], crate::sections::lock::lock_section),
-            section!("idle", ["idle"], crate::sections::lock::idle_section),
+            section!("lock", ["lock"], crate::lock),
+            section!("idle", ["idle"], crate::idle),
             section!(
                 "idle_stages",
                 ["idle"],
@@ -305,20 +233,12 @@ pub const PAGES: &[Page] = &[
                 ["background"],
                 crate::sections::wallpaper::background_section
             ),
-            section!(
-                "wallpaper",
-                ["wallpaper"],
-                crate::sections::wallpaper::wallpaper_section
-            ),
-            section!(
-                "desktop_clock",
-                ["background"],
-                crate::sections::wallpaper::desktop_clock_section
-            ),
+            section!("wallpaper", ["wallpaper"], crate::wallpaper),
+            section!("desktop_clock", ["background"], crate::desktop_clock),
             section!(
                 "background_visualiser",
                 ["background"],
-                crate::sections::wallpaper::background_visualiser_section
+                crate::background_visualiser
             ),
         ],
     },
@@ -326,64 +246,28 @@ pub const PAGES: &[Page] = &[
         label: "language",
         icon: "languages",
         sections: &[
-            section!(
-                "general",
-                ["general"],
-                crate::sections::system::general_section
-            ),
-            section!(
-                "dashboard",
-                ["dashboard"],
-                crate::sections::system::dashboard_section
-            ),
+            section!("general", ["general"], crate::general),
+            section!("dashboard", ["dashboard"], crate::dashboard),
         ],
     },
     Page {
         label: "services",
         icon: "server",
         sections: &[
-            section!(
-                "weather",
-                ["weather"],
-                crate::sections::system::weather_section
-            ),
-            section!("gpu", ["gpu"], crate::sections::system::gpu_section),
-            section!(
-                "brightness",
-                ["brightness"],
-                crate::sections::system::brightness_section
-            ),
-            section!("paths", ["paths"], crate::sections::system::paths_section),
-            section!(
-                "screenshot",
-                ["screenshot"],
-                crate::sections::system::screenshot_section
-            ),
-            section!(
-                "recorder",
-                ["recorder"],
-                crate::sections::system::recorder_section
-            ),
-            section!(
-                "utilities",
-                ["utilities"],
-                crate::sections::system::utilities_section
-            ),
-            section!(
-                "keynav",
-                ["keynav"],
-                crate::sections::system::keynav_section
-            ),
+            section!("weather", ["weather"], crate::weather),
+            section!("gpu", ["gpu"], crate::gpu),
+            section!("brightness", ["brightness"], crate::brightness),
+            section!("paths", ["paths"], crate::paths),
+            section!("screenshot", ["screenshot"], crate::screenshot),
+            section!("recorder", ["recorder"], crate::recorder),
+            section!("utilities", ["utilities"], crate::utilities),
+            section!("keynav", ["keynav"], crate::keynav),
         ],
     },
     Page {
         label: "about",
         icon: "info",
-        sections: &[section!(
-            "about",
-            [],
-            crate::sections::system::about_section
-        )],
+        sections: &[section!("about", [], crate::about)],
     },
 ];
 

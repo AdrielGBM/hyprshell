@@ -1,6 +1,7 @@
 //! How the shell looks: the palette, the shapes it draws and how it moves.
 //!
-//! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
+//! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
+//! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
@@ -12,9 +13,7 @@ use telar::{
 
 use crate::form::*;
 use config::theme::{BUILT_IN_THEMES, FontRole, NordTheme, THEME_TOKENS};
-use config::{
-    AnimationConfig, Config, CornersConfig, IconsConfig, ScaleConfig, ShapeConfig, ThemeConfig,
-};
+use config::{Config, ScaleConfig, ThemeConfig};
 
 /// A palette a control draws from and re-reads: the pending `[theme]` selection resolved through
 /// [`Config::theme_with`], so a swatch shows the theme being chosen rather than the one being worn.
@@ -385,113 +384,6 @@ pub(crate) fn theme_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     section(|| telar::t!("settings.section.theme"), rows, save, theme)
 }
 
-pub(crate) fn shape_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let s = &config.shape;
-    let mode = signal(shape_str(s.mode).to_string());
-    let frame = signal(s.frame);
-    let gap = signal(s.gap.to_string());
-    let spacing = signal(opt_num(s.spacing));
-    let radius = signal(opt_num(s.radius));
-    let inactive = signal(s.inactive_size.to_string());
-
-    let rows = vec![
-        enum_field(
-            || telar::t!("settings.field.mode"),
-            mode.clone(),
-            SHAPES,
-            theme,
-        )?,
-        toggle_field(
-            || telar::t!("settings.field.frame_ring"),
-            frame.clone(),
-            theme,
-        )?,
-        text_field(|| telar::t!("settings.field.gap"), gap.clone(), "0", theme)?,
-        text_field(
-            || telar::t!("settings.field.spacing"),
-            spacing.clone(),
-            "(theme)",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.radius"),
-            radius.clone(),
-            "(theme)",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.inactive_size"),
-            inactive.clone(),
-            "6",
-            theme,
-        )?,
-    ];
-
-    let base = s.clone();
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.shape"),
-        move || {
-            let value = ShapeConfig {
-                mode: parse_shape(&mode.peek()),
-                frame: frame.peek(),
-                gap: parse_u32(&gap.peek(), base.gap),
-                spacing: opt_u32(&spacing.peek()),
-                radius: opt_u32(&radius.peek()),
-                inactive_size: parse_u32(&inactive.peek(), base.inactive_size),
-            };
-            persist(&path, "shape", &value);
-        },
-    )?;
-    section(|| telar::t!("settings.section.shape"), rows, save, theme)
-}
-
-pub(crate) fn icons_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let i = &config.icons;
-    let provider = signal(i.provider.clone());
-    let default_set = signal(i.default_set.clone());
-    let app_icon_theme = signal(i.app_icon_theme.clone());
-
-    let rows = vec![
-        text_field(
-            || telar::t!("settings.field.provider"),
-            provider.clone(),
-            "https://api.iconify.design",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.default_set"),
-            default_set.clone(),
-            "lucide",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.app_icon_theme"),
-            app_icon_theme.clone(),
-            "auto",
-            theme,
-        )?,
-    ];
-
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.icons"),
-        move || {
-            let value = IconsConfig {
-                provider: provider.peek(),
-                default_set: default_set.peek(),
-                app_icon_theme: app_icon_theme.peek(),
-            };
-            persist(&path, "icons", &value);
-        },
-    )?;
-    section(|| telar::t!("settings.section.icons"), rows, save, theme)
-}
-
 /// K13, first half: the maps whose keys are enumerable.
 ///
 /// `background.monitors` came off this list with J9 by the route that generalises worst and works best — its
@@ -554,121 +446,4 @@ pub(crate) fn theme_colors_section() -> Result<Box<dyn LayoutItem>, LayoutError>
         save,
         theme,
     )
-}
-
-pub(crate) fn animation_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let a = &config.animation;
-    let enabled = signal(a.enabled);
-    let scale = signal(a.duration_scale.to_string());
-    let curve = signal(a.curve.clone());
-    let easing = signal(a.easing.clone());
-    let panel_ms = signal(a.panel_duration_ms.to_string());
-
-    let rows = vec![
-        toggle_field(
-            || telar::t!("settings.field.enabled"),
-            enabled.clone(),
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.duration_scale"),
-            scale.clone(),
-            "1",
-            theme,
-        )?,
-        enum_field(
-            || telar::t!("settings.field.curve"),
-            curve.clone(),
-            CURVES,
-            theme,
-        )?,
-        enum_field(
-            || telar::t!("settings.field.easing"),
-            easing.clone(),
-            EASINGS,
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.panel_duration_ms"),
-            panel_ms.clone(),
-            "180",
-            theme,
-        )?,
-    ];
-
-    let base = a.clone();
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.animation"),
-        move || {
-            let value = AnimationConfig {
-                enabled: enabled.peek(),
-                duration_scale: parse_f32(&scale.peek(), base.duration_scale),
-                curve: curve.peek(),
-                easing: easing.peek(),
-                panel_duration_ms: parse_u64(&panel_ms.peek(), base.panel_duration_ms),
-            };
-            persist(&path, "animation", &value);
-        },
-    )?;
-    section(
-        || telar::t!("settings.section.animation"),
-        rows,
-        save,
-        theme,
-    )
-}
-
-pub(crate) fn corners_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let c = &config.corners;
-    let tl = signal(c.top_left.clone().unwrap_or_default());
-    let tr = signal(c.top_right.clone().unwrap_or_default());
-    let bl = signal(c.bottom_left.clone().unwrap_or_default());
-    let br = signal(c.bottom_right.clone().unwrap_or_default());
-
-    let rows = vec![
-        text_field(
-            || telar::t!("settings.field.top_left"),
-            tl.clone(),
-            "module id",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.top_right"),
-            tr.clone(),
-            "module id",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.bottom_left"),
-            bl.clone(),
-            "module id",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.bottom_right"),
-            br.clone(),
-            "module id",
-            theme,
-        )?,
-    ];
-
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.corners"),
-        move || {
-            let value = CornersConfig {
-                top_left: opt_string(&tl.peek()),
-                top_right: opt_string(&tr.peek()),
-                bottom_left: opt_string(&bl.peek()),
-                bottom_right: opt_string(&br.peek()),
-            };
-            persist(&path, "corners", &value);
-        },
-    )?;
-    section(|| telar::t!("settings.section.corners"), rows, save, theme)
 }

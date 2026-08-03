@@ -1,6 +1,7 @@
 //! The launcher and the application list behind it.
 //!
-//! One `*_section` per form on the page, each owning one `[toml]` table and saving it on its own.
+//! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
+//! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
 use telar::{
     AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
@@ -13,80 +14,6 @@ use config::LauncherConfig;
 use config::theme::{FontRole, NordTheme};
 use services::apps::{self, App};
 use ui::icon::icon_view;
-
-pub(crate) fn launcher_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let (config, path) = crate::form::source();
-    let theme = telar::use_theme::<NordTheme>();
-    let l = &config.launcher;
-    let width = signal(l.width.to_string());
-    let height = signal(l.height.to_string());
-    let max_results = signal(l.max_results.to_string());
-    let fuzzy = signal(l.fuzzy);
-    let calculator = signal(l.calculator);
-    let qalc = signal(l.qalc);
-    let dangerous = signal(l.enable_dangerous_actions);
-
-    let rows = vec![
-        text_field(
-            || telar::t!("settings.field.width"),
-            width.clone(),
-            "640",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.height"),
-            height.clone(),
-            "420",
-            theme,
-        )?,
-        text_field(
-            || telar::t!("settings.field.max_results"),
-            max_results.clone(),
-            "12",
-            theme,
-        )?,
-        toggle_field(|| telar::t!("settings.field.fuzzy"), fuzzy.clone(), theme)?,
-        toggle_field(
-            || telar::t!("settings.field.calculator"),
-            calculator.clone(),
-            theme,
-        )?,
-        toggle_field(|| telar::t!("settings.field.qalc"), qalc.clone(), theme)?,
-        toggle_field(
-            || telar::t!("settings.field.enable_dangerous_actions"),
-            dangerous.clone(),
-            theme,
-        )?,
-    ];
-
-    let base = l.clone();
-    let path = path.to_path_buf();
-    let save = save_button(
-        || telar::t!("settings.save.launcher"),
-        move || {
-            // Merged into the file as it is now, because the applications page below owns the other half of
-            // this same `[launcher]` table. A snapshot taken when the form was built would quietly revert a
-            // favourite marked since — see `persist_with`.
-            persist_with(&path, "launcher", |current| LauncherConfig {
-                width: parse_u32(&width.peek(), base.width),
-                height: parse_u32(&height.peek(), base.height),
-                radius: base.radius,
-                max_results: parse_u32(&max_results.peek(), base.max_results),
-                fuzzy: fuzzy.peek(),
-                calculator: calculator.peek(),
-                qalc: qalc.peek(),
-                enable_dangerous_actions: dangerous.peek(),
-                // Not this form's to edit: the app list owns the first three, and `actions` is a list of
-                // tables that stays hand-edited in the TOML.
-                favourites: current.launcher.favourites.clone(),
-                hidden: current.launcher.hidden.clone(),
-                icons: current.launcher.icons.clone(),
-                actions: current.launcher.actions.clone(),
-            });
-        },
-    )?;
-    section(|| telar::t!("settings.section.launcher"), rows, save, theme)
-}
 
 /// How many applications the database page draws at once. `ReactiveList` builds a widget per row up front, so
 /// a machine with two thousand entries would spend the UI thread before the page appeared — the same bound,
