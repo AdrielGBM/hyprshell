@@ -12,12 +12,11 @@ fn tint(muted: bool) -> telar::Color {
     if muted { theme.muted } else { theme.text }
 }
 
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 let muted = props.muted;
 let label = props.text;
 
 [view]
-text "{label()}" size:body color:tint(muted)
+text "{label()}" size:theme.font(FontRole::Body) color:tint(muted)
 
 [preview "Chip label"]
 chip_label text:"12:04"

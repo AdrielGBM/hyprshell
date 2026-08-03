@@ -16,7 +16,6 @@ platform_layershell::watch(netspeed::subscribe, move |speed: NetSpeed| {
 let fg = ui::module::module_fg();
 let fg_down = fg.clone();
 let fg_up = fg.clone();
-let caption = use_theme::<NordTheme>().font(FontRole::Caption);
 // Half-height arrows stacked in the chip: two rates need two lines to stay readable at bar size, and the
 // direction glyph says which is which without a label.
 let arrow_size = (ui::module::icon_px() * 0.55).round();
@@ -25,10 +24,10 @@ let arrow_size = (ui::module::icon_px() * 0.55).round();
 col justify:center gap:1
     row align:center gap:4
         icon_glyph name(|| "arrow-down".to_string()) tint(move || fg_down.get()) size:(arrow_size)
-        text "{$down_view}" size:caption color:$fg
+        text "{$down_view}" size:theme.font(FontRole::Caption) color:$fg
     row align:center gap:4
         icon_glyph name(|| "arrow-up".to_string()) tint(move || fg_up.get()) size:(arrow_size)
-        text "{$up_view}" size:caption color:$fg
+        text "{$up_view}" size:theme.font(FontRole::Caption) color:$fg
 
 [preview "Netspeed" fixture:ui::preview::bar_chip]
 netspeed

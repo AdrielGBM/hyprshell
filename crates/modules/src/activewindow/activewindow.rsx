@@ -38,7 +38,6 @@ platform_layershell::watch(
 );
 
 let fg = ui::module::module_fg();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 let size = ui::module::icon_px();
 // The app's own artwork, not a tinted glyph: the point of this chip is recognising the app at a glance. A class
 // with no installed icon simply renders nothing, leaving the title to carry the chip.
@@ -51,7 +50,7 @@ let trailing = show_icon && config.inverted;
 row align:center gap:8
     if leading
         build "crate::activewindow::icon_slot(&class, size)?"
-    text "{$title_view}" size:body color:$fg
+    text "{$title_view}" size:theme.font(FontRole::Body) color:$fg
     if trailing
         build "crate::activewindow::icon_slot(&class, size)?"
 

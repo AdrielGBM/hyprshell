@@ -31,13 +31,12 @@ platform_layershell::watch(gpu::subscribe, move |g: Gpu| load.set(g.usage));
 
 let fg = ui::module::module_fg();
 let fg_tint = fg.clone();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 let reading = memo(move || load_text(load_text_source.get()));
 
 [view]
 row align:center gap:6
     icon_glyph name(|| glyph::gpu().to_string()) tint(move || load_color(load_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
-    text "{$reading}" size:body color:$fg
+    text "{$reading}" size:theme.font(FontRole::Body) color:$fg
 
 [preview "Gpu" fixture:ui::preview::bar_chip]
 gpu

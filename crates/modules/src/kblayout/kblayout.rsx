@@ -32,10 +32,9 @@ platform_layershell::watch(
 );
 
 let fg = ui::module::module_fg();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 
 [view]
-text "{$code_view}" size:body color:$fg
+text "{$code_view}" size:theme.font(FontRole::Body) color:$fg
 
 [preview "Kblayout" fixture:ui::preview::bar_chip]
 kblayout

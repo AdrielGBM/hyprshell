@@ -24,7 +24,6 @@ let now = signal(render(&chrono::Local::now(), &config));
 let now_view = now.read_only();
 // module_shell provides the box, hover/press feedback and drawer-opening click; this module supplies only content, painted with the container-chosen foreground.
 let fg = ui::module::module_fg();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 // One ticker for the whole shell, aligned to the second boundary; every clock surface reads the same broadcast.
 platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
     now.set(render(&t, &for_tick));

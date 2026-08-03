@@ -23,13 +23,12 @@ platform_layershell::watch(resources::subscribe, move |r: Resources| load.set(r.
 
 let fg = ui::module::module_fg();
 let fg_tint = fg.clone();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 let percent = memo(move || format!("{:.0}%", load_text.get()));
 
 [view]
 row align:center gap:6
     icon_glyph name(|| "cpu".to_string()) tint(move || load_color(load_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
-    text "{$percent}" size:body color:$fg
+    text "{$percent}" size:theme.font(FontRole::Body) color:$fg
 
 [preview "Cpu" fixture:ui::preview::bar_chip]
 cpu

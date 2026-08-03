@@ -39,13 +39,12 @@ platform_layershell::watch(resources::subscribe, move |r: Resources| {
 
 let fg = ui::module::module_fg();
 let fg_tint = fg.clone();
-let body = use_theme::<NordTheme>().font(FontRole::Body);
 let reading = memo(move || heat_text(temp_text.get(), &text_config));
 
 [view]
 row align:center gap:6
     icon_glyph name(|| "thermometer".to_string()) tint(move || heat_color(temp_tint.get(), &tint_config, fg_tint.get())) size:(ui::module::icon_px())
-    text "{$reading}" size:body color:$fg
+    text "{$reading}" size:theme.font(FontRole::Body) color:$fg
 
 [preview "Temperature" fixture:ui::preview::bar_chip]
 temperature
