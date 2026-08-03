@@ -5,7 +5,7 @@ use std::rc::Rc;
 use telar::{
     AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, SurfaceToken, Text, box_item, memo, open_surface, set_theme,
-    signal, surface_content,
+    signal, surface_content, use_theme,
 };
 
 use config::scheme;
@@ -619,6 +619,42 @@ fn lines(entries: Vec<Entry>, columns: usize) -> Vec<Line> {
         .chunks(columns)
         .map(|chunk| Line::Tiles(chunk.to_vec()))
         .collect()
+}
+
+/// The wallpaper grid over a made-up library, for [`crate::preview`]. Headless there are no thumbnails, so what
+/// this shows is the tile layout and its glyph fallback — which is also what a first open of a cold cache looks
+/// like.
+pub(crate) fn wallpaper_grid_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = use_theme::<NordTheme>();
+    let images: Vec<Entry> = [
+        "sunset", "forest", "city", "harbour", "dunes", "rain", "pier",
+    ]
+    .into_iter()
+    .map(|name| {
+        Entry::Wallpaper(wallpaper::Entry {
+            path: std::path::PathBuf::from(format!("/pictures/{name}.png")),
+            name: name.to_string(),
+            folder: String::new(),
+        })
+    })
+    .collect();
+    let shown = signal(images).read_only();
+    let list = result_list(
+        memo(move || shown.get()),
+        memo(|| QueryMode::Wallpapers.columns(640.0)),
+        signal(1usize),
+        signal(String::new()).read_only(),
+        260.0,
+        theme,
+    )?;
+    Ok(Box::new(StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .padding_all(PANEL_PADDING)
+            .width(640.0),
+        move |_| RectStyle::filled(theme.surface, 14.0),
+        vec![list],
+    )?))
 }
 
 fn result_list(
@@ -1765,77 +1801,6 @@ mod tests {
                 .is_ok(),
                 "{across} column(s) builds"
             );
-        }
-    }
-
-    /// Renders the wallpaper grid. `TELAR_VISUAL_LAUNCHER_OUT=/tmp/l.png cargo test -p hyprshell --lib visual_launcher -- --nocapture`.
-    /// Headless there are no thumbnails, so what this shows is the tile layout and its glyph fallback — which is
-    /// also what a first open of a cold cache looks like.
-    #[test]
-    fn visual_launcher_grid_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_LAUNCHER_OUT") else {
-            eprintln!("set TELAR_VISUAL_LAUNCHER_OUT to render the wallpaper grid; skipping");
-            return;
-        };
-        visual::render_png(GridPreviewApp, 640, 320, &out);
-    }
-
-    struct GridPreviewApp;
-
-    impl telar::App for GridPreviewApp {
-        fn root(&self) -> Box<dyn telar::Component> {
-            telar::reset_layout_runtime();
-            let theme = NordTheme::new();
-            telar::set_theme(theme);
-            let images: Vec<Entry> = library()
-                .into_iter()
-                .cycle()
-                .take(7)
-                .enumerate()
-                .map(|(index, mut entry)| {
-                    entry.name = format!("{} {index}", entry.name);
-                    entry.path = std::path::PathBuf::from(format!("/pictures/{index}.png"));
-                    Entry::Wallpaper(entry)
-                })
-                .collect();
-            let source = signal(images);
-            let read = source.read_only();
-            let shown = memo(move || read.get());
-            let columns = memo(|| QueryMode::Wallpapers.columns(640.0));
-            let selected = signal(1usize);
-            let armed = signal(String::new());
-            let list = result_list(
-                shown,
-                columns,
-                selected.clone(),
-                armed.read_only(),
-                260.0,
-                theme,
-            )
-            .expect("grid build failed");
-            let panel = StyledContainer::new(
-                LayoutStyle::new()
-                    .flex_column()
-                    .padding_all(PANEL_PADDING)
-                    .width(SizeDimension::Percent(1.0)),
-                move |_| RectStyle::filled(theme.surface, 14.0),
-                vec![list],
-            )
-            .expect("panel frame");
-            Box::new(
-                ui::surface_root::SurfaceRoot::new(Box::new(panel)).expect("launcher surface root"),
-            )
-        }
-
-        fn clear_color(&self) -> Option<telar::Color> {
-            None
-        }
-
-        fn window_config(&self) -> Option<telar::WindowConfig> {
-            Some(telar::WindowConfig {
-                is_transparent: true,
-                ..telar::WindowConfig::default()
-            })
         }
     }
 

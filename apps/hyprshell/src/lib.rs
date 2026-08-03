@@ -32,6 +32,11 @@ impl AppPathsProvider for NullPaths {
 
 /// Every crate's `rsx_modules!` emits its own `telar_all_preview_entries`, so the list is per crate rather than
 /// per process and the app is the only place that has all eight.
+///
+/// The second list is the previews written in Rust: a surface's content is built by a function, not by a `.rsx`
+/// component, so there is no `[preview]` block to hang one off. They are entries of exactly the same kind —
+/// `cargo telar preview`/`test` cannot tell the two apart — and each replaces a `TELAR_VISUAL_*` test that only
+/// rendered when an environment variable asked it to.
 fn preview_entries() -> Vec<telar::PreviewEntry> {
     let mut entries = telar_all_preview_entries();
     for crate_entries in [
@@ -45,12 +50,38 @@ fn preview_entries() -> Vec<telar::PreviewEntry> {
     ] {
         entries.extend(crate_entries());
     }
+    for hand_written in [
+        modules::preview::entries,
+        settings::preview::entries,
+        surfaces::preview::entries,
+        ui::preview::entries,
+    ] {
+        entries.extend(hand_written());
+    }
     entries
+}
+
+/// The page a preview is rendered on. Wider and taller than telar's 800×600 default because half of what this
+/// app previews is a whole surface — a 920×680 settings float, a bar the width of a screen — and a preview
+/// clipped by the page shows a layout problem that isn't there.
+fn preview_window() -> telar::AppConfig {
+    telar::AppConfig {
+        window: telar::WindowConfig {
+            width: 1000,
+            height: 760,
+            ..telar::WindowConfig::default()
+        },
+        ..telar::AppConfig::default()
+    }
 }
 
 /// The ambient world a `[preview]` builds against: config, locale, font, icon store and theme. Deliberately not
 /// `apply_config` — that also arms the idle stages, the notification policy and the toast watchers, which reach
 /// the machine and have no business running to render a component.
+///
+/// [`install_hooks`] is part of it because three of the previews are surfaces that dispatch by module id — the
+/// bar, the drawer and the popout all ask a registry what to draw, and a registry nobody installed answers
+/// "nothing". It publishes tables and function pointers and starts nothing.
 fn seed_preview_world() {
     let config = Arc::new(Config::load_or_default(&Config::default_path()));
     services::locale::init(config.language());
@@ -58,15 +89,12 @@ fn seed_preview_world() {
     ui::icon::init_store(&config.icons);
     telar::set_theme(config.resolve_theme());
     config::set_config(config);
+    install_hooks();
 }
 
 pub fn run() {
     // `cargo telar preview`/`test` has to answer while a shell is already up, so this precedes the single-instance check below — it opens no surface and takes no bus name.
-    if telar::dev_entry(
-        preview_entries,
-        telar::AppConfig::default(),
-        seed_preview_world,
-    ) {
+    if telar::dev_entry(preview_entries, preview_window(), seed_preview_world) {
         return;
     }
     // One shell per compositor instance: a second one would fight over the notification bus name and the IPC

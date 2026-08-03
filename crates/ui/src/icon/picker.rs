@@ -365,6 +365,35 @@ fn default_set() -> String {
         .unwrap_or_else(|| "lucide".to_string())
 }
 
+/// The picker's panel over a fixed set of glyphs, for [`crate::preview`]. Shows the cell centring and the
+/// wrapping the grid does — which is what there was to look at, and what no unit test can see.
+pub(crate) fn grid_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = use_theme::<NordTheme>();
+    let ids: Vec<String> = [
+        "home", "bell", "plus", "x", "search", "star", "heart", "settings", "user", "folder",
+        "file", "clock", "calendar", "mail", "phone", "camera", "image", "music",
+    ]
+    .iter()
+    .map(|name| format!("lucide:{name}"))
+    .collect();
+    let filtered = signal(ids).read_only();
+    let pick: Rc<dyn Fn(String)> = Rc::new(|_| {});
+    let scroll = LayoutScrollArea::new_with(
+        LayoutStyle::new()
+            .width(SizeDimension::Percent(1.0))
+            .height(GRID_HEIGHT),
+        move |vp| grid(vp, filtered, theme, pick),
+    )?;
+    Ok(Box::new(StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .width(PANEL_WIDTH)
+            .padding_all(8.0),
+        move |_| RectStyle::filled(theme.surface, 10.0),
+        vec![Box::new(scroll)],
+    )?))
+}
+
 /// Wraps a layout item so it also owns an effect for its lifetime — the two drop together when the subtree is
 /// disposed. Lets a plain component tree keep a background effect (here, the debounced filter) alive.
 struct WithEffect {
@@ -395,10 +424,7 @@ impl Component for WithEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use telar::{
-        App, Color, Component, SurfaceRoot, WindowConfig, reset_layout_runtime, set_theme,
-        track_layout,
-    };
+    use telar::{SurfaceRoot, reset_layout_runtime, set_theme, track_layout};
 
     #[test]
     fn filter_matches_the_name_part_case_insensitively_and_caps() {
@@ -437,47 +463,6 @@ mod tests {
         );
         // The set prefix is not part of the haystack, so it can't be typed to filter by it.
         assert!(filter_ids(&all, "mdi").is_empty());
-    }
-
-    struct GridPreviewApp {
-        ids: Vec<String>,
-        theme: NordTheme,
-    }
-
-    impl App for GridPreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(self.theme);
-            let filtered = signal(self.ids.clone()).read_only();
-            let theme = self.theme;
-            let pick: Rc<dyn Fn(String)> = Rc::new(|_| {});
-            let scroll = LayoutScrollArea::new_with(
-                LayoutStyle::new()
-                    .width(SizeDimension::Percent(1.0))
-                    .height(GRID_HEIGHT),
-                move |vp| grid(vp, filtered, theme, pick),
-            )
-            .expect("grid");
-            let panel = StyledContainer::new(
-                LayoutStyle::new()
-                    .flex_column()
-                    .width(PANEL_WIDTH)
-                    .padding_all(8.0),
-                move |_| RectStyle::filled(theme.surface, 10.0),
-                vec![Box::new(scroll)],
-            )
-            .expect("panel");
-            Box::new(SurfaceRoot::new(Box::new(panel)).expect("root"))
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            Some(NordTheme::new().base)
-        }
     }
 
     // The real picker's timing: the viewport is laid out (empty grid) BEFORE the icon set loads and the grid
@@ -525,42 +510,6 @@ mod tests {
             crate::icon::was_requested("lucide:home"),
             "a cell built after the viewport was laid out must still become visible and request its glyph"
         );
-    }
-
-    struct OverlayPreviewApp {
-        theme: NordTheme,
-    }
-
-    impl App for OverlayPreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(self.theme);
-            let theme = self.theme;
-            let trigger = StyledContainer::new(
-                LayoutStyle::new().width(36.0).height(36.0),
-                move |_| RectStyle::filled(theme.base, 8.0),
-                vec![],
-            )
-            .expect("trigger");
-            let node = trigger.layout_node();
-            let rect = track_layout(node).expect("trigger node");
-            let overlay = icon_picker_overlay(node, rect, |_| {}, || {}).expect("overlay");
-            let root = Container::new(
-                LayoutStyle::new().flex_column(),
-                vec![Box::new(trigger), overlay],
-            )
-            .expect("root");
-            Box::new(SurfaceRoot::new(Box::new(root)).expect("surface root"))
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            Some(NordTheme::new().base)
-        }
     }
 
     // Faithful repro of opening the picker in a notes card: a scroll (the drawer content) holds a card with
@@ -690,41 +639,28 @@ mod tests {
     // build/teardown panic (like the reactive-runtime re-entry seen when opening the popover).
     #[test]
     fn overlay_builds_and_tears_down_without_panic() {
-        let out = std::env::temp_dir().join("hyprshell-overlay-test.png");
-        visual::render_png(
-            OverlayPreviewApp {
-                theme: NordTheme::new(),
-            },
-            320,
-            320,
-            out.to_str().unwrap(),
-        );
-    }
+        use telar::ComponentList;
 
-    /// Renders the picker grid (cells show spinners/placeholders — headless has no network) so cell centring
-    /// and the wrapping layout can be eyeballed. `TELAR_VISUAL_PICKER_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_picker -- --nocapture`.
-    #[test]
-    fn visual_picker_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_PICKER_OUT") else {
-            eprintln!("set TELAR_VISUAL_PICKER_OUT to render the picker; skipping");
-            return;
-        };
-        let ids: Vec<String> = [
-            "home", "bell", "plus", "x", "search", "star", "heart", "settings", "user", "folder",
-            "file", "clock", "calendar", "mail", "phone", "camera", "image", "music",
-        ]
-        .iter()
-        .map(|n| format!("lucide:{n}"))
-        .collect();
-        visual::render_png_frames(
-            GridPreviewApp {
-                ids,
-                theme: NordTheme::new().with_accent("teal"),
-            },
-            PANEL_WIDTH as u32 + 16,
-            280,
-            &out,
-            8,
-        );
+        reset_layout_runtime();
+        let theme = NordTheme::new();
+        set_theme(theme);
+        let trigger = StyledContainer::new(
+            LayoutStyle::new().width(36.0).height(36.0),
+            move |_| RectStyle::filled(theme.base, 8.0),
+            vec![],
+        )
+        .expect("trigger");
+        let node = trigger.layout_node();
+        let rect = track_layout(node).expect("trigger node");
+        let overlay = icon_picker_overlay(node, rect, |_| {}, || {}).expect("overlay");
+        let root = Container::new(
+            LayoutStyle::new().flex_column(),
+            vec![Box::new(trigger), overlay],
+        )
+        .expect("root");
+
+        let tree = ComponentList::new(SurfaceRoot::new(Box::new(root)).expect("surface root"));
+        let _ = tree.commands();
+        drop(tree);
     }
 }

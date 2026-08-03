@@ -203,7 +203,22 @@ fn corner_style(edge: Edge) -> LayoutStyle {
         .align_items(align)
 }
 
-/// Builds a popout's tree for `module_id`; public so the visual harness can render one without a compositor.
+/// The volume chip's hover card, for [`crate::preview`] — the card that exercises every part one has: glyph,
+/// title, reading, meter and the device line under it.
+pub(crate) fn preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    // Seeded here rather than inherited: previews share a process, so a card that relied on another one having
+    // published a reading first would draw a different number depending on the order they ran in.
+    services::volume::seed(services::volume::Volume {
+        level: 64,
+        muted: false,
+    });
+    let env = ui::preview::bar_chip();
+    let theme = env.config.resolve_theme();
+    popout_content("volume", &env.config, env.edge, theme)
+}
+
+/// Builds a popout's tree for `module_id`; public so a surface that only *presents* one — and a preview — can
+/// build it without a compositor.
 pub fn popout_content(
     module_id: &str,
     config: &Config,

@@ -17,6 +17,16 @@ use ui::module::{
 };
 use ui::{ModuleShellProps, module_shell};
 
+/// The bar the running config draws, for [`crate::preview`] — every chip the user put on it, in the zones and
+/// the shape they configured, against the registry the app installed.
+pub(crate) fn preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let env = ui::preview::bar_chip();
+    let theme = env.config.resolve_theme();
+    ui::module::with_registry(|registry| {
+        build_bar(&env.config, env.edge, theme.accent, registry, theme)
+    })
+}
+
 /// Builds the content tree for the bar, branching on its resolved `mode` (bar/sections/chips); visual properties come from gap/spacing/radius, not mode.
 pub fn build_bar(
     config: &Config,
@@ -609,73 +619,5 @@ mod tests {
                  reined in to the bar's thickness, not left at its content width to spill off the screen"
             );
         }
-    }
-
-    use crate::bar::BarApp;
-    use std::sync::Arc;
-    use visual::render_png;
-
-    const DEMO: &str = r#"
-[shape]
-mode = "chips"
-gap = 8
-spacing = 8
-radius = 12
-
-[bars.top]
-size = 40
-start = ["workspaces"]
-center = ["clock"]
-end = ["clock"]
-"#;
-
-    fn edge_from_env() -> Edge {
-        match std::env::var("HYPRSHELL_VISUAL_EDGE").as_deref() {
-            Ok("bottom") => Edge::Bottom,
-            Ok("left") => Edge::Left,
-            Ok("right") => Edge::Right,
-            _ => Edge::Top,
-        }
-    }
-
-    fn size_for(edge: Edge, config: &Config) -> (u32, u32) {
-        if let Ok(s) = std::env::var("HYPRSHELL_VISUAL_SIZE")
-            && let Some((w, h)) = s.split_once('x')
-            && let (Ok(w), Ok(h)) = (w.parse(), h.parse())
-        {
-            return (w, h);
-        }
-        let thickness = config.bars.get(edge).size;
-        if edge.is_horizontal() {
-            (1280, thickness)
-        } else {
-            (thickness, 800)
-        }
-    }
-
-    /// Renders a bar surface for eyeballing. Env: `HYPRSHELL_VISUAL_CONFIG` (a config.toml, else a demo), `HYPRSHELL_VISUAL_EDGE` (top|bottom|left|right), `HYPRSHELL_VISUAL_SIZE` (WxH). Gated on `TELAR_VISUAL_OUT`.
-    #[test]
-    fn visual_bar_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_OUT") else {
-            eprintln!("set TELAR_VISUAL_OUT to write a PNG; skipping");
-            return;
-        };
-        let toml = std::env::var("HYPRSHELL_VISUAL_CONFIG")
-            .ok()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .unwrap_or_else(|| DEMO.to_string());
-        let config: Config = toml::from_str(&toml).expect("config parses");
-        let edge = edge_from_env();
-        let (w, h) = size_for(edge, &config);
-        render_png(
-            BarApp {
-                config: Arc::new(config).into(),
-                edge,
-                output: None,
-            },
-            w,
-            h,
-            &out,
-        );
     }
 }

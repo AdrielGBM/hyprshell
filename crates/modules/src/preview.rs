@@ -6,11 +6,51 @@
 
 use std::sync::Arc;
 
+use telar::PreviewEntry;
+
 use services::hyprland::{Snapshot, Workspace};
 use services::tray::{Pixmap, Status, TrayItem};
 use services::volume::Volume;
 
 const MONITOR: &str = "DP-1";
+
+/// The previews this crate registers by hand, for the surfaces whose content is still built by a Rust function
+/// and so has no `.rsx` component for a `[preview]` block to hang off. Each replaces a `TELAR_VISUAL_*` test
+/// that rendered the same tree only when an environment variable asked it to.
+pub fn entries() -> Vec<PreviewEntry> {
+    vec![
+        PreviewEntry {
+            component_name: "notifications",
+            preview_name: "Popup stack",
+            build: crate::notifications::popups_preview,
+        },
+        PreviewEntry {
+            component_name: "notifications",
+            preview_name: "History panel",
+            build: crate::notifications::panel_preview,
+        },
+        PreviewEntry {
+            component_name: "toast",
+            preview_name: "Toast stack",
+            build: crate::toast::stack_preview,
+        },
+        PreviewEntry {
+            component_name: "utilities",
+            preview_name: "Utilities panel",
+            build: crate::utilities::panel_preview,
+        },
+        PreviewEntry {
+            component_name: "launcher",
+            preview_name: "Wallpaper grid",
+            build: crate::launcher::wallpaper_grid_preview,
+        },
+        PreviewEntry {
+            component_name: "lock",
+            preview_name: "Lock screen",
+            build: crate::lock::screen_preview,
+        },
+    ]
+}
 
 /// A volume the OSD can draw a bar for: `volume::current()` is `None` until PipeWire has published something,
 /// which on a headless render is never, and a meter at 0% reads as broken rather than as quiet.

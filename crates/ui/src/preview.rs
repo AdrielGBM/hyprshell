@@ -7,7 +7,30 @@
 
 use std::sync::Arc;
 
+use telar::PreviewEntry;
+
 use config::{Config, Edge, SurfaceEnv, set_surface_env};
+
+/// The previews this crate registers by hand, because what they draw is built by a Rust function and a
+/// `[preview]` block needs a `.rsx` component to hang off. The app collects these next to every generated
+/// `telar_all_preview_entries()`, so `cargo telar preview`/`test` sees no difference between the two.
+///
+/// Each one replaces a `TELAR_VISUAL_*` test that rendered the same tree only when asked by an environment
+/// variable; as an entry it is rendered on every run instead.
+pub fn entries() -> Vec<PreviewEntry> {
+    vec![
+        PreviewEntry {
+            component_name: "icon_picker",
+            preview_name: "Glyph grid",
+            build: crate::icon::grid_preview,
+        },
+        PreviewEntry {
+            component_name: "spectrum",
+            preview_name: "Sweep",
+            build: crate::widget::spectrum_preview,
+        },
+    ]
+}
 
 /// Puts the component on the bar the running config draws, so its icon size, padding and corner radius come out
 /// as they do on screen rather than at the 34px default nobody configured. Returns what it put in scope, for a

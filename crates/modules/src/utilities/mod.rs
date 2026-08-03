@@ -237,6 +237,21 @@ pub fn utilities_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     )?))
 }
 
+/// The panel inside the frame its host draws around it, for [`crate::preview`] — the toggle grid, the capture
+/// card and the recordings list. On a machine with no recordings that list draws its empty line, which is part
+/// of what there is to look at.
+pub(crate) fn panel_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = use_theme::<NordTheme>();
+    Ok(Box::new(StyledContainer::new(
+        LayoutStyle::new()
+            .flex_column()
+            .padding_all(16.0)
+            .width(420.0),
+        move |_| RectStyle::filled(theme.surface, 14.0),
+        vec![utilities_panel()?],
+    )?))
+}
+
 /// The toggle grid on its own, for a surface that wants the switches without the rest of the panel — the
 /// notification centre hosts exactly these, and hosting a second copy of them is what the sidebar existing at all
 /// is supposed to avoid.
@@ -577,51 +592,6 @@ mod tests {
         telar::reset_layout_runtime();
         telar::set_theme(NordTheme::new());
         assert!(utilities_panel().is_ok());
-    }
-
-    /// Renders the utilities panel — the toggle grid, the capture card and the recordings list. Gated on its own
-    /// env var; on a machine with no recordings the list draws its empty line, which is part of what to look at.
-    #[test]
-    fn visual_utilities_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_UTILITIES_OUT") else {
-            eprintln!("set TELAR_VISUAL_UTILITIES_OUT to render the utilities panel; skipping");
-            return;
-        };
-        visual::render_png(UtilitiesPreviewApp, 420, 520, &out);
-    }
-
-    struct UtilitiesPreviewApp;
-
-    impl telar::App for UtilitiesPreviewApp {
-        fn root(&self) -> Box<dyn telar::Component> {
-            telar::reset_layout_runtime();
-            telar::set_theme(NordTheme::new());
-            let panel = utilities_panel().expect("utilities panel build failed");
-            let padded = StyledContainer::new(
-                LayoutStyle::new()
-                    .flex_column()
-                    .padding_all(16.0)
-                    .width(SizeDimension::Percent(1.0)),
-                move |_| RectStyle::filled(NordTheme::new().surface, 14.0),
-                vec![panel],
-            )
-            .expect("panel frame");
-            Box::new(
-                ui::surface_root::SurfaceRoot::new(Box::new(padded))
-                    .expect("utilities surface root"),
-            )
-        }
-
-        fn clear_color(&self) -> Option<telar::Color> {
-            None
-        }
-
-        fn window_config(&self) -> Option<telar::WindowConfig> {
-            Some(telar::WindowConfig {
-                is_transparent: true,
-                ..telar::WindowConfig::default()
-            })
-        }
     }
 
     #[test]

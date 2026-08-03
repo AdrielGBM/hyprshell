@@ -12,10 +12,6 @@ pub fn default_popouts() -> PopoutRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use config::Config;
-
     use super::*;
 
     /// Every card is offered for a module that exists, so no hover can be wired to an id nothing puts on a bar.
@@ -29,37 +25,5 @@ mod tests {
                 "'{id}' has a popout card but is not a registered module"
             );
         }
-    }
-
-    /// Renders one popout card for eyeballing. `HYPRSHELL_VISUAL_POPOUT` names the module (default `volume`);
-    /// gated on its own env var like every other visual test.
-    #[test]
-    fn visual_popout_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_POPOUT_OUT") else {
-            eprintln!("set TELAR_VISUAL_POPOUT_OUT to render a popout; skipping");
-            return;
-        };
-        ui::popouts::install(default_popouts());
-        let module =
-            std::env::var("HYPRSHELL_VISUAL_POPOUT").unwrap_or_else(|_| "volume".to_string());
-        let config = Config::starter();
-        let (w, h) = (
-            config.popouts.card_width() as u32,
-            config.popouts.card_height() as u32,
-        );
-        // Published so the card resolves it exactly as it would on a live screen; a visual render has no
-        // reconcile to have put one there.
-        config::set_config(Arc::new(config));
-        visual::render_png(
-            surfaces::popout::PopoutApp {
-                module,
-                edge: config::Edge::Top,
-                bar_size: 34,
-                output: None,
-            },
-            w,
-            h,
-            &out,
-        );
     }
 }

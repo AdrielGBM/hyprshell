@@ -350,6 +350,52 @@ fn close_to_baseline(line: &PathData, rect: Rect) -> PathData {
         .close()
 }
 
+/// Both spectrum forms over a synthetic sweep, for [`crate::preview`]. A hump rather than a ramp, so a band
+/// drawn in the wrong slot is obvious rather than plausible — which is the only way to see that the ring's
+/// spokes mirror instead of wrapping, and that the row's caps are the radius asked for.
+pub(crate) fn spectrum_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = telar::use_theme::<config::theme::NordTheme>();
+    let bands: Arc<[f32]> = (0..48)
+        .map(|i| {
+            let x = (i as f32 - 16.0) / 12.0;
+            (-x * x).exp() * 0.9 + 0.08
+        })
+        .collect();
+    let row = spectrum(
+        util::reactive::fixed(bands.clone()),
+        util::reactive::fixed(theme.accent),
+        config::Edge::Bottom,
+        SpectrumStyle {
+            gap: 4.0,
+            radius: 3.0,
+            floor: 0.0,
+        },
+        LayoutStyle::new()
+            .width(SizeDimension::Percent(1.0))
+            .height(160.0),
+    )?;
+    let ring = spectrum_ring(
+        util::reactive::fixed(bands),
+        util::reactive::fixed(theme.text),
+        60.0,
+        50.0,
+        SpectrumStyle {
+            gap: 2.0,
+            radius: 2.0,
+            floor: 2.0,
+        },
+        LayoutStyle::new().width(240.0).height(240.0),
+    )?;
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .align_items(AlignItems::CENTER)
+            .gap(20.0)
+            .width(SizeDimension::Percent(1.0)),
+        vec![ring, row],
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,76 +575,6 @@ mod tests {
         for bar in bar_rects(&values, Edge::Bottom, style, box_) {
             assert!(bar.width >= 1.0, "{bar:?}");
         }
-    }
-
-    /// Draws both spectrum forms over a synthetic sweep, which is the only way to see that the ring's spokes
-    /// mirror rather than wrap and that the row's caps are the radius asked for:
-    /// `TELAR_VISUAL_SPECTRUM_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture`
-    #[test]
-    fn visual_spectrum_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_SPECTRUM_OUT") else {
-            eprintln!("set TELAR_VISUAL_SPECTRUM_OUT to render the spectrum; skipping");
-            return;
-        };
-
-        struct Sweep;
-        impl telar::App for Sweep {
-            fn root(&self) -> Box<dyn telar::Component> {
-                telar::reset_layout_runtime();
-                let theme = config::Config::starter().resolve_theme();
-                // A hump rather than a ramp, so a band drawn in the wrong slot is obvious rather than plausible.
-                let bands: Arc<[f32]> = (0..48)
-                    .map(|i| {
-                        let x = (i as f32 - 16.0) / 12.0;
-                        (-x * x).exp() * 0.9 + 0.08
-                    })
-                    .collect();
-                let row = spectrum(
-                    util::reactive::fixed(bands.clone()),
-                    util::reactive::fixed(theme.accent),
-                    config::Edge::Bottom,
-                    SpectrumStyle {
-                        gap: 4.0,
-                        radius: 3.0,
-                        floor: 0.0,
-                    },
-                    LayoutStyle::new()
-                        .width(SizeDimension::Percent(1.0))
-                        .height(160.0),
-                )
-                .expect("row");
-                let ring = spectrum_ring(
-                    util::reactive::fixed(bands),
-                    util::reactive::fixed(theme.text),
-                    60.0,
-                    50.0,
-                    SpectrumStyle {
-                        gap: 2.0,
-                        radius: 2.0,
-                        floor: 2.0,
-                    },
-                    LayoutStyle::new().width(240.0).height(240.0),
-                )
-                .expect("ring");
-                let column = Container::new(
-                    LayoutStyle::new()
-                        .flex_column()
-                        .align_items(AlignItems::CENTER)
-                        .gap(20.0)
-                        .padding_all(20.0)
-                        .width(SizeDimension::Percent(1.0)),
-                    vec![ring, row],
-                )
-                .expect("column");
-                Box::new(crate::surface_root::SurfaceRoot::new(Box::new(column)).expect("root"))
-            }
-
-            fn clear_color(&self) -> Option<Color> {
-                Some(config::Config::starter().resolve_theme().base)
-            }
-        }
-
-        visual::render_png(Sweep, 520, 480, &out);
     }
 
     #[test]

@@ -338,7 +338,7 @@ fn build_page_area(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use telar::{App, Color, Component, WindowConfig, reset_layout_runtime, set_theme};
+    use telar::{reset_layout_runtime, set_theme};
     use ui::surface_root::SurfaceRoot;
 
     // Switching the locale after the panel is built re-renders its labels live: the section titles are
@@ -524,36 +524,5 @@ mod tests {
                 "and the page under the frame still scrolls afterwards"
             );
         });
-    }
-
-    struct SettingsPreview;
-
-    impl App for SettingsPreview {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(NordTheme::new());
-            let panel = settings_panel().expect("settings panel build failed");
-            Box::new(SurfaceRoot::new(panel).expect("settings root"))
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            Some(NordTheme::new().surface)
-        }
-    }
-
-    /// Renders the settings panel end-to-end. Point config at a scratch dir so it never touches the real file:
-    /// `XDG_CONFIG_HOME=/tmp/x TELAR_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture`.
-    #[test]
-    fn visual_settings_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_SETTINGS_OUT") else {
-            eprintln!("set TELAR_VISUAL_SETTINGS_OUT to render the settings panel; skipping");
-            return;
-        };
-        visual::render_png(SettingsPreview, 920, 680, &out);
     }
 }

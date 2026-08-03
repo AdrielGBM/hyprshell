@@ -67,6 +67,31 @@ impl App for WallpaperApp {
     }
 }
 
+/// The desktop as this surface draws it — the configured image, cover-cropped and decoded for real — with the
+/// clock over it, for [`crate::preview`]. The clock is forced on because it is the half of this surface that
+/// has something to look at when the library is empty.
+pub(crate) fn preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let mut config = config::config()
+        .map(|live| (*live).clone())
+        .unwrap_or_else(Config::starter);
+    config.background.enabled = true;
+    config.background.clock.enabled = true;
+    // The settled desktop, not the crossfade into it: a preview captures a handful of frames, and a 600ms
+    // transition is still halfway through when the last of them is taken.
+    config.background.transition = WallpaperTransition::None;
+    let app = WallpaperApp {
+        config: Arc::new(config.clone()).into(),
+        output: None,
+    };
+    // Given a screen to be, rather than left to size itself: the image layers are absolutely positioned to fill
+    // the surface, so they contribute nothing to a content-sized parent and a preview page would lay them out
+    // at zero height — the picture would be in the tree and nowhere on the page.
+    Ok(Box::new(Container::new(
+        LayoutStyle::new().width(880.0).height(495.0),
+        vec![app.content(&config)],
+    )?))
+}
+
 impl WallpaperApp {
     fn content(&self, config: &Config) -> Box<dyn LayoutItem> {
         let mut layers: Vec<Box<dyn LayoutItem>> = Vec::new();
@@ -543,8 +568,6 @@ fn justify(align: Align) -> JustifyContent {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
     use config::{ClockPlacement, Config, DesktopClockConfig};
 
@@ -688,34 +711,5 @@ mod tests {
             Some(ClockPlacement::BottomRight)
         );
         assert_eq!(ClockPlacement::from_id("nowhere"), None);
-    }
-
-    /// Renders the wallpaper surface end-to-end (real decode + cover-crop). Point it at an image to eyeball the crop:
-    /// `TELAR_VISUAL_WALLPAPER_OUT=/tmp/w.png TELAR_VISUAL_WALLPAPER_IMG=/path/to/wall.png cargo test -p hyprshell --lib visual_wallpaper -- --nocapture`.
-    /// Set `TELAR_VISUAL_WALLPAPER_CLOCK=1` to draw the desktop clock over it.
-    #[test]
-    fn visual_wallpaper_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_WALLPAPER_OUT") else {
-            eprintln!("set TELAR_VISUAL_WALLPAPER_OUT to render the wallpaper; skipping");
-            return;
-        };
-        let mut config = Config::starter();
-        config.background.enabled = true;
-        config.background.image = std::env::var("TELAR_VISUAL_WALLPAPER_IMG")
-            .ok()
-            .map(PathBuf::from);
-        if std::env::var("TELAR_VISUAL_WALLPAPER_CLOCK").is_ok() {
-            config.background.clock.enabled = true;
-            config.background.clock.background = true;
-        }
-        visual::render_png(
-            WallpaperApp {
-                config: Arc::new(config).into(),
-                output: None,
-            },
-            640,
-            400,
-            &out,
-        );
     }
 }

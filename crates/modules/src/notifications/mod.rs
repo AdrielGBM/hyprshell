@@ -1110,6 +1110,91 @@ fn icon_button(
     Ok(Box::new(button))
 }
 
+/// Four notifications as a daemon would hold them, for the two previews below: a threaded pair with actions, a
+/// critical one and a low one, so every urgency and both card shapes are on the page.
+fn sample_snapshot() -> Snapshot {
+    let mk = |id: u32, app: &str, summary: &str, body: &str, urgency: Urgency| Notification {
+        id,
+        app_name: app.into(),
+        app_icon: String::new(),
+        summary: summary.into(),
+        body: body.into(),
+        actions: Vec::new(),
+        urgency,
+        popup: true,
+        image: None,
+    };
+    let active = vec![
+        Notification {
+            actions: vec![
+                "reply".into(),
+                "Reply".into(),
+                "archive".into(),
+                "Archive".into(),
+            ],
+            ..mk(
+                1,
+                "Slack",
+                "Ada Lovelace",
+                "Still on for the review at <b>3pm</b>? &amp; bring notes",
+                Urgency::Normal,
+            )
+        },
+        mk(
+            2,
+            "Slack",
+            "Grace Hopper",
+            "Pushed the fix.",
+            Urgency::Normal,
+        ),
+        mk(
+            3,
+            "Battery",
+            "Battery low",
+            "12% remaining — plug in soon.",
+            Urgency::Critical,
+        ),
+        mk(4, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
+    ];
+    Snapshot {
+        unread: active.len() as u32,
+        active,
+        dnd: false,
+        muted_apps: Vec::new(),
+    }
+}
+
+/// The popup stack the daemon mounts on the focused screen, for [`crate::preview`].
+pub(crate) fn popups_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = use_theme::<NordTheme>();
+    let snapshot = signal(Arc::new(sample_snapshot()));
+    card_stack(
+        snapshot.read_only(),
+        None,
+        NotificationsConfig::default(),
+        theme,
+        12.0,
+    )
+}
+
+/// The history panel behind the bell chip, for [`crate::preview`]: the same snapshot, grouped and headed.
+pub(crate) fn panel_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let theme = use_theme::<NordTheme>();
+    let snapshot = signal(Arc::new(sample_snapshot()));
+    let read = snapshot.read_only();
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(12.0)
+            .padding_all(16.0)
+            .width(NotificationsConfig::default().width),
+        vec![
+            panel_header(read.clone(), theme)?,
+            history_list(read, &NotificationsConfig::default(), theme, 12.0)?,
+        ],
+    )?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1459,178 +1544,5 @@ mod tests {
             HistoryRow::Card(n) => format!("card:{}", n.id),
             HistoryRow::Expander { hidden, .. } => format!("expander:{hidden}"),
         }
-    }
-
-    struct PreviewApp {
-        snapshot: Snapshot,
-        cfg: NotificationsConfig,
-        theme: NordTheme,
-    }
-
-    impl App for PreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(self.theme);
-            let signal = signal(Arc::new(self.snapshot.clone()));
-            let content = card_stack(signal.read_only(), None, self.cfg.clone(), self.theme, 12.0)
-                .expect("card stack");
-            Box::new(SurfaceRoot::new(content).expect("preview root"))
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            None
-        }
-    }
-
-    struct PanelPreviewApp {
-        snapshot: Snapshot,
-        theme: NordTheme,
-    }
-
-    impl App for PanelPreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(self.theme);
-            let signal = signal(Arc::new(self.snapshot.clone()));
-            let read = signal.read_only();
-            let header = panel_header(read.clone(), self.theme).expect("header");
-            let list = history_list(read, &NotificationsConfig::default(), self.theme, 12.0)
-                .expect("list");
-            let panel = Container::new(
-                LayoutStyle::new()
-                    .flex_column()
-                    .gap(12.0)
-                    .padding_all(16.0)
-                    .width(SizeDimension::Percent(1.0)),
-                vec![header, list],
-            )
-            .expect("panel");
-            Box::new(SurfaceRoot::new(Box::new(panel)).expect("panel root"))
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            Some(NordTheme::new().surface)
-        }
-    }
-
-    fn sample_snapshot() -> Snapshot {
-        let mk = |id: u32, app: &str, summary: &str, body: &str, urgency: Urgency| Notification {
-            id,
-            app_name: app.into(),
-            app_icon: String::new(),
-            summary: summary.into(),
-            body: body.into(),
-            actions: Vec::new(),
-            urgency,
-            popup: true,
-            image: None,
-        };
-        snapshot_of(vec![
-            Notification {
-                actions: vec![
-                    "reply".into(),
-                    "Reply".into(),
-                    "archive".into(),
-                    "Archive".into(),
-                ],
-                ..mk(
-                    1,
-                    "Slack",
-                    "Ada Lovelace",
-                    "Still on for the review at <b>3pm</b>? &amp; bring notes",
-                    Urgency::Normal,
-                )
-            },
-            mk(
-                2,
-                "Slack",
-                "Grace Hopper",
-                "Pushed the fix.",
-                Urgency::Normal,
-            ),
-            mk(
-                3,
-                "Battery",
-                "Battery low",
-                "12% remaining — plug in soon.",
-                Urgency::Critical,
-            ),
-            mk(4, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
-        ])
-    }
-
-    /// Renders the history panel. `TELAR_VISUAL_PANEL_OUT=/tmp/p.png cargo test -p hyprshell --lib visual_panel -- --nocapture`.
-    #[test]
-    fn visual_panel_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_PANEL_OUT") else {
-            eprintln!("set TELAR_VISUAL_PANEL_OUT to render the panel; skipping");
-            return;
-        };
-        visual::render_png(
-            PanelPreviewApp {
-                snapshot: sample_snapshot(),
-                theme: NordTheme::new().with_accent("teal"),
-            },
-            340,
-            360,
-            &out,
-        );
-    }
-
-    /// Renders the popup stack for eyeballing. `TELAR_VISUAL_NOTIF_OUT=/tmp/n.png cargo test -p hyprshell --lib visual_notifications -- --nocapture`.
-    #[test]
-    fn visual_notifications_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_NOTIF_OUT") else {
-            eprintln!("set TELAR_VISUAL_NOTIF_OUT to render notifications; skipping");
-            return;
-        };
-        let mk = |id: u32, app: &str, summary: &str, body: &str, urgency: Urgency| Notification {
-            id,
-            app_name: app.into(),
-            app_icon: String::new(),
-            summary: summary.into(),
-            body: body.into(),
-            actions: Vec::new(),
-            urgency,
-            popup: true,
-            image: None,
-        };
-        let snapshot = snapshot_of(vec![
-            mk(
-                1,
-                "Slack",
-                "Ada Lovelace",
-                "Are we still on for the review at 3?",
-                Urgency::Normal,
-            ),
-            mk(
-                2,
-                "Battery",
-                "Battery low",
-                "12% remaining — plug in soon.",
-                Urgency::Critical,
-            ),
-            mk(3, "Calendar", "Standup in 5 minutes", "", Urgency::Low),
-        ]);
-        visual::render_png(
-            PreviewApp {
-                snapshot,
-                cfg: NotificationsConfig::default(),
-                theme: NordTheme::new().with_accent("teal"),
-            },
-            NotificationsConfig::default().width as u32,
-            360,
-            &out,
-        );
     }
 }

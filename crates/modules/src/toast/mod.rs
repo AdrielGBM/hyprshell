@@ -120,8 +120,28 @@ fn stack(config: ToastsConfig, radius: f32) -> Result<Box<dyn LayoutItem>, Layou
     stack_of(toasts.read_only(), config, radius)
 }
 
-/// The stack over a given source. Split out from the subscription so a test — and the visual render — can drive it
-/// with a fixed list instead of a live queue, which on a headless run is always empty.
+/// The stack over two sample toasts, for [`crate::preview`]: a live queue is empty on every run that is not a
+/// running shell, and an empty stack is a blank page.
+pub(crate) fn stack_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let source = signal(vec![
+        Toast::sample(
+            toaster::Event::Charging,
+            "battery-charging",
+            "Charging",
+            "84%",
+        ),
+        Toast::sample(
+            toaster::Event::KbLayout,
+            "keyboard",
+            "Keyboard layout",
+            "Spanish",
+        ),
+    ]);
+    stack_of(source.read_only(), ToastsConfig::default(), 14.0)
+}
+
+/// The stack over a given source. Split out from the subscription so a test — and the preview above — can drive
+/// it with a fixed list instead of a live queue, which on a headless run is always empty.
 fn stack_of(
     source: telar::ReadSignal<Vec<Toast>>,
     config: ToastsConfig,
@@ -266,53 +286,6 @@ mod tests {
                 stack_of(source.read_only(), config, 12.0).is_ok(),
                 "{edge:?}"
             );
-        }
-    }
-
-    /// Renders the toast stack for eyeballing. Gated on its own env var, like every other visual test here.
-    #[test]
-    fn visual_toasts_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_TOASTS_OUT") else {
-            eprintln!("set TELAR_VISUAL_TOASTS_OUT to render the toast stack; skipping");
-            return;
-        };
-        visual::render_png(ToastPreviewApp, 300, 200, &out);
-    }
-
-    struct ToastPreviewApp;
-
-    impl App for ToastPreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            set_theme(NordTheme::new());
-            let source = telar::signal(vec![
-                Toast::sample(
-                    toaster::Event::Charging,
-                    "battery-charging",
-                    "Charging",
-                    "84%",
-                ),
-                Toast::sample(
-                    toaster::Event::KbLayout,
-                    "keyboard",
-                    "Keyboard layout",
-                    "Spanish",
-                ),
-            ]);
-            let content = stack_of(source.read_only(), ToastsConfig::default(), 14.0)
-                .expect("toast stack build failed");
-            Box::new(SurfaceRoot::new(content).expect("toast surface root"))
-        }
-
-        fn clear_color(&self) -> Option<Color> {
-            None
-        }
-
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
         }
     }
 }

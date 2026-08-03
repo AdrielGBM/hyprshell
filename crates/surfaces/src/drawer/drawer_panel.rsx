@@ -16,3 +16,6 @@ let content = module_panel(&module)?;
 box width:dw pad:16 fill:panel_fill() radius:rad
     scroll width:100% height:dmh keep:"drawer.body"
         widget "content"
+
+[preview "Drawer" fixture:crate::preview::drawer]
+drawer_panel

@@ -20,6 +20,7 @@ use config::theme::NordTheme;
 mod freedesktop;
 mod picker;
 pub use freedesktop::{AppIcon, resolve_app_icon};
+pub(crate) use picker::grid_preview;
 pub use picker::icon_picker_overlay;
 
 /// An **application's own** icon at `size`, or `None` when `reference` resolves to nothing.

@@ -17,4 +17,3 @@ util = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }
-visual = { workspace = true }

@@ -1,9 +1,0 @@
-[package]
-name = "hyprshell-visual"
-edition.workspace = true
-version.workspace = true
-
-[dependencies]
-image = { workspace = true }
-platform-headless = { workspace = true }
-telar = { workspace = true }

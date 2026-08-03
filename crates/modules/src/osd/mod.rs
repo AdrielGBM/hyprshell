@@ -40,7 +40,8 @@ pub fn current_osd_radius() -> f32 {
         .unwrap_or(16.0)
 }
 
-/// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`); pub(crate) so the headless visual harness can render it without a real compositor.
+/// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`), putting both in scope for
+/// it first — which is why the surface calls this rather than the component directly.
 pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
     set_theme(theme);
     util::state::set_context(OsdCtx { kind, radius });
@@ -158,66 +159,4 @@ pub fn brightness_action() {
 pub fn brightness_scroll(_dx: f32, dy: f32) {
     services::brightness::step(brightness_step(dy));
     show(OsdKind::Brightness);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{OsdKind, osd_content};
-    use config::theme::NordTheme;
-    use telar::{App, Color, Component, SurfaceRoot, WindowConfig, reset_layout_runtime};
-    use visual::render_png;
-
-    /// The OSD content wrapped in a full-surface root — the same tree the surface host mounts, without a compositor.
-    struct OsdPreviewApp {
-        kind: OsdKind,
-        accent: Color,
-    }
-
-    impl App for OsdPreviewApp {
-        fn root(&self) -> Box<dyn Component> {
-            reset_layout_runtime();
-            Box::new(
-                SurfaceRoot::new(osd_content(
-                    self.kind,
-                    NordTheme {
-                        accent: self.accent,
-                        ..NordTheme::new()
-                    },
-                    16.0,
-                ))
-                .expect("osd surface root"),
-            )
-        }
-        fn window_config(&self) -> Option<WindowConfig> {
-            Some(WindowConfig {
-                is_transparent: true,
-                ..WindowConfig::default()
-            })
-        }
-        fn clear_color(&self) -> Option<Color> {
-            None
-        }
-    }
-
-    /// Renders the OSD surface. Gated on its own env var; `HYPRSHELL_VISUAL_OSD_KIND=brightness` for the sun.
-    #[test]
-    fn visual_osd_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_OSD_OUT") else {
-            eprintln!("set TELAR_VISUAL_OSD_OUT to render the OSD; skipping");
-            return;
-        };
-        let kind = match std::env::var("HYPRSHELL_VISUAL_OSD_KIND").as_deref() {
-            Ok("brightness") => OsdKind::Brightness,
-            _ => OsdKind::Volume,
-        };
-        render_png(
-            OsdPreviewApp {
-                kind,
-                accent: NordTheme::new().accent_by_name("teal"),
-            },
-            280,
-            60,
-            &out,
-        );
-    }
 }

@@ -63,6 +63,12 @@ impl App for LockApp {
     }
 }
 
+/// The lock screen as the session opener mounts it, for [`crate::preview`] — over the starter config, since a
+/// preview has no session to read one from.
+pub(crate) fn screen_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
+    screen(&Arc::new(Config::starter()))
+}
+
 /// The whole surface: a centred card over the background.
 fn screen(config: &Arc<Config>) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
@@ -350,25 +356,6 @@ mod tests {
         assert!(
             offered_methods(&bare).is_empty(),
             "a machine with no reader and no Howdy shows no biometric hint"
-        );
-    }
-
-    /// Renders the lock screen at a plausible output size. Gated on its own env var like every other visual
-    /// test here; `TELAR_VISUAL_LOCK_OUT=/tmp/lock.png cargo test visual_lock_png`.
-    #[test]
-    fn visual_lock_png() {
-        let Ok(out) = std::env::var("TELAR_VISUAL_LOCK_OUT") else {
-            eprintln!("set TELAR_VISUAL_LOCK_OUT to render the lock screen; skipping");
-            return;
-        };
-        visual::render_png(
-            LockApp {
-                config: Some(Arc::new(Config::starter())),
-                output: None,
-            },
-            960,
-            600,
-            &out,
         );
     }
 }
