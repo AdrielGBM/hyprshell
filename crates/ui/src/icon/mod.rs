@@ -204,7 +204,7 @@ pub(crate) fn was_requested(name: &str) -> bool {
 }
 
 /// The current load state of `name`, subscribing the caller so it re-renders as the icon resolves. `name` is a bare glyph (`bell`) or a `set:name` for another Iconify set (`mdi:home`).
-fn icon_state(name: &str) -> AssetState<Arc<SvgData>> {
+pub(crate) fn icon_state(name: &str) -> AssetState<Arc<SvgData>> {
     ensure_store();
     STORE.with(|s| {
         s.borrow()
