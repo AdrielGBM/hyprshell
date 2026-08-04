@@ -14,12 +14,13 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use platform_layershell::EventSender;
 use serde_json::Value;
+use util::deps::{self, Dep};
 
 use util::broadcast::{Broadcast, Service};
 
@@ -75,6 +76,13 @@ pub struct Node {
     pub kind: NodeKind,
     /// 0–100+, on the same curve `wpctl` and every graphical mixer show.
     pub level: i32,
+    /// Whether this node is silenced, by *either* of the two mutes PipeWire keeps.
+    ///
+    /// The node carries one; the card its node sits on carries another, per route, and they are independent —
+    /// a laptop's mic-mute key and several mixers set the route's while leaving the node's alone. Reading only
+    /// the node meant the shell drew a live microphone for one that was off. [`Mirror::snapshot`] folds the
+    /// route's in before anything sees this, so a consumer asks "is it silenced" and never has to know there
+    /// were two answers.
     pub muted: bool,
 }
 
@@ -203,7 +211,8 @@ fn run() {
 /// `--raw` is what makes this streamable: it prints one JSON array per line — the whole graph first, then a
 /// batch per change — so a line is a complete message and no bracket counting is needed.
 fn monitor() -> std::io::Result<()> {
-    let mut child = Command::new("pw-dump")
+    let mut child = deps::command(Dep::PwDump)
+        .ok_or_else(|| std::io::Error::other("pw-dump has no row"))?
         .args(["--monitor", "--raw", "--no-colors"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -240,6 +249,13 @@ fn monitor() -> std::io::Result<()> {
 #[derive(Default)]
 struct Mirror {
     nodes: HashMap<u32, Node>,
+    /// Route mutes, keyed by `(device.id, card.profile.device)` — the card's own mute, which is what a
+    /// laptop's mic-mute key sets and about which the node's own `mute` says nothing.
+    route_mutes: HashMap<(u32, u32), bool>,
+    /// Which route each node sits on, so [`snapshot`](Self::snapshot) can join the two. Kept beside the nodes
+    /// rather than on `Node`, because which card route a node belongs to is how this mirror answers "is it
+    /// muted" and not something a consumer of a reading has any use for.
+    node_routes: HashMap<u32, (u32, u32)>,
     default_sink: String,
     default_source: String,
 }
@@ -260,11 +276,18 @@ impl Mirror {
             // A removed object arrives as its id with a null `info` — an application closing, a device
             // unplugged. Nothing else distinguishes it from an update.
             if object.get("info").is_some_and(Value::is_null) {
+                self.node_routes.remove(&id);
                 touched |= self.nodes.remove(&id).is_some();
+                // A card going away takes its routes with it, or a re-plugged device inherits the mute state
+                // of the one before it.
+                let had_routes = self.route_mutes.keys().any(|(device, _)| *device == id);
+                self.route_mutes.retain(|(device, _), _| *device != id);
+                touched |= had_routes;
                 continue;
             }
             match object.get("type").and_then(Value::as_str) {
                 Some("PipeWire:Interface:Node") => touched |= self.apply_node(id, &object),
+                Some("PipeWire:Interface:Device") => touched |= self.apply_device(id, &object),
                 Some("PipeWire:Interface:Metadata") => touched |= self.apply_metadata(&object),
                 _ => {}
             }
@@ -275,14 +298,55 @@ impl Mirror {
     fn apply_node(&mut self, id: u32, object: &Value) -> bool {
         match parse_node(id, object) {
             Some(node) => {
-                let changed = self.nodes.get(&id) != Some(&node);
+                let route = route_key(object);
+                let changed = self.nodes.get(&id) != Some(&node)
+                    || self.node_routes.get(&id) != route.as_ref();
                 self.nodes.insert(id, node);
+                match route {
+                    Some(key) => self.node_routes.insert(id, key),
+                    None => self.node_routes.remove(&id),
+                };
                 changed
             }
             // A node the shell does not adjust, or one whose params have not arrived yet. Dropping a
             // previously-known node here matters: a stream keeps its id while its media class is rewritten.
-            None => self.nodes.remove(&id).is_some(),
+            None => {
+                self.node_routes.remove(&id);
+                self.nodes.remove(&id).is_some()
+            }
         }
+    }
+
+    /// Records the card's per-route mutes. A `Device` object carries one `Route` per jack, each naming the
+    /// `device` index its nodes report as `card.profile.device` — so the pair `(card id, route device)` is
+    /// what joins a route to the node it silences.
+    ///
+    /// A device whose `Route` params have not arrived yet leaves the map alone rather than clearing it: an
+    /// update about something else on the card is not a statement that nothing is muted.
+    fn apply_device(&mut self, id: u32, object: &Value) -> bool {
+        let Some(routes) = object
+            .get("info")
+            .and_then(|info| info.get("params"))
+            .and_then(|params| params.get("Route"))
+            .and_then(Value::as_array)
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for route in routes {
+            let Some(index) = number(route, "device") else {
+                continue;
+            };
+            let muted = route
+                .get("props")
+                .and_then(|props| props.get("mute"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if self.route_mutes.insert((id, index), muted) != Some(muted) {
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// PipeWire keeps the default device in a metadata object rather than on the node, because "default" is a
@@ -322,7 +386,21 @@ impl Mirror {
     }
 
     fn snapshot(&self) -> Graph {
-        let mut nodes: Vec<Node> = self.nodes.values().cloned().collect();
+        // The route's mute is folded in here, once, rather than at each of the places that ask whether
+        // something is silenced. Either mute silences the node, so the effective answer is their `or`.
+        let mut nodes: Vec<Node> = self
+            .nodes
+            .values()
+            .cloned()
+            .map(|mut node| {
+                if let Some(key) = self.node_routes.get(&node.id)
+                    && self.route_mutes.get(key) == Some(&true)
+                {
+                    node.muted = true;
+                }
+                node
+            })
+            .collect();
         // Stable order, so a redraw never reshuffles a device list under the pointer. Ids ascend with
         // creation, which puts the machine's own devices above the applications that came later.
         nodes.sort_by_key(|node| node.id);
@@ -345,11 +423,7 @@ fn parse_node(id: u32, object: &Value) -> Option<Node> {
             .to_string()
     };
     let kind = NodeKind::parse(props.get("media.class").and_then(Value::as_str)?)?;
-    let volume = info
-        .get("params")
-        .and_then(|params| params.get("Props"))
-        .and_then(Value::as_array)
-        .and_then(|entries| entries.first());
+    let volume = volume_props(info);
 
     let description = [
         text("node.description"),
@@ -374,6 +448,35 @@ fn parse_node(id: u32, object: &Value) -> Option<Node> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
     })
+}
+
+/// The `(device.id, card.profile.device)` pair naming this node's route on its card, or `None` for a stream —
+/// which belongs to an application rather than to hardware and has no route to be muted by.
+fn route_key(object: &Value) -> Option<(u32, u32)> {
+    let props = object.get("info")?.get("props")?;
+    number(props, "device.id").zip(number(props, "card.profile.device"))
+}
+
+/// A `props` value that is a number, whatever JSON type it arrived as — PipeWire writes these as bare numbers
+/// in `pw-dump` but as strings through some of its other paths, and a route join that silently misses is a
+/// mute that silently does not apply.
+fn number(props: &Value, key: &str) -> Option<u32> {
+    let value = props.get(key)?;
+    value
+        .as_u64()
+        .or_else(|| value.as_str()?.trim().parse::<u64>().ok())
+        .and_then(|n| u32::try_from(n).ok())
+}
+
+/// The volume entry of a node's `Props`, which is **not always the first**: `params.Props` carries a second
+/// entry holding `cardName`/`device`/`deviceName` and no volume at all. Taking `.first()` worked only because
+/// PipeWire happens to emit them in this order.
+fn volume_props(info: &Value) -> Option<&Value> {
+    info.get("params")?
+        .get("Props")?
+        .as_array()?
+        .iter()
+        .find(|entry| entry.get("mute").is_some() || entry.get("channelVolumes").is_some())
 }
 
 /// The node's level on the curve a user has seen everywhere else.
@@ -411,6 +514,92 @@ mod tests {
         "props":{"media.class":"Audio/Sink","node.name":"alsa_output.analog-stereo",
                  "node.description":"Built-in Audio"},
         "params":{"Props":[{"channelVolumes":[0.064012,0.064012],"mute":false}]}}}]"#;
+
+    /// The shapes below are copied from a live `pw-dump` (PipeWire 1.6.8), not invented: a source node that
+    /// names its card and route, and the card carrying the mute that node knows nothing about.
+    const MIC: &str = r#"[{"id":55,"type":"PipeWire:Interface:Node","info":{
+        "props":{"media.class":"Audio/Source","node.name":"alsa_input.analog-stereo",
+                 "node.description":"Microphone","device.id":47,"card.profile.device":0},
+        "params":{"Props":[
+            {"channelVolumes":[0.020685,0.020685],"mute":false,"softMute":false},
+            {"cardName":"acp63","device":0,"deviceName":"hw:1,0"}]}}}]"#;
+
+    const CARD_MIC_MUTED: &str = r#"[{"id":47,"type":"PipeWire:Interface:Device","info":{
+        "props":{"device.name":"alsa_card.pci-0000_04_00.6"},
+        "params":{"Route":[
+            {"index":0,"device":0,"direction":"Input","name":"analog-input-mic",
+             "props":{"mute":true,"channelVolumes":[0.020685,0.020685]}},
+            {"index":1,"device":3,"direction":"Output","name":"analog-output-speaker",
+             "props":{"mute":false}}]}}}]"#;
+
+    /// The bug this exists for: a laptop's mic-mute key sets the *card route's* mute and leaves the node's
+    /// alone, so a shell reading only the node drew a live microphone for one that was switched off.
+    #[test]
+    fn a_route_mute_silences_the_node_sitting_on_it() {
+        let mut mirror = Mirror::default();
+        mirror.apply(&batch(MIC));
+        let node = mirror.snapshot().sources().next().cloned().unwrap();
+        assert!(
+            !node.muted,
+            "the node's own mute is off, and that is all it says"
+        );
+
+        assert!(
+            mirror.apply(&batch(CARD_MIC_MUTED)),
+            "a route mute is a change the shell draws"
+        );
+        let node = mirror.snapshot().sources().next().cloned().unwrap();
+        assert!(
+            node.muted,
+            "either mute silences it — the node still reads false and the card says otherwise"
+        );
+    }
+
+    /// The output route on the same card is muted independently; joining on the card alone rather than on
+    /// `(card, route device)` would have one jack's mute silence the other's.
+    #[test]
+    fn a_route_only_mutes_the_device_index_it_names() {
+        let mut mirror = Mirror::default();
+        mirror.apply(&batch(SINK));
+        mirror.apply(&batch(CARD_MIC_MUTED));
+        let sink = mirror.snapshot().sinks().next().cloned().unwrap();
+        assert!(
+            !sink.muted,
+            "the sink names no route here, so a muted input route cannot reach it"
+        );
+    }
+
+    /// `params.Props` carries a second entry with no volume in it. Reading `.first()` worked only because
+    /// PipeWire happens to emit the volume entry first; nothing promises that order.
+    #[test]
+    fn the_volume_entry_is_found_wherever_it_sits_in_props() {
+        let reordered = batch(
+            r#"[{"id":55,"type":"PipeWire:Interface:Node","info":{
+            "props":{"media.class":"Audio/Source","node.name":"mic"},
+            "params":{"Props":[
+                {"cardName":"acp63","device":0,"deviceName":"hw:1,0"},
+                {"channelVolumes":[1.0],"mute":true}]}}}]"#,
+        );
+        let mut mirror = Mirror::default();
+        mirror.apply(&reordered);
+        let node = mirror.snapshot().sources().next().cloned().unwrap();
+        assert!(node.muted, "the mute is real wherever the entry sits");
+        assert_eq!(node.level, 100, "and so is the level beside it");
+    }
+
+    #[test]
+    fn a_card_going_away_takes_its_route_mutes_with_it() {
+        let mut mirror = Mirror::default();
+        mirror.apply(&batch(MIC));
+        mirror.apply(&batch(CARD_MIC_MUTED));
+        assert!(mirror.snapshot().sources().next().unwrap().muted);
+
+        mirror.apply(&batch(r#"[{"id":47,"info":null}]"#));
+        assert!(
+            !mirror.snapshot().sources().next().unwrap().muted,
+            "a re-plugged card must not inherit the mute of the one before it"
+        );
+    }
 
     #[test]
     fn a_level_reads_on_the_curve_every_other_mixer_shows() {
@@ -535,7 +724,8 @@ mod tests {
             eprintln!("set HYPRSHELL_PIPEWIRE_LIVE to parse the real graph; skipping");
             return;
         }
-        let out = Command::new("pw-dump")
+        let out = deps::command(Dep::PwDump)
+            .expect("pw-dump is a program")
             .args(["--raw", "--no-colors"])
             .output()
             .expect("pw-dump runs");

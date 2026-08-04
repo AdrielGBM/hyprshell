@@ -2,18 +2,18 @@
 use ::services::volume::{self, Volume};
 use ::ui::glyph;
 
-let state = signal(volume::current_mic().unwrap_or(Volume {
-    level: 0,
-    muted: true,
-}));
+// `None` until the graph has answered, never a stand-in reading: the chip used to seed itself `muted: true`,
+// so a live microphone drew mic-off for as long as the PipeWire listener took to publish its first batch.
+// Of the two ways to be wrong, claiming muted is the one that gets someone to speak freely into a live mic.
+let state = signal(volume::current_mic());
 let read = state.read_only();
 let fg = ui::module::module_fg();
 let icon = ui::module::icon_px();
 
-platform_layershell::watch(volume::subscribe_mic, move |mic: Volume| state.set(mic));
+platform_layershell::watch(volume::subscribe_mic, move |mic: Volume| state.set(Some(mic)));
 
 [view]
-icon_glyph name(move || glyph::microphone(read.get()).to_string()) tint(move || fg.get()) size:(icon)
+icon_glyph name(move || read.get().map_or("mic", glyph::microphone).to_string()) tint(move || fg.get()) size:(icon)
 
 [preview "Mic" fixture:ui::preview::bar_chip]
 mic

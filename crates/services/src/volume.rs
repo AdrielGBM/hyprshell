@@ -9,10 +9,10 @@
 //! longer re-reads afterwards — the monitor reports the real value on its own, so a set costs one fork instead
 //! of two.
 
-use std::process::Command;
 use std::sync::Arc;
 
 use platform_layershell::EventSender;
+use util::deps::{self, Dep};
 
 use crate::pipewire::{self, Graph, Node, NodeKind};
 use config::AudioConfig;
@@ -42,6 +42,12 @@ static VOLUME: Service<Volume> = Service::new("hyprshell-volume", run);
 static MIC: Service<Volume> = Service::new("hyprshell-mic", run_mic);
 
 /// Publishes one node's reading off every graph batch, skipping the batches that did not move it.
+///
+/// A batch in which `pick` finds nothing publishes nothing, so the last reading stands — which is right for
+/// the churn this skips and wrong the day the default device disappears, where the chip goes on showing a
+/// device that is gone. Saying so needs an `Option` through the broadcast; until then a surface that must not
+/// assert a state it has not been told (the mic chip, whose wrong guess is someone speaking into a live
+/// microphone) starts from `current_mic()` being `None` rather than from a stand-in reading.
 ///
 /// The graph republishes whenever anything in it changes — an application opening a stream, a device being
 /// plugged in — and most of that says nothing about the default sink. Without this, opening a browser tab
@@ -118,7 +124,9 @@ fn apply(args: Vec<String>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-volume-set".to_string())
         .spawn(move || {
-            let _ = Command::new("wpctl").args(&args).status();
+            if let Some(mut wpctl) = deps::command(Dep::Wpctl) {
+                let _ = wpctl.args(&args).status();
+            }
         });
 }
 
