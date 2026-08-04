@@ -55,6 +55,19 @@ fn main() -> ExitCode {
                 }
             }
         }
+        // Same reason as the schema, and one more: what a dependency panel is *for* is the machine where
+        // something is missing, and "the shell will not start" is exactly the case where there is no shell to
+        // ask. Probing is a function of the machine, not of a running process.
+        Some("deps") => match hyprshell::dispatch_locally(&args.join(" ")) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("hyprshell: {e}");
+                ExitCode::FAILURE
+            }
+        },
         _ => send(&args),
     }
 }

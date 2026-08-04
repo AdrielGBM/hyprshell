@@ -9,7 +9,7 @@
 //! command that is not installed. In both cases the lock screen behaves as though the feature were switched
 //! off, which is what `[lock] fingerprint` / `howdy_command` also do explicitly.
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -253,7 +253,7 @@ fn run_face(generation: u64, command: &str, max_tries: u32) {
 fn run_once(command: &str, user: &str) -> Option<bool> {
     let mut words = command.split_whitespace();
     let program = words.next()?;
-    let status = Command::new(program)
+    let status = util::process::command(program)
         .args(words)
         .arg(user)
         .stdin(Stdio::null())

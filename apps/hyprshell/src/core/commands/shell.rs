@@ -276,6 +276,89 @@ pub(crate) const SCHEME: Target = Target {
     ],
 };
 
+pub(crate) const DEPS: Target = Target {
+    name: "deps",
+    commands: &[
+        Command {
+            name: "list",
+            args: "",
+            help: "every external dependency, and whether this machine has it",
+            run: |_| Ok(render_deps(util::deps::snapshot(), false)),
+        },
+        Command {
+            name: "missing",
+            args: "",
+            help: "only the ones that are absent, with what each absence costs",
+            run: |_| Ok(render_deps(util::deps::snapshot(), true)),
+        },
+        Command {
+            name: "check",
+            args: "",
+            help: "whether everything the shell cannot start without is present",
+            run: |_| {
+                let broken: Vec<&str> = util::deps::snapshot()
+                    .iter()
+                    .filter(|status| status.is_a_problem())
+                    .map(|status| util::deps::entry(status.dep).id)
+                    .collect();
+                if broken.is_empty() {
+                    Ok("every required dependency is present".to_string())
+                } else {
+                    Err(format!("missing and required: {}", broken.join(", ")))
+                }
+            },
+        },
+        Command {
+            name: "refresh",
+            args: "",
+            help: "probe again, for something installed since the shell started",
+            run: |_| {
+                util::deps::refresh();
+                Ok(format!("{} rechecked", util::deps::ALL.len()))
+            },
+        },
+    ],
+};
+
+/// One line per dependency: whether it is there, what it is for, and — when it is not — what that costs.
+///
+/// Answered from the registry rather than from a written list, so it cannot describe a shell other than the one
+/// running it.
+fn render_deps(statuses: Vec<util::deps::Status>, only_missing: bool) -> String {
+    use util::deps::{Need, Presence, entry};
+    let mut out = String::new();
+    for status in statuses {
+        if only_missing && status.presence == Presence::Present {
+            continue;
+        }
+        let row = entry(status.dep);
+        let mark = match (status.presence, row.need) {
+            (Presence::Present, _) => "ok     ",
+            (Presence::Absent, Need::Required) => "MISSING",
+            (Presence::Absent, Need::Optional) => "absent ",
+            // Never a complaint: this process could not ask, which is not the same as the answer being no.
+            (Presence::Unknown, _) => "unknown",
+        };
+        out.push_str(&format!("{mark} {:<22} {}\n", row.id, row.what));
+        match status.presence {
+            Presence::Absent => {
+                out.push_str(&format!("{:8}{:<22} → {}\n", "", "", row.without));
+            }
+            Presence::Unknown => {
+                out.push_str(&format!(
+                    "{:8}{:<22} → nothing here could ask; run this from inside the session\n",
+                    "", ""
+                ));
+            }
+            Presence::Present => {}
+        }
+    }
+    if out.is_empty() {
+        out.push_str("nothing is missing\n");
+    }
+    out
+}
+
 pub(crate) const CONFIG: Target = Target {
     name: "config",
     commands: &[

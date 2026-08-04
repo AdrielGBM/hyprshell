@@ -11,10 +11,11 @@
 //! of several megapixels; done in a click handler it would drop frames on every surface at once.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use platform_layershell::{CaptureArea, EventSender};
+use util::deps::{self, Dep};
 
 use config::ScreenshotConfig;
 use util::broadcast::Store;
@@ -128,13 +129,7 @@ pub fn supported() -> bool {
 }
 
 fn has_grim() -> bool {
-    Command::new("grim")
-        .arg("-h")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
+    deps::available(Dep::Grim)
 }
 
 /// Takes `request` on a thread of its own and publishes the outcome. Returns immediately: the caller is a click
@@ -467,7 +462,8 @@ fn grim_args(request: &Request) -> Vec<String> {
 }
 
 fn grim_png(request: &Request) -> Result<Png, String> {
-    let output = Command::new("grim")
+    let mut grim = deps::command(Dep::Grim).ok_or("grim has no row")?;
+    let output = grim
         .args(grim_args(request))
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
@@ -526,7 +522,7 @@ fn annotate(path: &Path, command: &str) {
         return;
     }
     let program = words.remove(0);
-    let spawned = Command::new(&program)
+    let spawned = util::process::command(&program)
         .args(&words)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -619,6 +615,11 @@ pub fn freeze_outputs() -> Vec<(String, Image)> {
         }
     }
     frames
+}
+
+/// The camera this service's toast and every chip that offers a capture share.
+pub fn glyph() -> &'static str {
+    "camera"
 }
 
 #[cfg(test)]
@@ -836,9 +837,4 @@ mod tests {
             "a selection running onto the next monitor is not this one's to crop"
         );
     }
-}
-
-/// The camera this service's toast and every chip that offers a capture share.
-pub fn glyph() -> &'static str {
-    "camera"
 }

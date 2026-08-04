@@ -13,12 +13,13 @@
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 use platform_layershell::EventSender;
 use rustfft::num_complex::Complex32;
+use util::deps::{self, Dep};
 
 use config::VisualiserConfig;
 use util::broadcast::{Broadcast, Service};
@@ -168,7 +169,8 @@ fn capture(out: &Arc<Broadcast<Spectrum>>, config: &VisualiserConfig) -> std::io
 /// summing two channels in PipeWire's resampler is cheaper than doing it here per hop. The latency is the hop
 /// itself, so one wakeup delivers one transform's worth of new sound rather than a buffer to unpick.
 fn spawn(hop: usize) -> std::io::Result<Child> {
-    Command::new("pw-cat")
+    deps::command(Dep::PwCat)
+        .ok_or_else(|| std::io::Error::other("pw-cat has no row"))?
         .args([
             "--record",
             "--raw",

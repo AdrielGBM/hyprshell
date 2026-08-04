@@ -26,6 +26,7 @@ media_aliases = "Player names"
 modules = "Per-module overrides"
 animation = "Animation"
 about = "About hyprshell"
+dependencies = "Dependencies"
 visualiser = "Audio visualiser"
 background_visualiser = "Desktop visualiser"
 general = "General"
@@ -377,6 +378,9 @@ about = "About"
 
 [settings.about]
 not_hyprland = "Not running under Hyprland"
+
+[settings.deps]
+unknown = "Nothing here could ask — this needs a running session"
 
 [common]
 unknown = "Unknown"

@@ -2,6 +2,7 @@ telar::rsx_modules!(::config::theme::NordTheme);
 
 // What the `hyprshell` binary reaches for; everything else now belongs to the crate that owns it.
 pub use crate::core::commands::describe as ipc_describe;
+pub use crate::core::commands::dispatch_locally;
 pub use crate::core::ipc::call as ipc_call;
 pub use config::schema::render as config_schema;
 
@@ -276,7 +277,7 @@ fn install_hooks() {
         services::wallpaper::current_image(config, focused.as_deref())
     });
     services::command::set_runner(
-        |line| crate::core::commands::dispatch(line),
+        crate::core::commands::dispatch,
         crate::core::commands::resolves,
     );
     services::lock::set_session_opener(|| {

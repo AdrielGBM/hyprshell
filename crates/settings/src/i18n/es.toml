@@ -26,6 +26,7 @@ media_aliases = "Nombres de reproductores"
 modules = "Ajustes por módulo"
 animation = "Animación"
 about = "Acerca de hyprshell"
+dependencies = "Dependencias"
 visualiser = "Visualizador de audio"
 background_visualiser = "Visualizador del escritorio"
 general = "General"
@@ -377,6 +378,9 @@ about = "Acerca de"
 
 [settings.about]
 not_hyprland = "No se está ejecutando en Hyprland"
+
+[settings.deps]
+unknown = "Nada aquí pudo preguntar — requiere una sesión en marcha"
 
 [common]
 unknown = "Desconocido"

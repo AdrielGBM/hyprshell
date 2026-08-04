@@ -267,7 +267,14 @@ pub const PAGES: &[Page] = &[
     Page {
         label: "about",
         icon: "info",
-        sections: &[section!("about", [], crate::about)],
+        sections: &[
+            section!("about", [], crate::about),
+            section!(
+                "dependencies",
+                [],
+                crate::sections::dependencies::dependencies_section
+            ),
+        ],
     },
 ];
 

@@ -14,11 +14,12 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use platform_layershell::EventSender;
+use util::deps::{self, Dep};
 use zbus::blocking::Connection;
 
 use crate::ddc;
@@ -283,7 +284,7 @@ fn refresh_internal(out: &Broadcast<Snapshot>) {
 /// Follows `udevadm monitor` for backlight uevents — the kernel emits one whenever the brightness changes,
 /// whoever changed it — so the chip tracks function keys and other tools without polling sysfs.
 fn watch_udev(out: &Broadcast<Snapshot>) -> Option<()> {
-    let mut child = Command::new("udevadm")
+    let mut child = deps::command(Dep::Udevadm)?
         .args(["monitor", "--udev", "--subsystem-match=backlight"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

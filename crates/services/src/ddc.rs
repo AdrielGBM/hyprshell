@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use util::process;
+use util::deps::{self, Dep};
 
 /// The VCP feature code for "brightness" in the MCCS standard every DDC/CI monitor implements.
 const BRIGHTNESS_FEATURE: &str = "10";
@@ -38,7 +38,7 @@ pub struct Monitor {
 
 /// Whether `ddcutil` is installed at all. One cheap call, so a machine without it never pays for a detection.
 pub fn available() -> bool {
-    process::available("ddcutil", &["--version"], CALL_TIMEOUT)
+    deps::available(Dep::Ddcutil)
 }
 
 /// Every DDC/CI monitor on the machine.
@@ -46,7 +46,7 @@ pub fn available() -> bool {
 /// Blocking and slow — seconds, on a bus with a monitor that answers lazily — so this only ever runs on the
 /// brightness service's own thread.
 pub fn detect() -> Vec<Monitor> {
-    let Some(stdout) = process::output("ddcutil", &["detect", "--brief"], DETECT_TIMEOUT) else {
+    let Some(stdout) = deps::output(Dep::Ddcutil, &["detect", "--brief"], DETECT_TIMEOUT) else {
         return Vec::new();
     };
     parse_detect(&stdout)
@@ -55,8 +55,8 @@ pub fn detect() -> Vec<Monitor> {
 /// The current brightness of `bus` as a percentage, or `None` when the monitor does not answer.
 pub fn level(bus: u8) -> Option<i32> {
     let bus = bus.to_string();
-    let stdout = process::output(
-        "ddcutil",
+    let stdout = deps::output(
+        Dep::Ddcutil,
         &["--bus", &bus, "getvcp", BRIGHTNESS_FEATURE, "--brief"],
         CALL_TIMEOUT,
     )?;
@@ -67,8 +67,8 @@ pub fn level(bus: u8) -> Option<i32> {
 pub fn set(bus: u8, percent: i32) -> bool {
     let bus = bus.to_string();
     let value = percent.clamp(0, 100).to_string();
-    process::output(
-        "ddcutil",
+    deps::output(
+        Dep::Ddcutil,
         &["--bus", &bus, "setvcp", BRIGHTNESS_FEATURE, &value],
         CALL_TIMEOUT,
     )

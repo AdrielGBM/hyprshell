@@ -9,5 +9,6 @@ pub mod appearance;
 pub mod applications;
 pub mod audio;
 pub mod bars;
+pub mod dependencies;
 pub mod lock;
 pub mod wallpaper;

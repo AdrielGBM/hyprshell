@@ -13,23 +13,34 @@ use std::time::{Duration, Instant};
 /// How often the wait looks in on the child. Coarse on purpose — nothing is waiting on this thread but a reading.
 const POLL: Duration = Duration::from_millis(20);
 
+/// The one place in the tree a child process is constructed.
+///
+/// Everything else goes through [`deps::command`](crate::deps::command), which takes a declared dependency
+/// rather than a name — so the list of what this shell reaches for cannot be incomplete. This raw form is for
+/// the two things that are *not* dependencies: a command the **user** wrote (a launcher action, a scheme hook,
+/// the configured annotator or `howdy` line), and the helpers in this module. `a_process_is_only_started_through_this_module`
+/// is what keeps that true.
+pub fn command(program: &str) -> Command {
+    Command::new(program)
+}
+
 /// Launches `command` through a shell and forgets about it — `setsid --fork` so it survives the shell exiting,
 /// and every stream nulled so it can neither block on a pipe nor write over the shell's own output.
 ///
 /// The opposite trade to [`output`]: nothing here reads a result, so the child is disowned rather than waited on.
-pub fn run_detached(command: String) {
+pub fn run_detached(line: String) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-launch".to_string())
         .spawn(move || {
-            match Command::new("setsid")
-                .args(["--fork", "sh", "-c", &command])
+            match command("setsid")
+                .args(["--fork", "sh", "-c", &line])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
             {
                 Ok(_) => {}
-                Err(e) => tracing::warn!("launching `{command}`: {e}"),
+                Err(e) => tracing::warn!("launching `{line}`: {e}"),
             }
         });
 }
@@ -40,7 +51,7 @@ pub fn run_detached(command: String) {
 /// or it outstayed `timeout` and was killed — because a caller reading a value has the same fallback for all
 /// three. What it must never do is return late.
 pub fn output(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
-    let mut child = Command::new(program)
+    let mut child = command(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -110,6 +121,70 @@ mod tests {
         assert_eq!(
             output("echo", &["hello"], Duration::from_secs(2)).as_deref(),
             Some("hello\n")
+        );
+    }
+
+    /// The guard that keeps [`crate::deps::ALL`] complete.
+    ///
+    /// A registry is only the source of truth if it cannot be bypassed, and in Rust nothing stops a new call
+    /// site reaching for `Command::new` directly — at which point the dependency panel goes on cheerfully
+    /// reporting a list that is missing the program the shell just failed to find. So this walks the tree and
+    /// insists that constructing a child happens here, where `deps::command` can be the front door.
+    ///
+    /// Two spellings are allowed through, and both are deliberate: this module's own use, and
+    /// `process::command(…)` at a site that runs a command the **user** wrote rather than one the shell
+    /// depends on — a launcher action, a scheme hook, the configured annotator or `howdy` line. Those have no
+    /// row because there is nothing stable to put in one.
+    #[test]
+    fn a_process_is_only_started_through_this_module() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("the workspace root is two levels above this crate")
+            .to_path_buf();
+        let mut offenders = Vec::new();
+        let mut stack = vec![root.join("crates"), root.join("apps")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = dir.read_dir() else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                // `.telar/build` is the transpiler's own output, not source.
+                if path.is_dir() {
+                    if !matches!(path.file_name().and_then(|n| n.to_str()), Some(".telar")) {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                let is_source = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e == "rs" || e == "rsx");
+                if !is_source || path == std::path::Path::new(file!()) {
+                    continue;
+                }
+                if path.ends_with("util/src/process.rs") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                if text.contains("Command::new") {
+                    offenders.push(
+                        path.strip_prefix(&root)
+                            .unwrap_or(&path)
+                            .display()
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        offenders.sort();
+        assert!(
+            offenders.is_empty(),
+            "these start a process without declaring it — use `deps::command(Dep::…)`, or \
+             `process::command` if it is a command the user wrote: {offenders:#?}"
         );
     }
 

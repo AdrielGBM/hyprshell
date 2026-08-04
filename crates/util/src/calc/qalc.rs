@@ -13,7 +13,7 @@ use std::time::Duration;
 use telar::ReadSignal;
 
 use crate::asset::{Load, Loader};
-use crate::process;
+use crate::deps::{self, Dep};
 
 /// Long enough for a cold start of a program that loads a units database, short enough that a wedged one is not
 /// mistaken for a hard question.
@@ -65,7 +65,7 @@ fn ensure_store() {
 fn run(query: &str) -> Option<String> {
     // `-t` is terse (the result alone, no echo of the question), and the expression goes after `--` so a query
     // starting with a dash is an expression rather than an unknown flag.
-    let stdout = process::output("qalc", &["-t", "--", query], TIMEOUT)?;
+    let stdout = deps::output(Dep::Qalc, &["-t", "--", query], TIMEOUT)?;
     clean(&stdout)
 }
 

@@ -11,11 +11,12 @@
 //! the user stopped.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use platform_layershell::EventSender;
+use util::deps::{self, Dep};
 
 use crate::screenshot::Area;
 use config::RecorderConfig;
@@ -31,11 +32,18 @@ pub enum Backend {
 impl Backend {
     pub const ALL: [Backend; 2] = [Backend::WfRecorder, Backend::GpuScreenRecorder];
 
-    pub fn program(self) -> &'static str {
+    /// The declared dependency this backend is, which is what carries its name and its probe.
+    pub fn dep(self) -> Dep {
         match self {
-            Backend::WfRecorder => "wf-recorder",
-            Backend::GpuScreenRecorder => "gpu-screen-recorder",
+            Backend::WfRecorder => Dep::WfRecorder,
+            Backend::GpuScreenRecorder => Dep::GpuScreenRecorder,
         }
+    }
+
+    pub fn program(self) -> &'static str {
+        deps::entry(self.dep())
+            .program()
+            .expect("a recorder backend is a program")
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
@@ -60,17 +68,8 @@ impl Backend {
     }
 
     fn is_installed(self) -> bool {
-        which(self.program()).is_some()
+        deps::available(self.dep())
     }
-}
-
-/// Whether `program` is on the path, without running it: a recorder started to ask whether it exists would start
-/// recording.
-fn which(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
 }
 
 /// What is being recorded.
@@ -180,7 +179,11 @@ pub fn start(scope: Scope) {
     let path = dir.join(format!("{stem}.{}", backend.extension()));
     let args = command_args(backend, &scope, &path, &config);
 
-    let spawned = Command::new(backend.program())
+    let Some(mut recorder) = deps::command(backend.dep()) else {
+        fail(format!("{} is not a program", backend.program()));
+        return;
+    };
+    let spawned = recorder
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -488,6 +491,12 @@ fn file_label(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
+/// Beside the state it reads rather than with the other glyphs, so the toast this service posts and the chip a
+/// bar draws take the same answer from one place without the service having to reach up for it.
+pub fn glyph(active: bool) -> &'static str {
+    if active { "circle-stop" } else { "video" }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,12 +657,4 @@ mod tests {
         assert_eq!(entry(2048).size_label(), "2.0 kB");
         assert_eq!(entry(18_261_568).size_label(), "17.4 MB");
     }
-}
-
-/// A recorder's toggle: what pressing it will do, so a live recording offers the way to stop it.
-///
-/// Beside the state it reads rather than with the other glyphs, so the toast this service posts and the chip a
-/// bar draws take the same answer from one place without the service having to reach up for it.
-pub fn glyph(active: bool) -> &'static str {
-    if active { "circle-stop" } else { "video" }
 }

@@ -51,6 +51,7 @@ static TARGETS: &[Target] = &[
     display::WALLPAPER,
     shell::SCHEME,
     shell::CONFIG,
+    shell::DEPS,
 ];
 
 /// Whether `line` names a command the shell answers, **without running it**.
@@ -103,6 +104,16 @@ pub fn dispatch(line: &str) -> String {
         Ok(payload) => format!("ok {payload}"),
         Err(message) => format!("err {message}"),
     }
+}
+
+/// Runs one request line in *this* process rather than sending it to the shell, for the commands that are a
+/// function of the binary and the machine rather than of a running shell.
+///
+/// `deps` is the case that matters: what a dependency report is for is the machine where something is missing,
+/// and "nothing starts" is precisely when there is no shell to ask.
+pub fn dispatch_locally(line: &str) -> Result<String, String> {
+    let (command, args) = resolve(line)?;
+    (command.run)(&args)
 }
 
 /// The column the help text starts at in `--list`.
