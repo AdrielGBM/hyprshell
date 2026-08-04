@@ -38,10 +38,13 @@ pub fn press_origin() -> Option<Zone> {
     PRESS_ORIGIN.with(|origin| origin.get())
 }
 
+/// How a chip opens its module's panel.
+type PanelOpener = Box<dyn Fn(&str)>;
+
 thread_local! {
     // How a chip opens its module's panel. Installed at startup, because *which* surface a module id opens is
     // the shell's routing rather than the chip's: a chip knows it was dragged away from the bar and nothing more.
-    static OPEN_PANEL: RefCell<Option<Box<dyn Fn(&str)>>> = const { RefCell::new(None) };
+    static OPEN_PANEL: RefCell<Option<PanelOpener>> = const { RefCell::new(None) };
 }
 
 /// Registers how a module id is turned into an open panel. Set once at startup by whoever owns the routing.

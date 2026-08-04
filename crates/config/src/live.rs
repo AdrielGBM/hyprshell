@@ -23,9 +23,11 @@ thread_local! {
     // Which image a dynamic palette is derived from. Installed by the startup path because answering it means
     // asking the compositor which screen is focused and the wallpaper service what it is showing — neither of
     // which the config can see from here.
-    static WALLPAPER_SOURCE: RefCell<Option<Box<dyn Fn(&Config) -> Option<PathBuf>>>> =
-        const { RefCell::new(None) };
+    static WALLPAPER_SOURCE: RefCell<Option<WallpaperSource>> = const { RefCell::new(None) };
 }
+
+/// How the startup path answers "which image is the palette derived from".
+type WallpaperSource = Box<dyn Fn(&Config) -> Option<PathBuf>>;
 
 /// Registers how the shell rebuilds itself. Set once by the startup path, which owns surface reconciliation.
 pub fn set_reload_hook(reload: impl Fn() + 'static) {

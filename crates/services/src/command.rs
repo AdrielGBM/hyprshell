@@ -50,9 +50,14 @@ impl Request {
     }
 }
 
+/// Performs a request line and renders the reply.
+type Runner = Box<dyn Fn(&str) -> String>;
+/// Looks a request line up *without* performing it — the half of the table a validator needs.
+type Resolver = Box<dyn Fn(&str) -> bool>;
+
 thread_local! {
-    static RUN: RefCell<Option<Box<dyn Fn(&str) -> String>>> = const { RefCell::new(None) };
-    static RESOLVES: RefCell<Option<Box<dyn Fn(&str) -> bool>>> = const { RefCell::new(None) };
+    static RUN: RefCell<Option<Runner>> = const { RefCell::new(None) };
+    static RESOLVES: RefCell<Option<Resolver>> = const { RefCell::new(None) };
 }
 
 /// Registers the command table. Set once at startup by whoever owns it.
