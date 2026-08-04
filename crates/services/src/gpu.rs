@@ -2,7 +2,8 @@
 //!
 //! Two backends, because the kernel only tells half the story. AMD's `amdgpu` publishes utilisation and VRAM
 //! straight into sysfs, so reading it costs four file reads and no process; NVIDIA's driver publishes none of
-//! that and only answers `nvidia-smi`, which is a fork per reading. Intel sits in between — a temperature from
+//! that and answers only NVML, which this shell `dlopen`s rather than paying a `nvidia-smi` fork per reading.
+//! Intel sits in between — a temperature from
 //! hwmon, and no utilisation counter outside the perf interface — and reports what it has rather than
 //! inventing the rest.
 //!
@@ -11,7 +12,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,8 +23,8 @@ use util::broadcast::{Broadcast, Service};
 
 const DRM_DIR: &str = "/sys/class/drm";
 
-/// Slower than the CPU's one-second tick on purpose: the NVIDIA backend pays a `fork`/`exec` per reading, and
-/// a GPU load that matters is one that lasts longer than two seconds anyway.
+/// Slower than the CPU's one-second tick on purpose: a GPU load that matters is one that lasts longer than
+/// two seconds, and every backend here reads several counters per tick.
 const POLL: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -71,7 +71,7 @@ impl Vendor {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Gpu {
     pub vendor: Vendor,
-    /// The card's name where the backend knows one (`nvidia-smi` does), else the vendor.
+    /// The card's name where the backend knows one (NVML does), else the vendor.
     pub name: String,
     /// Utilisation 0–100.
     pub usage: Option<f32>,
@@ -187,38 +187,29 @@ fn read_sysfs(card: &Card) -> Gpu {
     }
 }
 
-/// Parses one `nvidia-smi --query-gpu=… --format=csv,noheader,nounits` row. Split out so the format assumption
-/// is tested rather than inferred from positional indexing at the call site.
+/// The NVIDIA card, through NVML.
 ///
-/// `[N/A]` is what the tool prints for a field this card does not measure — a laptop GPU with no temperature
-/// sensor exposed — and has to read as "unknown" rather than as a parse failure that loses the whole row.
-fn parse_nvidia(line: &str) -> Option<Gpu> {
-    let fields: Vec<&str> = line.split(',').map(str::trim).collect();
-    if fields.len() < 5 {
-        return None;
-    }
-    let number = |raw: &str| raw.parse::<f32>().ok();
-    Some(Gpu {
-        vendor: Vendor::Nvidia,
-        name: fields[0].to_string(),
-        usage: number(fields[1]),
-        usage_history: History::default(),
-        temperature: number(fields[2]),
-        // nvidia-smi reports memory in MiB with `nounits`.
-        vram_used: number(fields[3]).map(|mib| (mib as u64) * 1024 * 1024),
-        vram_total: number(fields[4]).map(|mib| (mib as u64) * 1024 * 1024),
-    })
+/// This used to fork `nvidia-smi` and parse a CSV line, once per poll tick. NVML is the library that tool is
+/// itself a front end for, so the readings are identical and the process start is gone — see [`crate::nvml`]
+/// for why it is `dlopen`ed rather than linked.
+fn read_nvidia() -> Option<Gpu> {
+    crate::nvml::read(0).map(from_nvml)
 }
 
-fn read_nvidia() -> Option<Gpu> {
-    let out = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    parse_nvidia(String::from_utf8_lossy(&out.stdout).lines().next()?)
+/// NVML's reading as this service's. Split out so the rule every field here exists for — a counter the card
+/// does not publish reads as unknown, never as zero — is testable without an NVIDIA GPU present.
+fn from_nvml(reading: crate::nvml::Reading) -> Gpu {
+    Gpu {
+        vendor: Vendor::Nvidia,
+        name: reading
+            .name
+            .unwrap_or_else(|| Vendor::Nvidia.label().to_string()),
+        usage: reading.usage.map(|percent| percent as f32),
+        usage_history: History::default(),
+        temperature: reading.temperature.map(|celsius| celsius as f32),
+        vram_used: reading.vram_used,
+        vram_total: reading.vram_total,
+    }
 }
 
 /// The current reading, or `None` when there is no GPU this shell can read.
@@ -250,7 +241,7 @@ fn settings() -> GpuConfig {
 }
 
 /// Polls, because neither backend has an event source: sysfs counters are files with no notification, and
-/// `nvidia-smi` is a one-shot query. One poll for the whole shell, not one per surface.
+/// One poll for the whole shell, not one per surface.
 fn run(out: &Arc<Broadcast<Gpu>>) {
     let config = settings();
     let mut history = History::default();
@@ -359,25 +350,26 @@ mod tests {
         assert!(select(&[], &GpuConfig::default()).is_none());
     }
 
-    #[test]
-    fn an_nvidia_smi_row_parses_into_a_reading() {
-        let gpu = parse_nvidia("NVIDIA GeForce RTX 3070, 37, 52, 1536, 8192")
-            .expect("a normal row parses");
-        assert_eq!(gpu.name, "NVIDIA GeForce RTX 3070");
-        assert_eq!(gpu.usage, Some(37.0));
-        assert_eq!(gpu.temperature, Some(52.0));
-        assert_eq!(gpu.vram_total, Some(8192 * 1024 * 1024));
-        assert_eq!(gpu.vram_fraction(), Some(1536.0 / 8192.0));
-    }
-
+    /// The rule the whole `Option` shape of [`Gpu`] exists for. Carried over from when this backend parsed
+    /// `nvidia-smi`'s `[N/A]` columns: NVML says the same thing by failing the individual call, and the
+    /// mapping must keep meaning "unknown" rather than filling in a zero that draws an idle GPU.
     #[test]
     fn a_field_the_card_does_not_measure_reads_as_unknown_not_as_zero() {
-        let gpu =
-            parse_nvidia("Quadro P400, [N/A], 48, [N/A], 2048").expect("the row still parses");
+        let gpu = from_nvml(crate::nvml::Reading {
+            name: Some("Quadro P400".to_string()),
+            usage: None,
+            temperature: Some(48),
+            vram_used: None,
+            vram_total: None,
+        });
         assert_eq!(gpu.usage, None, "no counter is not an idle GPU");
         assert_eq!(gpu.temperature, Some(48.0));
         assert_eq!(gpu.vram_fraction(), None);
-        assert!(parse_nvidia("truncated, row").is_none());
+        assert_eq!(gpu.name, "Quadro P400");
+
+        // A card that will not even give its name is still an NVIDIA card, not a nameless row.
+        let unnamed = from_nvml(crate::nvml::Reading::default());
+        assert_eq!(unnamed.name, "NVIDIA");
     }
 
     #[test]
