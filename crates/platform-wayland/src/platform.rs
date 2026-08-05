@@ -443,7 +443,7 @@ impl SurfaceEntry {
                 SurfaceKind::Wlr(wlr) if wlr.version() >= 2 => layer.set_layer(shell_layer),
                 _ => tracing::warn!(
                     "{}: this compositor's layer-shell cannot restack a mapped surface; \
-                     restart hyprshell for the change to take effect",
+                     restart for the change to take effect",
                     self.namespace
                 ),
             }

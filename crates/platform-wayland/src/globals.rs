@@ -5,7 +5,7 @@
 //! running shell and silently wrong outside one, where both answer `false` because there is no driver rather
 //! than because the compositor is missing the protocol.
 //!
-//! That distinction is the whole point of asking: `hyprshell deps` runs in a bare CLI process, on the machine
+//! That distinction is the whole point of asking: a dependency check runs in a bare CLI process, on the machine
 //! where something is broken, quite possibly *because* the shell will not start. So this connects on its own
 //! and reads the registry, and separates "the compositor does not have it" from "nothing here could tell".
 

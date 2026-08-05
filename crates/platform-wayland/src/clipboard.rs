@@ -262,7 +262,7 @@ mod tests {
             return;
         }
         const MIME: &str = "text/plain;charset=utf-8";
-        let payload = "hyprshell clipboard round trip";
+        let payload = "platform-wayland clipboard round trip";
 
         // Every copy needs a thread of its own: `set_selection` *is* the ownership, so it does not return
         // until something else takes the selection. Calling it inline would hang the test, which is the same
