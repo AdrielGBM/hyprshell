@@ -5,7 +5,10 @@ dynamic theming — built on [`telar`](https://github.com/AdrielGBM/telar) and `
 TOML.
 
 It targets Hyprland but prefers Wayland protocols to compositor IPC wherever both exist, so most of it works
-anywhere `wlr-layer-shell`, `ext-session-lock` and `ext-idle-notify` do.
+anywhere `wlr-layer-shell`, `ext-session-lock` and `ext-idle-notify` do. Workspaces and the focused window are
+read over `ext-workspace-v1` and `wlr-foreign-toplevel-management` rather than off Hyprland's socket. What
+stays Hyprland-only is what no protocol carries: a window's geometry, its workspace and its process id, and
+therefore the window-info panel, the window count behind a workspace pill and the scratchpads.
 
 ## What it does
 
@@ -141,7 +144,9 @@ unknown rather than zero, or does not appear at all.
 | GPU readings | NVML (`libnvidia-ml.so`), or `/sys/class/drm` (AMD/Intel) | GPU fields read unknown |
 | Launcher calculator | `qalc` | a built-in evaluator handles the common cases |
 | Weather | network access | the weather card says so |
-| Workspaces, window info | Hyprland IPC | those modules are hidden |
+| Workspaces | `ext-workspace-v1` | the workspaces module is hidden |
+| Active window | `wlr-foreign-toplevel-management` | the chip reads as no window |
+| Workspace occupancy, window info, `shell clients` | Hyprland IPC | pills lose their window count and app icons; the window-info panel and the client list are unavailable |
 
 **Two bus names are owned, not consumed:** `org.freedesktop.Notifications` and
 `org.kde.StatusNotifierWatcher`. So hyprshell replaces dunst, mako or swaync rather than running beside one,
