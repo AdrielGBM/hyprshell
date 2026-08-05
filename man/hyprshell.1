@@ -1,0 +1,524 @@
+.TH HYPRSHELL 1 "" "hyprshell 0.1.0" "hyprshell"
+.SH NAME
+hyprshell \- a Wayland desktop shell for Hyprland
+.SH SYNOPSIS
+.B hyprshell
+[run]
+.br
+.B hyprshell
+<target> <cmd> [args]
+.br
+.B hyprshell
+toggle <module>
+.br
+.B hyprshell
+launcher
+.br
+.B hyprshell
+\-\-list
+.br
+.B hyprshell
+config schema [name]
+.br
+.B hyprshell
+man commands|config
+.br
+.B hyprshell
+\-\-help | \-\-version
+.SH DESCRIPTION
+hyprshell is a Wayland desktop shell: bars, panels, a launcher, a dashboard, a lock screen,
+notifications, screen capture and wallpaper\-derived theming, configured in TOML.
+.PP
+Started with no arguments it runs the shell. With arguments it is a client: the request is sent to the
+running shell over a Unix socket and the reply printed, so every action the shell has is available to a
+compositor keybind or a script. The exit status mirrors the reply, so a caller can tell a refused
+command from one that worked without parsing prose.
+.PP
+The shell also registers its actions as XDG global shortcuts, which can be bound through the desktop
+portal instead of by command.
+.SH OPTIONS
+.TP
+.B \-\-help, \-h
+print the usage block and exit
+.TP
+.B \-\-version, \-V
+print the version and exit
+.TP
+.B \-\-list, \-s
+print every target, command and argument the shell answers
+.PP
+.BR "config schema" ,
+.B deps
+and
+.B man
+are answered by the binary rather than sent to the shell: each is a function of this build and this
+machine, and the case a dependency report is for is the one where nothing started.
+.SH COMMANDS
+A request is a target, a command and its arguments.
+.BR hyprshell (5)
+documents the configuration file.
+.SS shell
+.TP
+\fBping\fR
+check the shell is alive
+.TP
+\fBversion\fR
+the running build's version
+.TP
+\fBreload\fR
+re\-read config.toml and rebuild every surface
+.TP
+\fBoutputs\fR
+list the compositor's monitors
+.TP
+\fBscreens\fR
+the compositor's monitors with mode, scale and make
+.TP
+\fBclients\fR
+every open window: address, workspace, class and title
+.TP
+\fBdpms\fR \fI<on|off>\fR
+switch every monitor's output on or off
+.TP
+\fBquit\fR
+shut the shell down
+.SS lock
+.TP
+\fBon\fR
+lock the session
+.TP
+\fBoff\fR
+unlock the session
+.TP
+\fBtoggle\fR
+lock the session, or unlock it if it is locked
+.TP
+\fBstatus\fR
+whether the session is locked, and whether this machine can lock at all
+.SS idle
+.TP
+\fBstatus\fR
+whether the idle timers are armed, and what is holding them off
+.TP
+\fBinhibit\fR \fI<on|off|toggle>\fR
+hold the idle timers off by hand
+.SS panel
+.TP
+\fBtoggle\fR \fI<module>\fR
+open a module's panel, or close it if it is up
+.TP
+\fBopen\fR \fI<module>\fR
+open a module's panel (idempotent)
+.TP
+\fBclose\fR \fI<module>\fR
+close a module's panel
+.TP
+\fBlist\fR
+which panels are open right now
+.SS launcher
+.TP
+\fBtoggle\fR
+open the application launcher, or close it if it is up
+.TP
+\fBclose\fR
+close the launcher
+.SS audio
+.TP
+\fBsinks\fR
+output devices: id, level, mute, and which is the default
+.TP
+\fBsources\fR
+input devices: id, level, mute, and which is the default
+.TP
+\fBstreams\fR
+applications playing audio, with their own level
+.TP
+\fBdefault\fR \fI<id>\fR
+make a device the default sink or source
+.TP
+\fBset\fR \fI<id> <percent>\fR
+set one device's or application's level
+.TP
+\fBmute\fR \fI<id>\fR
+toggle one device's or application's mute
+.SS dashboard
+.TP
+\fBtoggle\fR
+open the dashboard, or close it if it is up
+.TP
+\fBopen\fR \fI[tab]\fR
+open the dashboard, optionally on a named page
+.TP
+\fBclose\fR
+close the dashboard
+.TP
+\fBtab\fR \fI[dash|media|performance|weather]\fR
+read or switch the page the dashboard shows
+.SS apps
+.TP
+\fBcount\fR
+how many desktop entries are known
+.TP
+\fBreload\fR
+re\-scan the application directories
+.TP
+\fBsearch\fR \fI<query>\fR
+the launcher's ranking for a query, best first
+.SS notifs
+.TP
+\fBclear\fR \fI[app]\fR
+drop one application's notifications, or the whole history
+.TP
+\fBmute\fR \fI<app> [on|off|toggle]\fR
+read or set whether an application's notifications may pop
+.TP
+\fBmuted\fR
+the applications whose notifications are muted
+.TP
+\fBdnd\fR \fI<on|off|toggle>\fR
+read or set do\-not\-disturb
+.TP
+\fBcenter\fR \fI[open|close|toggle]\fR
+the notification centre: history and quick toggles on a full\-height surface
+.SS screenshot
+.TP
+\fBscreen\fR
+capture every monitor, composed into one image
+.TP
+\fBoutput\fR \fI[name]\fR
+capture one monitor, the focused one by default
+.TP
+\fBregion\fR
+pick a region with the pointer, then capture it
+.TP
+\fBcancel\fR
+close the region picker without capturing
+.TP
+\fBlast\fR
+where the last capture went, or why it failed
+.SS record
+.TP
+\fBstart\fR \fI[screen|output|region]\fR
+start recording; a region opens the picker first
+.TP
+\fBstop\fR
+stop the recording, letting the encoder close its file
+.TP
+\fBtoggle\fR
+stop the recording, or start one of the whole screen
+.TP
+\fBpause\fR
+suspend or resume the recording, on a backend that can
+.TP
+\fBstatus\fR
+whether something is being recorded, for how long, and where
+.TP
+\fBlist\fR
+the recordings, newest first
+.SS toast
+.TP
+\fBshow\fR \fI<text...>\fR
+show an in\-shell toast, for a script that wants to say something
+.TP
+\fBclear\fR
+dismiss every toast on screen
+.SS volume
+.TP
+\fBget\fR
+the default sink's level, and whether it is muted
+.TP
+\fBset\fR \fI<percent>\fR
+set the default sink's level
+.TP
+\fBstep\fR \fI<\(+-percent>\fR
+move the level by a delta
+.TP
+\fBup\fR
+raise the level by [audio] increment
+.TP
+\fBdown\fR
+lower the level by [audio] increment
+.TP
+\fBmute\fR
+toggle mute on the default sink
+.SS mic
+.TP
+\fBget\fR
+the default source's level, and whether it is muted
+.TP
+\fBset\fR \fI<percent>\fR
+set the default source's level
+.TP
+\fBstep\fR \fI<\(+-percent>\fR
+move the source level by a delta
+.TP
+\fBup\fR
+raise the source level by [audio] increment
+.TP
+\fBdown\fR
+lower the source level by [audio] increment
+.TP
+\fBmute\fR
+toggle mute on the default source
+.SS weather
+.TP
+\fBnow\fR
+the current conditions: place, temperature and sky
+.TP
+\fBforecast\fR
+one line per day: date, high, low and chance of rain
+.SS gamemode
+.TP
+\fBstatus\fR
+whether GameMode is active, how many clients hold it, and whether the shell is one
+.TP
+\fBset\fR \fI<on|off|toggle>\fR
+hold GameMode from the shell, or drop the shell's hold
+.SS wifi
+.TP
+\fBstatus\fR
+the radio state, the network joined and its signal
+.TP
+\fBlist\fR
+networks in range: ssid, signal, security, saved
+.TP
+\fBradio\fR \fI<on|off|toggle>\fR
+switch the wireless radio
+.TP
+\fBscan\fR
+look for networks now
+.TP
+\fBconnect\fR \fI<ssid> [password]\fR
+join a network; the password is only needed the first time
+.TP
+\fBdisconnect\fR
+leave the current network, keeping it saved
+.TP
+\fBforget\fR \fI<ssid>\fR
+delete a saved network
+.SS vpn
+.TP
+\fBlist\fR
+every tunnel: id, state, kind and name
+.TP
+\fBup\fR \fI<id>\fR
+bring a tunnel up
+.TP
+\fBdown\fR \fI<id>\fR
+bring a tunnel down
+.TP
+\fBtoggle\fR
+drop the active tunnel, or raise the first configured one
+.SS bluetooth
+.TP
+\fBstatus\fR
+the adapter's power, scan state and how many devices are connected
+.TP
+\fBdevices\fR
+every known device: path, state and name
+.TP
+\fBpower\fR \fI<on|off|toggle>\fR
+switch the adapter on or off
+.TP
+\fBscan\fR \fI<on|off|toggle>\fR
+start or stop looking for devices (a scan stops itself)
+.TP
+\fBconnect\fR \fI<device\-path>\fR
+connect a device, pairing it first if it is new
+.TP
+\fBdisconnect\fR \fI<device\-path>\fR
+disconnect a device
+.TP
+\fBforget\fR \fI<device\-path>\fR
+remove a pairing entirely
+.SS media
+.TP
+\fBstatus\fR
+the active player, its state and what it is playing
+.TP
+\fBget\fR \fI<title|artist|album|player|status|art>\fR
+one field of the active player
+.TP
+\fBplay\-pause\fR
+toggle playback on the active player
+.TP
+\fBnext\fR
+skip to the next track
+.TP
+\fBprevious\fR
+skip to the previous track
+.TP
+\fBstop\fR
+stop the active player
+.TP
+\fBseek\fR \fI<\(+-seconds>\fR
+move the playhead, if the player can seek
+.TP
+\fBshuffle\fR \fI<on|off|toggle>\fR
+set the shuffle state
+.TP
+\fBloop\fR \fI<off|track|playlist|cycle>\fR
+set the repeat mode
+.SS session
+.TP
+\fBlist\fR
+which session actions this machine supports
+.TP
+\fBdo\fR \fI<lock|logout|suspend|hibernate|reboot|shutdown>\fR
+perform a session action
+.SS keyboard
+.TP
+\fBlayout\fR
+the main keyboard's active layout
+.TP
+\fBnext\fR
+switch the main keyboard to its next layout
+.SS brightness
+.TP
+\fBget\fR \fI[output]\fR
+the brightness of a screen (no output means the primary one)
+.TP
+\fBrefresh\fR
+detect displays again, for a monitor plugged in since startup
+.TP
+\fBlist\fR
+every controllable display: output, level, kind and label
+.TP
+\fBset\fR \fI<percent> [output|all]\fR
+set the brightness of a screen (no output means the primary one)
+.TP
+\fBstep\fR \fI<\(+-percent> [output|all]\fR
+move a screen's brightness by a delta
+.TP
+\fBup\fR \fI[output|all]\fR
+raise the brightness by [brightness] increment
+.TP
+\fBdown\fR \fI[output|all]\fR
+lower the brightness by [brightness] increment
+.SS wallpaper
+.TP
+\fBget\fR \fI[output]\fR
+the image a screen is showing (no output means the focused one)
+.TP
+\fBlist\fR
+every image in the library: folder, name and path
+.TP
+\fBreload\fR
+re\-scan the wallpaper folder
+.TP
+\fBset\fR \fI<path> [output]\fR
+put an image on every screen, or on one of them
+.TP
+\fBrandom\fR \fI[output]\fR
+pick one from the library at random
+.TP
+\fBclear\fR \fI[output]\fR
+drop the runtime choice, putting [background] back in charge
+.SS scheme
+.TP
+\fBstatus\fR
+the palette in use: theme, mode, variant and the wallpaper it came from
+.TP
+\fBcolors\fR
+every token of the palette now on screen, as name and hex
+.TP
+\fBlist\fR
+the palettes `scheme set` accepts
+.TP
+\fBset\fR \fI<name>\fR
+switch palette, `dynamic` for one built from the wallpaper
+.TP
+\fBmode\fR \fI[dark|light|auto|toggle]\fR
+read or set the light/dark mode
+.TP
+\fBvariant\fR \fI[name]\fR
+read or set how much colour a dynamic scheme carries
+.TP
+\fBrefresh\fR
+re\-derive a dynamic palette from the current wallpaper
+.TP
+\fBexport\fR
+write the palette out for the rest of the desktop, ignoring [theme.export] enabled
+.SS config
+.TP
+\fBpath\fR
+where config.toml is read from
+.TP
+\fBschema\fR \fI[section]\fR
+the annotated default config, or one section of it
+.SS deps
+.TP
+\fBlist\fR
+every external dependency, and whether this machine has it
+.TP
+\fBmissing\fR
+only the ones that are absent, with what each absence costs
+.TP
+\fBcheck\fR
+whether everything the shell cannot start without is present
+.TP
+\fBrefresh\fR
+probe again, for something installed since the shell started
+.SS man
+.TP
+\fBcommands\fR
+hyprshell(1) as roff, generated from this table
+.TP
+\fBconfig\fR
+hyprshell(5) as roff, generated from the config schema
+.SH FILES
+.TP
+.I ~/.config/hyprshell/config.toml
+Everything, hot\-reloaded on save. Written annotated on first run.
+.TP
+.I ~/.config/hyprshell/tokens.toml
+Design\-token overrides. Deliberately unstable \- the config's
+.B [theme]
+section is the supported surface.
+.TP
+.I ~/.config/hyprshell/monitors/<output>/config.toml
+Per\-monitor overrides, same shape as the global file.
+.TP
+.I ~/.config/hyprshell/state.json
+Runtime state the shell owns, such as the current wallpaper. Not settings.
+.TP
+.I $XDG_RUNTIME_DIR/hyprshell/<instance>.sock
+The command socket, one per compositor instance.
+.SH ENVIRONMENT
+.TP
+.B XDG_CONFIG_HOME
+Where the config directory is looked for; falls back to
+.IR $HOME/.config .
+.TP
+.B XDG_RUNTIME_DIR
+Where the command socket is created.
+.TP
+.B HYPRLAND_INSTANCE_SIGNATURE
+Names the socket, so two compositors on one login session get one socket each. Outside Hyprland the
+name is still stable and the client still finds the shell.
+.TP
+.B RUST_LOG
+Log filter; defaults to
+.BR info .
+.SH EXAMPLES
+Start the shell from the compositor:
+.PP
+.EX
+exec\-once = hyprshell
+.EE
+.PP
+Bind an action to a key:
+.PP
+.EX
+bind = SUPER, SPACE, exec, hyprshell launcher
+bind = SUPER, N, exec, hyprshell panel toggle notifications
+bind = , XF86AudioRaiseVolume, exec, hyprshell volume up
+.EE
+.PP
+Write a config with every key in it, then edit it down:
+.PP
+.EX
+hyprshell config schema > ~/.config/hyprshell/config.toml
+.EE
+.SH SEE ALSO
+.BR hyprshell (5)

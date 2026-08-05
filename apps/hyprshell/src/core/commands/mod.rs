@@ -22,9 +22,9 @@ pub(crate) struct Target {
     pub(crate) commands: &'static [Command],
 }
 
-/// Every command the shell answers. One table, so `--list` can't drift from what actually dispatches.
-/// Every command the shell answers. One table, so `--list` can't drift from what actually dispatches.
-static TARGETS: &[Target] = &[
+/// Every command the shell answers. One table, so `--list`, `hyprshell(1)` and what actually dispatches cannot
+/// drift from one another.
+pub(crate) static TARGETS: &[Target] = &[
     shell::SHELL,
     system::LOCK,
     system::IDLE,
@@ -52,6 +52,7 @@ static TARGETS: &[Target] = &[
     shell::SCHEME,
     shell::CONFIG,
     shell::DEPS,
+    shell::MAN,
 ];
 
 /// Whether `line` names a command the shell answers, **without running it**.

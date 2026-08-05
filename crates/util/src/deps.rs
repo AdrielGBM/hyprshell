@@ -93,9 +93,7 @@ pub enum Kind {
     /// `idle_supported` read state the *driver* owns, so outside a running shell they answer `false` for a
     /// compositor that implements the protocol perfectly well — which is the one case a dependency report
     /// exists to serve.
-    Protocol {
-        interfaces: &'static [&'static str],
-    },
+    Protocol { interfaces: &'static [&'static str] },
 }
 
 /// Whether the shell can run at all without it.

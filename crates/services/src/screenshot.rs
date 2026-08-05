@@ -692,9 +692,16 @@ mod tests {
             .backend()
         };
         assert_eq!(with("screencopy"), CaptureBackend::Screencopy);
-        assert_eq!(with(" Image-Copy-Capture "), CaptureBackend::ImageCopyCapture);
+        assert_eq!(
+            with(" Image-Copy-Capture "),
+            CaptureBackend::ImageCopyCapture
+        );
         assert_eq!(with("auto"), CaptureBackend::Auto);
-        assert_eq!(with("grim"), CaptureBackend::Auto, "a route this build no longer has");
+        assert_eq!(
+            with("grim"),
+            CaptureBackend::Auto,
+            "a route this build no longer has"
+        );
     }
 
     #[test]

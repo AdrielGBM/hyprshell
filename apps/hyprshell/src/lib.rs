@@ -4,6 +4,7 @@ telar::rsx_modules!(::config::theme::NordTheme);
 pub use crate::core::commands::describe as ipc_describe;
 pub use crate::core::commands::dispatch_locally;
 pub use crate::core::ipc::call as ipc_call;
+pub use crate::core::man::FORMS as USAGE_FORMS;
 pub use config::schema::render as config_schema;
 
 use std::cell::RefCell;

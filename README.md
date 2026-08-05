@@ -62,6 +62,13 @@ hyprshell --list                 # every command, target and argument
 `config schema` prints a complete, valid `config.toml`, so `hyprshell config schema > config.toml` is also how
 you get a file with every key in it to edit down.
 
+The same two tables are the manual: [`man/hyprshell.1`](man/hyprshell.1) is the command reference and
+[`man/hyprshell.5`](man/hyprshell.5) the configuration one, both generated and checked in.
+
+```sh
+man ./man/hyprshell.5            # or `man 5 hyprshell` once it is installed
+```
+
 Config lives in `~/.config/hyprshell/`:
 
 | File | What it is |
@@ -139,6 +146,13 @@ unknown rather than zero, or does not appear at all.
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The manual is generated from the command table and the config schema, and `cargo test` fails if the checked-in
+copies no longer match this build:
+
+```sh
+UPDATE_MAN=1 cargo test -p hyprshell --lib man    # rewrite man/hyprshell.{1,5}
 ```
 
 **`cargo fmt` needs the file list handed to it.** `rsx_modules!` generates the crate's `mod` declarations at

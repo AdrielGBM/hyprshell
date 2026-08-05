@@ -379,3 +379,21 @@ pub(crate) const CONFIG: Target = Target {
         },
     ],
 };
+
+pub(crate) const MAN: Target = Target {
+    name: "man",
+    commands: &[
+        Command {
+            name: "commands",
+            args: "",
+            help: "hyprshell(1) as roff, generated from this table",
+            run: |_| Ok(crate::core::man::commands_page()),
+        },
+        Command {
+            name: "config",
+            args: "",
+            help: "hyprshell(5) as roff, generated from the config schema",
+            run: |_| crate::core::man::config_page(),
+        },
+    ],
+};

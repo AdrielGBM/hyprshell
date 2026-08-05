@@ -1,0 +1,1503 @@
+.TH HYPRSHELL 5 "" "hyprshell 0.1.0" "hyprshell"
+.SH NAME
+hyprshell \- configuration file format
+.SH SYNOPSIS
+.I ~/.config/hyprshell/config.toml
+.SH DESCRIPTION
+hyprshell is configured in TOML. Every key below is optional; the default shown is what the shell uses
+when the key is absent, so a working config is any subset of this page.
+.PP
+The file is watched and re\-read on save, and the change applies without a restart. A file under
+.I ~/.config/hyprshell/monitors/<output>/
+has the same shape and overrides the global one for that monitor.
+.PP
+.B hyprshell config schema
+prints this same reference as a complete, valid config file, and
+.B hyprshell config schema <section>
+prints one section of it. Both come from the running build rather than from this page.
+.SH SECTIONS
+.SS [active_window]
+The `active_window` module. `compact` shows the app's class instead of the document title \(em stable while you
+move around inside one app, and much narrower. `max_chars` bounds the one bar value with no natural size: a
+browser tab title can be a paragraph, and letting it size the chip would push every other module off the bar.
+.sp
+`inverted` puts the icon after the title instead of before it. Which reads better depends on where the chip
+sits: leading the icon points into the bar from the left, and trailing it does the same from the right, so
+a chip in the end zone usually wants this on.
+.TP
+.B compact
+Default: \fBfalse\fR
+.TP
+.B inverted
+Default: \fBfalse\fR
+.TP
+.B max_chars
+Default: \fB60\fR
+.TP
+.B show_icon
+Default: \fBtrue\fR
+.SS [animation]
+How the shell moves (`[animation]`).
+.sp
+Two curve families rather than one, because rsx has two motion models and they answer different questions.
+`curve` names a **spring**, for motion that chases a target that can move mid\-flight \(em the workspace
+indicator, which has to bend its path when you hold a workspace key rather than restart. `easing` names a
+**timing function**, for a transition with a start, an end and a duration \(em a panel opening.
+.sp
+`duration_scale` multiplies every duration at once, so "make it all a bit quicker" is one number; `enabled
+= false` collapses every duration to zero, which is the accessibility answer (and what a user on a remote
+desktop wants) rather than a per\-surface opt\-out.
+.TP
+.B curve
+The spring preset for continuous motion: `gentle`, `snappy` or `bouncy`.
+.sp
+Default: \fB"gentle"\fR
+.TP
+.B duration_scale
+Default: \fB1.0\fR
+.TP
+.B easing
+The timing function for duration\-based transitions: `linear`, `ease\-in`, `ease\-out`, `ease\-in\-out`.
+.sp
+Default: \fB"ease\-out"\fR
+.TP
+.B enabled
+Default: \fBtrue\fR
+.TP
+.B panel_duration_ms
+How long a panel takes to enter or leave, before `duration_scale`.
+.sp
+Default: \fB180\fR
+.SS [audio]
+Audio control (`[audio]`). `increment` is what one wheel notch over the volume or microphone chip moves and
+what `hyprshell volume up` steps by. `max_volume` is the ceiling the sink can be raised to: PipeWire lets a
+sink boost past 100 %, which rescues a quiet laptop and wrecks a good speaker, so it belongs to the user
+rather than to a constant in the code.
+.TP
+.B increment
+Default: \fB5\fR
+.TP
+.B max_volume
+Default: \fB150\fR
+.SS [background]
+Full\-screen wallpaper behind everything, one surface per monitor. Off by default so the compositor's own background shows through; setting an `image` \(em or `enabled = true` for a plain themed background \(em turns it on. `[background.monitors]` maps output names to per\-monitor images, each falling back to the global `image`, and `hyprshell wallpaper set` overrides both at runtime. Paths may use `~`.
+.TP
+.B enabled
+Default: \fBfalse\fR
+.TP
+.B transition
+How a change from one wallpaper to the next is drawn: `fade` (the default), `wipe` or `none`.
+.sp
+Default: \fB"fade"\fR
+.TP
+.B transition_ms
+How long that transition runs, before `[animation] duration_scale`. Ignored while `[animation] enabled` is off, which makes every change instant.
+.sp
+Default: \fB600\fR
+.SS [background.clock]
+.TP
+.B background
+Paint a plate behind the face, so it stays legible over a busy photograph.
+.sp
+Default: \fBfalse\fR
+.TP
+.B background_blur
+How far the plate's edge is feathered into the wallpaper, in px. `0` gives a hard\-edged card.
+.sp
+Default: \fB0.0\fR
+.TP
+.B background_opacity
+How opaque that plate is, `0`\(en`1`.
+.sp
+Default: \fB0.35\fR
+.TP
+.B enabled
+Default: \fBfalse\fR
+.TP
+.B invert
+Draw the face in the theme's base colour instead of its text colour \(em for a pale wallpaper, where light
+text disappears.
+.sp
+Default: \fBfalse\fR
+.TP
+.B margin
+How far the face is kept from the screen edges, in px.
+.sp
+Default: \fB48\fR
+.TP
+.B position
+One of the nine positions: `top_left` ... `bottom_right`, `center` being the default.
+.sp
+Default: \fB"center"\fR
+.TP
+.B scale
+Multiplies the theme's display size, so the face can be made as large as the screen allows.
+.sp
+Default: \fB3.0\fR
+.TP
+.B shadow
+Drop a shadow under the glyphs, which is what keeps a plateless face readable over a light wallpaper.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_date
+Default: \fBtrue\fR
+.TP
+.B format
+Overrides `[clock] format` for the desktop face only. A desktop clock usually wants `%H:%M` where the bar chip wants seconds.
+.sp
+Unset by default.
+.TP
+.B date_format
+Overrides `[clock] date_format` for the desktop face only.
+.sp
+Unset by default.
+.SS [background.monitors]
+.SS [background.visualiser]
+.TP
+.B accent
+Draw the bars in the theme's accent colour rather than its text colour.
+.sp
+Default: \fBtrue\fR
+.TP
+.B edge
+Which screen edge the bars stand on. They always grow away from it, so `left` gives a column up the side.
+.sp
+Default: \fB"bottom"\fR
+.TP
+.B enabled
+Default: \fBfalse\fR
+.TP
+.B gap
+The gap between two bars, in px.
+.sp
+Default: \fB3.0\fR
+.TP
+.B hide_when_silent
+Fade the bars out when nothing is playing, rather than leaving a flat line across the screen.
+.sp
+Default: \fBtrue\fR
+.TP
+.B margin
+How far the row is held off its edge, in px \(em for a screen whose bar already sits there.
+.sp
+Default: \fB0\fR
+.TP
+.B opacity
+How opaque the bars are over the wallpaper, `0`\(en`1`.
+.sp
+Default: \fB0.75\fR
+.TP
+.B radius
+How round a bar's ends are, in px. `0` is square; half the bar's own width is a capsule.
+.sp
+Default: \fB3.0\fR
+.TP
+.B reach
+How far the tallest bar reaches from that edge, in px.
+.sp
+Default: \fB140\fR
+.SS [bars]
+One bar per screen edge; empty bars collapse to zero. Default is all\-empty by design (serde fills missing fields), so configs get only what they specify \(em see [`Config::starter`] for the initial setup.
+.sp
+`excluded_screens` names outputs that get no bars at all \(em a TV, a projector, a monitor that only ever shows
+one fullscreen thing. Each entry matches the connector name (`DP\-1`) as a `*` pattern, so `HDMI\-*` covers a
+port whose index moves between reboots. *Which* modules a screen shows is a per\-monitor config override
+(`monitors/<output>/config.toml`) rather than a key here: it is the same `[bars.<edge>]` shape, so there is
+nothing new to learn and nothing to keep in step.
+.TP
+.B excluded_screens
+Default: \fB[]\fR
+.SS [bars.bottom]
+.TP
+.B center
+Default: \fB[]\fR
+.TP
+.B end
+Default: \fB[]\fR
+.TP
+.B peek
+How many logical pixels of a hidden bar stay on screen, as the strip that reveals it. Too thin to hit
+is worse than absent, so this is floored at 1.
+.sp
+Default: \fB2\fR
+.TP
+.B persistent
+Keep the bar on screen at all times (the default). Switched off, it reserves no space and sits off its
+own edge with only `peek` pixels showing, sliding in when the pointer reaches that strip and back out
+when the pointer leaves.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_on_hover
+Reveal a non\-persistent bar when the pointer reaches its peek strip. Switched off, only a drag inward
+past `[panels] drag_threshold` brings it in \(em which is what a touch screen wants, and what a pointer
+that keeps brushing the screen edge on its way somewhere else does not.
+.sp
+Default: \fBtrue\fR
+.TP
+.B size
+Default: \fB34\fR
+.TP
+.B start
+Default: \fB[]\fR
+.SS [bars.bottom.shape]
+.SS [bars.left]
+.TP
+.B center
+Default: \fB[]\fR
+.TP
+.B end
+Default: \fB[]\fR
+.TP
+.B peek
+How many logical pixels of a hidden bar stay on screen, as the strip that reveals it. Too thin to hit
+is worse than absent, so this is floored at 1.
+.sp
+Default: \fB2\fR
+.TP
+.B persistent
+Keep the bar on screen at all times (the default). Switched off, it reserves no space and sits off its
+own edge with only `peek` pixels showing, sliding in when the pointer reaches that strip and back out
+when the pointer leaves.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_on_hover
+Reveal a non\-persistent bar when the pointer reaches its peek strip. Switched off, only a drag inward
+past `[panels] drag_threshold` brings it in \(em which is what a touch screen wants, and what a pointer
+that keeps brushing the screen edge on its way somewhere else does not.
+.sp
+Default: \fBtrue\fR
+.TP
+.B size
+Default: \fB34\fR
+.TP
+.B start
+Default: \fB[]\fR
+.SS [bars.left.shape]
+.SS [bars.right]
+.TP
+.B center
+Default: \fB[]\fR
+.TP
+.B end
+Default: \fB[]\fR
+.TP
+.B peek
+How many logical pixels of a hidden bar stay on screen, as the strip that reveals it. Too thin to hit
+is worse than absent, so this is floored at 1.
+.sp
+Default: \fB2\fR
+.TP
+.B persistent
+Keep the bar on screen at all times (the default). Switched off, it reserves no space and sits off its
+own edge with only `peek` pixels showing, sliding in when the pointer reaches that strip and back out
+when the pointer leaves.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_on_hover
+Reveal a non\-persistent bar when the pointer reaches its peek strip. Switched off, only a drag inward
+past `[panels] drag_threshold` brings it in \(em which is what a touch screen wants, and what a pointer
+that keeps brushing the screen edge on its way somewhere else does not.
+.sp
+Default: \fBtrue\fR
+.TP
+.B size
+Default: \fB34\fR
+.TP
+.B start
+Default: \fB[]\fR
+.SS [bars.right.shape]
+.SS [bars.top]
+.TP
+.B center
+Default: \fB["clock"]\fR
+.TP
+.B end
+Default: \fB["notes"]\fR
+.TP
+.B peek
+How many logical pixels of a hidden bar stay on screen, as the strip that reveals it. Too thin to hit
+is worse than absent, so this is floored at 1.
+.sp
+Default: \fB2\fR
+.TP
+.B persistent
+Keep the bar on screen at all times (the default). Switched off, it reserves no space and sits off its
+own edge with only `peek` pixels showing, sliding in when the pointer reaches that strip and back out
+when the pointer leaves.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_on_hover
+Reveal a non\-persistent bar when the pointer reaches its peek strip. Switched off, only a drag inward
+past `[panels] drag_threshold` brings it in \(em which is what a touch screen wants, and what a pointer
+that keeps brushing the screen edge on its way somewhere else does not.
+.sp
+Default: \fBtrue\fR
+.TP
+.B size
+Default: \fB34\fR
+.TP
+.B start
+Default: \fB["workspaces"]\fR
+.SS [bars.top.shape]
+.SS [battery]
+Low\-battery behaviour (`[battery]`): the levels that raise a notification, and the action to take once the
+charge is low enough that the machine should put itself away. On a desktop none of it ever fires, since
+there is no battery to read.
+.TP
+.B critical_action
+A `session` action id \(em `suspend`, `hibernate`, `shutdown`; empty runs nothing.
+.sp
+Default: \fB""\fR
+.TP
+.B critical_level
+Charge at or below which `critical_action` runs; `0` (the default) never acts on the user's behalf.
+.sp
+Default: \fB0\fR
+.TP
+.B enabled
+Default: \fBtrue\fR
+.SS [[battery.warn_levels]]
+One charge level worth interrupting the user about, declared as a `[[battery.warn_levels]]` table. It fires
+once as the charge crosses down through `level` while discharging, and re\-arms once the battery is charging
+again \(em so a laptop left at 19 % does not warn every minute.
+.sp
+`title` and `message` left empty take the shell's own translated text, so the defaults follow the UI
+language instead of pinning English into everyone's config; `{level}` in either is replaced with the charge
+at the moment it fired.
+.PP
+The entries a fresh install starts with:
+.PP
+.EX
+[[battery.warn_levels]]
+critical = false
+icon = "battery\-low"
+level = 20
+message = ""
+title = ""
+
+[[battery.warn_levels]]
+critical = true
+icon = "battery\-warning"
+level = 10
+message = ""
+title = ""
+.EE
+.SS [bluetooth]
+Bluetooth (`[bluetooth]`): the chip and the device list its panel shows.
+.sp
+`scan_on_open` is what makes "pair something new" one gesture instead of two \(em a panel opened to find a
+device starts looking, and stops when it closes, so no scan outlives the surface that asked for it.
+`show_unnamed` is off because a scan in a public place turns up dozens of devices BlueZ knows only an
+address for, and a list of addresses is not a list anyone can choose from.
+.TP
+.B enabled
+Default: \fBtrue\fR
+.TP
+.B max_devices
+Upper bound on the rows the panel lists, so a busy room can't grow the panel past the screen.
+.sp
+Default: \fB12\fR
+.TP
+.B scan_on_open
+Default: \fBtrue\fR
+.TP
+.B show_unnamed
+Default: \fBfalse\fR
+.SS [brightness]
+Backlight control (`[brightness]`): the step a wheel notch or `hyprshell brightness up` moves. Its own
+section rather than a key under `[audio]` so the per\-output and DDC/CI settings that follow have a home.
+.TP
+.B external
+Control external monitors over DDC/CI with `ddcutil`, so a desktop with no backlight is dimmable at all. Costs one detection (a few seconds, on the service's own thread) at startup; does nothing when ddcutil is not installed.
+.sp
+Default: \fBtrue\fR
+.TP
+.B increment
+Default: \fB5\fR
+.SS [clock]
+The `clock` module and its panel. `format` and `date_format` are `strftime` patterns, so a user can have
+anything from `%H:%M` to a full locale date without the shell enumerating presets; `twelve_hour` is the one
+switch worth naming, since it is what most people actually mean by "change the clock format".
+.TP
+.B date_format
+Default: \fB"%a %d %b"\fR
+.TP
+.B show_date
+Default: \fBfalse\fR
+.TP
+.B twelve_hour
+Default: \fBfalse\fR
+.TP
+.B format
+Overrides `twelve_hour` when set, for a user who wants seconds, a weekday, or anything else.
+.sp
+Unset by default.
+.SS [corners]
+.SS [dashboard]
+The dashboard surface (`[dashboard]`).
+.sp
+The two intervals are here rather than on the services they read because the cost is the dashboard's, not
+theirs: the performance cards redraw a sparkline per tick, and the playhead is an MPRIS property no player
+signals \(em following it means asking for it. A bar chip's own rate is unaffected either way, and neither
+ticker exists while the dashboard is closed.
+.TP
+.B avatar
+The image the user card shows. Empty means the usual places \(em `~/.face`, `~/.face.icon`, then the
+AccountsService icon a display manager writes.
+.sp
+Default: \fB""\fR
+.TP
+.B first_day_of_week
+Which column the calendar starts on: `monday`, `sunday` or `saturday`.
+.sp
+Default: \fB"monday"\fR
+.TP
+.B media_update_interval
+Milliseconds between playhead reads while the media card is up.
+.sp
+Default: \fB500\fR
+.TP
+.B resource_update_interval
+Milliseconds between resource refreshes in the performance cards.
+.sp
+Default: \fB1000\fR
+.TP
+.B tabs
+Which pages the dashboard offers, in order; an id it doesn't know is dropped with a warning rather than
+failing the whole config parse, which would cost the user every other section over one typo.
+.sp
+Default: \fB["dash", "media", "performance", "weather"]\fR
+.SS [general]
+App\-wide settings that don't belong to a specific visual section. `language` is a BCP\-47 tag
+(`"en"`, `"es"`); empty means "follow the OS locale, else English". `show_over_fullscreen` lifts the bars
+onto the overlay layer so they stay visible over a fullscreen window \(em off by default, since a fullscreen
+game or video is normally meant to cover them. `logo` is the icon the `logo` module shows; empty detects the
+distribution from `/etc/os\-release`.
+.TP
+.B language
+Default: \fB""\fR
+.TP
+.B logo
+Default: \fB""\fR
+.TP
+.B show_over_fullscreen
+Default: \fBfalse\fR
+.TP
+.B terminal
+The terminal used to run a desktop entry marked `Terminal=true`; empty falls back to `xterm`.
+.sp
+Superseded by `[general.apps] terminal`, and still read when that one is unset \(em a config written
+before the section existed keeps working rather than silently reverting to `xterm`.
+.sp
+Default: \fB""\fR
+.SS [general.apps]
+.TP
+.B audio_mixer
+Default: \fB""\fR
+.TP
+.B browser
+Default: \fB""\fR
+.TP
+.B editor
+Default: \fB""\fR
+.TP
+.B file_manager
+Default: \fB""\fR
+.TP
+.B media_player
+Default: \fB""\fR
+.TP
+.B terminal
+Default: \fB""\fR
+.SS [gpu]
+The graphics processor (`[gpu]`).
+.sp
+`backend` is `auto` (the default), one of `amd` / `intel` / `nvidia`, or `none` to switch the service off
+entirely. Forcing one matters on a laptop with switchable graphics: the kernel lists the integrated GPU
+first, and "the first card with a driver we can read" is then the wrong one. `card` names the `drm` entry
+(`card1`) directly, which is the only way to tell two cards from the same vendor apart.
+.TP
+.B backend
+Default: \fB"auto"\fR
+.TP
+.B card
+Default: \fB""\fR
+.TP
+.B enabled
+Default: \fBtrue\fR
+.SS [icons]
+Where bar icons come from: an Iconify\-compatible HTTP endpoint (`{provider}/{set}/{name}.svg`) and the default set applied to a bare icon name. A name may override the set inline as `set:name` (e.g. `mdi:home`), so multiple icon sets work through one endpoint. `provider` is configurable because Iconify is self\-hostable/mirrorable. `app_icon_theme` names the freedesktop icon theme used to resolve notification app icons (empty = detect from GTK settings, falling back to `hicolor`).
+.TP
+.B app_icon_theme
+Default: \fB""\fR
+.TP
+.B default_set
+Default: \fB"lucide"\fR
+.TP
+.B provider
+Default: \fB"https://api.iconify.design"\fR
+.SS [idle]
+Idle behaviour (`[idle]`): the timeouts, and what keeps them from firing.
+.sp
+`respect_inhibitors` is not a condition the shell evaluates \(em it selects which question is asked of the
+compositor. `ext\-idle\-notify\-v1` has one request that stays quiet while any client holds an idle inhibitor
+and another that reports raw input idleness, and the compositor is the only thing that can tell them apart.
+.TP
+.B enabled
+Default: \fBfalse\fR
+.TP
+.B inhibit_when_audio
+Hold every stage while something is playing audio \(em a film should not be interrupted by a lock screen.
+.sp
+Default: \fBtrue\fR
+.TP
+.B inhibit_when_charging
+Hold every stage while the machine is on mains power.
+.sp
+Default: \fBfalse\fR
+.TP
+.B respect_inhibitors
+Honour idle inhibitors taken out by other applications.
+.sp
+Default: \fBtrue\fR
+.SS [[idle.stages]]
+One idle timeout, declared as an `[[idle.stages]]` table: what to run once the seat has been idle that long,
+and what to run when it stops being.
+.sp
+Both actions are request lines the shell already answers \(em the same strings `hyprshell` takes on the command
+line \(em so a stage needs no new vocabulary and anything bindable to a key is bindable to a timeout. `hyprshell
+\-\-list` is the full menu; `lock on`, `shell dpms off` and `session do suspend` are the usual three.
+.PP
+The entries a fresh install starts with:
+.PP
+.EX
+[[idle.stages]]
+action = "lock on"
+return_action = ""
+timeout = 300
+
+[[idle.stages]]
+action = "shell dpms off"
+return_action = "shell dpms on"
+timeout = 360
+.EE
+.SS [keynav]
+Keyboard navigation shared by every list surface (`[keynav]`).
+.sp
+`vim` is off by default and has to be: the launcher's list sits under a search field, and a list that reads
+`j` as "down" cannot also let you type `jitsi`. Turning it on is a deliberate trade a vim user makes
+knowingly \(em the arrows keep working either way.
+.TP
+.B vim
+Default: \fBfalse\fR
+.SS [launcher]
+`fuzzy` off makes the query a plain substring match, for users who find fuzzy matching too loose.
+`hidden` lists desktop\-entry ids to keep out of the results entirely, and `favourites` lists ids to pin
+above the ranking, in the order given. `actions` are the `>`\-prefixed commands of the action mode.
+.TP
+.B actions
+Default: \fB[]\fR
+.TP
+.B calculator
+Show the calculator's answer above the app matches when the query reads as arithmetic. Unit conversions (`3 km in mi`) count as arithmetic.
+.sp
+Default: \fBtrue\fR
+.TP
+.B enable_dangerous_actions
+Off by default: an action that can destroy something should take a deliberate opt\-in, not arrive with
+a config someone pasted from the internet.
+.sp
+Default: \fBfalse\fR
+.TP
+.B favourites
+Default: \fB[]\fR
+.TP
+.B fuzzy
+Default: \fBtrue\fR
+.TP
+.B height
+Default: \fB420\fR
+.TP
+.B hidden
+Default: \fB[]\fR
+.TP
+.B max_results
+Default: \fB12\fR
+.TP
+.B qalc
+Fall back to `qalc` (Qalculate) for an explicit `=` query the built\-in evaluator cannot answer \(em currencies, constants, dates. Silently does nothing when qalc is not installed.
+.sp
+Default: \fBtrue\fR
+.TP
+.B radius
+Default: \fB14.0\fR
+.TP
+.B width
+Default: \fB640\fR
+.SS [launcher.icons]
+Per\-application icon overrides, keyed by desktop\-entry id (`firefox`), valued as anything
+[`app_icon_view`] resolves: an icon\-theme name or an absolute path.
+.sp
+For the entries whose `Icon` key names something this machine's icon theme does not have \(em which is
+most self\-packaged software \(em where the alternative is editing a `.desktop` file the package manager
+owns and will overwrite.
+.SS [lock]
+The lock screen (`[lock]`): what it authenticates against, and what it shows while it waits.
+.sp
+The screen only comes up on a compositor that implements `ext\-session\-lock\-v1` and with a PAM library the
+shell can load. Both are checked *before* the lock is taken, because the failure mode of finding out
+afterwards is a user staring at a screen with no way back in.
+.TP
+.B fingerprint
+Verify a fingerprint through fprintd alongside the password, when a reader is enrolled.
+.sp
+Default: \fBfalse\fR
+.TP
+.B hide_notifs
+Start with the notification dock collapsed \(em the lock screen is the one surface where a stranger can
+read what arrived without unlocking.
+.sp
+Default: \fBtrue\fR
+.TP
+.B howdy_command
+The Howdy face\-unlock command, run with the user name appended; empty disables it. Exit status 0 is a
+successful match, as Howdy's own PAM module treats it.
+.sp
+Default: \fB""\fR
+.TP
+.B lock_before_sleep
+Lock before the machine suspends, so the screen is already covered when it wakes.
+.sp
+Default: \fBtrue\fR
+.TP
+.B lockout_seconds
+Default: \fB30\fR
+.TP
+.B max_fprint_tries
+Default: \fB3\fR
+.TP
+.B max_howdy_tries
+Default: \fB3\fR
+.TP
+.B max_tries
+Attempts before the field locks itself out for `lockout_seconds`. `0` never locks out.
+.sp
+Default: \fB5\fR
+.TP
+.B pam_library
+Where `libpam` is. Empty tries `libpam.so.0`, `libpam.so` and NixOS's
+`/run/current\-system/sw/lib/libpam.so.0`, which between them cover every machine met so far; set it only
+if `hyprshell lock status` says the library could not be loaded.
+.sp
+Default: \fB""\fR
+.TP
+.B pam_service
+The PAM service to authenticate against \(em a file under `/etc/pam.d`. Empty picks the first of
+`hyprshell`, `swaylock`, `login` that exists, so a machine with no hyprshell\-specific stack still
+unlocks instead of refusing every password.
+.sp
+Default: \fB""\fR
+.TP
+.B show_avatar
+Default: \fBtrue\fR
+.TP
+.B show_media
+Default: \fBtrue\fR
+.TP
+.B show_notifications
+Default: \fBtrue\fR
+.TP
+.B show_resources
+Default: \fBfalse\fR
+.TP
+.B show_weather
+Default: \fBfalse\fR
+.TP
+.B trigger_on_wake
+Attempt face unlock as soon as the lock screen appears, rather than only when asked.
+.sp
+Default: \fBfalse\fR
+.SS [lock_status]
+The `lockstatus` module: caps\- and num\-lock indicators. `hide_inactive` shows an indicator only while its
+key is engaged, for a bar that should stay quiet; off (the default) keeps both glyphs in place, muted, so
+the module is visible the moment it is added and the bar's width never shifts.
+.TP
+.B caps
+Default: \fBtrue\fR
+.TP
+.B hide_inactive
+Default: \fBfalse\fR
+.TP
+.B num
+Default: \fBtrue\fR
+.SS [lyrics]
+Timed lyrics (`[lyrics]`).
+.sp
+Where hand\-kept `.lrc` files live is `[paths] lyrics`, with every other folder the shell owns \(em a file sitting
+next to the audio track is found without either. `online` is the only part of the feature that asks a third party
+anything (it sends the artist, title, album and length of what is playing to LRCLIB), so it is a switch of its
+own rather than part of `enabled`.
+.TP
+.B enabled
+Default: \fBtrue\fR
+.TP
+.B online
+Look the words up on LRCLIB when there is no local file. Sends the track's tags to that service.
+.sp
+Default: \fBtrue\fR
+.SS [media]
+The `media` module. `preferred_player` names an MPRIS bus suffix (`spotify`, `mpv`) to favour when several
+players are running \(em it only wins while that player is actually up, so naming one you don't always run
+never blanks the chip. `aliases` renames a player for display, since players name themselves badly often
+enough (`com.github.th_ch.youtube_music` \(-> `YT Music`) to be worth a config key.
+.TP
+.B marquee
+Scroll a title longer than `max_chars` instead of cutting it. Off by default: a bar that never moves is
+easier to read past, and a marquee costs a repaint per step for as long as the track is playing.
+.sp
+Default: \fBfalse\fR
+.TP
+.B marquee_speed_ms
+Milliseconds per character of marquee travel.
+.sp
+Default: \fB220\fR
+.TP
+.B max_chars
+Max characters of `artist \(em title` on the bar, bounding a value with no natural size.
+.sp
+Default: \fB40\fR
+.TP
+.B preferred_player
+Default: \fB""\fR
+.TP
+.B scroll
+What the wheel over the chip does: `volume`, `track`, `seek`, or `none`.
+.sp
+Default: \fB"volume"\fR
+.TP
+.B seek_seconds
+Seconds the wheel moves the playhead per notch, when `scroll = "seek"`.
+.sp
+Default: \fB5\fR
+.TP
+.B visualiser
+Ring the dashboard's cover art with the audio visualiser. Costs an audio capture for as long as the media page is open \(em see `[visualiser]` for what the bars are made of.
+.sp
+Default: \fBfalse\fR
+.SS [media.aliases]
+.SS [network]
+The network (`[network]`): the wireless list its panel shows.
+.sp
+`rescan_seconds` is a trade, not a preference: an access point that goes out of range emits nothing, so only
+a fresh scan notices it left. But a scan takes the radio off its channel, which on a busy link is a visible
+stutter and on some drivers worse \(em so the background interval is deliberately slow, and the moment that
+actually needs a fresh list (opening the panel) triggers a scan of its own. Turn it down only if a stale
+list bothers you more than the scans do.
+.TP
+.B enabled
+Switches the NetworkManager layer off entirely: no D\-Bus connection, no rescan timer, no threads. The
+bar chip keeps working \(em it reads sysfs and never needed NetworkManager.
+.sp
+Default: \fBtrue\fR
+.TP
+.B max_networks
+Upper bound on the networks the panel lists.
+.sp
+Default: \fB20\fR
+.TP
+.B rescan_seconds
+Default: \fB300\fR
+.TP
+.B show_hidden
+List networks that broadcast no SSID. Off by default: a hidden network cannot be joined by picking it
+out of a list anyway, so it is a row that can only disappoint.
+.sp
+Default: \fBfalse\fR
+.SS [notifications]
+Notification popups: where the stack anchors (defaults to top\-right), how many show at once before the rest queue, the per\-popup auto\-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+.sp
+The history panel's own behaviour lives here too, since it draws the same cards: `group_by_app` collapses an
+application's notifications under one header with a count, a mute and a clear, showing `group_preview_num`
+of them until the group is expanded; `action_on_click` makes tapping a card body invoke the notification's
+`default` action rather than only dismissing it; `body_lines`/`open_expanded` bound (or release) how much of
+a long body a card shows.
+.sp
+`sound` is a command run \(em detached, through `sh \-c` \(em each time a notification actually pops. Empty is
+silent, which is the default: a shell that started making noise on upgrade would be a bug, and the right
+command is per\-machine (`canberra\-gtk\-play \-i message`, `paplay /usr/share/sounds/...`).
+.TP
+.B action_on_click
+Default: \fBtrue\fR
+.TP
+.B align
+Default: \fB"end"\fR
+.TP
+.B body_lines
+Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is on.
+.sp
+Default: \fB4\fR
+.TP
+.B clear_threshold
+How far sideways a card must be dragged before letting go dismisses it, as a fraction of its width.
+`0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+.sp
+Default: \fB0.35\fR
+.TP
+.B critical_sticky
+Default: \fBtrue\fR
+.TP
+.B edge
+Default: \fB"top"\fR
+.TP
+.B fullscreen
+Default: \fB"off"\fR
+.TP
+.B gap
+Default: \fB10.0\fR
+.TP
+.B group_by_app
+Default: \fBtrue\fR
+.TP
+.B group_preview_num
+Default: \fB3\fR
+.TP
+.B max_visible
+Default: \fB4\fR
+.TP
+.B open_expanded
+Default: \fBfalse\fR
+.TP
+.B sound
+Default: \fB""\fR
+.TP
+.B timeout_ms
+Default: \fB5000\fR
+.TP
+.B width
+Default: \fB380.0\fR
+.SS [osd]
+Where OSD popups appear: anchored edge, cross\-axis alignment, and auto\-dismiss timeout in ms (`0` disables auto\-dismiss); defaults to top\-centre, 1200 ms.
+.TP
+.B align
+Default: \fB"center"\fR
+.TP
+.B edge
+Default: \fB"top"\fR
+.TP
+.B timeout_ms
+Default: \fB1200\fR
+.SS [panels]
+Panel presentation shared by drawers and floating windows (`[panels]`): the gap they keep from the bar and the screen edges, and each form's size. One home for both so a drawer and a float are configured the same way.
+.TP
+.B drag_threshold
+How far a chip must be dragged away from the bar before letting go opens its panel, in px. `0` switches
+the gesture off. One threshold for every panel rather than one each: the gesture is the same everywhere
+on the bar, and a per\-panel distance would make the bar feel inconsistent under the same finger.
+.sp
+Default: \fB48.0\fR
+.TP
+.B opacity
+How opaque a panel's background is, `0`\(en`1`. `1` (the default) is solid.
+.sp
+This is also the half of "blurred panels" that belongs to the shell. The blur itself is the
+compositor's \(em hyprshell already names each surface, so Hyprland can be told to blur them:
+.sp
+```text
+layer_rule = blur, hyprshell\-drawer
+layer_rule = blur, hyprshell\-float
+layer_rule = blur, hyprshell\-popup
+layer_rule = blur, hyprshell\-osd
+```
+.sp
+Drawing the blur here instead would mean copying the screen behind every panel each frame and blurring
+it on the CPU, to reproduce something the compositor is already doing on the GPU. What the compositor
+cannot do is see through an opaque panel, which is what this key is for: without it the rules above
+blur a region nothing shows.
+.sp
+Default: \fB1.0\fR
+.TP
+.B gap
+Gap a panel keeps from the bar and the screen edges. Unset (the default) derives it \(em the bar's own outer gap when it floats, else [`DEFAULT_PANEL_GAP`] \(em so panels sit off the bar just like tiled apps; set a value to pin a fixed gap on every edge regardless of the bar.
+.sp
+Unset by default.
+.SS [panels.drawer]
+.TP
+.B max_height
+Default: \fB280.0\fR
+.TP
+.B width
+Default: \fB320.0\fR
+.SS [panels.float]
+.TP
+.B height
+Default: \fB240\fR
+.TP
+.B width
+Default: \fB360\fR
+.SS [paths]
+Where the shell reads and writes user content (`[paths]`).
+.sp
+Every entry is empty by default, meaning "work it out": the wallpaper, screenshot and recording directories
+resolve through the user's own XDG directories, so they land in `Im\('agenes/Capturas` on a Spanish desktop
+rather than in a `Pictures` nobody has. `~` is expanded on read.
+.TP
+.B assets
+Searched before the shell's built\-in assets, so one can be substituted without rebuilding.
+.sp
+Default: \fB""\fR
+.TP
+.B lyrics
+Default: \fB""\fR
+.TP
+.B recordings
+Default: \fB""\fR
+.TP
+.B screenshots
+Default: \fB""\fR
+.TP
+.B wallpapers
+Default: \fB""\fR
+.SS [popouts]
+Hover popouts (`[popouts]`): the readout a chip shows while the pointer rests on it, distinct from the
+drawer a click opens.
+.sp
+The delays are what separate a popout from a flicker. Without `open_delay`, dragging the pointer across the
+bar would fire every chip's popout in turn; without `close_delay`, the popout would vanish in the gap
+between the chip and itself. Both are clamped on read, so a typo can make a popout slow but never instant
+or permanent.
+.TP
+.B close_delay
+How long the popout survives after the pointer leaves, in ms.
+.sp
+Default: \fB200\fR
+.TP
+.B enabled
+Off costs nothing: no chip tracks the pointer and no surface is ever opened.
+.sp
+Default: \fBtrue\fR
+.TP
+.B max_height
+The tallest a popout may grow. Its surface is this tall whatever the card needs; the surplus is carved
+out of the input region, so it stays click\-through rather than swallowing presses.
+.sp
+Default: \fB300.0\fR
+.TP
+.B open_delay
+How long the pointer must rest on a chip before its popout opens, in ms.
+.sp
+Default: \fB280\fR
+.TP
+.B width
+Default: \fB264.0\fR
+.SS [recorder]
+Screen recording (`[recorder]`).
+.sp
+`backend` is `auto`, `wf\-recorder` or `gpu\-screen\-recorder`; `auto` takes whichever is installed. Neither is a
+dependency of the shell \(em with no recorder present the controls grey out rather than failing on the press.
+.TP
+.B audio
+Default: \fBfalse\fR
+.TP
+.B audio_device
+The PipeWire node to record from; empty is the session's default output.
+.sp
+Default: \fB""\fR
+.TP
+.B backend
+Default: \fB"auto"\fR
+.TP
+.B file_name
+`strftime` pattern for the file's stem; the backend decides the container.
+.sp
+Default: \fB"recording_%Y\-%m\-%d_%H\-%M\-%S"\fR
+.TP
+.B fps
+Default: \fB60\fR
+.TP
+.B max_entries
+How many recordings the list in the utilities panel shows.
+.sp
+Default: \fB12\fR
+.TP
+.B notify
+Default: \fBtrue\fR
+.SS [screenshot]
+Screenshots (`[screenshot]`).
+.sp
+`backend` names the protocol to capture through: `auto` (the default), `image\-copy\-capture` or `screencopy`.
+`auto` prefers `ext\-image\-copy\-capture`, the standardised one, and falls back to `wlr\-screencopy` on a
+compositor too old for it. Naming one means "this route or none" \(em a user who names a backend is usually
+debugging one, and a silent fallback is what hides the answer.
+.sp
+`annotator` is the command a saved capture is handed to, with `{file}` where the path goes (appended when the
+command does not name it): `satty \-\-filename {file}`, `swappy \-f`. Empty means the capture is simply saved.
+.TP
+.B annotator
+Default: \fB""\fR
+.TP
+.B backend
+Default: \fB"auto"\fR
+.TP
+.B copy
+Put every capture on the clipboard, as well as saving it.
+.sp
+Default: \fBtrue\fR
+.TP
+.B file_name
+`strftime` pattern for the file's stem; the extension is always `.png`.
+.sp
+Default: \fB"screenshot_%Y\-%m\-%d_%H\-%M\-%S"\fR
+.TP
+.B freeze
+Hold the last frame on screen while a region is being selected, so a menu or a hover state can be
+captured without disappearing the moment the overlay takes the pointer.
+.sp
+Default: \fBtrue\fR
+.TP
+.B include_cursor
+Default: \fBfalse\fR
+.TP
+.B notify
+Say where the file went, through the shell's own notification daemon.
+.sp
+Default: \fBtrue\fR
+.TP
+.B save
+Default: \fBtrue\fR
+.SS [shape]
+Global shape settings. `gap` defaults to 0 (edge\-to\-edge bar; floating is opt\-in). `spacing`/`radius` are unset by default so they fall back to the theme's values \(em set them here (or per\-bar) to override the theme.
+.TP
+.B frame
+Default: \fBfalse\fR
+.TP
+.B gap
+Default: \fB0\fR
+.TP
+.B inactive_size
+Default: \fB6\fR
+.TP
+.B mode
+Default: \fB"bar"\fR
+.SS [sidebar]
+The notification centre (`[sidebar]`): a full\-height surface that is the home for the notification history and
+the quick toggles.
+.sp
+Distinct from the bell drawer, which is a glance: this is where a user goes to *deal with* what has arrived,
+so it takes the whole edge, scrolls, and hosts the utilities panel's own toggles rather than a second set.
+.TP
+.B edge
+Default: \fB"right"\fR
+.TP
+.B show_history
+Default: \fBtrue\fR
+.TP
+.B show_toggles
+Default: \fBtrue\fR
+.TP
+.B size
+Width for a left/right sidebar, height for a top/bottom one, in px.
+.sp
+Default: \fB400\fR
+.SS [status_icons]
+The compact status cluster (`[status_icons]`): several service readings sharing one chip.
+.sp
+`icons` is a list rather than a set of flags because the order is the point \(em it is what a user reads
+left\-to\-right, and a fixed order would make the cluster the shell's priority instead of theirs. The names
+match the module ids the same readings have as standalone chips, so moving one between the two is not a
+rename; `caps` and `num` are the exception, since `lockstatus` is one module drawing two indicators and a
+cluster should be able to take only one of them.
+.TP
+.B icons
+Default: \fB["volume", "mic", "network", "battery"]\fR
+.TP
+.B spacing
+Gap between icons, as a fraction of the icon size, so a cluster keeps its proportions on any bar.
+.sp
+Default: \fB0.35\fR
+.SS [temperature]
+The `temperature` module. `sensor` names an hwmon chip (`k10temp`, `coretemp`) or a sensor label (`Tctl`,
+`Package id 0`) to follow; empty tracks the hottest sensor on the machine, which is what works without a
+per\-machine config. `warn`/`critical` are the \(deC the chip tints amber and red at \(em a desktop CPU that idles
+at 65 \(deC should not show a permanent warning, so they are the user's numbers.
+.TP
+.B critical
+Default: \fB85.0\fR
+.TP
+.B sensor
+Default: \fB""\fR
+.TP
+.B unit
+Default: \fB"celsius"\fR
+.TP
+.B warn
+Default: \fB70.0\fR
+.SS [theme]
+Theme selection and overrides. `name` picks a built\-in palette, `custom`, or `dynamic` (a palette generated from the current wallpaper); the rest override individual tokens on top of it \(em numbers directly, `[theme.scale]` proportionally, and `[theme.colors]` per\-token hex (`base = "#2e3440"`), keyed by the same names [`NordTheme::accent_by_name`] uses. Any unset field keeps the built\-in's value.
+.TP
+.B accent
+Default: \fB"cyan"\fR
+.TP
+.B fallback
+The palette a `dynamic` theme falls back to before a wallpaper has been quantised \(em on the very first
+start, or with no wallpaper set at all.
+.sp
+Default: \fB"nord"\fR
+.TP
+.B mode
+`dark`, `light`, or `auto` (the default) to keep whatever the named palette already is. A built\-in with
+a sibling in the asked\-for mode switches to it (`gruvbox` \(<> `gruvbox\-light`); one without keeps its own.
+.sp
+Default: \fB"auto"\fR
+.TP
+.B name
+Default: \fB"nord"\fR
+.TP
+.B variant
+How much colour a `dynamic` scheme carries: `vibrant` (the default), `content`, `expressive`, `fidelity`
+or `muted`. Ignored by the built\-in palettes, which carry their own.
+.sp
+Default: \fB"vibrant"\fR
+.TP
+.B font_family
+Font family the whole shell renders in (must be installed). Unset keeps the renderer's default. Applied process\-wide via [`telar::set_default_font_family`], not carried in the (`Copy`) theme struct.
+.sp
+Unset by default.
+.TP
+.B icon_stroke
+Stroke width forced on stroke\-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
+.sp
+Unset by default.
+.SS [theme.colors]
+.SS [theme.export]
+.TP
+.B dir
+Where the files land. Empty means the shell's own config directory, next to `config.toml`.
+.sp
+Default: \fB""\fR
+.TP
+.B enabled
+Default: \fBfalse\fR
+.TP
+.B gtk
+Default: \fBtrue\fR
+.TP
+.B hooks
+Default: \fB[]\fR
+.TP
+.B json
+Default: \fBtrue\fR
+.TP
+.B qt
+Default: \fBfalse\fR
+.TP
+.B terminal
+Default: \fBfalse\fR
+.SS [theme.fonts]
+.SS [theme.fonts.body]
+.SS [theme.fonts.caption]
+.SS [theme.fonts.display]
+.SS [theme.fonts.title]
+.SS [theme.scale]
+.TP
+.B font
+Default: \fB1.0\fR
+.TP
+.B icon
+Default: \fB1.0\fR
+.TP
+.B rounding
+Default: \fB1.0\fR
+.TP
+.B spacing
+Default: \fB1.0\fR
+.SS [toasts]
+In\-shell toasts (`[toasts]`): the transient messages the shell says about itself.
+.sp
+Not notifications. A notification belongs to an application, goes into history and waits under
+Do\-Not\-Disturb; "Caps Lock is on" is feedback about a key that was just pressed and is worthless a second
+later. See `shared::services::toaster`.
+.TP
+.B align
+Default: \fB"center"\fR
+.TP
+.B edge
+Default: \fB"bottom"\fR
+.TP
+.B enabled
+Default: \fBtrue\fR
+.TP
+.B gap
+Default: \fB8.0\fR
+.TP
+.B max_toasts
+Default: \fB3\fR
+.TP
+.B timeout_ms
+Default: \fB2500\fR
+.TP
+.B width
+Default: \fB300.0\fR
+.SS [toasts.events]
+.TP
+.B audio_input
+Default: \fBtrue\fR
+.TP
+.B audio_output
+Default: \fBtrue\fR
+.TP
+.B charging
+Default: \fBtrue\fR
+.TP
+.B config_loaded
+Default: \fBtrue\fR
+.TP
+.B dnd
+Default: \fBtrue\fR
+.TP
+.B game_mode
+Default: \fBtrue\fR
+.TP
+.B kb_layout
+Default: \fBtrue\fR
+.TP
+.B lock_keys
+Caps Lock and Num Lock \(em the one piece of state a keyboard changes and never reports.
+.sp
+Default: \fBtrue\fR
+.TP
+.B now_playing
+Off by default: a music player already says what it is playing, and every skipped track would be a toast.
+.sp
+Default: \fBfalse\fR
+.TP
+.B recording
+Default: \fBtrue\fR
+.TP
+.B screenshot
+Default: \fBfalse\fR
+.TP
+.B vpn
+Default: \fBtrue\fR
+.SS [tray]
+The system tray (`[tray]`).
+.sp
+`hidden` drops an application's icon by its `Id`, and `icon_subs` swaps one for an Iconify glyph so an
+application shipping a mismatched icon can be made to sit with the rest of the bar. Both match the id as a
+`*` pattern rather than a literal, because a good number of applications bury a PID in theirs.
+.sp
+`recolour` tints every icon to the bar's foreground. Coherent, but it flattens an application that uses
+colour to report state \(em a sync client going red \(em so it stays off unless asked for.
+.TP
+.B background
+Give every icon its own chip background instead of one shared strip.
+.sp
+Default: \fBfalse\fR
+.TP
+.B compact
+Drop the spacing between icons, for a bar with many of them.
+.sp
+Default: \fBfalse\fR
+.TP
+.B enabled
+Off costs nothing: the module draws nothing and the service \(em three threads and a D\-Bus name \(em is
+never started.
+.sp
+Default: \fBtrue\fR
+.TP
+.B hidden
+Default: \fB[]\fR
+.TP
+.B recolour
+Default: \fBfalse\fR
+.SS [tray.icon_subs]
+.SS [utilities]
+The utilities panel (`[utilities]`): the quick toggles it lists, and in which order.
+.sp
+`toggles` is a list of ids rather than a switch per toggle, because the order is the point \(em the toggles a
+user reaches for live at the front. Unknown ids are dropped with a warning rather than failing the config, so
+a name from a newer build costs a line in the log instead of the whole panel.
+.TP
+.B columns
+How many columns the toggle grid uses.
+.sp
+Default: \fB4\fR
+.TP
+.B show_capture
+Show the capture (screenshot / recorder) card under the toggles.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_recordings
+Show the recordings list under the capture controls.
+.sp
+Default: \fBtrue\fR
+.TP
+.B toggles
+Default: \fB["wifi", "bluetooth", "mic", "dnd", "game_mode", "vpn", "idle_inhibit", "settings"]\fR
+.TP
+.B window_preview_ms
+How often the window info panel re\-captures its preview, in ms. `0` takes one still and leaves it, which
+is what a machine on battery wants \(em the preview is a screen capture per refresh.
+.sp
+Default: \fB1000\fR
+.SS [visualiser]
+The audio visualiser's *source* (`[visualiser]`): how the sound coming out of the speakers is turned into
+bars. Shared by everything that draws it \(em the desktop background, the media card \(em so the analysis is
+described once and the look belongs to each consumer's own section.
+.sp
+Nothing here starts a capture on its own: the service behind it runs only while something is subscribed, so
+a shell with no visualiser switched on never opens a stream.
+.TP
+.B bars
+How many bands the spectrum is folded into \(em the number of bars every consumer draws.
+.sp
+Default: \fB48\fR
+.TP
+.B beat_sensitivity
+How far above its recent average the bass has to jump to count as a beat. Around `1.1` finds a beat in almost anything; above `2` only the most obvious ones.
+.sp
+Default: \fB1.35\fR
+.TP
+.B floor_db
+How quiet a band has to be to read as nothing, in decibels below full scale. Raise it towards `\-40` to make quiet passages flatter, lower it towards `\-80` to give them more life.
+.sp
+Default: \fB\-60.0\fR
+.TP
+.B frame_rate
+Transforms per second. The upper bound on how often a visualiser surface repaints, so it is also the cost.
+.sp
+Default: \fB60\fR
+.TP
+.B gain
+A multiplier applied before the bars are normalised. Above `1` suits quiet sources; the bars clip at the top rather than distorting.
+.sp
+Default: \fB1.0\fR
+.TP
+.B smoothing
+How much of the previous frame each bar keeps, 0\(en1. Higher is smoother and slower; `0` follows the transform exactly and shimmers.
+.sp
+Default: \fB0.6\fR
+.SS [wallpaper]
+The wallpaper library: which folder is browsed and how (`[wallpaper]`). The folder itself is `[paths] wallpapers`, so the two settings that name a directory stay in one place.
+.TP
+.B enabled
+Whether the library is scanned at all. Off means `[background] image` is the only wallpaper the shell knows, which is what it did before the library existed.
+.sp
+Default: \fBtrue\fR
+.TP
+.B extensions
+The file extensions counted as wallpapers, lowercase and without the dot.
+.sp
+Default: \fB["png", "jpg", "jpeg", "webp"]\fR
+.TP
+.B max_entries
+How many images the library holds at most, so pointing it at a picture archive cannot cost a scan of the whole disk.
+.sp
+Default: \fB2000\fR
+.TP
+.B recursive
+Descend into sub\-folders. On, because a wallpaper collection is almost always filed by theme or by artist.
+.sp
+Default: \fBtrue\fR
+.TP
+.B thumbnail_size
+The edge length of a cached thumbnail, in px.
+.sp
+Default: \fB320\fR
+.SS [weather]
+The weather (`[weather]`).
+.sp
+`location` is a place name (`"Madrid"`), geocoded once; `latitude`/`longitude` skip that step. With none of
+them set the service asks an IP\-geolocation endpoint where this connection is \(em which is the only part of
+the feature that tells a third party anything, and setting either of the others avoids it.
+.TP
+.B enabled
+Default: \fBtrue\fR
+.TP
+.B forecast_days
+Default: \fB7\fR
+.TP
+.B location
+Default: \fB""\fR
+.TP
+.B refresh_minutes
+Minutes between refreshes. Clamped on read: the forecast changes hourly, and hammering a free service
+every few seconds is how a shell gets its users rate\-limited.
+.sp
+Default: \fB15\fR
+.SS [workspaces]
+The `workspaces` module.
+.sp
+`shown` pins how many pills the bar draws regardless of how many workspaces exist, which is what keeps the
+bar's width from shifting every time one is created or destroyed; `0` shows exactly the ones that exist.
+`label` is a `{id}`/`{name}`/`{index}` template so a user can have numbers, names or icons without the
+shell enumerating presets, and `special_icons` maps a scratchpad's bare name to an Iconify glyph.
+.sp
+`occupied_label` and `active_label` override that template for a pill holding windows and for the focused
+one; both empty (the default) means every pill renders the same way, which is what most bars want.
+.TP
+.B active_label
+Template for the focused pill; empty falls back to `occupied_label`, then `label`.
+.sp
+Default: \fB""\fR
+.TP
+.B capitalize
+Default: \fB"none"\fR
+.TP
+.B indicator
+Mark the active workspace with one box that slides between pills instead of recolouring each pill in
+place. Off restores the older look exactly \(em the pill paints its own accent and nothing moves.
+.sp
+Default: \fBtrue\fR
+.TP
+.B indicator_trail
+How far the indicator stretches along its direction of travel, as a fraction of the distance still to
+cover. `0` keeps it exactly one pill wide the whole way; the default gives it a little speed.
+.sp
+Default: \fB0.35\fR
+.TP
+.B label
+Default: \fB"{id}"\fR
+.TP
+.B max_window_icons
+Default: \fB4\fR
+.TP
+.B occupied_background
+Tint a pill that holds windows differently from an empty one. Ignored while `indicator` is on, which
+needs every pill transparent to slide under them; the label colour carries occupancy there.
+.sp
+Default: \fBtrue\fR
+.TP
+.B occupied_label
+Template for a pill that holds windows; empty falls back to `label`.
+.sp
+Default: \fB""\fR
+.TP
+.B per_monitor
+Show only the workspaces belonging to this bar's own monitor.
+.sp
+Default: \fBfalse\fR
+.TP
+.B scroll
+The wheel over the pills switches workspace.
+.sp
+Default: \fBtrue\fR
+.TP
+.B show_special
+Default: \fBtrue\fR
+.TP
+.B shown
+Default: \fB0\fR
+.TP
+.B window_icons
+Draw an app icon per window inside each pill, capped at `max_window_icons`.
+.sp
+Default: \fBfalse\fR
+.SS [workspaces.special_icons]
+.SH SEE ALSO
+.BR hyprshell (1)

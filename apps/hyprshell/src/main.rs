@@ -1,17 +1,6 @@
 use std::process::ExitCode;
 
-const USAGE: &str = "\
-hyprshell — a Wayland shell for Hyprland
-
-Usage:
-  hyprshell [run]                 start the shell
-  hyprshell <target> <cmd> [args] send a command to the running shell
-  hyprshell toggle <module>       shorthand for `panel toggle <module>`
-  hyprshell launcher              shorthand for `launcher toggle`
-  hyprshell --list                list every command the shell answers
-  hyprshell config schema [name]  print the annotated default config
-  hyprshell --help | --version
-
+const EXAMPLES: &str = "
 Examples:
   hyprshell panel toggle clock
   hyprshell volume step -5
@@ -20,6 +9,18 @@ Examples:
 Bind them in hyprland.conf:
   bind = SUPER, N, exec, hyprshell panel toggle notifications
 ";
+
+/// The usage block, from the same invocation forms the manual's synopsis is built from — a new way to call the
+/// binary appears in both or in neither.
+fn usage() -> String {
+    let mut out = String::from("hyprshell — a Wayland shell for Hyprland\n\nUsage:\n");
+    for (form, help) in hyprshell::USAGE_FORMS {
+        out.push_str(format!("  hyprshell {form:22}{help}").trim_end());
+        out.push('\n');
+    }
+    out.push_str(EXAMPLES);
+    out
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,7 +32,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("--help" | "-h") => {
-            print!("{USAGE}");
+            print!("{}", usage());
             ExitCode::SUCCESS
         }
         Some("--version" | "-V") => {
@@ -55,10 +56,10 @@ fn main() -> ExitCode {
                 }
             }
         }
-        // Same reason as the schema, and one more: what a dependency panel is *for* is the machine where
-        // something is missing, and "the shell will not start" is exactly the case where there is no shell to
-        // ask. Probing is a function of the machine, not of a running process.
-        Some("deps") => match hyprshell::dispatch_locally(&args.join(" ")) {
+        // Same reason as the schema, and one more for `deps`: what a dependency panel is *for* is the machine
+        // where something is missing, and "the shell will not start" is exactly the case where there is no
+        // shell to ask. Probing is a function of the machine, not of a running process.
+        Some("deps" | "man") => match hyprshell::dispatch_locally(&args.join(" ")) {
             Ok(text) => {
                 print!("{text}");
                 ExitCode::SUCCESS
