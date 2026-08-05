@@ -20,9 +20,10 @@ fn text_for(window: &ActiveWindow, config: &::config::ActiveWindowConfig) -> Str
     }
 }
 
-let initial = hyprland::socket_dir()
-    .map(|dir| hyprland::active_window(&dir))
-    .unwrap_or_default();
+// Seeded from the service's last reading rather than from Hyprland's socket, so the chip draws on a
+// compositor that has none. The subscription below delivers the first one, but only on the next turn of
+// the loop, which would leave the chip empty for a frame.
+let initial = hyprland::current_active_window().unwrap_or_default();
 
 let title = signal(text_for(&initial, &config));
 let icon_name = signal(initial.class.clone());

@@ -3,11 +3,10 @@ use crate::workspaces::{Pill, PillStyle, grid, pills};
 use ::config::theme::NordTheme;
 use ::services::hyprland::{self, Snapshot};
 
-// Resolving the socket dir per click keeps the handler capture-free (it takes only the workspace id).
+// Routed per click rather than bound here, so the handler stays capture-free and the choice between activating
+// over `ext-workspace-v1` and dispatching over Hyprland's socket lives with the service that owns both.
 fn focus(id: i32) {
-    if let Some(dir) = hyprland::socket_dir() {
-        hyprland::focus_workspace(&dir, id);
-    }
+    hyprland::focus_workspace_id(id);
 }
 
 let env = ui::module::surface_env();

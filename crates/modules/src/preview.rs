@@ -98,6 +98,7 @@ pub fn workspaces() {
                 },
                 monitor: MONITOR.to_string(),
                 clients: Vec::new(),
+                handle: None,
             })
             .collect(),
         active: 2,

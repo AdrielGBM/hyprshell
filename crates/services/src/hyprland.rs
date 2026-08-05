@@ -18,7 +18,7 @@ pub struct Snapshot {
     pub focused_monitor: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Workspace {
     pub id: i32,
     /// Hyprland's own name. Numbered workspaces name themselves after their id; a special workspace is
@@ -28,6 +28,9 @@ pub struct Workspace {
     pub monitor: String,
     /// The window classes on this workspace, in Hyprland's order — what a pill draws app icons from.
     pub clients: Vec<String>,
+    /// What the compositor calls this workspace over `ext-workspace-v1`, when it listed it. `None` for a
+    /// scratchpad, which the protocol does not list, and for every workspace on a compositor without it.
+    pub handle: Option<platform_wayland::WorkspaceId>,
 }
 
 impl Workspace {
@@ -46,18 +49,29 @@ impl Workspace {
     }
 }
 
-/// The focused window, or `None` when the compositor reports none (an empty workspace, a layer surface holding
-/// focus). Every field is what Hyprland calls it, so a config regex written against `hyprctl clients` matches.
+/// The focused window, or the empty value when the compositor reports none (an empty workspace, a layer
+/// surface holding focus). Every field is what Hyprland calls it, so a config regex written against
+/// `hyprctl clients` matches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActiveWindow {
     pub title: String,
+    /// The application id. Hyprland's `class`, and `app_id` in every protocol that reports one.
     pub class: String,
+    /// Hyprland's `0x…` handle, and empty on any compositor that is not Hyprland: no Wayland protocol exposes
+    /// a window's address. Anything reading geometry, a workspace or a process id needs this and therefore
+    /// needs Hyprland.
     pub address: String,
+    /// What the compositor calls this window over `wlr-foreign-toplevel-management`, when it reported one.
+    pub handle: Option<platform_wayland::ManagedToplevelId>,
 }
 
 impl ActiveWindow {
+    /// Whether the compositor reports no focused window at all.
+    ///
+    /// Both identities, not just the address: off Hyprland every window has an empty address, so asking about
+    /// that alone would report every window as no window.
     pub fn is_empty(&self) -> bool {
-        self.address.is_empty()
+        self.handle.is_none() && self.address.is_empty()
     }
 }
 
@@ -354,6 +368,26 @@ pub fn focus_workspace(dir: &Path, id: i32) {
     dispatch(dir, &format!("hl.dsp.focus({{ workspace = {id} }})"));
 }
 
+/// Focuses the workspace a pill shows, over whichever route the compositor offers.
+///
+/// The protocol first, and only for a workspace the compositor actually listed. A `[workspaces] shown` bar
+/// draws placeholder pills for workspaces that do not exist yet and pressing one is how you get there — there
+/// is no handle to activate for a workspace that does not exist, and Hyprland's dispatcher creates it. That is
+/// what makes the fallback more than a fallback on a compositor that has both.
+pub fn focus_workspace_id(id: i32) {
+    let handle = current_workspaces()
+        .and_then(|snapshot| snapshot.workspaces.into_iter().find(|w| w.id == id))
+        .and_then(|workspace| workspace.handle);
+    if let Some(handle) = handle
+        && platform_wayland::activate_workspace(handle)
+    {
+        return;
+    }
+    if let Some(dir) = socket_dir() {
+        focus_workspace(&dir, id);
+    }
+}
+
 /// The two ways Hyprland 0.56's `dpms` dispatcher might take its state.
 ///
 /// Every other Lua dispatcher names its arguments when given the wrong ones — `hl.dsp.focus({ nonsense = 1 })`
@@ -460,6 +494,7 @@ fn query_snapshot(dir: &Path) -> Option<Snapshot> {
                 name: w.name,
                 monitor: w.monitor,
                 id: w.id,
+                handle: None,
             })
             .collect();
     workspaces.sort_by_key(|w| (w.is_special(), w.id));
@@ -483,6 +518,9 @@ fn affects_workspaces(line: &str) -> bool {
         "openwindow>>",
         "closewindow>>",
         "movewindow>>",
+        // A scratchpad being shown or hidden. `ext-workspace-v1` does not list special workspaces at all, so
+        // this is the only event that reports one becoming active.
+        "activespecial",
     ];
     PREFIXES.iter().any(|prefix| line.starts_with(prefix))
 }
@@ -522,19 +560,171 @@ fn run_event_stream() {
     }
 }
 
+/// The number a user calls a workspace, recovered from a protocol that has no numeric id.
+///
+/// `ext-workspace-v1` carries an optional opaque *string* id, which Hyprland does not send at all. What it does
+/// send is the name — on Hyprland, the number written out — and one coordinate carrying the same number. Either
+/// answers this; a compositor naming its workspaces "web" and "mail" answers it with the coordinate. Failing
+/// both, the position in the list, so two workspaces never collide on zero.
+fn numbered_id(workspace: &platform_wayland::Workspace, position: usize) -> i32 {
+    workspace
+        .name
+        .parse()
+        .ok()
+        .or_else(|| workspace.coordinates.first().map(|c| *c as i32))
+        .unwrap_or(position as i32 + 1)
+}
+
+/// What only the compositor's own IPC can answer about a workspace list.
+#[derive(Default)]
+struct Facts {
+    windows: HashMap<i32, u32>,
+    classes: HashMap<i32, Vec<String>>,
+    /// The scratchpads, which `ext-workspace-v1` does not list at all.
+    specials: Vec<Workspace>,
+    focused_monitor: String,
+    /// The active workspace when it is a scratchpad — the one case the protocol reports something else, since
+    /// it goes on reporting the numbered workspace underneath.
+    active_special: Option<i32>,
+}
+
+fn read_facts(dir: &Path) -> Facts {
+    let classes = classes_by_workspace(&clients(dir));
+    let mut windows = HashMap::new();
+    let mut specials = Vec::new();
+    if let Ok(raw) = request(dir, "j/workspaces")
+        && let Ok(parsed) = serde_json::from_str::<Vec<WorkspaceJson>>(&raw)
+    {
+        for workspace in parsed {
+            windows.insert(workspace.id, workspace.windows);
+            if workspace.id < 0 {
+                specials.push(Workspace {
+                    clients: classes.get(&workspace.id).cloned().unwrap_or_default(),
+                    id: workspace.id,
+                    name: workspace.name,
+                    windows: workspace.windows,
+                    monitor: workspace.monitor,
+                    handle: None,
+                });
+            }
+        }
+    }
+    let active_special = request(dir, "j/activeworkspace")
+        .ok()
+        .and_then(|raw| serde_json::from_str::<ActiveJson>(&raw).ok())
+        .map(|active| active.id)
+        .filter(|id| *id < 0);
+    Facts {
+        windows,
+        classes,
+        specials,
+        focused_monitor: focused_monitor(dir).unwrap_or_default(),
+        active_special,
+    }
+}
+
+/// The compositor's own workspace list, carrying whatever the compositor's IPC can add to it.
+///
+/// One field, one owner. The protocol owns which workspaces exist, what they are called, their order, which is
+/// active and the output each sits on — every compositor with workspaces can say that much. It cannot say how
+/// many windows are on one, which applications those are, or that a scratchpad exists, and no other protocol
+/// can either: no toplevel protocol reports the workspace a window is on. Those come off Hyprland where there
+/// is a Hyprland, and are absent where there is not, rather than two sources disagreeing about one field.
+fn merge(protocol: &[platform_wayland::Workspace], dir: Option<&Path>) -> Snapshot {
+    merge_with(protocol, dir.map(read_facts).unwrap_or_default())
+}
+
+fn merge_with(protocol: &[platform_wayland::Workspace], facts: Facts) -> Snapshot {
+    let mut workspaces: Vec<Workspace> = protocol
+        .iter()
+        .enumerate()
+        // `hidden` is the compositor asking that a workspace not be drawn, which is its business and not a bar's.
+        .filter(|(_, workspace)| !workspace.hidden)
+        .map(|(position, workspace)| {
+            let id = numbered_id(workspace, position);
+            Workspace {
+                id,
+                name: workspace.name.clone(),
+                windows: facts.windows.get(&id).copied().unwrap_or_default(),
+                monitor: workspace.outputs.first().cloned().unwrap_or_default(),
+                clients: facts.classes.get(&id).cloned().unwrap_or_default(),
+                handle: Some(workspace.id),
+            }
+        })
+        .collect();
+    workspaces.extend(facts.specials);
+    workspaces.sort_by_key(|w| (w.is_special(), w.id));
+
+    let active = facts
+        .active_special
+        .or_else(|| {
+            protocol
+                .iter()
+                .enumerate()
+                .find(|(_, workspace)| workspace.active)
+                .map(|(position, workspace)| numbered_id(workspace, position))
+        })
+        .unwrap_or_default();
+    // Failing an IPC that names it, the output holding the active workspace: the only thing this side of the
+    // protocol that answers "which monitor is the user on".
+    let focused_monitor = if facts.focused_monitor.is_empty() {
+        protocol
+            .iter()
+            .find(|workspace| workspace.active)
+            .and_then(|workspace| workspace.outputs.first().cloned())
+            .unwrap_or_default()
+    } else {
+        facts.focused_monitor
+    };
+    Snapshot {
+        workspaces,
+        active,
+        focused_monitor,
+    }
+}
+
 static WORKSPACES: Service<Snapshot> = Service::new("hyprshell-workspaces", run_workspaces);
 
 /// The single shared workspaces source: publishes the current layout, then republishes on every event that
 /// could have changed it. Fanned out to every bar that subscribed, so N bars cost one parse per change (the M3
 /// "one producer, N readers"), not N.
+///
+/// `ext-workspace-v1` first and Hyprland's socket only for what it cannot answer, which is the shell's standing
+/// preference for a protocol over one compositor's IPC. Both feed the same snapshot, so both republish it —
+/// hence the deduplication: a workspace switch is reported by the protocol *and* by the event stream, and
+/// publishing it twice would wake every subscribed surface for a reading that did not change.
 fn run_workspaces(service: &Arc<Broadcast<Snapshot>>) {
-    let Some(dir) = socket_dir() else { return };
+    let dir = socket_dir();
+    let last: Arc<Mutex<Option<Snapshot>>> = Arc::new(Mutex::new(None));
+
+    let over_protocol = {
+        let published = Arc::clone(service);
+        let last = Arc::clone(&last);
+        let dir = dir.clone();
+        platform_wayland::watch_workspaces(move |workspaces| {
+            publish_changed(&published, &last, merge(workspaces, dir.as_deref()));
+        })
+    };
+
+    // The broadcast outlives this call: the handler owns a clone of the `Arc` the service holds, so the
+    // producer thread can return once it has registered instead of parking on a socket of its own.
+    let Some(dir) = dir else { return };
+    let published = Arc::clone(service);
+    if over_protocol {
+        // Nothing the protocol publishes moves when a window opens or closes, and occupancy and the app icons
+        // are read from exactly that. The event stream is what republishes them.
+        on_events(Box::new(move |line| {
+            if affects_workspaces(line) {
+                let merged = merge(&platform_wayland::current_workspaces(), Some(&dir));
+                publish_changed(&published, &last, merged);
+            }
+        }));
+        return;
+    }
+
     if let Some(snapshot) = query_snapshot(&dir) {
         service.publish(snapshot);
     }
-    // The broadcast outlives this call: the handler owns a clone of the `Arc` the service holds, so the
-    // producer thread can return once it has registered instead of parking on a socket of its own.
-    let published = Arc::clone(service);
     on_events(Box::new(move |line| {
         if affects_workspaces(line)
             && let Some(snapshot) = query_snapshot(&dir)
@@ -542,6 +732,24 @@ fn run_workspaces(service: &Arc<Broadcast<Snapshot>>) {
             published.publish(snapshot);
         }
     }));
+}
+
+/// Publishes a reading unless it is the one already published.
+///
+/// Every service here has two producers now — a protocol and a compositor's event stream — and the two report
+/// overlapping facts, so the same reading arrives twice for one change. Publishing it twice would wake every
+/// subscribed surface for something that did not move.
+fn publish_changed<T: Clone + PartialEq>(
+    service: &Broadcast<T>,
+    last: &Mutex<Option<T>>,
+    reading: T,
+) {
+    let mut last = last.lock().unwrap();
+    if last.as_ref() == Some(&reading) {
+        return;
+    }
+    *last = Some(reading.clone());
+    service.publish(reading);
 }
 
 /// The last published workspace snapshot, with no socket round-trip — what a scroll handler steps from.
@@ -588,34 +796,114 @@ pub fn active_window(dir: &Path) -> ActiveWindow {
             title: w.title,
             class: w.class,
             address: w.address,
+            handle: None,
         })
         .unwrap_or_default()
+}
+
+/// The focused window as `wlr-foreign-toplevel-management` reports it, carrying Hyprland's address where there
+/// is a Hyprland to ask.
+///
+/// The same rule the workspace list follows. The protocol owns which window has focus and what it is called —
+/// no other portable route answers the first at all, since `ext-foreign-toplevel-list-v1` lists windows
+/// without ever saying which is active. The address is Hyprland's alone, so Hyprland is asked for it, and it
+/// stays empty elsewhere rather than being invented.
+/// Whether what was last published already describes `focused`, so nothing has to be read or fanned out.
+///
+/// The protocol publishes the whole window list whenever *any* window commits a change, and a terminal retypes
+/// its title on nearly every keystroke. Without this, someone typing in a background window would cost a socket
+/// round trip per keystroke — exactly the cost reading a protocol was meant to remove.
+fn already_published(
+    published: Option<&ActiveWindow>,
+    focused: Option<&platform_wayland::ManagedToplevel>,
+) -> bool {
+    match (published, focused) {
+        (Some(previous), Some(current)) => {
+            previous.handle == Some(current.id)
+                && previous.title == current.title
+                && previous.class == current.app_id
+        }
+        (Some(previous), None) => previous.is_empty(),
+        (None, _) => false,
+    }
+}
+
+fn active_from(focused: platform_wayland::ManagedToplevel, address: String) -> ActiveWindow {
+    ActiveWindow {
+        title: focused.title,
+        class: focused.app_id,
+        address,
+        handle: Some(focused.id),
+    }
 }
 
 static ACTIVE_WINDOW: Service<ActiveWindow> =
     Service::new("hyprshell-active-window", run_active_window);
 
+/// The focused window, published on every change and never twice for the same reading: a title changes on
+/// nearly every keystroke in a terminal or a browser, and most of those land on a window nobody is showing.
 fn run_active_window(service: &Arc<Broadcast<ActiveWindow>>) {
-    let Some(dir) = socket_dir() else { return };
-    service.publish(active_window(&dir));
+    let dir = socket_dir();
+    let last: Arc<Mutex<Option<ActiveWindow>>> = Arc::new(Mutex::new(None));
+
+    let over_protocol = {
+        let published = Arc::clone(service);
+        let last = Arc::clone(&last);
+        let dir = dir.clone();
+        platform_wayland::watch_managed_toplevels(move |windows| {
+            let focused = windows.iter().find(|window| window.activated);
+            let unchanged = already_published(last.lock().unwrap().as_ref(), focused);
+            if unchanged {
+                return;
+            }
+            let window = match focused {
+                Some(focused) => active_from(
+                    focused.clone(),
+                    dir.as_deref()
+                        .map(|dir| active_window(dir).address)
+                        .unwrap_or_default(),
+                ),
+                None => ActiveWindow::default(),
+            };
+            publish_changed(&published, &last, window);
+        })
+    };
+    if over_protocol {
+        return;
+    }
+
+    let Some(dir) = dir else { return };
     let published = Arc::clone(service);
-    // A title changes on nearly every keystroke in a terminal or browser; republishing an identical reading
-    // would wake every subscribed surface for nothing, so unchanged readings are dropped here.
-    let mut last = ActiveWindow::default();
+    publish_changed(&published, &last, active_window(&dir));
     on_events(Box::new(move |line| {
-        if !affects_active_window(line) {
-            return;
-        }
-        let current = active_window(&dir);
-        if current != last {
-            last = current.clone();
-            published.publish(current);
+        if affects_active_window(line) {
+            publish_changed(&published, &last, active_window(&dir));
         }
     }));
 }
 
 pub fn subscribe_active_window(tx: EventSender<ActiveWindow>) {
     ACTIVE_WINDOW.subscribe(tx);
+}
+
+/// The last published focused window, without a round trip to anything.
+pub fn current_active_window() -> Option<ActiveWindow> {
+    ACTIVE_WINDOW.current()
+}
+
+/// Focuses a window over whichever route the compositor offers, preferring the protocol.
+pub fn focus_active_window() {
+    let Some(window) = current_active_window().filter(|window| !window.is_empty()) else {
+        return;
+    };
+    if let Some(handle) = window.handle
+        && platform_wayland::focus_toplevel(handle)
+    {
+        return;
+    }
+    if let Some(dir) = socket_dir() {
+        focus_window(&dir, &window.address);
+    }
 }
 
 /// Focuses a window by its Hyprland address (`0x…`), for clicking the active-window chip or a window list.
@@ -921,6 +1209,7 @@ mod tests {
             title: parsed.title,
             class: parsed.class,
             address: parsed.address,
+            handle: None,
         };
         assert!(window.is_empty());
         assert_eq!(window, ActiveWindow::default());
@@ -1063,6 +1352,199 @@ mod tests {
         assert!(
             !affects_screens("openwindow>>0x1,3,kitty,term"),
             "opening a window does not change the output list"
+        );
+    }
+
+    fn protocol_workspace(name: &str, coordinate: u32, active: bool) -> platform_wayland::Workspace {
+        platform_wayland::Workspace {
+            name: name.to_string(),
+            coordinates: vec![coordinate],
+            outputs: vec!["eDP-1".to_string()],
+            active,
+            ..platform_wayland::Workspace::default()
+        }
+    }
+
+    /// The reading a compositor that is not Hyprland produces: everything the protocol carries, and nothing
+    /// invented for what it does not.
+    #[test]
+    fn without_an_ipc_the_protocol_is_the_whole_snapshot() {
+        let protocol = vec![
+            protocol_workspace("1", 1, false),
+            protocol_workspace("2", 2, true),
+        ];
+        let snapshot = merge_with(&protocol, Facts::default());
+
+        assert_eq!(snapshot.active, 2);
+        assert_eq!(snapshot.workspaces.len(), 2);
+        assert_eq!(snapshot.workspaces[0].id, 1);
+        assert_eq!(snapshot.workspaces[0].monitor, "eDP-1");
+        assert!(
+            snapshot.workspaces.iter().all(|w| !w.is_occupied()),
+            "occupancy has no protocol source, and an unknown count is not a full workspace"
+        );
+        assert!(snapshot.workspaces.iter().all(|w| w.clients.is_empty()));
+        assert!(
+            snapshot.workspaces.iter().all(|w| w.handle.is_some()),
+            "a listed workspace is activatable over the protocol that listed it"
+        );
+        assert_eq!(
+            snapshot.focused_monitor, "eDP-1",
+            "failing an IPC, the output holding the active workspace is what answers this"
+        );
+    }
+
+    /// One field, one owner: the protocol's rows carry the IPC's counts and classes, and the scratchpads the
+    /// protocol never lists are the IPC's own rows.
+    #[test]
+    fn the_ipc_fills_in_only_what_the_protocol_cannot_say() {
+        let protocol = vec![
+            protocol_workspace("1", 1, true),
+            protocol_workspace("2", 2, false),
+        ];
+        let facts = Facts {
+            windows: HashMap::from([(1, 2), (2, 0), (-99, 1)]),
+            classes: HashMap::from([(1, vec!["kitty".to_string(), "code".to_string()])]),
+            specials: vec![Workspace {
+                id: -99,
+                name: "special:magic".to_string(),
+                windows: 1,
+                monitor: "eDP-1".to_string(),
+                clients: vec!["helium".to_string()],
+                handle: None,
+            }],
+            focused_monitor: "DP-2".to_string(),
+            active_special: None,
+        };
+        let snapshot = merge_with(&protocol, facts);
+
+        assert_eq!(snapshot.workspaces[0].windows, 2);
+        assert_eq!(snapshot.workspaces[0].clients, vec!["kitty", "code"]);
+        assert_eq!(
+            snapshot.focused_monitor, "DP-2",
+            "the compositor that can name the focused monitor owns that field"
+        );
+
+        let special = snapshot.workspaces.last().expect("the scratchpad is listed");
+        assert_eq!(special.id, -99);
+        assert!(
+            special.is_special() && special.handle.is_none(),
+            "a scratchpad has no protocol handle because the protocol never listed it"
+        );
+        assert_eq!(
+            snapshot.workspaces.len(),
+            3,
+            "the protocol's rows plus the ones only the IPC knows about"
+        );
+    }
+
+    /// Hyprland goes on reporting the numbered workspace as active while a scratchpad is up, so the one thing
+    /// the IPC has to be allowed to override is which workspace is active.
+    #[test]
+    fn an_active_scratchpad_wins_over_the_workspace_beneath_it() {
+        let protocol = vec![protocol_workspace("2", 2, true)];
+        let snapshot = merge_with(
+            &protocol,
+            Facts {
+                active_special: Some(-99),
+                ..Facts::default()
+            },
+        );
+        assert_eq!(snapshot.active, -99);
+    }
+
+    /// The focused window off Hyprland: everything a chip draws, and no address, because no protocol has one.
+    #[test]
+    fn a_window_with_no_address_is_still_a_focused_window() {
+        let focused = platform_wayland::ManagedToplevel {
+            title: "nvim".to_string(),
+            app_id: "kitty".to_string(),
+            activated: true,
+            ..platform_wayland::ManagedToplevel::default()
+        };
+        let window = active_from(focused, String::new());
+
+        assert_eq!(window.title, "nvim");
+        assert_eq!(window.class, "kitty", "`class` is the protocol's `app_id`");
+        assert!(
+            !window.is_empty(),
+            "asking only about the address would report every window off Hyprland as no window at all"
+        );
+        assert!(window.address.is_empty());
+    }
+
+    /// The guard that keeps someone typing in a background window from costing a socket round trip a keystroke.
+    #[test]
+    fn a_reading_that_did_not_move_is_not_read_again() {
+        let focused = platform_wayland::ManagedToplevel {
+            id: platform_wayland::ManagedToplevelId::default(),
+            title: "nvim".to_string(),
+            app_id: "kitty".to_string(),
+            activated: true,
+            ..platform_wayland::ManagedToplevel::default()
+        };
+        let published = active_from(focused.clone(), "0x1".to_string());
+
+        assert!(already_published(Some(&published), Some(&focused)));
+
+        let retitled = platform_wayland::ManagedToplevel {
+            title: "cargo test".to_string(),
+            ..focused.clone()
+        };
+        assert!(
+            !already_published(Some(&published), Some(&retitled)),
+            "the focused window's own title changing is the case that must get through"
+        );
+        assert!(
+            !already_published(Some(&published), None),
+            "and so is focus leaving every window"
+        );
+        assert!(
+            already_published(Some(&ActiveWindow::default()), None),
+            "nothing focused, and nothing focused already published"
+        );
+        assert!(
+            !already_published(None, None),
+            "the first reading is always published, even an empty one"
+        );
+    }
+
+    #[test]
+    fn the_address_is_carried_through_where_there_is_one() {
+        let window = active_from(
+            platform_wayland::ManagedToplevel::default(),
+            "0x5fc3".to_string(),
+        );
+        assert_eq!(window.address, "0x5fc3");
+        assert!(!window.is_empty());
+    }
+
+    #[test]
+    fn a_hidden_workspace_is_not_drawn() {
+        let mut hidden = protocol_workspace("3", 3, false);
+        hidden.hidden = true;
+        let snapshot = merge_with(&[protocol_workspace("1", 1, true), hidden], Facts::default());
+        assert_eq!(snapshot.workspaces.len(), 1);
+    }
+
+    /// The protocol has no numeric id — Hyprland sends none at all — so the number a pill shows is recovered.
+    #[test]
+    fn the_workspace_number_is_recovered_from_whatever_the_compositor_did_send() {
+        let named = protocol_workspace("7", 7, false);
+        assert_eq!(numbered_id(&named, 0), 7, "the name, when it is a number");
+
+        let mut lettered = protocol_workspace("web", 4, false);
+        assert_eq!(
+            numbered_id(&lettered, 0),
+            4,
+            "otherwise the coordinate, which is the compositor's own ordering"
+        );
+
+        lettered.coordinates.clear();
+        assert_eq!(
+            numbered_id(&lettered, 2),
+            3,
+            "and failing both, the position — so two workspaces never collide on zero"
         );
     }
 

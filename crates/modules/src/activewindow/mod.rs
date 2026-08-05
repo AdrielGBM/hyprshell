@@ -54,13 +54,7 @@ pub fn icon_slot(class: &str, size: f32) -> Result<Box<dyn telar::LayoutItem>, t
 /// Focuses the window the chip is showing — clicking the title takes you back to it, which is what the chip
 /// looks like it should do.
 pub fn focus_active() {
-    let Some(dir) = hyprland::socket_dir() else {
-        return;
-    };
-    let window = hyprland::active_window(&dir);
-    if !window.is_empty() {
-        hyprland::focus_window(&dir, &window.address);
-    }
+    hyprland::focus_active_window();
 }
 
 #[cfg(test)]
@@ -72,6 +66,7 @@ mod tests {
             title: title.to_string(),
             class: class.to_string(),
             address: "0x1".to_string(),
+            handle: None,
         }
     }
 

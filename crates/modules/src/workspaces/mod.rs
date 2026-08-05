@@ -547,9 +547,7 @@ pub fn scroll(_dx: f32, dy: f32) {
     let Some(target) = scroll_target(&snapshot, dy > 0.0) else {
         return;
     };
-    if let Some(dir) = services::hyprland::socket_dir() {
-        services::hyprland::focus_workspace(&dir, target);
-    }
+    services::hyprland::focus_workspace_id(target);
 }
 
 #[cfg(test)]
@@ -562,7 +560,7 @@ mod tests {
             name: id.to_string(),
             windows,
             monitor: monitor.to_string(),
-            clients: Vec::new(),
+            ..Workspace::default()
         }
     }
 
