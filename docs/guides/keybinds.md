@@ -1,3 +1,15 @@
+---
+id: keybinds
+kind: guide
+title: Keybinds
+summary: The commands worth binding, and the portal route.
+status: stable
+compositor: any
+commands: [launcher, dashboard, panel, notifs, lock, screenshot, record, volume, mic, brightness, media, wallpaper]
+deps: [xdg-desktop-portal]
+see_also: [scripting, global-shortcuts]
+---
+
 # Keybinds
 
 Every action the shell has is an IPC command, so a keybind is a bind to a shell command. `hyprshell --list` is

@@ -65,6 +65,10 @@ you get a file with every key in it to edit down.
 The same two tables are the manual: [`man/hyprshell.1`](man/hyprshell.1) is the command reference and
 [`man/hyprshell.5`](man/hyprshell.5) the configuration one, both generated and checked in.
 
+[`docs/`](docs/README.md) is the prose half — a page per feature saying what it is for, what it needs and how
+it behaves without that. It never restates a default or an argument list; those come from the two commands
+above.
+
 ```sh
 man ./man/hyprshell.5            # or `man 5 hyprshell` once it is installed
 ```
@@ -98,7 +102,7 @@ hyprshell lock on
 `wallpaper` `scheme` `config`. Run `hyprshell --list` for the arguments.
 
 The shell also registers its actions as XDG global shortcuts, so they can be bound from the portal instead —
-`hyprctl globalshortcuts` prints the names. See [`docs/keybinds.md`](docs/keybinds.md).
+`hyprctl globalshortcuts` prints the names. See [`docs/guides/keybinds.md`](docs/guides/keybinds.md).
 
 ## Dependencies
 
