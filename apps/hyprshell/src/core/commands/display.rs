@@ -154,6 +154,98 @@ pub(crate) const RECORD: Target = Target {
     ],
 };
 
+pub(crate) const NIGHTLIGHT: Target = Target {
+    name: "nightlight",
+    commands: &[
+        Command {
+            name: "on",
+            args: "[kelvin]",
+            help: "warm every screen, 4000K by default",
+            run: |args| {
+                use services::nightlight;
+                let kelvin = match args.first().copied() {
+                    Some(value) => temperature(value)?,
+                    None => nightlight::DEFAULT_TEMPERATURE,
+                };
+                if !nightlight::on(kelvin) {
+                    return Err(refused());
+                }
+                Ok(format!("{kelvin}K"))
+            },
+        },
+        Command {
+            name: "off",
+            args: "",
+            help: "restore every screen's own colour",
+            run: |_| {
+                if !services::nightlight::off() {
+                    return Err(refused());
+                }
+                Ok("off".to_string())
+            },
+        },
+        Command {
+            name: "toggle",
+            args: "[kelvin]",
+            help: "turn the night light off if it is on, and on if it is not",
+            run: |args| {
+                use services::nightlight;
+                let kelvin = match args.first().copied() {
+                    Some(value) => temperature(value)?,
+                    None => nightlight::DEFAULT_TEMPERATURE,
+                };
+                if !nightlight::toggle(kelvin) {
+                    return Err(refused());
+                }
+                Ok(match nightlight::current() {
+                    Some(held) => format!("{held}K"),
+                    None => "off".to_string(),
+                })
+            },
+        },
+        Command {
+            name: "status",
+            args: "",
+            help: "the temperature currently held, or `off`",
+            run: |_| {
+                use services::nightlight;
+                Ok(match nightlight::current() {
+                    Some(kelvin) => format!("{kelvin}K"),
+                    None => "off".to_string(),
+                })
+            },
+        },
+    ],
+};
+
+/// A temperature the protocol can actually act on, refused by name rather than clamped: a caller that typed
+/// 400 meant something, and silently warming to 1000 would hide the typo behind a screen that went orange.
+fn temperature(value: &str) -> Result<u32, String> {
+    let kelvin: u32 = value
+        .trim_end_matches(['k', 'K'])
+        .parse()
+        .map_err(|_| format!("'{value}' is not a temperature in kelvin"))?;
+    let range = platform_wayland::MIN_TEMPERATURE..=platform_wayland::MAX_TEMPERATURE;
+    if !range.contains(&kelvin) {
+        return Err(format!(
+            "{kelvin}K is outside {}–{}K",
+            platform_wayland::MIN_TEMPERATURE,
+            platform_wayland::MAX_TEMPERATURE
+        ));
+    }
+    Ok(kelvin)
+}
+
+/// Why a night light did nothing, told apart: a compositor without the protocol is a different problem from a
+/// compositor that has it and handed the gamma to something else.
+fn refused() -> String {
+    match services::nightlight::supported() {
+        Some(true) => "the compositor refused gamma control; something else may already hold it".to_string(),
+        Some(false) => "this compositor does not implement wlr-gamma-control".to_string(),
+        None => "no compositor could be reached".to_string(),
+    }
+}
+
 pub(crate) const BRIGHTNESS: Target = Target {
     name: "brightness",
     commands: &[

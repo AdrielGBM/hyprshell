@@ -144,6 +144,7 @@ unknown rather than zero, or does not appear at all.
 | GPU readings | NVML (`libnvidia-ml.so`), or `/sys/class/drm` (AMD/Intel) | GPU fields read unknown |
 | Launcher calculator | `qalc` | a built-in evaluator handles the common cases |
 | Weather | network access | the weather card says so |
+| Night light | `wlr-gamma-control` | `nightlight` says the screen cannot be tinted |
 | Workspaces | `ext-workspace-v1` | the workspaces module is hidden |
 | Active window | `wlr-foreign-toplevel-management` | the chip reads as no window |
 | Workspace occupancy, window info, `shell clients` | Hyprland IPC | pills lose their window count and app icons; the window-info panel and the client list are unavailable |

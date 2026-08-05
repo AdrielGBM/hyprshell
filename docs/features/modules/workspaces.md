@@ -7,7 +7,7 @@ status: stable
 compositor: hyprland
 config: [workspaces]
 commands: []
-deps: []
+deps: [ext-workspace]
 see_also: [activewindow, bars]
 ---
 

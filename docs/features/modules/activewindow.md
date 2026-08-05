@@ -7,7 +7,7 @@ status: stable
 compositor: hyprland
 config: [active_window]
 commands: [shell]
-deps: []
+deps: [wlr-foreign-toplevel-management]
 popout: true
 see_also: [windowinfo, workspaces]
 ---

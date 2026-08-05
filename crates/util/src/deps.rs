@@ -65,6 +65,9 @@ pub enum Dep {
     IdleNotify,
     ImageCopyCapture,
     Screencopy,
+    Workspaces,
+    ToplevelManagement,
+    GammaControl,
 }
 
 /// How a dependency is found, which is also how it is probed.
@@ -178,6 +181,36 @@ pub const ALL: &[Entry] = &[
         need: Need::Optional,
         what: "knowing the seat has gone idle, for the `[idle]` stages",
         without: "idle timers never arm, so nothing locks or blanks on its own",
+    },
+    Entry {
+        dep: Dep::Workspaces,
+        id: "ext-workspace",
+        kind: Kind::Protocol {
+            interfaces: &[platform_wayland::WORKSPACE_INTERFACE],
+        },
+        need: Need::Optional,
+        what: "listing the compositor's workspaces and activating one, for the `workspaces` module",
+        without: "the workspace pills are empty on any compositor that is not Hyprland",
+    },
+    Entry {
+        dep: Dep::ToplevelManagement,
+        id: "wlr-foreign-toplevel-management",
+        kind: Kind::Protocol {
+            interfaces: &[platform_wayland::TOPLEVEL_MANAGER_INTERFACE],
+        },
+        need: Need::Optional,
+        what: "which window has focus, and switching to one — the `activewindow` chip and the launcher's `/` mode",
+        without: "the active-window chip reads as no window and the launcher lists none to switch to",
+    },
+    Entry {
+        dep: Dep::GammaControl,
+        id: "wlr-gamma-control",
+        kind: Kind::Protocol {
+            interfaces: &[platform_wayland::GAMMA_INTERFACE],
+        },
+        need: Need::Optional,
+        what: "setting each output's gamma ramp, for the night light",
+        without: "`nightlight` reports that the compositor cannot tint the screen",
     },
     Entry {
         dep: Dep::ImageCopyCapture,

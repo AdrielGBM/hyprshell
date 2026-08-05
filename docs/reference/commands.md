@@ -228,6 +228,15 @@ status mirrors that — see [Scripting](../guides/scripting.md).
 | `up` | `[output\|all]` | raise the brightness by [brightness] increment |
 | `down` | `[output\|all]` | lower the brightness by [brightness] increment |
 
+## `nightlight`
+
+| Command | Arguments | What it does |
+| --- | --- | --- |
+| `on` | `[kelvin]` | warm every screen, 4000K by default |
+| `off` |  | restore every screen's own colour |
+| `toggle` | `[kelvin]` | turn the night light off if it is on, and on if it is not |
+| `status` |  | the temperature currently held, or `off` |
+
 ## `wallpaper`
 
 | Command | Arguments | What it does |

@@ -1,6 +1,7 @@
 mod capture;
 mod clipboard;
 mod config;
+mod gamma;
 mod globals;
 mod idle;
 mod link;
@@ -17,6 +18,10 @@ pub use capture::{
 };
 pub use clipboard::{clipboard_supported, set_selection};
 pub use config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
+pub use gamma::{
+    GAMMA_INTERFACE, MAX_TEMPERATURE, MIN_TEMPERATURE, NEUTRAL_TEMPERATURE,
+    current as current_temperature, gamma_supported, neutral as neutral_gamma, warm,
+};
 pub use globals::{advertises, advertises_all};
 pub use idle::{IdleHandle, idle_notification, idle_supported};
 pub use link::SurfaceUpdate;

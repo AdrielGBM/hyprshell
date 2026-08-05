@@ -48,6 +48,7 @@ pub(crate) static TARGETS: &[Target] = &[
     shell::SESSION,
     system::KEYBOARD,
     display::BRIGHTNESS,
+    display::NIGHTLIGHT,
     display::WALLPAPER,
     shell::SCHEME,
     shell::CONFIG,

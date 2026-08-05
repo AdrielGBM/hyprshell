@@ -13,7 +13,7 @@ not repeated here.
 
 | Page | What it is | Needs |
 | --- | --- | --- |
-| [Active window](modules/activewindow.md) | What the focused window is called, and how much of that fits on a bar. **(Hyprland only)** | — |
+| [Active window](modules/activewindow.md) | What the focused window is called, and how much of that fits on a bar. **(Hyprland only)** | `wlr-foreign-toplevel-management` |
 | [Battery](modules/battery.md) | Charge, and the warnings and actions that hang off it. | `upower`, `power-supply`, `logind` |
 | [Bluetooth](modules/bluetooth.md) | The radio, the devices, and connecting to one. | `bluez` |
 | [Brightness](modules/brightness.md) | Screen brightness, for the internal panel and for external monitors. | `backlight`, `ddcutil`, `logind`, `udevadm` |
@@ -38,7 +38,7 @@ not repeated here.
 | [Utilities](modules/utilities.md) | The switches you reach for without opening anything. | `gamemode`, `networkmanager`, `bluez`, `pw-dump` |
 | [Volume](modules/volume.md) | The default output's level and mute. | `pw-dump`, `wpctl` |
 | [Window info](modules/windowinfo.md) | What the compositor knows about the focused window, and four things to do to it. **(Hyprland only)** | `ext-image-copy-capture`, `wlr-screencopy` |
-| [Workspaces](modules/workspaces.md) | Which workspaces the bar shows, and what each pill says. **(Hyprland only)** | — |
+| [Workspaces](modules/workspaces.md) | Which workspaces the bar shows, and what each pill says. **(Hyprland only)** | `ext-workspace` |
 
 ## Surfaces — where the shell draws
 
@@ -47,7 +47,7 @@ not repeated here.
 | [Bars](surfaces/bars.md) | One per screen edge, all four at once if you like, on every monitor. | `wlr-layer-shell` |
 | [Drawers](surfaces/drawers.md) | A panel anchored to the chip that opened it. | `wlr-layer-shell` |
 | [Floats](surfaces/floats.md) | A panel as a free-standing window you can move and resize. | `wlr-layer-shell` |
-| [Launcher](surfaces/launcher.md) | A full-screen modal that owns the keyboard: applications, actions, a calculator, schemes and wallpapers. | `wlr-layer-shell`, `qalc`, `setsid` |
+| [Launcher](surfaces/launcher.md) | A full-screen modal that owns the keyboard: applications, actions, a calculator, schemes, wallpapers and the windows already open. | `wlr-layer-shell`, `qalc`, `setsid`, `wlr-foreign-toplevel-management` |
 | [Notification centre](surfaces/notification-centre.md) | A full-height surface for what has arrived and what can be switched. | `wlr-layer-shell` |
 | [On-screen display](surfaces/osd.md) | The overlay that shows a level while you are changing it. | `wlr-layer-shell` |
 | [Panels](surfaces/panels.md) | What a chip opens — as a drawer hanging off it, or as a movable float. | `wlr-layer-shell` |
@@ -64,6 +64,7 @@ not repeated here.
 | [Idle](system/idle.md) | Timers that fire a command when the seat goes quiet, and what holds them off. | `ext-idle-notify` |
 | [IPC](system/ipc.md) | Every action the shell has is a command on a socket. | — |
 | [Lock screen](system/lock.md) | One surface per monitor, and the only thing on it that matters is the password field. | `ext-session-lock`, `libpam`, `fprintd` |
+| [Night light](system/nightlight.md) | Warm the screen by setting each output's gamma ramp, with no helper process running alongside. | `wlr-gamma-control` |
 | [Notification daemon](system/notifications-daemon.md) | hyprshell is the freedesktop notification daemon — nothing else to install. | — |
 | [Screen recording](system/recording.md) | Driving a recorder that already exists, and stopping it properly. | `wf-recorder`, `gpu-screen-recorder` |
 | [Screenshot](system/screenshot.md) | Capturing a screen, a monitor or a region, without forking a helper. | `ext-image-copy-capture`, `wlr-screencopy` |
