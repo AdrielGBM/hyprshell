@@ -1,7 +1,11 @@
 [package]
 name = "hyprshell-ui"
+description = "Shared UI vocabulary for hyprshell: cards, chips, icons, anchoring, placement and keyboard navigation."
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 config = { workspace = true }

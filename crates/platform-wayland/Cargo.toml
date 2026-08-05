@@ -1,7 +1,11 @@
 [package]
 name = "platform-wayland"
-version = "0.1.0"
-edition = "2024"
+description = "A Wayland backend for a desktop shell: layer surfaces, session lock, idle notification, screen capture and clipboard ownership, over one connection and one event loop."
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 telar = { workspace = true }

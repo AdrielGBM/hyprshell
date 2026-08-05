@@ -1,7 +1,11 @@
 [package]
 name = "hyprshell-util"
+description = "Shared utilities for hyprshell: process spawning, clipboard, search, reactive helpers and the external-dependency registry."
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 image = { workspace = true }

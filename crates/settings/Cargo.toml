@@ -1,7 +1,11 @@
 [package]
 name = "hyprshell-settings"
+description = "The hyprshell settings application: the form vocabulary, the pages built from it and the panel that hosts them."
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 config = { workspace = true }

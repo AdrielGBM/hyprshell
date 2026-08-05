@@ -1,7 +1,11 @@
 [package]
 name = "hyprshell-surfaces"
+description = "The hyprshell surface layer: bars, drawers, floats, popouts, panels and the wallpaper layer, reconciled from config."
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 chrono = { workspace = true }

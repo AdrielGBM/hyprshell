@@ -1,7 +1,12 @@
 [package]
 name = "hyprshell"
+description = "A Wayland desktop shell in Rust — bars, panels, launcher, dashboard, lock screen, notifications, capture and dynamic theming, configured in TOML."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lib]
 
