@@ -17,10 +17,13 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-use smithay_client_toolkit::reexports::calloop::EventLoop;
+use std::time::Duration;
+
 use smithay_client_toolkit::reexports::calloop::channel::{
     Channel, Event as ChannelEvent, Sender, channel,
 };
+use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay_client_toolkit::reexports::calloop::{EventLoop, LoopHandle};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
@@ -50,6 +53,24 @@ const STATE_FULLSCREEN: u32 = 3;
 /// Names one window for as long as it is open.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ManagedToplevelId(u32);
+
+impl ManagedToplevelId {
+    /// The raw token, for a caller that has to key something on a window's identity — a list row, a stored
+    /// preference — and wants a number rather than a `Debug` rendering it would then depend on.
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Rebuilds an id from [`ManagedToplevelId::raw`].
+    ///
+    /// Mostly for tests, which cannot otherwise produce two windows that differ only in identity — the case a
+    /// window list has to survive, since two windows of one application share a title far more often than they
+    /// share nothing. Fabricating one is safe: an id the compositor never issued matches no window, so every
+    /// action against it is a no-op rather than the wrong window being acted on.
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw)
+    }
+}
 
 /// A window, as the compositor's management protocol describes it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -189,29 +210,33 @@ fn start() -> bool {
         return false;
     }
 
-    let watcher = Watcher {
-        connection: connection.clone(),
-        seat,
-        bound,
-        state: State::default(),
-        finished: false,
-    };
     std::thread::Builder::new()
         .name("hyprshell-wlr-toplevels".to_string())
-        .spawn(move || run(watcher, connection, queue, channel))
+        .spawn(move || run(Seed { seat, bound }, connection, queue, channel))
         .is_ok()
 }
 
-fn run(
-    mut watcher: Watcher,
-    connection: Connection,
-    queue: EventQueue<Watcher>,
-    requests: Channel<Request>,
-) {
+/// What the watcher needs that can cross a thread boundary. The loop handle cannot — it holds an `Rc` — and it
+/// does not exist until the loop does, so the watcher itself is assembled on the far side.
+struct Seed {
+    seat: Option<wl_seat::WlSeat>,
+    bound: HashMap<u32, wl_output::WlOutput>,
+}
+
+fn run(seed: Seed, connection: Connection, queue: EventQueue<Watcher>, requests: Channel<Request>) {
     let Ok(mut event_loop) = EventLoop::<Watcher>::try_new() else {
         return;
     };
     let handle = event_loop.handle();
+    let mut watcher = Watcher {
+        connection: connection.clone(),
+        seat: seed.seat,
+        bound: seed.bound,
+        state: State::default(),
+        loop_handle: Some(handle.clone()),
+        pending: None,
+        finished: false,
+    };
     if WaylandSource::new(connection, queue)
         .insert(handle.clone())
         .is_err()
@@ -226,6 +251,7 @@ fn run(
     if registered.is_err() {
         return;
     }
+
     while !watcher.finished {
         if event_loop.dispatch(None, &mut watcher).is_err() {
             break;
@@ -252,11 +278,20 @@ struct State {
     order: Vec<u32>,
 }
 
+/// A focus request that has been sent and not yet taken effect, with the tries it has left.
+struct Pending {
+    target: u32,
+    left: u8,
+}
+
 struct Watcher {
     connection: Connection,
     seat: Option<wl_seat::WlSeat>,
     bound: HashMap<u32, wl_output::WlOutput>,
     state: State,
+    /// Filled in once the loop exists, which is what lets a focus request arm a retry.
+    loop_handle: Option<LoopHandle<'static, Watcher>>,
+    pending: Option<Pending>,
     finished: bool,
 }
 
@@ -325,7 +360,10 @@ impl Watcher {
         };
         match request {
             Request::Focus(_) => match &self.seat {
-                Some(seat) => handle.activate(seat),
+                Some(seat) => {
+                    handle.activate(seat);
+                    self.await_focus(key);
+                }
                 None => tracing::warn!("cannot focus a window without a seat"),
             },
             Request::Close(_) => handle.close(),
@@ -347,6 +385,70 @@ impl Watcher {
         }
         // A request made outside the loop's own dispatch sits in the outgoing buffer until something flushes it.
         let _ = self.connection.flush();
+    }
+
+    /// Watches for a focus request to take effect, and asks again if it did not.
+    ///
+    /// **A compositor ignores `activate` while another surface holds the seat's keyboard.** Measured against
+    /// Hyprland 0.56.1: with a layer surface up at `KeyboardInteractivity::Exclusive` the request changes
+    /// nothing at all, and the same request lands the moment that surface is gone. That is the whole reason a
+    /// window switcher living in a layer surface did nothing — and it cannot be fixed by ordering alone,
+    /// because the surface is torn down over the shell's connection while this goes over the watcher's, and
+    /// two connections have no ordering between them.
+    ///
+    /// So the request is repeated, briefly, until the compositor acts on it or the window stops existing. The
+    /// deadline is short enough that a user who changed their mind and clicked elsewhere is not fought with.
+    fn await_focus(&mut self, target: u32) {
+        const TRIES: u8 = 8;
+        self.pending = Some(Pending {
+            target,
+            left: TRIES,
+        });
+        self.arm_retry();
+    }
+
+    fn arm_retry(&mut self) {
+        const RETRY: Duration = Duration::from_millis(70);
+        let Some(handle) = self.loop_handle.clone() else {
+            return;
+        };
+        let _ = handle.insert_source(
+            Timer::from_duration(RETRY),
+            |_, _, watcher: &mut Watcher| {
+                watcher.retry_focus();
+                TimeoutAction::Drop
+            },
+        );
+    }
+
+    fn retry_focus(&mut self) {
+        let Some(pending) = self.pending.as_mut() else {
+            return;
+        };
+        let target = pending.target;
+        let landed = self
+            .state
+            .windows
+            .get(&target)
+            .is_some_and(|entry| entry.states.contains(&STATE_ACTIVATED));
+        // Gone, or focused: either way there is nothing left to ask for.
+        if landed || !self.state.windows.contains_key(&target) {
+            self.pending = None;
+            return;
+        }
+        pending.left -= 1;
+        if pending.left == 0 {
+            tracing::warn!("the compositor never acted on a request to focus a window");
+            self.pending = None;
+            return;
+        }
+        if let (Some(seat), Some(entry)) = (self.seat.clone(), self.state.windows.get(&target))
+            && let Some(handle) = entry.handle.as_ref()
+        {
+            handle.activate(&seat);
+            let _ = self.connection.flush();
+        }
+        self.arm_retry();
     }
 
     /// Publishes the whole list. Each window batches its own changes behind a `done`, so a title retyped a
@@ -625,6 +727,69 @@ mod tests {
             focused().map(|w| w.id),
             listed.iter().find(|w| w.activated).map(|w| w.id),
             "the convenience reading and the list have to agree"
+        );
+    }
+
+    /// Whether `activate` actually moves the compositor, with no layer surface anywhere near it.
+    ///
+    /// This exists to tell two failures apart. A window switcher that does nothing could be failing here — the
+    /// request never lands — or failing above, because whoever asked closed a keyboard-grabbing surface
+    /// straight afterwards and the compositor handed focus back. Only isolating the request answers that.
+    ///
+    /// `HYPRSHELL_WAYLAND_LIVE=1 cargo test -p platform-wayland activate_moves -- --nocapture`
+    ///
+    /// **It focuses another window and puts the focus back.**
+    #[test]
+    fn activate_moves_the_compositor_on_its_own() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        if std::env::var("HYPRSHELL_WAYLAND_LIVE").is_err() {
+            eprintln!("set HYPRSHELL_WAYLAND_LIVE to focus a real window; skipping");
+            return;
+        }
+
+        let (published, changes) = mpsc::channel();
+        assert!(watch(move |windows| {
+            let _ = published.send(windows.to_vec());
+        }));
+
+        let mut listed = Vec::new();
+        while let Ok(windows) = changes.recv_timeout(Duration::from_millis(500)) {
+            listed = windows;
+        }
+        let was = listed.iter().find(|w| w.activated).map(|w| w.id);
+        let Some(target) = listed.iter().find(|w| !w.activated) else {
+            eprintln!("only one window is open; nothing to switch to");
+            return;
+        };
+        eprintln!(
+            "focused={was:?} switching to {:?} {:?}",
+            target.app_id, target.title
+        );
+
+        assert!(focus(target.id), "the request could not be sent");
+        let mut moved = None;
+        let deadline = 12;
+        for _ in 0..deadline {
+            if let Ok(windows) = changes.recv_timeout(Duration::from_millis(250))
+                && let Some(active) = windows.iter().find(|w| w.activated)
+            {
+                moved = Some(active.id);
+                if moved == Some(target.id) {
+                    break;
+                }
+            }
+        }
+
+        if let Some(was) = was {
+            focus(was);
+            std::thread::sleep(Duration::from_millis(400));
+        }
+        assert_eq!(
+            moved,
+            Some(target.id),
+            "activate did not move the compositor, so the switcher's problem is here and not in its caller"
         );
     }
 }
