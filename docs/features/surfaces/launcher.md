@@ -2,12 +2,12 @@
 id: launcher
 kind: surface
 title: Launcher
-summary: A full-screen modal that owns the keyboard: applications, actions, a calculator, schemes and wallpapers.
+summary: A full-screen modal that owns the keyboard: applications, actions, a calculator, schemes, wallpapers and the windows already open.
 status: stable
 compositor: any
 config: [launcher, general]
 commands: [launcher, apps]
-deps: [wlr-layer-shell, qalc, setsid]
+deps: [wlr-layer-shell, qalc, setsid, wlr-foreign-toplevel-management]
 see_also: [apps, palettes, wallpaper]
 ---
 
@@ -22,7 +22,7 @@ hyprshell launcher toggle
 hyprshell launcher close
 ```
 
-## Five modes, chosen by a prefix
+## Six modes, chosen by a prefix
 
 | Prefix | Mode | What it lists |
 | --- | --- | --- |
@@ -31,8 +31,17 @@ hyprshell launcher close
 | `=` | Calculator | the result of an expression |
 | `#` | Schemes | the palettes `scheme set` accepts |
 | `@` | Wallpapers | the images in your library, as a grid |
+| `/` | Windows | the windows already open — choosing one switches to it |
 
 The prefix is stripped and the rest is the query, so `>reboot` and `> reboot` are the same thing.
+
+The window mode matches on both the window's title and its application, so `/kitty` finds every terminal and
+`/README` finds the one editing that file. It is the difference between starting a second copy of something and
+going back to the copy you already have.
+
+It reads `wlr-foreign-toplevel-management`, not Hyprland's socket, so it works on any compositor that speaks
+that protocol — and lists nothing at all on one that does not, rather than falling back to the applications and
+launching what you were trying to switch to.
 
 ## Ranking
 

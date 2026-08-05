@@ -8,6 +8,8 @@ use telar::{
     signal, surface_content, use_theme,
 };
 
+use platform_wayland::ManagedToplevel;
+
 use config::scheme;
 use config::theme::{FontRole, NordTheme};
 use config::{LauncherAction, LauncherConfig};
@@ -38,6 +40,10 @@ const SCHEME_PREFIX: char = '#';
 
 /// Typing this first browses the wallpaper library as a grid of thumbnails.
 const WALLPAPER_PREFIX: char = '@';
+
+/// Typing this first lists the windows that are already open, so `/fire` switches to a browser rather than
+/// starting a second one.
+const WINDOW_PREFIX: char = '/';
 
 /// The widest a wallpaper tile gets before another column fits. Thumbnails are landscape, so a tile the width of
 /// a row would show one picture where four fit — the grid is the point of this mode.
@@ -83,6 +89,9 @@ pub enum Entry {
     /// An image from the wallpaper library. Drawn as a tile rather than a row, because a wallpaper is chosen by
     /// looking at it — a list of file names would be a worse version of `ls`.
     Wallpaper(wallpaper::Entry),
+    /// A window that is already open. Choosing it switches to that window instead of starting the application
+    /// again, which is the difference between this mode and typing the same name with no prefix.
+    Window(ManagedToplevel),
 }
 
 impl Entry {
@@ -95,6 +104,9 @@ impl Entry {
             Entry::Calculation { expression, .. } => format!("calc:{expression}"),
             Entry::Scheme { choice, value } => format!("scheme:{choice:?}:{value}"),
             Entry::Wallpaper(entry) => format!("wallpaper:{}", entry.path.display()),
+            // The protocol object, not the title: two windows of one application share a title far more often
+            // than they share nothing, and a list keyed on that would collapse them into one row.
+            Entry::Window(window) => format!("window:{}", window.id.raw()),
         }
     }
 
@@ -112,6 +124,7 @@ pub enum QueryMode {
     Calculator,
     Schemes,
     Wallpapers,
+    Windows,
 }
 
 impl QueryMode {
@@ -144,6 +157,9 @@ pub fn mode_of(query: &str) -> (QueryMode, &str) {
     if let Some(rest) = trimmed.strip_prefix(WALLPAPER_PREFIX) {
         return (QueryMode::Wallpapers, rest.trim_start());
     }
+    if let Some(rest) = trimmed.strip_prefix(WINDOW_PREFIX) {
+        return (QueryMode::Windows, rest.trim_start());
+    }
     (QueryMode::Apps, query.trim())
 }
 
@@ -155,6 +171,7 @@ pub fn mode_of(query: &str) -> (QueryMode, &str) {
 pub fn entries(
     apps: Vec<App>,
     library: Vec<wallpaper::Entry>,
+    open: Vec<ManagedToplevel>,
     query: &str,
     config: &LauncherConfig,
 ) -> Vec<Entry> {
@@ -164,6 +181,7 @@ pub fn entries(
         QueryMode::Actions => actions(rest, config).into_iter().take(cap).collect(),
         QueryMode::Calculator => calculation_or_qalc(rest, config).into_iter().collect(),
         QueryMode::Schemes => schemes(rest, config).into_iter().take(cap).collect(),
+        QueryMode::Windows => windows(open, rest, config).into_iter().take(cap).collect(),
         // A grid fits several rows of what a list shows one of, so the row cap would cut the browse mode off at a
         // third of a screen. It gets its own, much larger bound instead — see `GRID_CAP`.
         QueryMode::Wallpapers => {
@@ -275,6 +293,27 @@ pub fn wallpapers(
     .collect()
 }
 
+/// The open windows matching `query`, in the order the compositor announced them.
+///
+/// Both the title and the application id are in the haystack, so `/fire` finds a browser window whose title
+/// says nothing about the browser, and `/docs` finds it by what is on screen.
+pub fn windows(
+    open: Vec<ManagedToplevel>,
+    query: &str,
+    config: &LauncherConfig,
+) -> Vec<Entry> {
+    search::rank(
+        open,
+        query,
+        match_mode(config),
+        |window| format!("{} {}", window.title, window.app_id),
+        |_| 0,
+    )
+    .into_iter()
+    .map(Entry::Window)
+    .collect()
+}
+
 /// A scheme row's name and what kind of choice it is. The name is the palette's own where there is one, so
 /// `#moc` finds "Catppuccin Mocha" and not just the config spelling.
 fn scheme_text(entry: &Entry) -> (String, String) {
@@ -347,8 +386,12 @@ pub fn results(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<App>
     ranked
 }
 
-/// Carries out `entry`. Returns whether the launcher should close: an armed dangerous action does not, since
-/// the user still has to confirm it.
+/// Carries out `entry`.
+///
+/// **Every caller closes the launcher first.** A compositor ignores a request to focus a window while another
+/// surface holds the seat's keyboard, and this one holds it exclusively — so switching to a window from a
+/// launcher that is still up does nothing at all. Closing first is what makes the window mode work, and it
+/// costs the other kinds nothing: none of them reads anything the surface owns.
 fn choose(entry: &Entry) {
     match entry {
         Entry::App(app) => apps::launch(app),
@@ -365,6 +408,9 @@ fn choose(entry: &Entry) {
         Entry::Wallpaper(entry) => {
             wallpaper::set(&entry.path, None);
             scheme::refresh_current();
+        }
+        Entry::Window(window) => {
+            services::windows::focus(window.id);
         }
     }
 }
@@ -405,7 +451,13 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
 
     // The app list is read once per open, not per keystroke: it only changes when software is installed.
     let installed = apps::all();
-    let shown = results_memo(installed, library(), query_read, config.clone());
+    let shown = results_memo(
+        installed,
+        library(),
+        open_windows(),
+        query_read,
+        config.clone(),
+    );
     let for_columns = query.read_only();
     let width = config.width as f32;
     let columns = memo(move || mode_of(&for_columns.get()).0.columns(width));
@@ -489,8 +541,8 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
                     keys_armed.set(key);
                     return;
                 }
-                choose(&entry);
                 shell::close(ID);
+                choose(&entry);
             }
             Move::Cancel => {
                 // Escape backs out of one thing at a time: an armed confirmation first, the launcher itself
@@ -525,14 +577,28 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
 fn results_memo(
     installed: Vec<App>,
     library: telar::ReadSignal<Vec<wallpaper::Entry>>,
+    open: telar::ReadSignal<Vec<ManagedToplevel>>,
     query: telar::ReadSignal<String>,
     config: LauncherConfig,
 ) -> telar::Memo<Vec<Entry>> {
     memo(move || {
         let images = library.get();
+        let windows = open.get();
         let text = query.get();
-        entries(installed.clone(), images, &text, &config)
+        entries(installed.clone(), images, windows, &text, &config)
     })
+}
+
+/// The open windows as this surface sees them, staying current for as long as the launcher is up.
+///
+/// Subscribed rather than read once, for the same reason the wallpaper library is: the service answers with
+/// its current list immediately, so the mode is populated on the frame it opens, and a window closing behind
+/// the launcher drops out of the list rather than leaving a row that focuses nothing.
+fn open_windows() -> telar::ReadSignal<Vec<ManagedToplevel>> {
+    let windows = signal(Vec::new());
+    let sink = windows.clone();
+    platform_wayland::watch(services::windows::subscribe, move |open| sink.set(open));
+    windows.read_only()
 }
 
 /// The wallpaper library as this surface sees it, staying current for as long as the launcher is up.
@@ -919,8 +985,8 @@ fn tile(
         }
     })
     .on_press(move || {
-        choose(&chosen);
         shell::close(ID);
+        choose(&chosen);
     });
     Ok(Box::new(tile))
 }
@@ -945,6 +1011,9 @@ fn row_text(entry: &Entry) -> (String, String) {
             }
         },
         Entry::Wallpaper(entry) => (entry.name.clone(), entry.folder.clone()),
+        // The title leads because that is what tells two windows of one application apart, which is the whole
+        // job of this list; the application id is the caption.
+        Entry::Window(window) => (window.title.clone(), window.app_id.clone()),
     }
 }
 
@@ -976,6 +1045,7 @@ fn row_icon(entry: &Entry, theme: NordTheme) -> Result<Option<Box<dyn LayoutItem
         Entry::Wallpaper(_) => {
             ui::icon::icon_view(|| "image".to_string(), move || theme.accent, SIZE).map(Some)
         }
+        Entry::Window(window) => ui::icon::app_icon_view(&window.app_id, SIZE),
     }
 }
 
@@ -1079,8 +1149,8 @@ fn row(
         if dangerous && !armed_press() {
             return;
         }
-        choose(&chosen);
         shell::close(ID);
+        choose(&chosen);
     });
     Ok(Box::new(row))
 }
@@ -1226,6 +1296,22 @@ mod tests {
                 Entry::Calculation { result, .. } => result.clone(),
                 Entry::Scheme { value, .. } => value.clone(),
                 Entry::Wallpaper(entry) => entry.name.clone(),
+                Entry::Window(window) => window.title.clone(),
+            })
+            .collect()
+    }
+
+    /// Two windows of one application plus a third, which is the case a switcher exists for: telling apart
+    /// rows an application-keyed list would have collapsed into one.
+    fn open() -> Vec<ManagedToplevel> {
+        [("kitty", "nvim"), ("kitty", "cargo test"), ("code", "README.md")]
+            .into_iter()
+            .enumerate()
+            .map(|(index, (app_id, title))| ManagedToplevel {
+                id: platform_wayland::ManagedToplevelId::from_raw(index as u32 + 1),
+                app_id: app_id.to_string(),
+                title: title.to_string(),
+                ..ManagedToplevel::default()
             })
             .collect()
     }
@@ -1252,6 +1338,7 @@ mod tests {
         assert_eq!(mode_of("> reboot"), (QueryMode::Actions, "reboot"));
         assert_eq!(mode_of(">reboot"), (QueryMode::Actions, "reboot"));
         assert_eq!(mode_of("=2+2"), (QueryMode::Calculator, "2+2"));
+        assert_eq!(mode_of("/nvim"), (QueryMode::Windows, "nvim"));
         assert_eq!(
             mode_of(">"),
             (QueryMode::Actions, ""),
@@ -1260,8 +1347,81 @@ mod tests {
     }
 
     #[test]
+    fn the_window_mode_lists_what_is_open_and_matches_on_both_names() {
+        let config = LauncherConfig::default();
+
+        let all = names(&entries(catalog(), Vec::new(), open(), "/", &config));
+        assert_eq!(
+            all,
+            vec!["nvim", "cargo test", "README.md"],
+            "a bare prefix lists every open window, in the order the compositor announced them"
+        );
+
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), open(), "/README", &config)),
+            vec!["README.md"],
+            "the title is in the haystack"
+        );
+        assert_eq!(
+            names(&entries(catalog(), Vec::new(), open(), "/kitty", &config)),
+            vec!["nvim", "cargo test"],
+            "and so is the application id, which is what finds every window of one application"
+        );
+    }
+
+    /// The reason a row is keyed on the protocol object rather than on what it says: two windows of one
+    /// application routinely share an application id and sometimes a title, and a list that collapsed them
+    /// would offer no way to reach the second one.
+    #[test]
+    fn two_windows_of_one_application_stay_two_rows() {
+        // Same application, same title, different windows — two terminals in the same directory, which is the
+        // case that collapses if the row is keyed on anything the user can see.
+        let mut twins = open();
+        twins[1].title = twins[0].title.clone();
+
+        let rows = entries(catalog(), Vec::new(), twins, "/", &LauncherConfig::default());
+        assert_eq!(rows.len(), 3);
+        let keys: std::collections::HashSet<String> = rows.iter().map(Entry::key).collect();
+        assert_eq!(
+            keys.len(),
+            3,
+            "a keyed list shows one row per key, so a collision here is a window the user cannot reach"
+        );
+    }
+
+    #[test]
+    fn a_window_row_shows_the_title_over_the_application() {
+        let rows = entries(
+            catalog(),
+            Vec::new(),
+            open(),
+            "/README",
+            &LauncherConfig::default(),
+        );
+        assert_eq!(
+            row_text(&rows[0]),
+            ("README.md".to_string(), "code".to_string())
+        );
+    }
+
+    /// A compositor with no window management protocol publishes nothing, and the mode has to be empty rather
+    /// than fall through to listing applications — which would launch a second copy of what the user was
+    /// trying to switch to.
+    #[test]
+    fn no_windows_is_an_empty_list_rather_than_the_applications() {
+        let found = entries(
+            catalog(),
+            Vec::new(),
+            Vec::new(),
+            "/fire",
+            &LauncherConfig::default(),
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
     fn the_calculator_answers_above_the_apps_without_hiding_them() {
-        let found = entries(catalog(), Vec::new(), "2+2", &LauncherConfig::default());
+        let found = entries(catalog(), Vec::new(), Vec::new(), "2+2", &LauncherConfig::default());
         assert!(
             matches!(found.first(), Some(Entry::Calculation { result, .. }) if result == "4"),
             "the answer leads: {:?}",
@@ -1269,14 +1429,14 @@ mod tests {
         );
 
         // A query that happens to parse as arithmetic must not hide the app search underneath it.
-        let mixed = entries(catalog(), Vec::new(), "2+2", &LauncherConfig::default());
+        let mixed = entries(catalog(), Vec::new(), Vec::new(), "2+2", &LauncherConfig::default());
         assert!(
             mixed.len() > 1 || mixed.iter().all(|e| matches!(e, Entry::Calculation { .. })),
             "app matches still follow when there are any"
         );
 
         // And a plain name never grows a calculation row.
-        let plain = entries(catalog(), Vec::new(), "firefox", &LauncherConfig::default());
+        let plain = entries(catalog(), Vec::new(), Vec::new(), "firefox", &LauncherConfig::default());
         assert!(!plain.iter().any(|e| matches!(e, Entry::Calculation { .. })));
     }
 
@@ -1285,12 +1445,12 @@ mod tests {
         let config = LauncherConfig::default();
         // A bare number is treated as the start of a name, not a sum — unless asked explicitly.
         assert!(
-            !entries(catalog(), Vec::new(), "2", &config)
+            !entries(catalog(), Vec::new(), Vec::new(), "2", &config)
                 .iter()
                 .any(|e| matches!(e, Entry::Calculation { .. }))
         );
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), "=2", &config)),
+            names(&entries(catalog(), Vec::new(), Vec::new(), "=2", &config)),
             vec!["2".to_string()]
         );
     }
@@ -1305,7 +1465,7 @@ mod tests {
             max_results: 200,
             ..LauncherConfig::default()
         };
-        let all = entries(catalog(), Vec::new(), "#", &uncapped);
+        let all = entries(catalog(), Vec::new(), Vec::new(), "#", &uncapped);
         assert!(
             all.iter().all(|e| matches!(e, Entry::Scheme { .. })),
             "the mode is exclusive: apps do not leak into it"
@@ -1323,14 +1483,14 @@ mod tests {
         assert_eq!(kinds(scheme::Choice::Variant), scheme::Variant::ALL.len());
 
         // The palette's own name, not just its config spelling — `catppuccin-latte` is not what anyone types.
-        let found = entries(catalog(), Vec::new(), "#latte", &config);
+        let found = entries(catalog(), Vec::new(), Vec::new(), "#latte", &config);
         assert!(
             matches!(found.first(), Some(Entry::Scheme { value, .. }) if value == "catppuccin-latte"),
             "'#latte' finds Catppuccin Latte: {:?}",
             names(&found)
         );
         assert!(
-            entries(catalog(), Vec::new(), "#dynamic", &config)
+            entries(catalog(), Vec::new(), Vec::new(), "#dynamic", &config)
                 .iter()
                 .any(|e| matches!(e, Entry::Scheme { value, .. } if value == scheme::DYNAMIC)),
             "the wallpaper-derived palette is pickable too"
@@ -1363,14 +1523,14 @@ mod tests {
     #[test]
     fn a_unit_conversion_answers_like_any_other_calculation() {
         let config = LauncherConfig::default();
-        let found = entries(catalog(), Vec::new(), "3 km in mi", &config);
+        let found = entries(catalog(), Vec::new(), Vec::new(), "3 km in mi", &config);
         assert!(
             matches!(found.first(), Some(Entry::Calculation { result, .. }) if result == "1.8641135767 mi"),
             "the conversion leads, unit and all: {:?}",
             names(&found)
         );
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), "=100 c in f", &config)),
+            names(&entries(catalog(), Vec::new(), Vec::new(), "=100 c in f", &config)),
             vec!["212 °F".to_string()],
             "the explicit prefix works the same way"
         );
@@ -1381,7 +1541,7 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert!(
-            !entries(catalog(), Vec::new(), "3 km in mi", &off)
+            !entries(catalog(), Vec::new(), Vec::new(), "3 km in mi", &off)
                 .iter()
                 .any(|e| matches!(e, Entry::Calculation { .. }))
         );
@@ -1394,10 +1554,10 @@ mod tests {
         let config = LauncherConfig::default();
         assert!(config.qalc, "the fallback is on by default");
         // A question the built-in evaluator has no answer for: no row, and no process, until qalc answers.
-        assert!(entries(catalog(), Vec::new(), "=1 usd in eur", &config).is_empty());
+        assert!(entries(catalog(), Vec::new(), Vec::new(), "=1 usd in eur", &config).is_empty());
         // The same text without the prefix is an app search and never asks anything.
         assert!(
-            entries(catalog(), Vec::new(), "1 usd in eur", &config)
+            entries(catalog(), Vec::new(), Vec::new(), "1 usd in eur", &config)
                 .iter()
                 .all(|e| matches!(e, Entry::App(_)))
         );
@@ -1410,11 +1570,11 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert!(
-            !entries(catalog(), Vec::new(), "2+2", &config)
+            !entries(catalog(), Vec::new(), Vec::new(), "2+2", &config)
                 .iter()
                 .any(|e| matches!(e, Entry::Calculation { .. }))
         );
-        assert!(entries(catalog(), Vec::new(), "=2+2", &config).is_empty());
+        assert!(entries(catalog(), Vec::new(), Vec::new(), "=2+2", &config).is_empty());
     }
 
     #[test]
@@ -1424,20 +1584,20 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), ">", &config)).len(),
+            names(&entries(catalog(), Vec::new(), Vec::new(), ">", &config)).len(),
             2
         );
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), ">lo", &config)).len(),
+            names(&entries(catalog(), Vec::new(), Vec::new(), ">lo", &config)).len(),
             2
         );
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), ">lock", &config)),
+            names(&entries(catalog(), Vec::new(), Vec::new(), ">lock", &config)),
             vec!["lock".to_string()]
         );
         // Action mode is exclusive: apps do not leak into it.
         assert!(
-            entries(catalog(), Vec::new(), ">", &config)
+            entries(catalog(), Vec::new(), Vec::new(), ">", &config)
                 .iter()
                 .all(|e| matches!(e, Entry::Action(_)))
         );
@@ -1450,13 +1610,13 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), ">", &config)),
+            names(&entries(catalog(), Vec::new(), Vec::new(), ">", &config)),
             vec!["lock".to_string()],
             "a dangerous action is not even listed without the opt-in"
         );
 
         config.enable_dangerous_actions = true;
-        let listed = entries(catalog(), Vec::new(), ">", &config);
+        let listed = entries(catalog(), Vec::new(), Vec::new(), ">", &config);
         assert_eq!(names(&listed).len(), 2);
         assert!(
             listed.iter().any(|e| e.is_dangerous()),
@@ -1485,7 +1645,7 @@ mod tests {
             ..LauncherConfig::default()
         };
         assert_eq!(
-            names(&entries(catalog(), Vec::new(), ">", &config)),
+            names(&entries(catalog(), Vec::new(), Vec::new(), ">", &config)),
             vec!["good".to_string()]
         );
     }
@@ -1495,7 +1655,7 @@ mod tests {
         let config = LauncherConfig::default();
         assert_eq!(mode_of("@sun"), (QueryMode::Wallpapers, "sun"));
 
-        let all = entries(catalog(), library(), "@", &config);
+        let all = entries(catalog(), library(), Vec::new(), "@", &config);
         assert_eq!(all.len(), 3, "a bare prefix browses the whole library");
         assert!(
             all.iter().all(|e| matches!(e, Entry::Wallpaper(_))),
@@ -1503,11 +1663,11 @@ mod tests {
         );
 
         assert_eq!(
-            names(&entries(catalog(), library(), "@sunset", &config)),
+            names(&entries(catalog(), library(), Vec::new(), "@sunset", &config)),
             vec!["sunset".to_string()]
         );
         // The folder is searchable, so a whole collection is reachable without remembering one file's name.
-        let folder = names(&entries(catalog(), library(), "@nature", &config));
+        let folder = names(&entries(catalog(), library(), Vec::new(), "@nature", &config));
         assert_eq!(
             folder.len(),
             2,
@@ -1516,7 +1676,7 @@ mod tests {
 
         // An empty library is the case where the folder is missing or `[wallpaper] enabled` is off. It shows
         // nothing rather than falling back to the app list, which would be a different answer to what was asked.
-        assert!(entries(catalog(), Vec::new(), "@", &config).is_empty());
+        assert!(entries(catalog(), Vec::new(), Vec::new(), "@", &config).is_empty());
     }
 
     /// The row cap is a *list* bound. A grid four across would show three rows of a library and stop, which reads
@@ -1527,9 +1687,9 @@ mod tests {
             max_results: 2,
             ..LauncherConfig::default()
         };
-        assert_eq!(entries(catalog(), library(), "@", &config).len(), 3);
+        assert_eq!(entries(catalog(), library(), Vec::new(), "@", &config).len(), 3);
         assert_eq!(
-            entries(catalog(), Vec::new(), "", &config).len(),
+            entries(catalog(), Vec::new(), Vec::new(), "", &config).len(),
             2,
             "while a list mode still honours it"
         );
@@ -1544,7 +1704,7 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            entries(catalog(), archive, "@", &config).len(),
+            entries(catalog(), archive, Vec::new(), "@", &config).len(),
             GRID_CAP,
             "the grid draws a bounded number of tiles however big the library is"
         );
@@ -1603,9 +1763,11 @@ mod tests {
         telar::set_theme(NordTheme::new());
         let query = signal(String::new());
         let library = signal(library());
+        let open = signal(open());
         let shown = results_memo(
             catalog(),
             library.read_only(),
+            open.read_only(),
             query.read_only(),
             LauncherConfig::default(),
         );
@@ -1623,6 +1785,8 @@ mod tests {
             "=1 usd in eur",
             "@",
             "@nature",
+            "/",
+            "/nvim",
         ] {
             query.set(text.to_string());
             // `get` is what runs the closure; a nested read panics here and nowhere else.
