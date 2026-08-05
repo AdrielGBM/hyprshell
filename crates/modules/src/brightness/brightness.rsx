@@ -11,7 +11,7 @@ let level_glyph = level.read_only();
 let fg = ui::module::module_fg();
 // The chip shows one number, so it follows the snapshot's primary display — the internal panel on a laptop, the
 // first monitor on a desk. Per-output levels are reached through `hyprshell brightness` and the settings page.
-platform_layershell::watch(
+platform_wayland::watch(
     brightness::subscribe,
     move |snapshot: brightness::Snapshot| {
         if let Some(level_now) = snapshot.level() {

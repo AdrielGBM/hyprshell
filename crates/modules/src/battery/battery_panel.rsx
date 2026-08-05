@@ -71,7 +71,7 @@ let charging_tint = charging.read_only();
 let status_view = status.read_only();
 let rate_view = rate.read_only();
 
-platform_layershell::watch(
+platform_wayland::watch(
     move |tx| battery::stream_details(tx),
     move |d| {
         level.set(d.level);

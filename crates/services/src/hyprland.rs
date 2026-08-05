@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Deserialize;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use util::broadcast::{Broadcast, Service};
 
@@ -769,7 +769,7 @@ fn affects_screens(line: &str) -> bool {
 
 static SCREENS: Service<Vec<Screen>> = Service::new("hyprshell-screens", run_screens);
 
-/// The output list. Separate from the compositor-agnostic `platform_layershell::outputs()` the surface layer
+/// The output list. Separate from the compositor-agnostic `platform_wayland::outputs()` the surface layer
 /// reconciles against, which knows a Wayland output's name and nothing else: mode, scale, make and model only
 /// exist on this side, and a settings page listing monitors needs them.
 fn run_screens(service: &Arc<Broadcast<Vec<Screen>>>) {

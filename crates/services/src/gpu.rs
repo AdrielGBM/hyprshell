@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use crate::resources::History;
 use config::GpuConfig;

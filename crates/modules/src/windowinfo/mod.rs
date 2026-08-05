@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use telar::{
     AlignItems, Container, Image, ImageData, ImageFilter, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, ObjectFit, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal,
@@ -56,11 +56,11 @@ pub fn window_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     // which is what makes it usable for looking at one window after another.
     let focused = signal(current_focus());
     let sink = focused.clone();
-    platform_layershell::watch(hyprland::subscribe_clients, move |_: Vec<Client>| {
+    platform_wayland::watch(hyprland::subscribe_clients, move |_: Vec<Client>| {
         sink.set(current_focus())
     });
     let follow = focused.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         hyprland::subscribe_active_window,
         move |_: hyprland::ActiveWindow| follow.set(current_focus()),
     );
@@ -121,7 +121,7 @@ fn preview(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let frame = signal(None::<Arc<ImageData>>);
     let sink = frame.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         move |tx| capture_loop(tx, interval),
         move |image: Option<Arc<ImageData>>| sink.set(image),
     );

@@ -141,7 +141,7 @@ pub(crate) fn dimmable_output(name: &str) -> Result<String, String> {
 }
 
 pub(crate) fn validated(name: &str) -> Result<String, String> {
-    let screens: Vec<String> = platform_layershell::outputs()
+    let screens: Vec<String> = platform_wayland::outputs()
         .into_iter()
         .filter_map(|output| output.name)
         .collect();

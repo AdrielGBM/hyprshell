@@ -74,7 +74,7 @@ fn truncate(text: &str, max: usize) -> String {
 /// A `watch` producer rather than a re-armed `timeout`, and that is the whole point: `watch` binds the
 /// subscription to the surface and drops it when the surface goes away, so the ticker ends with the bar it
 /// belongs to. A self-rescheduling timeout would keep firing into a torn-down surface.
-pub fn marquee_ticks(tx: platform_layershell::EventSender<u64>) {
+pub fn marquee_ticks(tx: platform_wayland::EventSender<u64>) {
     let step = config::shared_config()
         .map(|c| c.media.marquee_step())
         .unwrap_or_else(|| std::time::Duration::from_millis(220));

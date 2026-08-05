@@ -24,7 +24,7 @@ pub fn copy_bytes(mime: &'static str, data: Vec<u8>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-clipboard".to_string())
         .spawn(move || {
-            if let Err(reason) = platform_layershell::set_selection(mime, data) {
+            if let Err(reason) = platform_wayland::set_selection(mime, data) {
                 tracing::warn!("clipboard: {reason}");
             }
         });
@@ -33,5 +33,5 @@ pub fn copy_bytes(mime: &'static str, data: Vec<u8>) {
 /// Whether a copy would reach the clipboard, for a caller deciding whether to offer the gesture. `None` when
 /// this process cannot reach a compositor to ask.
 pub fn supported() -> Option<bool> {
-    platform_layershell::clipboard_supported()
+    platform_wayland::clipboard_supported()
 }

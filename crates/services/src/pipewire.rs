@@ -18,7 +18,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use serde_json::Value;
 use util::deps::{self, Dep};
 

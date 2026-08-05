@@ -10,7 +10,7 @@ let read = state.read_only();
 let fg = ui::module::module_fg();
 let icon = ui::module::icon_px();
 
-platform_layershell::watch(volume::subscribe_mic, move |mic: Volume| state.set(Some(mic)));
+platform_wayland::watch(volume::subscribe_mic, move |mic: Volume| state.set(Some(mic)));
 
 [view]
 icon_glyph name(move || read.get().map_or("mic", glyph::microphone).to_string()) tint(move || fg.get()) size:(icon)

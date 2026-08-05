@@ -43,7 +43,7 @@ fn throttled_resources(interval: Duration) -> RwSignal<Option<resources::Resourc
     let state = signal(resources::current());
     let sink = state.clone();
     let mut last = Instant::now() - interval;
-    platform_layershell::watch(resources::subscribe, move |r| {
+    platform_wayland::watch(resources::subscribe, move |r| {
         let now = Instant::now();
         if now.duration_since(last) < interval {
             return;
@@ -104,7 +104,7 @@ fn gpu_card(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
     let unit = config.temperature.unit;
     let state = signal(gpu::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(gpu::subscribe, move |g| sink.set(g));
+    platform_wayland::watch(gpu::subscribe, move |g| sink.set(g));
 
     let chart = derive(state.clone(), |g| g.usage_history.values());
     let detail = derive(state.clone(), move |g| {
@@ -248,7 +248,7 @@ fn disk_row(disk: resources::Disk, theme: NordTheme) -> Result<Box<dyn LayoutIte
 fn network_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let state = signal(netspeed::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(netspeed::subscribe, move |s| sink.set(s));
+    platform_wayland::watch(netspeed::subscribe, move |s| sink.set(s));
 
     let chart = derive(state.clone(), |s| s.down_history.values());
     let ceiling = derive(state.clone(), |s| {
@@ -283,7 +283,7 @@ fn network_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 fn battery_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let state = signal(battery::details());
     let sink = state.clone();
-    platform_layershell::watch(battery::stream_details, move |d| sink.set(Some(d)));
+    platform_wayland::watch(battery::stream_details, move |d| sink.set(Some(d)));
 
     let fraction = derive(state.clone(), |d| {
         d.map(|d| d.level as f32 / 100.0).unwrap_or(0.0)

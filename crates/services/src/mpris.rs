@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, MessageIterator, fdo::DBusProxy, fdo::PropertiesProxy};
 use zbus::message::Type as MessageType;
 use zbus::names::BusName;

@@ -37,7 +37,7 @@ pub(crate) fn wallpaper_browser_section() -> Result<Box<dyn LayoutItem>, LayoutE
 
     let library = signal(services::wallpaper::all());
     let sink = library.clone();
-    platform_layershell::watch(services::wallpaper::subscribe_library, move |entries| {
+    platform_wayland::watch(services::wallpaper::subscribe_library, move |entries| {
         sink.set(entries)
     });
 
@@ -46,7 +46,7 @@ pub(crate) fn wallpaper_browser_section() -> Result<Box<dyn LayoutItem>, LayoutE
     let configured = services::wallpaper::current_image(&config, None);
     let current = signal(services::wallpaper::assignment().global.or(configured));
     let current_sink = current.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         services::wallpaper::subscribe,
         move |assignment: services::wallpaper::Assignment| current_sink.set(assignment.global),
     );
@@ -261,7 +261,7 @@ fn wallpaper_tile(
 /// monitor they left at the office the moment they saved anything; only listing the configured ones would mean
 /// a screen can never get its first override from the UI, which is the whole of J9.
 fn monitor_keys(configured: &std::collections::HashMap<String, PathBuf>) -> Vec<String> {
-    let mut names: Vec<String> = platform_layershell::outputs()
+    let mut names: Vec<String> = platform_wayland::outputs()
         .into_iter()
         .filter_map(|output| output.name)
         .collect();

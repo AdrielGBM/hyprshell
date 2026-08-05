@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use platform_layershell::{LayerConfig, open_surface};
+use platform_wayland::{LayerConfig, open_surface};
 use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutScrollArea, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceToken, Text,
@@ -187,7 +187,7 @@ fn header(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 mod tests {
     use super::*;
     use config::Edge;
-    use platform_layershell::KeyboardInteractivity;
+    use platform_wayland::KeyboardInteractivity;
 
     fn config(edge: Edge) -> Config {
         Config {

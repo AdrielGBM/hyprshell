@@ -422,7 +422,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
                 available: seed.as_ref().is_some_and(|w| w.available),
                 detail: String::new(),
             });
-            platform_layershell::watch(network::subscribe_wifi, move |wifi: network::Wifi| {
+            platform_wayland::watch(network::subscribe_wifi, move |wifi: network::Wifi| {
                 let status = wifi.status();
                 state.set(TileState {
                     active: status.enabled,
@@ -436,7 +436,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             });
         }
         Quick::Bluetooth => {
-            platform_layershell::watch(bluetooth::subscribe, move |bt: bluetooth::Bluetooth| {
+            platform_wayland::watch(bluetooth::subscribe, move |bt: bluetooth::Bluetooth| {
                 let connected = bt.connected_count();
                 state.set(TileState {
                     active: bt.powered,
@@ -450,7 +450,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             });
         }
         Quick::Mic => {
-            platform_layershell::watch(volume::subscribe_mic, move |mic: volume::Volume| {
+            platform_wayland::watch(volume::subscribe_mic, move |mic: volume::Volume| {
                 state.set(TileState {
                     active: mic.muted,
                     available: true,
@@ -459,7 +459,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             });
         }
         Quick::Dnd => {
-            platform_layershell::watch(
+            platform_wayland::watch(
                 notifications::subscribe,
                 move |snapshot: notifications::SharedSnapshot| {
                     state.set(TileState {
@@ -471,7 +471,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             );
         }
         Quick::GameMode => {
-            platform_layershell::watch(gamemode::subscribe, move |mode: gamemode::GameMode| {
+            platform_wayland::watch(gamemode::subscribe, move |mode: gamemode::GameMode| {
                 state.set(TileState {
                     active: mode.active,
                     available: mode.available,
@@ -480,7 +480,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             });
         }
         Quick::Vpn => {
-            platform_layershell::watch(vpn::subscribe, move |vpn: vpn::Vpn| {
+            platform_wayland::watch(vpn::subscribe, move |vpn: vpn::Vpn| {
                 let name = vpn.active().map(|t| t.name.clone()).unwrap_or_default();
                 state.set(TileState {
                     active: vpn.is_connected(),
@@ -490,7 +490,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
             });
         }
         Quick::IdleInhibit => {
-            platform_layershell::watch(
+            platform_wayland::watch(
                 shell_state::subscribe,
                 move |persisted: shell_state::ShellState| {
                     state.set(TileState {
@@ -506,7 +506,7 @@ fn subscribe(quick: Quick, state: RwSignal<TileState>) {
                 .map(|c| c.recorder.clone())
                 .unwrap_or_default();
             let available = recorder::backend(&config).is_some();
-            platform_layershell::watch(recorder::subscribe, move |live: recorder::Recording| {
+            platform_wayland::watch(recorder::subscribe, move |live: recorder::Recording| {
                 state.set(TileState {
                     active: live.active,
                     available,

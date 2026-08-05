@@ -19,7 +19,7 @@ let load = signal(initial.cpu);
 let load_text = load.read_only();
 let load_tint = load.read_only();
 
-platform_layershell::watch(resources::subscribe, move |r: Resources| load.set(r.cpu));
+platform_wayland::watch(resources::subscribe, move |r: Resources| load.set(r.cpu));
 
 let fg = ui::module::module_fg();
 let fg_tint = fg.clone();

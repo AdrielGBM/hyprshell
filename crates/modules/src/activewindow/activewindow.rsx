@@ -29,7 +29,7 @@ let icon_name = signal(initial.class.clone());
 let title_view = title.read_only();
 let icon_view = icon_name.read_only();
 
-platform_layershell::watch(
+platform_wayland::watch(
     hyprland::subscribe_active_window,
     move |window: ActiveWindow| {
         title.set(text_for(&window, &config));

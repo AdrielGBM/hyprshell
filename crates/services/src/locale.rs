@@ -6,7 +6,7 @@
 use std::cell::Cell;
 use std::sync::Mutex;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 struct State {
     current: String,
@@ -74,7 +74,7 @@ pub fn attach(fallback: String) {
 pub fn follow_switches() {
     SUBSCRIBED.with(|done| {
         if !done.replace(true) {
-            platform_layershell::watch(subscribe, telar::set_locale);
+            platform_wayland::watch(subscribe, telar::set_locale);
         }
     });
 }

@@ -152,7 +152,7 @@ impl WallpaperApp {
         // Which slot holds the newest image. A plain `Cell`: it only ever changes on the driver thread, from
         // the consumer below, so a signal would buy reactivity that nothing reads.
         let showing_b = Rc::new(Cell::new(false));
-        platform_layershell::watch(
+        platform_wayland::watch(
             wallpaper::frames(self.output.clone(), initial),
             move |frame: Option<wallpaper::Frame>| {
                 // `None` is the producer's liveness heartbeat, not a wallpaper.
@@ -204,7 +204,7 @@ impl WallpaperApp {
 
     /// This screen's logical width, for how far a wipe has to travel.
     fn output_width(&self) -> f32 {
-        platform_layershell::outputs()
+        platform_wayland::outputs()
             .into_iter()
             .find(|out| out.name == self.output || self.output.is_none())
             .and_then(|out| out.logical_size)
@@ -339,7 +339,7 @@ fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let now = signal(chrono::Local::now().format(&format).to_string());
     let today = signal(chrono::Local::now().format(&date_format).to_string());
     let (tick_time, tick_date) = (now.clone(), today.clone());
-    platform_layershell::watch(clock::subscribe, move |at: clock::Now| {
+    platform_wayland::watch(clock::subscribe, move |at: clock::Now| {
         tick_time.set(at.format(&format).to_string());
         tick_date.set(at.format(&date_format).to_string());
     });
@@ -468,7 +468,7 @@ fn visualiser_row(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let bands = signal(start.bars.clone());
     let silent = signal(start.silent);
     let (next_bands, next_silent) = (bands.clone(), silent.clone());
-    platform_layershell::watch(
+    platform_wayland::watch(
         visualiser::subscribe,
         move |spectrum: visualiser::Spectrum| {
             next_bands.set(spectrum.bars);

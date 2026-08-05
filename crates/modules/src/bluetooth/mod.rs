@@ -32,7 +32,7 @@ pub fn chip() -> Result<Box<dyn LayoutItem>, LayoutError> {
             .unwrap_or_default(),
     );
     let sink = state.clone();
-    platform_layershell::watch(bluetooth::subscribe, move |bt| sink.set(bt.status()));
+    platform_wayland::watch(bluetooth::subscribe, move |bt| sink.set(bt.status()));
 
     let fg = module_fg();
     let glyph_state = state.read_only();
@@ -62,7 +62,7 @@ pub fn bluetooth_view(config: BluetoothConfig) -> Result<Box<dyn LayoutItem>, La
 
     let state = signal(bluetooth::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(bluetooth::subscribe, move |bt| sink.set(bt));
+    platform_wayland::watch(bluetooth::subscribe, move |bt| sink.set(bt));
 
     // Opening the panel is the gesture that means "find me a device", so it is also what starts looking. The
     // scan stops itself; see `bluetooth::set_discovering`.

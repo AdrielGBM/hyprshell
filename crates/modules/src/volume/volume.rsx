@@ -9,7 +9,7 @@ let state = signal(volume::current().unwrap_or(volume::Volume {
 }));
 let read = state.read_only();
 let fg = ui::module::module_fg();
-platform_layershell::watch(volume::subscribe, move |v: volume::Volume| state.set(v));
+platform_wayland::watch(volume::subscribe, move |v: volume::Volume| state.set(v));
 
 [view]
 icon_glyph name(move || glyph::volume(read.get()).to_string()) tint(move || fg.get()) size:(ui::module::icon_px())

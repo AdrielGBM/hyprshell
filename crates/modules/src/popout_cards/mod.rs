@@ -67,15 +67,15 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
     let state = signal(initial);
     let sink = state.clone();
     match side {
-        AudioSide::Output => platform_layershell::watch(volume::subscribe, move |v| sink.set(v)),
-        AudioSide::Input => platform_layershell::watch(volume::subscribe_mic, move |v| sink.set(v)),
+        AudioSide::Output => platform_wayland::watch(volume::subscribe, move |v| sink.set(v)),
+        AudioSide::Input => platform_wayland::watch(volume::subscribe_mic, move |v| sink.set(v)),
     }
 
     // Which device the level belongs to. The chip is one glyph for whatever happens to be default, and after a
     // headset is plugged in "is this the speakers or the headphones" is the question the hover is asked.
     let graph = signal(pipewire::current().unwrap_or_default());
     let graph_sink = graph.clone();
-    platform_layershell::watch(pipewire::subscribe, move |g| graph_sink.set(g));
+    platform_wayland::watch(pipewire::subscribe, move |g| graph_sink.set(g));
 
     let ceiling = config.audio.ceiling() as f32;
     let title = match side {
@@ -148,7 +148,7 @@ fn playing_label(graph: &pipewire::Graph) -> String {
 fn brightness_card(theme: NordTheme) -> Card {
     let level = signal(brightness::current().unwrap_or(0));
     let sink = level.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         brightness::subscribe,
         move |snapshot: brightness::Snapshot| {
             if let Some(percent) = snapshot.level() {
@@ -175,7 +175,7 @@ fn brightness_card(theme: NordTheme) -> Card {
 fn battery_card(theme: NordTheme) -> Card {
     let details = signal(battery::details());
     let sink = details.clone();
-    platform_layershell::watch(battery::stream_details, move |d| sink.set(Some(d)));
+    platform_wayland::watch(battery::stream_details, move |d| sink.set(Some(d)));
 
     let level = derive(details.clone(), |d| d.map(|d| d.level).unwrap_or(0));
     let charging = derive(details.clone(), |d| {
@@ -249,11 +249,11 @@ fn duration_text(secs: i64) -> Option<String> {
 fn network_card() -> Card {
     let state = signal(network::read());
     let sink = state.clone();
-    platform_layershell::watch(network::subscribe, move |net| sink.set(net));
+    platform_wayland::watch(network::subscribe, move |net| sink.set(net));
 
     let wifi = signal(network::current_wifi().unwrap_or_default());
     let wifi_sink = wifi.clone();
-    platform_layershell::watch(network::subscribe_wifi, move |w| wifi_sink.set(w));
+    platform_wayland::watch(network::subscribe_wifi, move |w| wifi_sink.set(w));
 
     Card::titled(telar::t!("popout.network"))
         .icon(derive(state.clone(), |net| glyph::network(net).to_string()))
@@ -300,7 +300,7 @@ fn kind_label(kind: network::NetworkKind) -> String {
 fn bluetooth_card(theme: NordTheme) -> Card {
     let state = signal(bluetooth::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(bluetooth::subscribe, move |bt| sink.set(bt));
+    platform_wayland::watch(bluetooth::subscribe, move |bt| sink.set(bt));
 
     Card::titled(telar::t!("bluetooth.title"))
         .icon(derive(state.clone(), |bt| {
@@ -360,7 +360,7 @@ fn keyboard_card() -> Card {
         .unwrap_or_default();
     let layout = signal(initial);
     let sink = layout.clone();
-    platform_layershell::watch(hyprland::subscribe_keyboard, move |l| sink.set(l));
+    platform_wayland::watch(hyprland::subscribe_keyboard, move |l| sink.set(l));
 
     Card::titled(telar::t!("popout.keyboard"))
         .icon(fixed_text("keyboard"))
@@ -377,7 +377,7 @@ fn keyboard_card() -> Card {
 fn lock_card() -> Card {
     let keys = signal(lockkeys::current().unwrap_or_else(lockkeys::read));
     let sink = keys.clone();
-    platform_layershell::watch(lockkeys::subscribe, move |k| sink.set(k));
+    platform_wayland::watch(lockkeys::subscribe, move |k| sink.set(k));
 
     Card::titled(telar::t!("popout.lock_keys"))
         .icon(derive(keys.clone(), |k| {
@@ -401,7 +401,7 @@ fn window_card() -> Card {
         .unwrap_or_default();
     let window = signal(initial);
     let sink = window.clone();
-    platform_layershell::watch(hyprland::subscribe_active_window, move |w| sink.set(w));
+    platform_wayland::watch(hyprland::subscribe_active_window, move |w| sink.set(w));
 
     Card::new(derive(window.clone(), |w| {
         let title = w.title.trim();
@@ -418,7 +418,7 @@ fn window_card() -> Card {
 fn media_card() -> Card {
     let player = signal(mpris::current().unwrap_or_default());
     let sink = player.clone();
-    platform_layershell::watch(mpris::subscribe, move |p| sink.set(p));
+    platform_wayland::watch(mpris::subscribe, move |p| sink.set(p));
 
     Card::new(derive(player.clone(), |p| {
         let title = p.title.trim();
@@ -487,7 +487,7 @@ fn cpu_card(theme: NordTheme) -> Card {
 fn gpu_card(theme: NordTheme) -> Card {
     let state = signal(gpu::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(gpu::subscribe, move |g| sink.set(g));
+    platform_wayland::watch(gpu::subscribe, move |g| sink.set(g));
 
     Card::titled(telar::t!("sysinfo.gpu"))
         .icon(fixed_text(glyph::gpu()))
@@ -637,7 +637,7 @@ fn sensor_label(resources: Option<&resources::Resources>, wanted: &str) -> Strin
 fn netspeed_card() -> Card {
     let state = signal(netspeed::current());
     let sink = state.clone();
-    platform_layershell::watch(netspeed::subscribe, move |s| sink.set(Some(s)));
+    platform_wayland::watch(netspeed::subscribe, move |s| sink.set(Some(s)));
 
     Card::titled(telar::t!("popout.throughput"))
         .icon(fixed_text("arrow-down-up"))
@@ -680,7 +680,7 @@ fn disk_row(state: RwSignal<Option<resources::Resources>>) -> Live<String> {
 fn resource_signal() -> RwSignal<Option<resources::Resources>> {
     let state = signal(resources::current());
     let sink = state.clone();
-    platform_layershell::watch(resources::subscribe, move |r| sink.set(Some(r)));
+    platform_wayland::watch(resources::subscribe, move |r| sink.set(Some(r)));
     state
 }
 

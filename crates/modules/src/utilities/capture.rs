@@ -76,13 +76,13 @@ pub fn capture_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError
 fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let live = signal(recorder::current());
     let sink = live.clone();
-    platform_layershell::watch(recorder::subscribe, move |state: Recording| sink.set(state));
+    platform_wayland::watch(recorder::subscribe, move |state: Recording| sink.set(state));
 
     // The clock is what makes the readout move: a recording's elapsed time changes with the wall clock, not with
     // anything the recorder publishes.
     let tick = signal(0u32);
     let ticker = tick.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         services::clock::subscribe,
         move |_: services::clock::Now| ticker.set(ticker.peek().wrapping_add(1)),
     );
@@ -175,7 +175,7 @@ fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 fn last_capture(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let last = signal(screenshot::current());
     let sink = last.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         screenshot::subscribe,
         move |shot: Option<Result<Shot, String>>| sink.set(shot),
     );
@@ -226,7 +226,7 @@ pub fn recordings_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutEr
     // its state change is the refresh signal, rather than a watch on the directory.
     let refresh = entries.clone();
     let refresh_dir = dir.clone();
-    platform_layershell::watch(recorder::subscribe, move |_: Recording| {
+    platform_wayland::watch(recorder::subscribe, move |_: Recording| {
         refresh.set(recorder::recordings(&refresh_dir, limit));
     });
 

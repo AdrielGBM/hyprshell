@@ -13,7 +13,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use platform_layershell::IdleHandle;
+use platform_wayland::IdleHandle;
 
 use config::IdleConfig;
 
@@ -112,7 +112,7 @@ pub fn reconcile() {
         note_armed(false);
         return;
     }
-    if !platform_layershell::idle_supported() {
+    if !platform_wayland::idle_supported() {
         tracing::warn!(
             "this compositor does not implement ext-idle-notify-v1; [idle] does nothing"
         );
@@ -180,7 +180,7 @@ fn arm(stage: &config::IdleStage, respect_inhibitors: bool) -> Option<IdleHandle
         }
         run(&return_action);
     };
-    platform_layershell::idle_notification(stage.duration(), respect_inhibitors, on_idle, on_resume)
+    platform_wayland::idle_notification(stage.duration(), respect_inhibitors, on_idle, on_resume)
 }
 
 /// Runs a stage's action through the shell's own command surface, so an idle timeout and a keybind reach the
@@ -201,18 +201,18 @@ fn ensure_inhibit_watches(config: &IdleConfig) {
     if WATCHING.with(|watching| watching.replace(true)) {
         return;
     }
-    platform_layershell::watch(
+    platform_wayland::watch(
         crate::state::subscribe,
         |_state: crate::state::ShellState| reconcile(),
     );
     if config.inhibit_when_audio {
-        platform_layershell::watch(
+        platform_wayland::watch(
             crate::pipewire::subscribe,
             |_graph: crate::pipewire::Graph| reconcile(),
         );
     }
     if config.inhibit_when_charging {
-        platform_layershell::watch(
+        platform_wayland::watch(
             crate::battery::subscribe,
             |_battery: crate::battery::Battery| reconcile(),
         );

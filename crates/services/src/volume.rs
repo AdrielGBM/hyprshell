@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use util::deps::{self, Dep};
 
 use crate::pipewire::{self, Graph, Node, NodeKind};

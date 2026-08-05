@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use crate::state;
 use config::{Config, WallpaperConfig};
@@ -234,7 +234,7 @@ pub fn assignment() -> Assignment {
     ASSIGNED.get()
 }
 
-/// Registers `tx` for runtime wallpaper changes. Pass to `platform_layershell::watch` from a wallpaper surface.
+/// Registers `tx` for runtime wallpaper changes. Pass to `platform_wayland::watch` from a wallpaper surface.
 pub fn subscribe(tx: EventSender<Assignment>) {
     ASSIGNED.subscribe(tx);
 }
@@ -306,7 +306,7 @@ pub struct Frame {
 /// change happened to reap them.
 const LIVENESS: Duration = Duration::from_secs(5);
 
-/// The producer a wallpaper surface hands to `platform_layershell::watch`: waits for the runtime choice to
+/// The producer a wallpaper surface hands to `platform_wayland::watch`: waits for the runtime choice to
 /// change, decodes what `output` should now be showing, and delivers it ready to draw. `None` is the liveness
 /// heartbeat and means nothing changed.
 ///

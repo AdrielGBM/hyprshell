@@ -15,7 +15,7 @@ use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use util::deps::{self, Dep};
 
 use crate::screenshot::Area;

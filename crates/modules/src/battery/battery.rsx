@@ -12,7 +12,7 @@ let charging_glyph = charging.read_only();
 let fg = ui::module::module_fg();
 let theme = use_theme::<NordTheme>();
 // Subscribe to the single shared battery source (UPower sub-second on plug/unplug), no-op headless.
-platform_layershell::watch(battery::subscribe, move |b| {
+platform_wayland::watch(battery::subscribe, move |b| {
     level.set(b.level);
     charging.set(b.charging);
 });

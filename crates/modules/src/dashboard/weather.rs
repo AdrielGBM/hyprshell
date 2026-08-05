@@ -39,7 +39,7 @@ pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, La
 
     let state = signal(weather::current().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(weather::subscribe, move |w| sink.set(w));
+    platform_wayland::watch(weather::subscribe, move |w| sink.set(w));
     let unit = signal(config.temperature.unit);
 
     card::page(vec![

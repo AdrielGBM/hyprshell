@@ -46,7 +46,7 @@ pub(crate) fn apps_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
 
     let installed = signal(apps::all());
     let sink = installed.clone();
-    platform_layershell::watch(apps::subscribe, move |apps| sink.set(apps));
+    platform_wayland::watch(apps::subscribe, move |apps| sink.set(apps));
 
     let search = text_field(
         || telar::t!("settings.field.search"),

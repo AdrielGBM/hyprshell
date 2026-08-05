@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use platform_layershell::watch;
+use platform_wayland::watch;
 
 use config::Config;
 use services::toaster::{self, Event};
@@ -65,7 +65,7 @@ pub fn watch_events(config: &Config) {
 fn on_change<T, S>(subscribe: S, report: impl Fn(&T, &T) + 'static)
 where
     T: Clone + PartialEq + Send + 'static,
-    S: FnOnce(platform_layershell::EventSender<T>) + Send + 'static,
+    S: FnOnce(platform_wayland::EventSender<T>) + Send + 'static,
 {
     let last: Rc<RefCell<Option<T>>> = Rc::new(RefCell::new(None));
     watch(subscribe, move |current: T| {

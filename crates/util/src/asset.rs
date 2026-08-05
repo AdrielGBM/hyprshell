@@ -15,7 +15,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use platform_layershell::{EventSender, watch};
+use platform_wayland::{EventSender, watch};
 use telar::{ReadSignal, RwSignal, signal};
 
 /// Where one request has got to.

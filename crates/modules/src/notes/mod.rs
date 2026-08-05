@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use platform_layershell::timeout;
+use platform_wayland::timeout;
 use telar::{
     AlignItems, Container, Effect, Input, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     NodeId, ReactiveList, ReadSignal, Rect, RectStyle, RwSignal, SizeDimension, StyledContainer,

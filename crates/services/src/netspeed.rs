@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use crate::resources::History;
 use util::broadcast::{Broadcast, Service};

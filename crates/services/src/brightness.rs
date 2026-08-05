@@ -18,7 +18,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use util::deps::{self, Dep};
 use zbus::blocking::Connection;
 

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use surfaces::shell;
 use util::paths;
@@ -59,7 +59,7 @@ pub(crate) fn request_quit() {
 pub use services::command::Request;
 
 /// The socket producer: binds, then hands every request line to the driver thread and writes back its reply.
-/// Runs on its own thread via `platform_layershell::watch`, so a slow or hostile client never blocks the UI.
+/// Runs on its own thread via `platform_wayland::watch`, so a slow or hostile client never blocks the UI.
 pub fn serve(tx: EventSender<Request>) {
     let path = socket_path();
     paths::ensure_dir(path.parent().map(PathBuf::from).unwrap_or_default());

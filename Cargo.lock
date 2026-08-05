@@ -1212,7 +1212,7 @@ dependencies = [
  "hyprshell-surfaces",
  "hyprshell-ui",
  "hyprshell-util",
- "platform-layershell",
+ "platform-wayland",
  "telar",
  "tracing",
  "tracing-appender",
@@ -1226,7 +1226,7 @@ dependencies = [
  "chrono",
  "hyprshell-util",
  "image",
- "platform-layershell",
+ "platform-wayland",
  "serde",
  "serde_json",
  "telar",
@@ -1245,7 +1245,7 @@ dependencies = [
  "hyprshell-surfaces",
  "hyprshell-ui",
  "hyprshell-util",
- "platform-layershell",
+ "platform-wayland",
  "serde",
  "telar",
  "toml",
@@ -1262,7 +1262,7 @@ dependencies = [
  "image",
  "libc",
  "libloading 0.9.0",
- "platform-layershell",
+ "platform-wayland",
  "rustfft",
  "rustix 1.1.4",
  "serde",
@@ -1283,7 +1283,7 @@ dependencies = [
  "hyprshell-surfaces",
  "hyprshell-ui",
  "hyprshell-util",
- "platform-layershell",
+ "platform-wayland",
  "serde",
  "telar",
  "toml",
@@ -1299,7 +1299,7 @@ dependencies = [
  "hyprshell-services",
  "hyprshell-ui",
  "hyprshell-util",
- "platform-layershell",
+ "platform-wayland",
  "telar",
  "telar-platform-headless",
  "toml",
@@ -1314,7 +1314,7 @@ dependencies = [
  "hyprshell-services",
  "hyprshell-util",
  "image",
- "platform-layershell",
+ "platform-wayland",
  "serde",
  "serde_json",
  "telar",
@@ -1329,7 +1329,7 @@ version = "0.1.0"
 dependencies = [
  "image",
  "libloading 0.9.0",
- "platform-layershell",
+ "platform-wayland",
  "telar",
  "tracing",
  "zbus",
@@ -2286,7 +2286,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
-name = "platform-layershell"
+name = "platform-wayland"
 version = "0.1.0"
 dependencies = [
  "raw-window-handle",

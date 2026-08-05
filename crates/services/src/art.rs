@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use platform_layershell::{EventSender, watch};
+use platform_wayland::{EventSender, watch};
 use telar::{ReadSignal, RwSignal, signal};
 
 use util::paths;

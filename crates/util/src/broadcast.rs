@@ -5,13 +5,13 @@
 //! reading out to all of them. N bars therefore cost one connection and one parse per change, not N, and a
 //! surface never runs a timer of its own.
 //!
-//! A module consumes one by handing [`Service::subscribe`] to `platform_layershell::watch`, which delivers each
+//! A module consumes one by handing [`Service::subscribe`] to `platform_wayland::watch`, which delivers each
 //! value on that surface's own loop thread and unsubscribes it when the surface goes away.
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 /// The current reading plus the surfaces listening for the next one.
 pub struct Broadcast<T> {
@@ -88,7 +88,7 @@ impl<T: Clone + Send + 'static> Service<T> {
     }
 
     /// Registers `tx` for live readings, sending the current one immediately so the surface starts in sync
-    /// rather than blank until the next change. Pass this as the producer to `platform_layershell::watch`.
+    /// rather than blank until the next change. Pass this as the producer to `platform_wayland::watch`.
     pub fn subscribe(&'static self, tx: EventSender<T>) {
         let service = self.started();
         if let Some(value) = service.current()

@@ -18,7 +18,7 @@ const ASSUMED_OUTPUT: (f32, f32) = (1920.0, 1080.0);
 
 /// The logical size of the monitor this bar is on, for keeping an anchored surface on screen.
 pub fn output_size(env: &SurfaceEnv) -> (f32, f32) {
-    let outputs = platform_layershell::outputs();
+    let outputs = platform_wayland::outputs();
     let matched = match &env.output {
         Some(name) => outputs.iter().find(|o| o.name.as_deref() == Some(name)),
         None => outputs.first(),

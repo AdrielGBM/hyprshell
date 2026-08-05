@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, MessageIterator, Proxy};
 use zbus::message::Type as MessageType;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
@@ -111,7 +111,7 @@ fn command_for(id: &str) -> Option<&'static str> {
         .map(|s| s.command)
 }
 
-/// The producer for `platform_layershell::watch`: registers the shortcuts, then turns every `Activated` signal
+/// The producer for `platform_wayland::watch`: registers the shortcuts, then turns every `Activated` signal
 /// into the same [`Request`] the socket would have delivered, so a shortcut and a `hyprshell …` invocation run
 /// through one code path and cannot drift apart.
 pub fn serve(tx: EventSender<Request>) {

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use config::Config;
-use platform_layershell::LayerShellPlatform;
+use platform_wayland::LayerShellPlatform;
 use telar::{App, AppPathsProvider, run_multi_with_platform};
 
 use surfaces::reconcile::{Content, Surfaces};
@@ -123,7 +123,7 @@ pub fn run() {
     // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
     // (via `setup_shell`, deferred with `run_on_start`) and reconciled on config change, so a reload never tears
     // down the connection, the popup, or the shared services — only the bars/wallpaper/frame that changed.
-    platform_layershell::run_on_start(move || setup_shell(config_path));
+    platform_wayland::run_on_start(move || setup_shell(config_path));
     if let Err(e) = run_multi_with_platform(
         LayerShellPlatform::new(),
         Vec::new(),
@@ -143,7 +143,7 @@ fn setup_shell(config_path: PathBuf) {
     install_hooks();
     let config = Arc::new(Config::load_or_default(&config_path));
     apply_config(&config);
-    if platform_layershell::outputs().is_empty() {
+    if platform_wayland::outputs().is_empty() {
         eprintln!("hyprshell: no Wayland outputs found (is a compositor running?)");
         std::process::exit(1);
     }
@@ -184,7 +184,7 @@ fn setup_shell(config_path: PathBuf) {
             surfaces.borrow_mut().reconcile(
                 &config_path,
                 &config,
-                &platform_layershell::outputs(),
+                &platform_wayland::outputs(),
                 content,
             );
             if content == Content::Rebuild {
@@ -205,7 +205,7 @@ fn setup_shell(config_path: PathBuf) {
     surfaces.borrow_mut().reconcile(
         &config_path,
         &config,
-        &platform_layershell::outputs(),
+        &platform_wayland::outputs(),
         Content::Rebuild,
     );
 
@@ -231,37 +231,37 @@ fn setup_shell(config_path: PathBuf) {
 
     // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
     // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
-    platform_layershell::watch(crate::core::ipc::serve, crate::core::ipc::handle);
+    platform_wayland::watch(crate::core::ipc::serve, crate::core::ipc::handle);
     // The same request path as the socket, fed by the desktop portal instead: a bound shortcut runs exactly what `hyprshell …` would, without the process launch per keypress. Silently absent with no portal.
-    platform_layershell::watch(services::shortcuts::serve, crate::core::ipc::handle);
+    platform_wayland::watch(services::shortcuts::serve, crate::core::ipc::handle);
 
     // A wallpaper-derived palette landing. At app level because it rebuilds every surface, and because the
     // extraction outlives any one of them: a scheme asked for while a panel was open must still arrive after
     // that panel has closed. The first delivery is what startup already resolved, so it reloads nothing.
-    platform_layershell::watch(config::scheme::subscribe, config::scheme::on_change);
+    platform_wayland::watch(config::scheme::subscribe, config::scheme::on_change);
 
     // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
     // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live
     // config, which only the driver thread can read. Costs nothing on a desktop — the producer retires when
     // there is no battery to read.
-    platform_layershell::watch(services::battery::subscribe, services::battery::on_reading);
+    platform_wayland::watch(services::battery::subscribe, services::battery::on_reading);
 
     // The session lock. All three at app level and in this order: the performer must be listening before
     // anything can ask for a lock, and logind's signals are how `loginctl lock-session` and a suspend reach it.
     // None of them is torn down by a reload — a lock that dropped when the user saved their config would put
     // the desktop back on screen.
-    platform_layershell::watch(services::lock::subscribe, services::lock::on_state);
-    platform_layershell::watch(services::session::watch, services::session::on_event);
+    platform_wayland::watch(services::lock::subscribe, services::lock::on_state);
+    platform_wayland::watch(services::session::watch, services::session::on_event);
     // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
     // so a saved `[idle]` re-arms without a second entry point that could disagree with it.
 
-    platform_layershell::watch(
+    platform_wayland::watch(
         move |tx| watch_config_changes(config_path, tx),
         move |_| on_config_change(),
     );
     // A monitor arriving or leaving changes which surfaces exist and nothing about what they draw, so the
     // screens that were already there keep the trees they have.
-    platform_layershell::on_outputs_changed(move || reconcile(Content::Keep));
+    platform_wayland::on_outputs_changed(move || reconcile(Content::Keep));
 }
 
 /// The three answers the layers below cannot reach on their own, handed to them once on the driver thread.
@@ -282,7 +282,7 @@ fn install_hooks() {
     );
     services::lock::set_session_opener(|| {
         let config = config::config();
-        platform_layershell::lock_session(move |output| modules::lock::LockApp {
+        platform_wayland::lock_session(move |output| modules::lock::LockApp {
             config: config.clone(),
             output,
         })
@@ -343,7 +343,7 @@ fn report_config_error(error: &config::LoadError) {
 
 /// The config-watch producer for `watch`: polls the config's mtimes (dependency-free, naturally debounced) and
 /// sends a tick on each change so the driver thread reconciles the surface set.
-fn watch_config_changes(path: PathBuf, tx: platform_layershell::EventSender<()>) {
+fn watch_config_changes(path: PathBuf, tx: platform_wayland::EventSender<()>) {
     let mut last = config_fingerprint(&path);
     loop {
         std::thread::sleep(Duration::from_millis(500));

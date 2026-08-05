@@ -18,7 +18,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, request_close};
+use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, request_close};
 use telar::{
     AlignItems, App, Canvas, Color, Component, Container, Image, ImageData, ImageFilter,
     JustifyContent, Key, LayoutError, LayoutItem, LayoutStyle, NamedKey, ObjectFit, PathData,
@@ -116,7 +116,7 @@ struct Screen {
 }
 
 fn output_box(output: Option<&str>) -> Screen {
-    let outputs = platform_layershell::outputs();
+    let outputs = platform_wayland::outputs();
     let found =
         output.and_then(|name| outputs.iter().find(|out| out.name.as_deref() == Some(name)));
     match found.or_else(|| outputs.first()) {
@@ -286,7 +286,7 @@ fn finish(
     });
     request_close();
     let then = Rc::clone(then);
-    platform_layershell::timeout(std::time::Duration::from_millis(80), move || {
+    platform_wayland::timeout(std::time::Duration::from_millis(80), move || {
         then(Picked {
             area: global,
             frozen: cropped,
@@ -491,7 +491,7 @@ fn snapped(drawn: Area, rects: &[Area]) -> Area {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platform_layershell::{KeyboardInteractivity, Layer};
+    use platform_wayland::{KeyboardInteractivity, Layer};
 
     fn rects() -> Vec<Area> {
         vec![

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Duration;
 
-use platform_layershell::{EventSender, timeout, watch};
+use platform_wayland::{EventSender, timeout, watch};
 use serde::Deserialize;
 use telar::{
     AssetSource, AssetState, Color, LayoutError, LayoutItem, LayoutStyle, ObjectFit, ReactiveList,

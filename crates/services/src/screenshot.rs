@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use platform_layershell::{CaptureArea, EventSender};
+use platform_wayland::{CaptureArea, EventSender};
 use util::deps::{self, Dep};
 
 use config::ScreenshotConfig;
@@ -125,7 +125,7 @@ pub fn current() -> Option<Result<Shot, String>> {
 /// Whether this machine can take a screenshot at all: the protocol, or `grim` on the path. Read before offering
 /// the gesture, so a missing dependency greys a button out instead of failing a keypress.
 pub fn supported() -> bool {
-    platform_layershell::screencopy_supported() || has_grim()
+    platform_wayland::screencopy_supported() || has_grim()
 }
 
 fn has_grim() -> bool {
@@ -262,7 +262,7 @@ impl Image {
 /// A mixed-scale layout is the one case this can only approximate — the compositor reports an integer scale per
 /// output, so two screens at 1× and 1.5× have no common pixel grid to compose onto.
 fn output_rects() -> Vec<(String, Area, i32)> {
-    platform_layershell::outputs()
+    platform_wayland::outputs()
         .into_iter()
         .filter_map(|out| {
             let name = out.name?;
@@ -291,7 +291,7 @@ fn capture_pixels(request: &Request) -> Result<Image, String> {
 }
 
 fn capture_output(name: &str, cursor: bool) -> Result<Image, String> {
-    let capture = platform_layershell::capture(Some(name), CaptureArea::Output, cursor)
+    let capture = platform_wayland::capture(Some(name), CaptureArea::Output, cursor)
         .map_err(|e| e.to_string())?;
     Ok(Image {
         width: capture.width,
@@ -305,7 +305,7 @@ fn capture_output(name: &str, cursor: bool) -> Result<Image, String> {
 fn compose_screen(cursor: bool) -> Result<Image, String> {
     let mut parts = Vec::new();
     for (name, area, scale) in output_rects() {
-        let capture = platform_layershell::capture(Some(&name), CaptureArea::Output, cursor)
+        let capture = platform_wayland::capture(Some(&name), CaptureArea::Output, cursor)
             .map_err(|e| format!("{name}: {e}"))?;
         parts.push(Placed {
             x: area.x * scale,
@@ -333,7 +333,7 @@ fn capture_area(area: Area, cursor: bool) -> Result<Image, String> {
         .into_iter()
         .find(|(_, output, _)| output.contains(&area))
     {
-        let capture = platform_layershell::capture(
+        let capture = platform_wayland::capture(
             Some(&name),
             CaptureArea::Region {
                 x: area.x - output.x,

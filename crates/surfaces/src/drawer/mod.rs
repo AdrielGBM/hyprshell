@@ -54,7 +54,7 @@ pub fn set_drawer_ctx(module: String, drawer: DrawerConfig, radius: f32) {
 /// entrance reversed rather than a second animation that has to be kept in step with the first.
 ///
 /// The exit only reaches the screen because the driver holds a closing surface mapped for as long as
-/// [`on_close`](platform_layershell::on_close) says to. Without that it would animate a surface that was torn
+/// [`on_close`](platform_wayland::on_close) says to. Without that it would animate a surface that was torn
 /// down on the loop's next turn, which is exactly what this could not do before.
 ///
 /// Constructed away from its goal and retargeted at once, never at the goal: an `Animated` born settled never
@@ -80,7 +80,7 @@ pub fn panel_transition(
         progress.retarget(0.0);
         progress
     });
-    platform_layershell::on_close(tween.duration, {
+    platform_wayland::on_close(tween.duration, {
         let progress = progress.clone();
         move || progress.retarget(1.0)
     });

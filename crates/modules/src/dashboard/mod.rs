@@ -17,7 +17,7 @@ mod weather;
 
 use std::sync::Arc;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
@@ -80,7 +80,7 @@ pub fn dashboard_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     }
     let sink = active.clone();
     let offered = tabs.clone();
-    platform_layershell::watch(subscribe_tab, move |tab| {
+    platform_wayland::watch(subscribe_tab, move |tab| {
         if offered.contains(&tab) {
             sink.set(tab);
         }

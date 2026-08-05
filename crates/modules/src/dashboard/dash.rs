@@ -37,7 +37,7 @@ fn clock_card(config: ClockConfig, theme: NordTheme) -> Result<Box<dyn LayoutIte
     let for_tick = config.clone();
     let now = signal(Local::now());
     let sink = now.clone();
-    platform_layershell::watch(clock::subscribe, move |t| sink.set(t));
+    platform_wayland::watch(clock::subscribe, move |t| sink.set(t));
 
     let time = derive(now.clone(), move |t| {
         t.format(for_tick.time_format()).to_string()
@@ -303,7 +303,7 @@ fn user_card(
     // second boundary is already being published to every surface.
     let now = signal(Local::now());
     let sink = now.clone();
-    platform_layershell::watch(clock::subscribe, move |t| sink.set(t));
+    platform_wayland::watch(clock::subscribe, move |t| sink.set(t));
     let uptime = derive(now, |_| match read_uptime() {
         Some(seconds) => telar::t!("dashboard.uptime", time = duration_label(seconds)),
         None => telar::t!("sysinfo.no_reading"),

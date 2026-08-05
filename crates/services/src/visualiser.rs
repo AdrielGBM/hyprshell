@@ -17,7 +17,7 @@ use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use rustfft::num_complex::Complex32;
 use util::deps::{self, Dep};
 

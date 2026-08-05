@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, fdo::PropertiesProxy};
 
 use config::BatteryWarning;

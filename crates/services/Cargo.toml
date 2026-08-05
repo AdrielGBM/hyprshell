@@ -5,7 +5,7 @@ version.workspace = true
 
 [dependencies]
 config = { workspace = true }
-platform-layershell = { workspace = true }
+platform-wayland = { workspace = true }
 telar = { workspace = true }
 util = { workspace = true }
 chrono = { workspace = true }

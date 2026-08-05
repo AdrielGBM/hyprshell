@@ -27,7 +27,7 @@ let load = signal(initial.usage);
 let load_text_source = load.read_only();
 let load_tint = load.read_only();
 
-platform_layershell::watch(gpu::subscribe, move |g: Gpu| load.set(g.usage));
+platform_wayland::watch(gpu::subscribe, move |g: Gpu| load.set(g.usage));
 
 let fg = ui::module::module_fg();
 let fg_tint = fg.clone();

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use util::broadcast::Store;
 

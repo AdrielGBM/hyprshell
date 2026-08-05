@@ -13,7 +13,7 @@
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
-use platform_layershell::{EventSender, LockHandle};
+use platform_wayland::{EventSender, LockHandle};
 
 use crate::pam::{self, AuthError};
 use util::broadcast::Store;
@@ -154,7 +154,7 @@ fn open_session() -> Option<LockHandle> {
 /// Whether this machine can lock at all: the compositor implements the protocol and PAM will load. Read on the
 /// driver thread — `lock_supported` is answered by the driver's own view of the compositor's globals.
 pub fn can_lock() -> Result<(), String> {
-    if !platform_layershell::lock_supported() {
+    if !platform_wayland::lock_supported() {
         return Err("this compositor does not implement ext-session-lock-v1".to_string());
     }
     let library = config::config()
@@ -169,7 +169,7 @@ pub fn can_lock() -> Result<(), String> {
 }
 
 /// The performer: reconciles the compositor's lock with what [`LockState`] asks for. Registered once at
-/// startup with `platform_layershell::watch(lock::subscribe, lock::on_state)`, so it runs on the driver
+/// startup with `platform_wayland::watch(lock::subscribe, lock::on_state)`, so it runs on the driver
 /// thread — the only one that may open a surface.
 pub fn on_state(state: LockState) {
     let held = HANDLE.with(|handle| handle.borrow().is_some());
@@ -228,7 +228,7 @@ fn arm_confirmation_poll() {
 }
 
 fn schedule_confirmation_poll() {
-    platform_layershell::timeout(CONFIRM_POLL, || {
+    platform_wayland::timeout(CONFIRM_POLL, || {
         let verdict = HANDLE.with(|slot| {
             slot.borrow()
                 .as_ref()

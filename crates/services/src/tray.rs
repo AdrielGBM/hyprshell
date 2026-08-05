@@ -17,7 +17,7 @@ use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, MessageIterator, fdo::DBusProxy, fdo::PropertiesProxy};
 use zbus::message::Type as MessageType;
 use zbus::names::BusName;

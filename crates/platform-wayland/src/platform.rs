@@ -1652,7 +1652,7 @@ impl PointerHandler for Driver {
                     };
                     // Whether a press reached a surface at all is the one thing that distinguishes "our input
                     // region is wrong" from "the compositor acted on an event it also delivered to us". Logged
-                    // at debug so `RUST_LOG=platform_layershell=debug` can answer it without a custom build.
+                    // at debug so `RUST_LOG=platform_wayland=debug` can answer it without a custom build.
                     tracing::debug!(
                         "pointer press {button:?} at ({x:.0},{y:.0}) delivered to surface {:?}",
                         self.surface_namespace(&id)

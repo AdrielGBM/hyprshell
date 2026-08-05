@@ -549,7 +549,7 @@ fn library() -> telar::ReadSignal<Vec<wallpaper::Entry>> {
         return images.read_only();
     }
     let sink = images.clone();
-    platform_layershell::watch(wallpaper::subscribe_library, move |entries| {
+    platform_wayland::watch(wallpaper::subscribe_library, move |entries| {
         sink.set(entries)
     });
     images.read_only()

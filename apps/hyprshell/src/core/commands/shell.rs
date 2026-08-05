@@ -35,7 +35,7 @@ pub(crate) const SHELL: Target = Target {
             args: "",
             help: "list the compositor's monitors",
             run: |_| {
-                let names: Vec<String> = platform_layershell::outputs()
+                let names: Vec<String> = platform_wayland::outputs()
                     .into_iter()
                     .filter_map(|o| o.name)
                     .collect();

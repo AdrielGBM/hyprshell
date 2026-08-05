@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, watch};
+use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, watch};
 use telar::{
     AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
     LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
@@ -213,11 +213,11 @@ fn fullscreen_focus(cfg: &NotificationsConfig) -> Option<Memo<bool>> {
     let clients = signal(Vec::<Client>::new());
     let active = signal(ActiveWindow::default());
     let publish_clients = clients.clone();
-    platform_layershell::watch(hyprland::subscribe_clients, move |list: Vec<Client>| {
+    platform_wayland::watch(hyprland::subscribe_clients, move |list: Vec<Client>| {
         publish_clients.set(list)
     });
     let publish_active = active.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         hyprland::subscribe_active_window,
         move |window: ActiveWindow| publish_active.set(window),
     );
@@ -525,7 +525,7 @@ fn popup_content(
     let snapshot = signal(Arc::new(Snapshot::default()));
     let setter = snapshot.clone();
     // The producer hands its sender to the daemon and returns; the daemon then pushes snapshots here, updated on this surface's loop.
-    platform_layershell::watch(notifications::subscribe, move |snap: SharedSnapshot| {
+    platform_wayland::watch(notifications::subscribe, move |snap: SharedSnapshot| {
         setter.set(snap)
     });
     let fullscreen = fullscreen_focus(&cfg);
@@ -690,7 +690,7 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let dnd = signal(false);
     let unread_read = unread.read_only();
     let dnd_read = dnd.read_only();
-    platform_layershell::watch(notifications::subscribe, move |snap: SharedSnapshot| {
+    platform_wayland::watch(notifications::subscribe, move |snap: SharedSnapshot| {
         unread.set(snap.unread);
         dnd.set(snap.dnd);
     });
@@ -745,7 +745,7 @@ pub fn bell_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let snapshot = signal(notifications::snapshot_now().unwrap_or_default());
     let setter = snapshot.clone();
-    platform_layershell::watch(notifications::subscribe, move |snap: SharedSnapshot| {
+    platform_wayland::watch(notifications::subscribe, move |snap: SharedSnapshot| {
         setter.set(snap)
     });
     let read = snapshot.read_only();

@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use platform_layershell::{Layer, LayerConfig, OutputDescriptor, SurfaceHandle};
+use platform_wayland::{Layer, LayerConfig, OutputDescriptor, SurfaceHandle};
 
 use crate::bar::BarApp;
 use crate::frame::FrameApp;
@@ -190,8 +190,8 @@ impl Live {
         let config = config::LiveConfig::new(config);
         let output = key.output.clone();
         let handle = match key.role {
-            Role::Reserve(_) => platform_layershell::open_reservation(layer.clone()),
-            Role::Bar(edge) => platform_layershell::open_surface(
+            Role::Reserve(_) => platform_wayland::open_reservation(layer.clone()),
+            Role::Bar(edge) => platform_wayland::open_surface(
                 layer.clone(),
                 BarApp {
                     config: config.clone(),
@@ -199,14 +199,14 @@ impl Live {
                     output,
                 },
             ),
-            Role::Wallpaper => platform_layershell::open_surface(
+            Role::Wallpaper => platform_wayland::open_surface(
                 layer.clone(),
                 WallpaperApp {
                     config: config.clone(),
                     output,
                 },
             ),
-            Role::Frame => platform_layershell::open_surface(
+            Role::Frame => platform_wayland::open_surface(
                 layer.clone(),
                 FrameApp {
                     config: config.clone(),
@@ -365,7 +365,7 @@ fn backdrop_placement(namespace: &'static str, output: Option<&str>) -> Placemen
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platform_layershell::Anchor;
+    use platform_wayland::Anchor;
 
     fn config(toml: &str) -> Arc<Config> {
         Arc::new(toml::from_str(toml).unwrap())

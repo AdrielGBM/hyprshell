@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Local, Timelike};
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use util::broadcast::{Broadcast, Service};
 

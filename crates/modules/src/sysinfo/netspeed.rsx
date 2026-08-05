@@ -8,7 +8,7 @@ let up = signal(format_rate(initial.up));
 let down_view = down.read_only();
 let up_view = up.read_only();
 
-platform_layershell::watch(netspeed::subscribe, move |speed: NetSpeed| {
+platform_wayland::watch(netspeed::subscribe, move |speed: NetSpeed| {
     down.set(format_rate(speed.down));
     up.set(format_rate(speed.up));
 });

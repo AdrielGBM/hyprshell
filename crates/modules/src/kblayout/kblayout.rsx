@@ -24,7 +24,7 @@ let initial = hyprland::socket_dir()
 let code = signal(short_name(&initial));
 let code_view = code.read_only();
 
-platform_layershell::watch(
+platform_wayland::watch(
     hyprland::subscribe_keyboard,
     move |layout: KeyboardLayout| {
         code.set(short_name(&layout));

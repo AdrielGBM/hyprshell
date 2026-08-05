@@ -6,7 +6,7 @@ version.workspace = true
 [dependencies]
 image = { workspace = true }
 libloading.workspace = true
-platform-layershell = { workspace = true }
+platform-wayland = { workspace = true }
 telar = { workspace = true }
 tracing = { workspace = true }
 zbus.workspace = true

@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/platform-layershell",
+    "crates/platform-wayland",
     "crates/util",
     "crates/config",
     "crates/services",
@@ -17,7 +17,7 @@ edition = "2024"
 version = "0.1.0"
 
 [workspace.dependencies]
-platform-layershell = { path = "crates/platform-layershell" }
+platform-wayland = { path = "crates/platform-wayland" }
 util = { package = "hyprshell-util", path = "crates/util", version = "0.1.0" }
 config = { package = "hyprshell-config", path = "crates/config", version = "0.1.0" }
 services = { package = "hyprshell-services", path = "crates/services", version = "0.1.0" }

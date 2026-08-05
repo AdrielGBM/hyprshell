@@ -44,7 +44,7 @@ pub fn close() {
 /// Opens `item`'s menu under its chip, or closes it if that same menu is already up.
 ///
 /// The layout is fetched on a worker thread and the surface opened from the handler, which
-/// [`platform_layershell::watch`] runs on the driver thread — the only place a surface may be opened. Doing the
+/// [`platform_wayland::watch`] runs on the driver thread — the only place a surface may be opened. Doing the
 /// round trip inline would stall the frame on however long another application takes to answer.
 pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
     // Both halves matter: `OPEN_FOR` alone would still name this item after the menu was dismissed by a click
@@ -64,7 +64,7 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
     let event_bus = bus.clone();
     let event_path = path.clone();
 
-    platform_layershell::watch(
+    platform_wayland::watch(
         dbusmenu::fetch_into(bus, path),
         move |menu: Option<MenuItem>| {
             // The chip may have been clicked again, or another one opened, while the application was answering.

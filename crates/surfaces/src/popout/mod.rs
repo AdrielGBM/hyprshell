@@ -15,7 +15,7 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use platform_layershell::{LayerConfig, open_surface, timeout};
+use platform_wayland::{LayerConfig, open_surface, timeout};
 use telar::{
     AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
     LayoutStyle, Rect, SizeDimension, Slots, SurfaceToken, WindowConfig, reset_layout_runtime,
@@ -284,7 +284,7 @@ impl App for PopoutApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use platform_layershell::KeyboardInteractivity;
+    use platform_wayland::KeyboardInteractivity;
 
     fn env(edge: Edge) -> SurfaceEnv {
         SurfaceEnv {

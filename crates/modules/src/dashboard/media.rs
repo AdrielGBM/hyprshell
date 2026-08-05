@@ -45,12 +45,12 @@ const LYRIC_REVEAL_MARGIN: f32 = 28.0;
 pub fn page(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let player = signal(mpris::current().unwrap_or_default());
     let sink = player.clone();
-    platform_layershell::watch(mpris::subscribe, move |p| sink.set(p));
+    platform_wayland::watch(mpris::subscribe, move |p| sink.set(p));
 
     let position = signal(mpris::position().unwrap_or(0));
     let ticker = position.clone();
     let interval = config.dashboard.media_interval();
-    platform_layershell::watch(
+    platform_wayland::watch(
         move |tx| poll_position(tx, interval),
         move |micros| ticker.set(micros),
     );
@@ -229,7 +229,7 @@ fn lyric_row(
 /// Reads the playhead on one long-lived thread. `mpris::position` opens its own session connection per call,
 /// which is the right shape for a one-off read from a click handler and the wrong one several times a second —
 /// so the loop pays for it once and the poll is a property get.
-fn poll_position(tx: platform_layershell::EventSender<i64>, interval: Duration) {
+fn poll_position(tx: platform_wayland::EventSender<i64>, interval: Duration) {
     loop {
         if !tx.send(mpris::position().unwrap_or(0)) {
             return;
@@ -301,7 +301,7 @@ fn cover(
 
     let bands = signal(visualiser::Spectrum::quiet(config.visualiser.band_count()).bars);
     let sink = bands.clone();
-    platform_layershell::watch(
+    platform_wayland::watch(
         visualiser::subscribe,
         move |spectrum: visualiser::Spectrum| sink.set(spectrum.bars),
     );

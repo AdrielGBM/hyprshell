@@ -56,7 +56,7 @@ pub fn network_view(config: NetworkConfig) -> Result<Box<dyn LayoutItem>, Layout
 
     let state = signal(network::current_wifi().unwrap_or_default());
     let sink = state.clone();
-    platform_layershell::watch(network::subscribe_wifi, move |wifi| sink.set(wifi));
+    platform_wayland::watch(network::subscribe_wifi, move |wifi| sink.set(wifi));
 
     // Opening the panel is the gesture that means "show me what is around", so it is also what looks.
     if state.peek().enabled {

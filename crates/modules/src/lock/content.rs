@@ -64,7 +64,7 @@ fn caption(
 fn now_playing(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     use services::mpris;
     let player = signal(mpris::current());
-    platform_layershell::watch(mpris::subscribe, {
+    platform_wayland::watch(mpris::subscribe, {
         let player = player.clone();
         move |next: mpris::Player| player.set(Some(next))
     });
@@ -82,7 +82,7 @@ fn weather(config: &Arc<Config>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
     use services::weather;
     let unit = config.temperature.unit;
     let current = signal(weather::current());
-    platform_layershell::watch(weather::subscribe, {
+    platform_wayland::watch(weather::subscribe, {
         let current = current.clone();
         move |next: weather::Weather| current.set(Some(next))
     });
@@ -99,7 +99,7 @@ fn weather(config: &Arc<Config>, theme: NordTheme) -> Result<Box<dyn LayoutItem>
 fn resources(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     use services::resources;
     let current = signal(resources::current());
-    platform_layershell::watch(resources::subscribe, {
+    platform_wayland::watch(resources::subscribe, {
         let current = current.clone();
         move |next: resources::Resources| current.set(Some(next))
     });
@@ -124,7 +124,7 @@ fn resources(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
 fn notifications(hide: bool, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
     use services::notifications as notifs;
     let snapshot = signal(notifs::snapshot_now());
-    platform_layershell::watch(notifs::subscribe, {
+    platform_wayland::watch(notifs::subscribe, {
         let snapshot = snapshot.clone();
         move |next: SharedSnapshot| snapshot.set(Some(next))
     });

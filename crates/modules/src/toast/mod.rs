@@ -15,7 +15,7 @@ pub use events::{config_reloaded, watch_events};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_layershell::{LayerConfig, SurfaceHandle, open_surface, watch};
+use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, watch};
 use telar::{
     AlignItems, App, Color, Component, Container, LayoutError, LayoutItem, LayoutStyle,
     ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, WindowConfig, box_item,
@@ -116,7 +116,7 @@ impl App for ToastApp {
 fn stack(config: ToastsConfig, radius: f32) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let toasts = signal(toaster::current());
     let sink = toasts.clone();
-    platform_layershell::watch(toaster::subscribe, move |live: Vec<Toast>| sink.set(live));
+    platform_wayland::watch(toaster::subscribe, move |live: Vec<Toast>| sink.set(live));
     stack_of(toasts.read_only(), config, radius)
 }
 

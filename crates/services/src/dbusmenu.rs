@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::Connection;
 use zbus::names::BusName;
 use zbus::zvariant::{OwnedValue, Value};
@@ -263,7 +263,7 @@ pub fn fetch(bus: &str, path: &str) -> Option<MenuItem> {
     parse_node(layout)
 }
 
-/// Fetches the menu on a worker thread and delivers it to `tx`, which [`platform_layershell::watch`] drains on
+/// Fetches the menu on a worker thread and delivers it to `tx`, which [`platform_wayland::watch`] drains on
 /// the driver thread — the only place a surface may be opened. A one-shot producer: it sends once and returns,
 /// so the channel closes and the watch source retires with it.
 pub fn fetch_into(bus: String, path: String) -> impl FnOnce(EventSender<Option<MenuItem>>) {

@@ -19,7 +19,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use serde::{Deserialize, Serialize};
 use telar::Color;
 
@@ -483,7 +483,7 @@ pub fn current() -> Option<Scheme> {
     CURRENT.get()
 }
 
-/// Registers `tx` for palette changes. Pass to `platform_layershell::watch` with [`on_change`].
+/// Registers `tx` for palette changes. Pass to `platform_wayland::watch` with [`on_change`].
 pub fn subscribe(tx: EventSender<Option<Scheme>>) {
     CURRENT.subscribe(tx);
 }

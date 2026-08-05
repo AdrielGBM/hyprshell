@@ -7,7 +7,7 @@
 
 use std::time::{Duration, Instant};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::message::Type as MessageType;
 

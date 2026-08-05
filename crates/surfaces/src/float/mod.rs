@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use platform_layershell::{request_close, request_size};
+use platform_wayland::{request_close, request_size};
 use telar::{
     LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceFrameStyle,
     SurfaceToken, box_item, open_surface, set_theme, surface_content, surface_frame, use_theme,

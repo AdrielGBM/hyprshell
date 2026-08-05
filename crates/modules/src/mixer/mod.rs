@@ -93,7 +93,7 @@ pub fn mixer_view(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let graph = signal(pipewire::current().unwrap_or_default());
     let sink = graph.clone();
-    platform_layershell::watch(pipewire::subscribe, move |g| sink.set(g));
+    platform_wayland::watch(pipewire::subscribe, move |g| sink.set(g));
 
     let mut children: Vec<Box<dyn LayoutItem>> = Vec::with_capacity(GROUPS.len() + 2);
     children.push(title(theme)?);

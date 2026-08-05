@@ -19,7 +19,7 @@ let vertical = ui::module::bar_is_vertical();
 
 // A read handle taken before the watch closure moves the signal in: a signal is not `Copy`.
 let text_player = player.read_only();
-platform_layershell::watch(mpris::subscribe, move |p: Player| {
+platform_wayland::watch(mpris::subscribe, move |p: Player| {
     icon_name.set(glyph(&p).to_string());
     player.set(p);
 });
@@ -28,7 +28,7 @@ platform_layershell::watch(mpris::subscribe, move |p: Player| {
 // the step still only *moves* the text while a title actually overflows.
 let frame = signal(0u64);
 if config.marquee && !vertical {
-    platform_layershell::watch(marquee_ticks, move |tick: u64| frame.set(tick));
+    platform_wayland::watch(marquee_ticks, move |tick: u64| frame.set(tick));
 }
 
 let frame_read = frame.read_only();

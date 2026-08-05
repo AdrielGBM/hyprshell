@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use serde::{Deserialize, Serialize};
 
 use util::broadcast::Store;
@@ -90,7 +90,7 @@ pub fn update(change: impl FnOnce(&mut ShellState)) {
 }
 
 /// Registers `tx` for live state changes, sending the current value immediately. Pass to
-/// `platform_layershell::watch` from a surface that reflects a persisted toggle.
+/// `platform_wayland::watch` from a surface that reflects a persisted toggle.
 pub fn subscribe(tx: EventSender<ShellState>) {
     STATE.subscribe(tx);
 }

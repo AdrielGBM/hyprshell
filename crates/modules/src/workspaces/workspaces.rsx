@@ -29,7 +29,7 @@ let list = signal(
 );
 let items = list.read_only();
 // Subscribe to the single shared workspaces source; the consumer writes the signal on this surface's thread.
-platform_layershell::watch(hyprland::subscribe, move |snap: Snapshot| {
+platform_wayland::watch(hyprland::subscribe, move |snap: Snapshot| {
     list.set(pills(&snap, &config, output.as_deref()));
 });
 

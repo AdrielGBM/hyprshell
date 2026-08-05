@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use serde::{Deserialize, Serialize};
 
 use config::WeatherConfig;

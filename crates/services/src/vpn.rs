@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::Duration;
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 use zbus::blocking::{Connection, MessageIterator};
 use zbus::message::Type as MessageType;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};

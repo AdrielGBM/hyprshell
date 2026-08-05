@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::time::{Duration, Instant};
 
-use platform_layershell::EventSender;
+use platform_wayland::EventSender;
 
 use util::broadcast::Store;
 

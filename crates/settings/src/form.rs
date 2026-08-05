@@ -160,7 +160,7 @@ pub(crate) fn live_apply(apply: Rc<dyn Fn()>) -> Vec<telar::Effect> {
         let watched = watched.clone();
         // Debounced by re-reading the counter when the timer fires: a change that arrived in the meantime has
         // its own timer running, so only the last one in a burst applies.
-        platform_layershell::timeout(LIVE_DEBOUNCE, move || {
+        platform_wayland::timeout(LIVE_DEBOUNCE, move || {
             if watched.peek() == at {
                 apply();
             }

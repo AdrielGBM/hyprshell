@@ -497,7 +497,7 @@ pub fn snapshot() -> Vec<Status> {
 /// to find out what is missing — quite possibly having just installed something. A probe of the whole list is
 /// a second or two of process starts and bus round trips, which is exactly why it cannot happen on the thread
 /// composing the frame.
-pub fn report(tx: platform_layershell::EventSender<Vec<Status>>) {
+pub fn report(tx: platform_wayland::EventSender<Vec<Status>>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-deps".to_string())
         .spawn(move || {
@@ -538,7 +538,7 @@ fn run_probe(entry: &Entry) -> Presence {
         ),
         // The only kind that can answer `Unknown`: with no compositor to ask, "does it advertise this" has no
         // answer, and inventing `Absent` would blame the compositor for this process having no session.
-        Kind::Protocol { interface } => match platform_layershell::advertises(interface) {
+        Kind::Protocol { interface } => match platform_wayland::advertises(interface) {
             Some(yes) => found(yes),
             None => Presence::Unknown,
         },

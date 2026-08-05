@@ -17,7 +17,7 @@ let theme = use_theme::<NordTheme>();
 let display = theme.font(FontRole::Display);
 let body = theme.font(FontRole::Body);
 // The shared ticker, so reopening this panel never stacks a second timer on the first.
-platform_layershell::watch(clock::subscribe, move |t: clock::Now| {
+platform_wayland::watch(clock::subscribe, move |t: clock::Now| {
     time.set(t.format("%H:%M:%S").to_string());
     date.set(t.format("%A, %d %B %Y").to_string());
 });

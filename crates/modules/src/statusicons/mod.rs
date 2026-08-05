@@ -95,7 +95,7 @@ fn icon(
                 muted: false,
             }));
             let read = state.read_only();
-            platform_layershell::watch(volume::subscribe, move |v| state.set(v));
+            platform_wayland::watch(volume::subscribe, move |v| state.set(v));
             icon_view(
                 move || glyph::volume(read.get()).to_string(),
                 move || fg.get(),
@@ -108,7 +108,7 @@ fn icon(
                 muted: true,
             }));
             let read = state.read_only();
-            platform_layershell::watch(volume::subscribe_mic, move |v| state.set(v));
+            platform_wayland::watch(volume::subscribe_mic, move |v| state.set(v));
             icon_view(
                 move || glyph::microphone(read.get()).to_string(),
                 move || fg.get(),
@@ -118,7 +118,7 @@ fn icon(
         StatusIcon::Network => {
             let state = signal(network::read());
             let read = state.read_only();
-            platform_layershell::watch(network::subscribe, move |net| state.set(net));
+            platform_wayland::watch(network::subscribe, move |net| state.set(net));
             icon_view(
                 move || glyph::network(read.get()).to_string(),
                 move || fg.get(),
@@ -133,7 +133,7 @@ fn icon(
             );
             let glyph_state = state.read_only();
             let tint_state = state.read_only();
-            platform_layershell::watch(network::subscribe_wifi, move |w| state.set(w.status()));
+            platform_wayland::watch(network::subscribe_wifi, move |w| state.set(w.status()));
             icon_view(
                 move || glyph::wifi(glyph_state.get()).to_string(),
                 move || glyph::wifi_tint(tint_state.get(), theme, fg.get()),
@@ -148,7 +148,7 @@ fn icon(
             );
             let glyph_state = state.read_only();
             let tint_state = state.read_only();
-            platform_layershell::watch(bluetooth::subscribe, move |bt| state.set(bt.status()));
+            platform_wayland::watch(bluetooth::subscribe, move |bt| state.set(bt.status()));
             icon_view(
                 move || glyph::bluetooth(glyph_state.get()).to_string(),
                 move || glyph::bluetooth_tint(tint_state.get(), theme, theme.accent, fg.get()),
@@ -161,7 +161,7 @@ fn icon(
             let charging = signal(init.map(|b| b.charging).unwrap_or(false));
             let (level_read, charging_read) = (level.read_only(), charging.read_only());
             let charging_glyph = charging.read_only();
-            platform_layershell::watch(battery::subscribe, move |b| {
+            platform_wayland::watch(battery::subscribe, move |b| {
                 level.set(b.level);
                 charging.set(b.charging);
             });
@@ -174,7 +174,7 @@ fn icon(
         StatusIcon::Caps | StatusIcon::Num => {
             let keys = signal(lockkeys::current().unwrap_or_else(lockkeys::read));
             let read = keys.read_only();
-            platform_layershell::watch(lockkeys::subscribe, move |k| keys.set(k));
+            platform_wayland::watch(lockkeys::subscribe, move |k| keys.set(k));
             let caps = which == StatusIcon::Caps;
             icon_view(
                 move || {

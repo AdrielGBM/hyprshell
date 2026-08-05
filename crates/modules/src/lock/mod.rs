@@ -73,7 +73,7 @@ pub(crate) fn screen_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
 fn screen(config: &Arc<Config>) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let state = signal(lock::current());
-    platform_layershell::watch(lock::subscribe, {
+    platform_wayland::watch(lock::subscribe, {
         let state = state.clone();
         move |next: LockState| state.set(next)
     });
@@ -135,7 +135,7 @@ fn clock(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, Layou
         )
     };
     let parts = signal(render(&chrono::Local::now()));
-    platform_layershell::watch(services::clock::subscribe, {
+    platform_wayland::watch(services::clock::subscribe, {
         let parts = parts.clone();
         move |now: services::clock::Now| parts.set(render(&now))
     });

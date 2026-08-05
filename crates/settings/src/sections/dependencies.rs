@@ -19,7 +19,7 @@ use util::deps::{self, Need, Presence, Status};
 pub(crate) fn dependencies_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let statuses = signal(Vec::<Status>::new());
     let read = statuses.read_only();
-    platform_layershell::watch(deps::report, move |report: Vec<Status>| {
+    platform_wayland::watch(deps::report, move |report: Vec<Status>| {
         statuses.set(report)
     });
 

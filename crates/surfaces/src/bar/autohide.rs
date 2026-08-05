@@ -108,7 +108,7 @@ impl AutoHide {
             let margin = margins.at(progress.get());
             // The driver coalesces requests, but a bar at rest should be asking for nothing at all.
             if sink.get() != Some(margin) {
-                platform_layershell::request_margin(margin);
+                platform_wayland::request_margin(margin);
                 sink.set(Some(margin));
             }
         });

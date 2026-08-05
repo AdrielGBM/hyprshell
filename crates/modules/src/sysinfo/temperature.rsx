@@ -33,7 +33,7 @@ let temp = signal(initial.temperature_of(&config.sensor));
 let temp_text = temp.read_only();
 let temp_tint = temp.read_only();
 
-platform_layershell::watch(resources::subscribe, move |r: Resources| {
+platform_wayland::watch(resources::subscribe, move |r: Resources| {
     temp.set(r.temperature_of(&sensor))
 });
 

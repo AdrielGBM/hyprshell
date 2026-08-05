@@ -18,7 +18,7 @@ let used = signal(initial.memory.used_percent());
 let used_text = used.read_only();
 let used_tint = used.read_only();
 
-platform_layershell::watch(resources::subscribe, move |r: Resources| {
+platform_wayland::watch(resources::subscribe, move |r: Resources| {
     used.set(r.memory.used_percent())
 });
 
