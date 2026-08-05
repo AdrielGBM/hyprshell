@@ -120,16 +120,16 @@ unknown rather than zero, or does not appear at all.
 | Notifications | none — hyprshell *is* the daemon | — |
 | Tray | apps speaking StatusNotifierItem | the tray is empty |
 | Media | any MPRIS player | the media chip is hidden |
-| Screenshot | `wlr-screencopy` (`grim` as a fallback) | capture is unavailable |
+| Screenshot | `ext-image-copy-capture`, or `wlr-screencopy` | capture is unavailable |
 | Screen recording | `wf-recorder` or `gpu-screen-recorder` | recording is unavailable |
-| Clipboard | `wl-copy` | `[screenshot] copy` does nothing |
+| Clipboard | `ext-data-control`, or `wlr-data-control` | `[screenshot] copy` does nothing |
 | Session lock | `ext-session-lock` + PAM | `lock status` says the session cannot be locked |
 | Face unlock | `howdy` | password only |
 | Fingerprint unlock | `fprintd` (D-Bus) | password only |
 | Idle actions | `ext-idle-notify` | idle timers do not arm |
 | Global shortcuts | `xdg-desktop-portal` with GlobalShortcuts | bind the IPC commands directly instead |
 | Game mode | `gamemoded` (D-Bus) | the toggle is greyed out |
-| GPU readings | `nvidia-smi`, or `/sys/class/drm` (AMD/Intel) | GPU fields read unknown |
+| GPU readings | NVML (`libnvidia-ml.so`), or `/sys/class/drm` (AMD/Intel) | GPU fields read unknown |
 | Launcher calculator | `qalc` | a built-in evaluator handles the common cases |
 | Weather | network access | the weather card says so |
 | Workspaces, window info | Hyprland IPC | those modules are hidden |

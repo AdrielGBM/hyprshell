@@ -1,0 +1,128 @@
+# platform-wayland
+
+A Wayland backend for a desktop shell: layer surfaces, session lock, idle notification, screen capture and
+clipboard ownership, over one connection and one event loop.
+
+Surface content is not drawn here. `LayerWindow` bridges a mapped `wl_surface` to the caller's renderer through
+`raw-window-handle`; this crate owns the protocol objects, the event loop and the lifecycle around them.
+`wl_shm` is used only for reservation-only surfaces — ones that claim an exclusive zone and draw nothing — and
+for reading capture frames back.
+
+Everything optional is asked about before it is used, never at the point of failure: `lock_supported`,
+`idle_supported`, `capture_supported` and `clipboard_supported` answer first. `advertises` and `advertises_all`
+ask the compositor's registry for any interface by name, over a connection of their own, so they answer from a
+process with no event loop running. `clipboard_supported` and `advertises*` return `Option`, where `None` means
+no compositor could be reached — which is not the same answer as "the compositor does not have it".
+
+The tables below are grouped by what this crate does about each protocol. Left out are the ones with no bearing
+on a layer-shell backend: Xwayland internals, buffer and colour metadata for video playback, display leasing
+for VR, and superseded or deprecated spellings of something already listed. Where two protocols answer
+the same need, **both** appear — a compositor-specific route is not omitted because a standardised one sits
+above it, and neither is the reverse.
+
+## Bound
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| Core (`wayland.xml`) | Surfaces, buffers, input and outputs — what everything else rests on. | `wl_compositor` via `CompositorState`; `wl_surface`; `wl_region`, where an empty input region is what makes a surface click through (`config.rs`); `wl_callback` for frame pacing; `wl_shm` at v1 with `SlotPool`, for reservation surfaces and capture readback only; `wl_seat` with the **keyboard and pointer capabilities only**; `wl_output` at v1–4 behind `outputs`, `enumerate_outputs` and `on_outputs_changed`; `wl_registry` read directly in `globals.rs`. |
+| `wlr-layer-shell-unstable-v1` (wlr) | Anchored, layered surfaces with exclusive zones, per-output placement and keyboard-interactivity modes. Every surface this crate opens. | `zwlr_layer_shell_v1` through the toolkit's `LayerShell`, **versions 1–4**. `open_surface` and `open_reservation` create them, `LayerConfig` carries layer, anchors, margins, exclusive zone and `KeyboardInteractivity`, and `request_size` / `request_margin` / `request_close` reconfigure a live one. The only mandatory protocol: `LayerShellPlatform` returns telar's `PlatformError` and does not start without it. **Limit:** v5's `set_exclusive_edge` is out of reach, because the toolkit caps the bind at 4 — a surface anchored to more than one edge cannot say which edge its exclusive zone belongs to, and the compositor decides. |
+| `ext-session-lock-v1` (staging) | Covering every output with a surface the compositor keeps up even if this process dies. | `ext_session_lock_manager_v1` bound at **v1** in `platform.rs`, optional: a missing global is logged once and `lock_supported()` answers false. `lock_session` drives one `ext_session_lock_v1` and one `ext_session_lock_surface_v1` per output, creating surfaces for outputs hotplugged afterwards and tracking which are already covered — a second surface on one output is a protocol error. `LockHandle::unlock` is asynchronous, and `is_locked()` is false in the window between asking and being granted, which is the window in which the desktop may still be on screen. **Limit:** `lock_supported()` reads driver state, so it answers false outside a running event loop rather than answering about the compositor. |
+| `ext-idle-notify-v1` (staging) | Being told the seat has been idle for N milliseconds, with or without honouring other clients' idle inhibitors. | `ext_idle_notifier_v1` bound at **v1–2**, optional and logged once when absent. `idle_notification(.., respect_inhibitors)` selects the request: `get_idle_notification` stays quiet while any client holds an inhibitor, `get_input_idle_notification` reports raw input idleness and needs **v2**. On a v1 compositor the second is unavailable, and the crate warns once and uses the inhibitor-respecting request instead of silently reporting the wrong thing. `IdleHandle` stops the notification on drop, which is how a caller applies an inhibit of its own. **Limit:** `idle_supported()` reads a thread-local the event loop owns, so it too answers false outside a running loop. |
+| `ext-data-control-v1` (staging) / `zwlr-data-control-unstable-v1` (wlr) | Owning the clipboard selection without holding focus, so no helper process has to be spawned to hold it. | `set_selection` opens a connection of its own and binds `ext_data_control_manager_v1` at **v1**, falling back to `zwlr_data_control_manager_v1` at **v1–2**. It registers a source and returns once the selection is *registered*, leaving a thread per copy to serve the bytes on demand; the compositor's `cancelled` event ends that thread when something else copies. `clipboard_supported()` accepts either spelling. **Limit:** write only — nothing here reads the current selection or watches it change, which is the whole other half of both protocols. |
+| `ext-image-copy-capture-v1` (staging) | Reading an output's pixels back into client buffers. The route taken first. | `ext_image_copy_capture_manager_v1` at **v1**, with a session and a frame per capture into a `SlotPool` buffer, on a short-lived connection rather than the driver's loop — a capture maps nothing and is wanted synchronously by whoever asked. A 3-second deadline bounds the wait, because a client that hangs on a screenshot is worse than one that reports failure. **Limit:** the protocol has no region request, so `CaptureArea::Region` is served by capturing the source whole and cropping here. |
+| `wlr-screencopy-unstable-v1` (wlr) | The same pixels on a compositor without `ext-image-copy-capture`, and the only route that crops compositor-side. | `zwlr_screencopy_manager_v1` at **v1–3**. `Backend::Auto` tries `ext-image-copy-capture` and falls back here; naming `Backend::ImageCopyCapture` or `Backend::Screencopy` means that route or nothing, so a caller debugging one is not silently given the other. Both routes undo the `wl_output` transform, so a `Capture` is always upright, tightly-packed RGBA8 in the output's physical pixels. |
+
+## Bound in part
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| `ext-image-capture-source-v1` (staging) | Naming *what* to capture: an output, or a foreign toplevel. | Only `ext_output_image_capture_source_manager_v1` is bound, at **v1** — the factory that names an output. The toplevel factory `ext_foreign_toplevel_image_capture_source_manager_v1` is not, and could not be used if it were: it takes an `ext_foreign_toplevel_handle_v1`, which only `ext-foreign-toplevel-list-v1` hands out, and that is unbound. Note the generic `ext_image_capture_source_manager_v1` is **not** what to probe for — it was split, and checking for it reports capture unavailable on a compositor that fully supports it. `IMAGE_COPY_CAPTURE_INTERFACES` names the pair that is actually required. |
+| `xdg-output-unstable-v1` (unstable) | An output's logical position, size and name on a compositor whose `wl_output` predates v4. | Bound by the toolkit's `OutputState` as `zxdg_output_manager_v1` at **v1–3**, not by this crate, and only as the older path to information `wl_output` v4 now carries itself. It is reachable through `OutputDescriptor` like any other output field, and nothing here should bind it directly. |
+
+## Not bound — the capability is absent
+
+Nothing in this crate provides these, by any route.
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| `ext-foreign-toplevel-list-v1` (staging) | Enumerating open windows — title, app id, a stable identifier — and the `ext_foreign_toplevel_handle_v1` that is the only way to name a window as a capture source. | Unbound. Capture is output-only as a direct consequence, and the crate exposes no window information at all. |
+| `wlr-foreign-toplevel-management-unstable-v1` (wlr) | Acting on a window: focus, close, fullscreen, minimise, and enumeration on compositors without the `ext` list. | Unbound. `ext-foreign-toplevel-list-v1` only lists; this is the only portable route to doing anything to a window. |
+| `ext-workspace-v1` (staging) | Enumerating, naming, watching and activating workspaces and the outputs they sit on. | Unbound. The crate exposes no workspace concept. |
+| `wp-fractional-scale-v1` (staging) + `wp-viewporter` (stable) | The true fractional scale the compositor wants a surface rendered at, and the crop-and-scale that makes rendering at it possible. | Unbound. `CompositorHandler::scale_factor_changed` gives the integer `wl_output` buffer scale and nothing finer, so on a 1.5× output the compositor scales a 1× buffer instead of the caller drawing on the device pixel grid. `LayerWindow` already stores the factor as an `f64` (`scale_milli`), so the plumbing above the protocol would take it. |
+| `zwlr-gamma-control-unstable-v1` (wlr) | Setting an output's gamma ramp — colour temperature, night light. | Unbound. |
+| `zwlr-output-power-management-unstable-v1` (wlr) | Per-output DPMS: blanking and waking a screen. | Unbound. |
+| `zwlr-output-management-unstable-v1` (wlr) | Configuring outputs — mode, refresh, scale, position, rotation, enable. | Unbound. `enumerate_outputs` reads output state; nothing writes it. |
+| `xdg-activation-v1` (staging) | A token that lets this client raise and focus another's window. | Unbound. |
+| `idle-inhibit-unstable-v1` (unstable) | Telling the compositor not to go idle while a surface is up. | Unbound, and not the same thing as `ext-idle-notify`: this crate can *observe* idleness and cannot *prevent* it. Dropping an `IdleHandle` silences this client's own notification and leaves every other idle consumer, including the compositor's, untouched. |
+| `ext-background-effect-v1` (staging) | Asking the compositor for an effect — blur — behind a translucent surface, which no client-side renderer can do for itself. | Unbound. |
+| `wp-cursor-shape-v1` (staging) | Named cursors from the compositor's theme. | Unbound, and nothing else sets a cursor either: `set_cursor` is never called, so the pointer keeps whatever image it had when it entered. A resize edge and an inert background are indistinguishable to the pointer. |
+| `wl_touch` (core) | Touchscreen contacts. | Unbound. `SeatHandler` takes the keyboard and pointer capabilities and ignores touch, so a touchscreen reaches callers as emulated pointer events or not at all. |
+| `wl_data_device_manager` and friends (core) | Drag-and-drop onto a surface, and the focus-based selection. | Unbound. The clipboard goes through data-control, which needs no focus; there is no route for a drag entering a surface this crate owns. |
+| `primary-selection-unstable-v1` (unstable) | The middle-click selection. | Unbound. `set_selection` owns the ordinary clipboard only. |
+| `color-management-v1` (staging) | Declaring a surface's colour space, and the modern route to colour temperature and HDR. | Unbound. A different mechanism for part of what `zwlr-gamma-control` above answers — that writes a ramp for a whole output, this describes surfaces — and neither is bound. |
+| `text-input-unstable-v3` (unstable) | Receiving text composed by an input method: what typing Japanese or Korean, or a compose sequence, into a text field needs. | Unbound. This crate owns the seat and forwards `wl_keyboard` keysyms, so a caller's text field never sees anything an input method composed. The receiving half of the pair below — this is what a field types *into*; those are what a keyboard types *with*. |
+| `virtual-keyboard-unstable-v1` (misc) | Injecting key events into the seat as though a physical keyboard had been pressed. | Unbound. `zwp_virtual_keyboard_v1` takes an uploaded xkb keymap and then `key` and `modifiers` requests, which the compositor routes to whatever holds keyboard focus. The coarse route — keycodes rather than text, so an arbitrary character means synthesising a keymap that contains it — and the only one that reaches a client with no `text-input-v3` support at all, Xwayland included. The surface half of an on-screen keyboard is already reachable: `KeyboardInteractivity::None` gives a layer surface that takes no focus, which is what keeps the field being typed into holding it. |
+| `input-method-unstable-v2` (misc) | Becoming the seat's input method: being told when a text field activates, with its surrounding text, content hints and cursor rectangle, and answering with committed and preedit strings. | Unbound. The precise route where the one above guesses: real strings, preedit, a `zwp_input_popup_surface_v2` that the compositor positions against the text cursor, and `grab_keyboard` for intercepting physical keys while it is active. It engages only for clients that speak `text-input-v3`, which is why on-screen keyboards implement both and fall back between them. A standardised successor is in the experimental tree as `xx-input-method-v2`. |
+| `wlr-virtual-pointer-unstable-v1` (wlr) | Injecting pointer motion, buttons and axis into the seat — the pointer twin of `virtual-keyboard-unstable-v1`. | Unbound. Same shape and same use: an on-screen trackpad or mouse for a machine with no pointing hardware, and pointer control driven from a surface rather than a hand. `create_virtual_pointer_with_output` (v2) ties injected motion to one output, which is what makes absolute positioning mean anything across several. |
+| `pointer-constraints-unstable-v1`, `relative-pointer-unstable-v1` (unstable) | Locking or confining the pointer to a region, and receiving raw motion deltas that keep arriving after it has stopped moving. | Unbound. The pair behind an unbounded drag: a slider or a numeric field that keeps responding once the pointer has reached the edge of the screen instead of silently clamping. `zwp_confined_pointer_v1` is also what would hold a region-selection gesture inside the region being selected. |
+| `pointer-warp-v1` (staging) | Moving the pointer to a position on a surface. | Unbound. Placing the cursor deliberately — on the output that just took focus, or on a surface that just opened — which a client cannot otherwise do at all. |
+| `tablet-v2` (stable) | Stylus input with pressure, tilt and tool identity, and the buttons, rings and strips on a tablet pad. | Unbound. A stylus arrives as an ordinary pointer today, so pressure and tool type are lost — which is what annotating a captured image would want. `zwp_tablet_pad_v2` is the other half and the more shell-shaped one: `set_feedback` lets a client *label* each button, ring and strip, which is exactly the on-screen display that makes a pad usable. |
+| `security-context-v1` (staging) | Attaching a sandbox identity to a Wayland client so the compositor can restrict which protocols it may bind. | Unbound, and it applies to a shell precisely because a shell launches applications: a client spawned through a security context could be kept from binding the privileged protocols on this page — input injection, data control, capture — which it otherwise gets by default. |
+
+## Not bound — the need is met another way
+
+The capability exists; it is not this protocol that provides it.
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| `wp-presentation` (stable), `wp-commit-timing-v1`, `wp-fifo-v1` (staging) | Knowing when a frame reached the screen, scheduling a commit for a target time, and making a refresh cycle a readiness constraint. | Unbound. Pacing is `wl_callback` frame callbacks alone: a redraw is requested, the callback arrives, the next frame is drawn. Adequate, and blind — nothing here can measure presentation latency or ask for a deadline. |
+| `wp-alpha-modifier-v1` (staging) | Per-surface opacity applied by the compositor with no re-render. | Unbound. Opacity is whatever the caller renders into the surface, so changing it costs a frame. |
+| `wp-single-pixel-buffer-v1` (staging) | A solid-colour surface with no buffer allocation. | Unbound. `open_reservation` allocates a real `SlotPool` buffer for a surface that draws nothing, which is exactly the allocation this would remove. |
+| `pointer-gestures-unstable-v1` (unstable) | Pinch, swipe and hold recognised by the compositor from a touchpad. | Unbound. `PointerHandler` delivers motion, buttons and axis; any gesture is recognised above this crate from raw pointer events, which is not the same input and does not distinguish a touchpad from a mouse. |
+| `keyboard-shortcuts-inhibit-unstable-v1` (unstable) | Receiving keys the compositor has bound to itself. | Unbound. `KeyboardInteractivity::Exclusive` on a layer surface already takes the keyboard for the surfaces that need it, which covers the case without a second protocol. |
+| `linux-dmabuf-v1` (stable), `linux-drm-syncobj-v1` (staging) | Handing the compositor a GPU buffer instead of a copy, and synchronising access to it explicitly. | Unbound *here*, and correctly so: rendered content reaches the compositor beneath the `raw-window-handle` bridge, through the graphics stack the caller's renderer uses, which is where both of these are spoken if they are spoken at all. The only buffers this crate allocates itself are shm, for the two cases where a GPU buffer would be the wrong tool. |
+| `wl_subcompositor`, `wl_subsurface` (core) | Nesting independently-buffered surfaces inside one surface. | Unbound. The caller's renderer composites its whole tree into the single buffer behind `LayerWindow`, so there is one `wl_surface` per shell surface and nothing to nest inside it. |
+| `wlr-export-dmabuf-unstable-v1` (wlr) | Capturing an output as a dmabuf handle rather than a pixel copy. | Unbound. Both capture routes in `capture.rs` copy into shm and hand back `Capture` as packed RGBA8, which is what a caller wanting an image wants and what a dmabuf handle is not. It would matter to a caller feeding frames straight to an encoder. |
+
+## Not bound — gated on toplevel support
+
+One scope decision, and the protocols that only mean something on the far side of it. This crate opens layer
+surfaces; none of these is reachable until it opens ordinary windows too.
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| `xdg-shell` (stable) | Ordinary toplevel windows — map, configure, resize, minimise — and `xdg_popup` for anything nested inside one. | Unbound, and the decision the rest of this table hangs on. `xdg_popup` is not optional if it is ever taken: a toplevel does not know where it sits on screen, so the absolute anchoring layer surfaces use cannot work inside one, and every menu or tooltip would need a second popup mechanism alongside the existing one. The toolkit already ships `shell::xdg` with the window, popup and fallback-frame pieces, so no new dependency is involved. |
+| `xdg-decoration-unstable-v1` (unstable) | Negotiating whether the compositor or the client draws a window's border and title bar. | Unbound, and the one here that would be hard to skip — without it a toplevel draws its own frame in every case, and the toolkit's `fallback_frame` is what that costs. |
+| `xdg-foreign-unstable-v2` (unstable) | Exporting a surface so another client can parent a window to it. | Unbound. The case that reaches a shell is a portal dialog opening over the surface that asked for it instead of loose on the desktop. |
+| `xdg-dialog-v1` (staging) | Marking a toplevel as modal to its parent. | Unbound. |
+| `xdg-toplevel-tag-v1` (staging) | Tagging a toplevel so the compositor can reapply its rules after a restart. | Unbound. |
+| `xdg-session-management-v1` (staging) | Letting the compositor restore a window's geometry across sessions. | Unbound. |
+| `xdg-toplevel-icon-v1` (staging) | Setting a window's icon. | Unbound. |
+| `xdg-toplevel-drag-v1` (staging) | Dragging a tab out of a window and into one of its own. | Unbound, and only relevant to a tabbed interface. |
+
+## Not bound — compositor-specific
+
+Non-portable by construction, and listed because each is a route to something this crate cannot do otherwise,
+or the only route on the compositor that carries it. The COSMIC and KDE re-spellings of protocols already in
+the tables above — workspaces, toplevel info and management, output management, screencopy, idle, DPMS — are
+left out: the `ext` and `wlr` rows cover the capability, and a third spelling changes nothing about this
+crate's state.
+
+| Protocol | Unlocks | State |
+| --- | --- | --- |
+| `hyprland-focus-grab-v1` | Grabbing input for a set of surfaces so a click anywhere else dismisses them. | Unbound, and there is no standardised equivalent. A layer surface here dismisses on logic of its own; the compositor is never asked. |
+| `hyprland-toplevel-export-v1` | Capturing a single window's frames. | Unbound. The portable answer is `ext-image-copy-capture` with a toplevel source, which is blocked on `ext-foreign-toplevel-list-v1` rather than on the capture protocol. |
+| `hyprland-toplevel-mapping-v1` | Resolving a foreign-toplevel handle to the compositor's own window identity. | Unbound. Only meaningful once toplevels are enumerated at all. |
+| `hyprland-lock-notify-v1` | Learning that the session was locked or unlocked by something else. | Unbound. `LockHandle::is_locked` reports only locks this crate performed. |
+| `hyprland-ctm-control-v1` | A colour transform matrix per output — the same user-facing need as `zwlr-gamma-control-unstable-v1`. | Unbound, like the portable route. |
+| `hyprland-surface-v1` | Compositor-side surface opacity and a visible-region hint — the same need as `wp-alpha-modifier-v1`. | Unbound, like the portable route. |
+| `hyprland-global-shortcuts-v1` | Registering named actions the compositor can bind keys to. | Unbound, and this crate exposes no shortcut concept at all. The portable route to the same thing is the XDG desktop portal, which is D-Bus rather than Wayland and therefore outside this crate either way. |
+| `org_kde_kwin_blur` (KDE) | Blur behind a surface — the older, widely-implemented equivalent of `ext-background-effect-v1`. | Unbound. Worth knowing it is not the universal fallback it looks like: it is a KWin protocol, and a compositor offering `ext-background-effect-v1` may well not carry it. |
+| `cosmic-overlap-notify-v1` | Telling a layer surface when a window overlaps it. | Unbound, and there is no standardised equivalent — a layer surface here cannot tell whether anything is covering it. |
+| `org_kde_kwin_keystate` (KDE) | The state of Caps Lock, Num Lock, Scroll Lock and the modifier keys, reported without focus. | Unbound, and it answers a real limitation with no portable equivalent: `wl_keyboard.modifiers` reaches only the surface holding keyboard focus, and a layer surface using `KeyboardInteractivity::None` never holds it — so lock-key state cannot be read through this crate at all, only by polling something outside Wayland. |
+| `kde-screen-edge-v1` (KDE) | Registering a screen edge that shows a surface when the pointer or a gesture hits it. | Unbound. The compositor-driven form of an auto-hidden bar: the edge is evaluated by the party that always knows where the pointer is, rather than by a surface that only hears about it once it is already covered. |
+| `kde-primary-output-v1`, `kde-output-order-v1` (KDE) | Which output is the primary one, and the order desktop components should be placed across outputs in. | Unbound, and nothing in the `ext` or `wlr` families answers either question — `wlr-output-management` describes geometry, not intent. A backend drawing per-output surfaces has to decide which screen gets the singular ones, and that decision currently has no protocol input. |
+| `kde-lockscreen-overlay-v1` (KDE) | Marking a surface the compositor may show while the session is locked. | Unbound. `ext-session-lock-v1` gives the locking client its own surfaces and says nothing about anyone else's; this is the only route for a surface that is *not* the locker to appear over a lock screen. |
+| `org_kde_kwin_appmenu` (KDE) | Linking a window to a `com.canonical.dbusmenu` address on D-Bus. | Unbound. The Wayland half of a global menu bar — the protocol says which window owns which menu, and D-Bus carries the menu itself. |
+| `org_kde_kwin_slide`, `org_kde_kwin_contrast` (KDE) | Sliding a surface in from an edge, and raising contrast behind a translucent one. | Unbound. Compositor-side surface effects in the same family as `org_kde_kwin_blur` above; the slide is what an auto-hidden panel's animation becomes when the compositor draws it instead of the client. |
+| `hyprland-input-capture-v1` | Capturing all input from the seat and redirecting it. | Unbound. Built for input sharing between machines; the shell-shaped use is a screen edge that hands the pointer and keyboard to another computer. |
