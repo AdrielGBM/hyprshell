@@ -1,11 +1,9 @@
 //! Taking a picture of the screen.
 //!
-//! Two routes to the same pixels, and the order matters. `wlr-screencopy` through the platform crate is the
-//! first: it is a protocol this compositor either implements or does not, it needs nothing installed, and it
-//! hands back raw pixels the shell can crop, compose and show without a temporary file. `grim` is the fallback,
-//! for a compositor without the protocol — and it is a fallback rather than the implementation because a shell
-//! that shells out for its own screenshots cannot show the user what it captured without reading its own output
-//! back off the disk.
+//! The pixels come from the compositor over a protocol — `ext-image-copy-capture` where there is one, older
+//! `wlr-screencopy` where there is not — which the platform crate owns. This layer is what happens to them
+//! afterwards: composing several outputs into one desktop, cropping a selection, encoding once, and deciding
+//! whether that goes to a file, to the clipboard or to an annotator.
 //!
 //! Everything here runs off the UI thread. A capture is a round trip to the compositor followed by a PNG encode
 //! of several megapixels; done in a click handler it would drop frames on every surface at once.
@@ -14,8 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use platform_wayland::{CaptureArea, EventSender};
-use util::deps::{self, Dep};
+use platform_wayland::{CaptureArea, CaptureBackend, EventSender};
 
 use config::ScreenshotConfig;
 use util::broadcast::Store;
@@ -59,11 +56,6 @@ impl Area {
             && other.y >= self.y
             && other.right() <= self.right()
             && other.bottom() <= self.bottom()
-    }
-
-    /// `grim`'s geometry spelling, which is also what `slurp` prints.
-    fn as_geometry(&self) -> String {
-        format!("{},{} {}x{}", self.x, self.y, self.width, self.height)
     }
 }
 
@@ -122,14 +114,10 @@ pub fn current() -> Option<Result<Shot, String>> {
     LAST.get()
 }
 
-/// Whether this machine can take a screenshot at all: the protocol, or `grim` on the path. Read before offering
-/// the gesture, so a missing dependency greys a button out instead of failing a keypress.
+/// Whether this compositor implements either capture protocol. Read before offering the gesture, so a missing
+/// one greys a button out instead of failing a keypress.
 pub fn supported() -> bool {
-    platform_wayland::screencopy_supported() || has_grim()
-}
-
-fn has_grim() -> bool {
-    deps::available(Dep::Grim)
+    platform_wayland::capture_supported()
 }
 
 /// Takes `request` on a thread of its own and publishes the outcome. Returns immediately: the caller is a click
@@ -174,20 +162,20 @@ fn perform(
     config: &ScreenshotConfig,
     dir: &Path,
 ) -> Result<Shot, String> {
-    let png = match captured {
-        Some(image) => Png {
-            bytes: image.to_png()?,
-            size: (image.width, image.height),
-        },
-        None => encoded(request, config)?,
+    let image = match captured {
+        Some(image) => image,
+        None => capture_pixels(request, config.backend())?,
     };
+    // Encoded once, in memory, so the same bytes can be saved and put on the clipboard without a second encode
+    // or a round trip through the disk.
+    let bytes = image.to_png()?;
     let path = if request.save {
-        Some(write_file(&png.bytes, dir, &config.file_name)?)
+        Some(write_file(&bytes, dir, &config.file_name)?)
     } else {
         None
     };
     if request.copy {
-        util::clipboard::copy_bytes("image/png", png.bytes.clone());
+        util::clipboard::copy_bytes("image/png", bytes);
     }
     if let Some(path) = path.as_ref()
         && request.annotate
@@ -197,7 +185,7 @@ fn perform(
     Ok(Shot {
         path,
         copied: request.copy,
-        size: png.size,
+        size: (image.width, image.height),
         taken_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|since| since.as_secs())
@@ -205,39 +193,21 @@ fn perform(
     })
 }
 
-struct Png {
-    bytes: Vec<u8>,
-    size: (u32, u32),
-}
-
-/// The capture as PNG bytes. `grim` already encodes, so its route is bytes all the way; the protocol route hands
-/// back pixels, which are encoded here — once, in memory, so the same bytes can be saved and put on the
-/// clipboard without a second encode or a round trip through the disk.
-fn encoded(request: &Request, config: &ScreenshotConfig) -> Result<Png, String> {
-    if config.prefers_grim() {
-        return grim_png(request);
-    }
-    match capture_pixels(request) {
-        Ok(image) => {
-            let bytes = image.to_png()?;
-            Ok(Png {
-                bytes,
-                size: (image.width, image.height),
-            })
-        }
-        Err(protocol) if config.may_use_grim() => {
-            tracing::info!("screenshot: {protocol}; falling back to grim");
-            grim_png(request)
-        }
-        Err(protocol) => Err(protocol),
-    }
-}
-
 /// One image in memory: tightly-packed RGBA8, top row first.
 pub struct Image {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
+}
+
+impl From<platform_wayland::Capture> for Image {
+    fn from(capture: platform_wayland::Capture) -> Self {
+        Self {
+            width: capture.width,
+            height: capture.height,
+            pixels: capture.pixels,
+        }
+    }
 }
 
 impl Image {
@@ -282,39 +252,30 @@ fn output_rects() -> Vec<(String, Area, i32)> {
         .collect()
 }
 
-fn capture_pixels(request: &Request) -> Result<Image, String> {
+fn capture_pixels(request: &Request, backend: CaptureBackend) -> Result<Image, String> {
     match &request.target {
-        Target::Output(name) => capture_output(name, request.cursor),
-        Target::Screen => compose_screen(request.cursor),
-        Target::Area(area) => capture_area(*area, request.cursor),
+        Target::Output(name) => capture_output(name, request.cursor, backend),
+        Target::Screen => compose_screen(request.cursor, backend),
+        Target::Area(area) => capture_area(*area, request.cursor, backend),
     }
 }
 
-fn capture_output(name: &str, cursor: bool) -> Result<Image, String> {
-    let capture = platform_wayland::capture(Some(name), CaptureArea::Output, cursor)
-        .map_err(|e| e.to_string())?;
-    Ok(Image {
-        width: capture.width,
-        height: capture.height,
-        pixels: capture.pixels,
-    })
+fn capture_output(name: &str, cursor: bool, backend: CaptureBackend) -> Result<Image, String> {
+    platform_wayland::capture(Some(name), CaptureArea::Output, cursor, backend)
+        .map(Image::from)
+        .map_err(|e| e.to_string())
 }
 
 /// Every output at its place in the layout. One capture per screen, composed rather than asked for as a whole:
-/// the protocol captures an output, so a desktop-wide picture is something only the shell can assemble.
-fn compose_screen(cursor: bool) -> Result<Image, String> {
+/// both protocols capture one output, so a desktop-wide picture is something only the shell can assemble.
+fn compose_screen(cursor: bool, backend: CaptureBackend) -> Result<Image, String> {
     let mut parts = Vec::new();
     for (name, area, scale) in output_rects() {
-        let capture = platform_wayland::capture(Some(&name), CaptureArea::Output, cursor)
-            .map_err(|e| format!("{name}: {e}"))?;
+        let image = capture_output(&name, cursor, backend).map_err(|e| format!("{name}: {e}"))?;
         parts.push(Placed {
             x: area.x * scale,
             y: area.y * scale,
-            image: Image {
-                width: capture.width,
-                height: capture.height,
-                pixels: capture.pixels,
-            },
+            image,
         });
     }
     compose(parts).ok_or_else(|| "no outputs to capture".to_string())
@@ -322,10 +283,11 @@ fn compose_screen(cursor: bool) -> Result<Image, String> {
 
 /// A selection, captured from the one output that holds it where possible.
 ///
-/// A region inside a single screen is asked for directly — the compositor crops it, and nothing larger than the
-/// selection ever crosses the socket. A selection spanning two screens has no single output to ask, so the whole
-/// desktop is composed and cropped instead: slower, and the only answer that is right.
-fn capture_area(area: Area, cursor: bool) -> Result<Image, String> {
+/// A region inside a single screen is asked for as a region, and the platform crate cuts it — off the
+/// compositor where the protocol can crop, out of the output's own pixels where it cannot. A selection spanning
+/// two screens has no single output to ask, so the whole desktop is composed and cropped instead: slower, and
+/// the only answer that is right.
+fn capture_area(area: Area, cursor: bool, backend: CaptureBackend) -> Result<Image, String> {
     if area.is_empty() {
         return Err("the selection is empty".to_string());
     }
@@ -333,7 +295,7 @@ fn capture_area(area: Area, cursor: bool) -> Result<Image, String> {
         .into_iter()
         .find(|(_, output, _)| output.contains(&area))
     {
-        let capture = platform_wayland::capture(
+        return platform_wayland::capture(
             Some(&name),
             CaptureArea::Region {
                 x: area.x - output.x,
@@ -342,15 +304,12 @@ fn capture_area(area: Area, cursor: bool) -> Result<Image, String> {
                 height: area.height,
             },
             cursor,
+            backend,
         )
-        .map_err(|e| e.to_string())?;
-        return Ok(Image {
-            width: capture.width,
-            height: capture.height,
-            pixels: capture.pixels,
-        });
+        .map(Image::from)
+        .map_err(|e| e.to_string());
     }
-    let screen = compose_screen(cursor)?;
+    let screen = compose_screen(cursor, backend)?;
     let scale = output_rects()
         .first()
         .map(|(_, _, scale)| *scale)
@@ -435,62 +394,6 @@ pub fn crop(image: &Image, area: Area) -> Result<Image, String> {
         height,
         pixels,
     })
-}
-
-/// The `grim` argument list for a request. Always PNG on stdout: the bytes are what the shell needs, and letting
-/// `grim` write the file itself would mean reading it back to reach the clipboard.
-fn grim_args(request: &Request) -> Vec<String> {
-    let mut args = Vec::new();
-    if request.cursor {
-        args.push("-c".to_string());
-    }
-    match &request.target {
-        Target::Screen => {}
-        Target::Output(name) => {
-            args.push("-o".to_string());
-            args.push(name.clone());
-        }
-        Target::Area(area) => {
-            args.push("-g".to_string());
-            args.push(area.as_geometry());
-        }
-    }
-    args.push("-t".to_string());
-    args.push("png".to_string());
-    args.push("-".to_string());
-    args
-}
-
-fn grim_png(request: &Request) -> Result<Png, String> {
-    let mut grim = deps::command(Dep::Grim).ok_or("grim has no row")?;
-    let output = grim
-        .args(grim_args(request))
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("grim: {e}"))?;
-    if !output.status.success() {
-        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if message.is_empty() {
-            "grim could not capture the screen".to_string()
-        } else {
-            format!("grim: {message}")
-        });
-    }
-    let size = png_size(&output.stdout).unwrap_or((0, 0));
-    Ok(Png {
-        bytes: output.stdout,
-        size,
-    })
-}
-
-/// A PNG's dimensions off its IHDR chunk. Cheaper than decoding the image back, and the only thing the shell
-/// wants to know about bytes another program encoded.
-fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    let ihdr = bytes.get(16..24)?;
-    let width = u32::from_be_bytes(ihdr[0..4].try_into().ok()?);
-    let height = u32::from_be_bytes(ihdr[4..8].try_into().ok()?);
-    Some((width, height))
 }
 
 fn write_file(bytes: &[u8], dir: &Path, name_format: &str) -> Result<PathBuf, String> {
@@ -593,13 +496,23 @@ fn file_label(path: &Path) -> String {
 /// panel's preview. No PNG, no clipboard, no file: a preview that went through the disk would be a screenshot
 /// taken every second.
 pub fn snapshot(target: Target, cursor: bool) -> Result<Image, String> {
-    capture_pixels(&Request {
-        target,
-        cursor,
-        save: false,
-        copy: false,
-        annotate: false,
-    })
+    capture_pixels(
+        &Request {
+            target,
+            cursor,
+            save: false,
+            copy: false,
+            annotate: false,
+        },
+        configured_backend(),
+    )
+}
+
+/// The route `[screenshot] backend` names, for the captures that have no request behind them to carry it.
+fn configured_backend() -> CaptureBackend {
+    config::shared_config()
+        .map(|c| c.screenshot.backend())
+        .unwrap_or_default()
 }
 
 /// Every output's current contents, for an overlay that has to stand still while the user draws on it.
@@ -607,9 +520,10 @@ pub fn snapshot(target: Target, cursor: bool) -> Result<Image, String> {
 /// Taken synchronously, on purpose. "Freeze the screen" means the pixels from the instant *before* the overlay
 /// appeared; handing the work to a thread and opening the overlay first would capture the overlay.
 pub fn freeze_outputs() -> Vec<(String, Image)> {
+    let backend = configured_backend();
     let mut frames = Vec::new();
     for (name, _, _) in output_rects() {
-        match capture_output(&name, false) {
+        match capture_output(&name, false, backend) {
             Ok(image) => frames.push((name, image)),
             Err(e) => tracing::warn!("screenshot: freezing {name}: {e}"),
         }
@@ -752,44 +666,6 @@ mod tests {
     }
 
     #[test]
-    fn grim_is_asked_for_bytes_and_told_which_pixels() {
-        let region = Request {
-            target: Target::Area(Area {
-                x: 10,
-                y: 20,
-                width: 30,
-                height: 40,
-            }),
-            cursor: true,
-            save: true,
-            copy: true,
-            annotate: false,
-        };
-        let args = grim_args(&region);
-        assert!(args.contains(&"-c".to_string()), "the cursor was asked for");
-        assert!(args.contains(&"10,20 30x40".to_string()), "{args:?}");
-        assert_eq!(
-            args.last().unwrap(),
-            "-",
-            "PNG on stdout, never a temp file"
-        );
-
-        let screen = Request {
-            target: Target::Screen,
-            cursor: false,
-            ..region.clone()
-        };
-        let args = grim_args(&screen);
-        assert!(!args.contains(&"-o".to_string()) && !args.contains(&"-g".to_string()));
-
-        let one = Request {
-            target: Target::Output("DP-1".to_string()),
-            ..region
-        };
-        assert!(grim_args(&one).contains(&"DP-1".to_string()));
-    }
-
-    #[test]
     fn an_annotator_takes_the_file_where_it_asked_for_it() {
         let path = Path::new("/tmp/shot.png");
         assert_eq!(
@@ -804,13 +680,21 @@ mod tests {
         assert!(annotator_words("   ", path).is_empty());
     }
 
+    /// A backend named in the config is "this route or none"; anything else, including a name a past build
+    /// understood and this one does not, means take whichever route works.
     #[test]
-    fn a_png_reports_its_own_size_without_being_decoded() {
-        let mut bytes = vec![0u8; 24];
-        bytes[16..20].copy_from_slice(&1920u32.to_be_bytes());
-        bytes[20..24].copy_from_slice(&1080u32.to_be_bytes());
-        assert_eq!(png_size(&bytes), Some((1920, 1080)));
-        assert_eq!(png_size(&[0, 1, 2]), None, "a truncated file is not a size");
+    fn the_configured_backend_names_a_route_or_falls_back_to_either() {
+        let with = |backend: &str| {
+            ScreenshotConfig {
+                backend: backend.to_string(),
+                ..Default::default()
+            }
+            .backend()
+        };
+        assert_eq!(with("screencopy"), CaptureBackend::Screencopy);
+        assert_eq!(with(" Image-Copy-Capture "), CaptureBackend::ImageCopyCapture);
+        assert_eq!(with("auto"), CaptureBackend::Auto);
+        assert_eq!(with("grim"), CaptureBackend::Auto, "a route this build no longer has");
     }
 
     #[test]

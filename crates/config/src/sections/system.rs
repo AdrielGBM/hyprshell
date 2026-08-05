@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use platform_wayland::CaptureBackend;
 use serde::{Deserialize, Serialize};
 
 /// App-wide settings that don't belong to a specific visual section. `language` is a BCP-47 tag
@@ -515,9 +516,10 @@ impl LauncherConfig {
 
 /// Screenshots (`[screenshot]`).
 ///
-/// `backend` is `auto` (the default), `screencopy` to insist on the Wayland protocol, or `grim` to insist on the
-/// tool. `auto` prefers the protocol — it needs nothing installed and hands the shell the pixels rather than a
-/// file — and falls back to `grim` on a compositor that does not implement it.
+/// `backend` names the protocol to capture through: `auto` (the default), `image-copy-capture` or `screencopy`.
+/// `auto` prefers `ext-image-copy-capture`, the standardised one, and falls back to `wlr-screencopy` on a
+/// compositor too old for it. Naming one means "this route or none" — a user who names a backend is usually
+/// debugging one, and a silent fallback is what hides the answer.
 ///
 /// `annotator` is the command a saved capture is handed to, with `{file}` where the path goes (appended when the
 /// command does not name it): `satty --filename {file}`, `swappy -f`. Empty means the capture is simply saved.
@@ -555,19 +557,14 @@ impl Default for ScreenshotConfig {
 }
 
 impl ScreenshotConfig {
-    fn backend_id(&self) -> String {
-        self.backend.trim().to_ascii_lowercase()
-    }
-
-    /// Whether `grim` is the route to take first, because the user asked for it by name.
-    pub fn prefers_grim(&self) -> bool {
-        self.backend_id() == "grim"
-    }
-
-    /// Whether a failed protocol capture may fall back to `grim`. `screencopy` means "this route or none": a
-    /// user who names a backend is usually debugging one, and a silent fallback is what hides the answer.
-    pub fn may_use_grim(&self) -> bool {
-        self.backend_id() != "screencopy"
+    /// The route a capture takes. Anything unrecognised reads as `auto`, which is what a config carried over
+    /// from a build that named a backend this one no longer has should do.
+    pub fn backend(&self) -> CaptureBackend {
+        match self.backend.trim().to_ascii_lowercase().as_str() {
+            "image-copy-capture" => CaptureBackend::ImageCopyCapture,
+            "screencopy" => CaptureBackend::Screencopy,
+            _ => CaptureBackend::Auto,
+        }
     }
 
     pub fn has_annotator(&self) -> bool {

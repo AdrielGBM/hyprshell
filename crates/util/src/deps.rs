@@ -38,7 +38,6 @@ pub enum Dep {
     PwDump,
     PwCat,
     Wpctl,
-    Grim,
     WfRecorder,
     GpuScreenRecorder,
     Ddcutil,
@@ -64,6 +63,7 @@ pub enum Dep {
     LayerShell,
     SessionLock,
     IdleNotify,
+    ImageCopyCapture,
     Screencopy,
 }
 
@@ -85,13 +85,17 @@ pub enum Kind {
     /// A shared library opened at runtime, so no linker records it and `ldd` cannot see it. Probed by opening
     /// it, in the same order and with the same names the real loader uses.
     Library { sonames: &'static [&'static str] },
-    /// A Wayland protocol, probed by asking the compositor's registry for the interface by name.
+    /// A Wayland protocol, probed by asking the compositor's registry for its interfaces by name. Present only
+    /// when *every* one of them is: `ext-image-copy-capture` is two globals — a capture manager and the factory
+    /// that makes the sources it takes — and a compositor carrying one without the other can capture nothing.
     ///
     /// Named rather than given a probe function on purpose: the crate's own `lock_supported` and
     /// `idle_supported` read state the *driver* owns, so outside a running shell they answer `false` for a
     /// compositor that implements the protocol perfectly well — which is the one case a dependency report
     /// exists to serve.
-    Protocol { interface: &'static str },
+    Protocol {
+        interfaces: &'static [&'static str],
+    },
 }
 
 /// Whether the shell can run at all without it.
@@ -137,7 +141,7 @@ pub const ALL: &[Entry] = &[
         dep: Dep::LayerShell,
         id: "wlr-layer-shell",
         kind: Kind::Protocol {
-            interface: "zwlr_layer_shell_v1",
+            interfaces: &["zwlr_layer_shell_v1"],
         },
         need: Need::Required,
         what: "every surface the shell draws — bars, panels, the launcher, the wallpaper layer",
@@ -161,7 +165,7 @@ pub const ALL: &[Entry] = &[
         dep: Dep::SessionLock,
         id: "ext-session-lock",
         kind: Kind::Protocol {
-            interface: "ext_session_lock_manager_v1",
+            interfaces: &["ext_session_lock_manager_v1"],
         },
         need: Need::Optional,
         what: "covering every output with a lock surface the compositor keeps up",
@@ -171,21 +175,31 @@ pub const ALL: &[Entry] = &[
         dep: Dep::IdleNotify,
         id: "ext-idle-notify",
         kind: Kind::Protocol {
-            interface: "ext_idle_notifier_v1",
+            interfaces: &["ext_idle_notifier_v1"],
         },
         need: Need::Optional,
         what: "knowing the seat has gone idle, for the `[idle]` stages",
         without: "idle timers never arm, so nothing locks or blanks on its own",
     },
     Entry {
-        dep: Dep::Screencopy,
-        id: "wlr-screencopy",
+        dep: Dep::ImageCopyCapture,
+        id: "ext-image-copy-capture",
         kind: Kind::Protocol {
-            interface: "zwlr_screencopy_manager_v1",
+            interfaces: platform_wayland::IMAGE_COPY_CAPTURE_INTERFACES,
         },
         need: Need::Optional,
         what: "screenshots and the window preview, straight into the shell's own buffers",
-        without: "capture falls back to `grim`, which speaks the same protocol and so fails the same way",
+        without: "capture falls back to wlr-screencopy, and fails only if that is missing too",
+    },
+    Entry {
+        dep: Dep::Screencopy,
+        id: "wlr-screencopy",
+        kind: Kind::Protocol {
+            interfaces: platform_wayland::SCREENCOPY_INTERFACES,
+        },
+        need: Need::Optional,
+        what: "the same captures on a compositor too old for ext-image-copy-capture",
+        without: "nothing, as long as the compositor implements ext-image-copy-capture",
     },
     Entry {
         dep: Dep::PwDump,
@@ -314,17 +328,6 @@ pub const ALL: &[Entry] = &[
         need: Need::Optional,
         what: "GPU utilisation and VRAM on AMD and Intel, straight from the kernel",
         without: "GPU fields read unknown unless nvidia-smi answers",
-    },
-    Entry {
-        dep: Dep::Grim,
-        id: "grim",
-        kind: Kind::Program {
-            name: "grim",
-            probe: &["-h"],
-        },
-        need: Need::Optional,
-        what: "capture, when the protocol route is refused",
-        without: "nothing, as long as the compositor implements wlr-screencopy",
     },
     Entry {
         dep: Dep::WfRecorder,
@@ -538,7 +541,7 @@ fn run_probe(entry: &Entry) -> Presence {
         ),
         // The only kind that can answer `Unknown`: with no compositor to ask, "does it advertise this" has no
         // answer, and inventing `Absent` would blame the compositor for this process having no session.
-        Kind::Protocol { interface } => match platform_wayland::advertises(interface) {
+        Kind::Protocol { interfaces } => match platform_wayland::advertises_all(interfaces) {
             Some(yes) => found(yes),
             None => Presence::Unknown,
         },
