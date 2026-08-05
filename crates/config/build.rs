@@ -87,9 +87,16 @@ fn main() {
 /// `    pub scale: ScaleConfig,` → `ScaleConfig`. Only the bare name is wanted, so a wrapped type
 /// (`Option<FontSpec>`, `HashMap<String, PathBuf>`) yields nothing rather than a guess about which parameter
 /// matters — a nested table is only ever a plain struct here.
+///
+/// `Vec<T>` is the one wrapper that unwraps, because a list of tables is documented by its element: the prose
+/// explaining `[[idle.stages]]` sits on `IdleStage`, not on the field holding the list.
 fn field_type(line: &str) -> Option<String> {
     let (_, rest) = line.split_once(':')?;
     let kind = rest.trim().trim_end_matches(',').trim();
+    let kind = kind
+        .strip_prefix("Vec<")
+        .and_then(|inner| inner.strip_suffix('>'))
+        .unwrap_or(kind);
     let plain = !kind.is_empty()
         && kind.chars().all(|c| c.is_ascii_alphanumeric())
         && kind.starts_with(|c: char| c.is_ascii_uppercase());

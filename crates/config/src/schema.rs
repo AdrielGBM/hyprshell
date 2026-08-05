@@ -4,6 +4,9 @@
 //! "every option" reference is a view of the code instead of a second copy that drifts away from it. The comments
 //! come from `build.rs`, which lifts them off `config.rs`; the values come from serializing [`Config::starter`], so
 //! a key that exists is a key the shell reads.
+//!
+//! [`outline`] is that view as data, and [`render`] is one printing of it. `hyprshell man 5` is the other: both
+//! walk the same tree, so a key cannot reach the TOML reference and go missing from the manual.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -72,21 +75,48 @@ fn doc_for(structure: &str, field: &str) -> Option<&'static str> {
 
 /// Every documented key, as `# ` comment lines wrapped to nothing — the source comments are already wrapped,
 /// so they are emitted verbatim rather than reflowed into a width this shell would have to guess.
-fn comment(doc: &str, indent: &str) -> String {
+fn comment(doc: &str) -> String {
     doc.lines()
         .map(|line| {
             if line.is_empty() {
-                format!("{indent}#\n")
+                "#\n".to_string()
             } else {
-                format!("{indent}# {line}\n")
+                format!("# {line}\n")
             }
         })
         .collect()
 }
 
-/// The annotated default config, or one section of it. An unknown section name is an error listing the real
-/// ones, so a typo answers with the menu rather than with nothing.
-pub fn render(section: Option<&str>) -> Result<String, String> {
+/// One table in the reference: a `[section]`, a nested `[section.table]`, and the keys it holds.
+pub struct Table {
+    pub path: String,
+    pub doc: Option<&'static str>,
+    pub entries: Vec<Entry>,
+}
+
+/// What a table holds, in the order any rendering has to emit it — TOML puts every bare key before the first
+/// sub-table header, since a header printed first would swallow the keys that follow it.
+pub enum Entry {
+    /// A key and the value the shell uses when it is absent. `default` is `None` for an `Option` field: there
+    /// is no value to print, and inventing one would document a default the shell does not use.
+    Key {
+        name: String,
+        default: Option<toml::Value>,
+        doc: Option<&'static str>,
+    },
+    Table(Table),
+    /// A list of tables — `[[idle.stages]]`, `[[battery.warn_levels]]` — carrying the entries a fresh install
+    /// starts with. Its shape is those entries; there is no struct behind the element type to annotate.
+    List {
+        path: String,
+        doc: Option<&'static str>,
+        elements: Vec<toml::Value>,
+    },
+}
+
+/// Every section of the reference, or one of them, as data rather than as text. An unknown section name is an
+/// error listing the real ones, so a typo answers with the menu rather than with nothing.
+pub fn outline(section: Option<&str>) -> Result<Vec<Table>, String> {
     let structs = section_structs();
     let defaults = toml::Value::try_from(Config::starter())
         .map_err(|e| format!("serializing the default config: {e}"))?;
@@ -105,6 +135,71 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
         ));
     }
 
+    let mut sections = Vec::new();
+    for (name, structure) in ordered_sections(&structs) {
+        if section.is_some_and(|wanted| wanted != name) {
+            continue;
+        }
+        let Some(value) = table.get(name).and_then(toml::Value::as_table) else {
+            continue;
+        };
+        sections.push(Table {
+            path: name.to_string(),
+            doc: doc_for(structure, ""),
+            entries: walk(name, value, structure),
+        });
+    }
+    Ok(sections)
+}
+
+/// One table's entries: its own keys, then the optional ones serde left out, then its sub-tables, then its
+/// lists of tables.
+fn walk(path: &str, table: &toml::map::Map<String, toml::Value>, structure: &str) -> Vec<Entry> {
+    let mut keys = Vec::new();
+    let mut tables = Vec::new();
+    let mut lists = Vec::new();
+    for (key, entry) in table {
+        let child = format!("{path}.{key}");
+        if let Some(inner) = entry.as_table() {
+            // A map-valued key (`[theme.colors]`, `[background.monitors]`) has no struct and no fixed keys, so
+            // it contributes a header and nothing else — still the one thing a reader cannot learn elsewhere:
+            // that the table exists and what to call it.
+            let entries = match type_of(structure, key) {
+                Some(nested) => walk(&child, inner, nested),
+                None => Vec::new(),
+            };
+            tables.push(Entry::Table(Table {
+                path: child,
+                doc: doc_for(structure, key),
+                entries,
+            }));
+            continue;
+        }
+        if let Some(elements) = table_array(entry) {
+            // A list's explanation is usually on its element struct rather than on the field holding it: what
+            // an `[[idle.stages]]` table means is what an `IdleStage` is.
+            let doc = doc_for(structure, key)
+                .or_else(|| type_of(structure, key).and_then(|element| doc_for(element, "")));
+            lists.push(Entry::List {
+                path: child,
+                doc,
+                elements: elements.to_vec(),
+            });
+            continue;
+        }
+        keys.push(Entry::Key {
+            name: key.clone(),
+            default: Some(narrow_float(entry)),
+            doc: doc_for(structure, key),
+        });
+    }
+    keys.extend(unset(table, structure));
+    keys.into_iter().chain(tables).chain(lists).collect()
+}
+
+/// The annotated default config, or one section of it: the outline printed as the TOML a user edits.
+pub fn render(section: Option<&str>) -> Result<String, String> {
+    let sections = outline(section)?;
     let mut out = String::new();
     if section.is_none() {
         out.push_str("# hyprshell configuration reference\n");
@@ -114,114 +209,67 @@ pub fn render(section: Option<&str>) -> Result<String, String> {
         out.push_str("# Every key below is the value the shell uses when the key is absent.\n\n");
         let _ = writeln!(out, "version = {}\n", crate::CONFIG_VERSION);
     }
-
-    // The order `Config` declares its sections in, which is the order a reader meets them in the source.
-    for (name, structure) in ordered_sections(&structs) {
-        if section.is_some_and(|wanted| wanted != name) {
-            continue;
+    for table in &sections {
+        if let Some(doc) = table.doc {
+            out.push_str(&comment(doc));
         }
-        let Some(value) = table.get(name) else {
-            continue;
-        };
-        if let Some(doc) = doc_for(structure, "") {
-            out.push_str(&comment(doc, ""));
-        }
-        let _ = writeln!(out, "[{name}]");
-        out.push_str(&render_section(name, value, structure));
+        let _ = writeln!(out, "[{}]", table.path);
+        out.push_str(&render_entries(&table.entries));
         out.push('\n');
     }
     Ok(out)
 }
 
-/// A section's keys: each documented field's comment, then the key and its default. Nested tables
-/// (`[theme.scale]`, `[background.clock]`) and lists of tables are emitted after the flat keys, which is the
-/// order TOML requires — a `[theme.scale]` header printed before `[theme]`'s own keys would swallow them.
-fn render_section(section: &str, value: &toml::Value, structure: &str) -> String {
-    let Some(table) = value.as_table() else {
-        return String::new();
-    };
+/// A table's entries as TOML. A list of tables has to carry its section in the header — serializing it as a
+/// bare one-key map yields a reference whose own text does not parse back into the section it documents.
+fn render_entries(entries: &[Entry]) -> String {
     let mut out = String::new();
-    let mut nested = String::new();
-    let mut arrays = String::new();
-    for (key, entry) in table {
-        if let Some(inner) = entry.as_table() {
-            nested.push_str(&render_nested(
-                &format!("{section}.{key}"),
-                inner,
-                doc_for(structure, key),
-                type_of(structure, key),
-            ));
-            continue;
-        }
-        if let Some(doc) = doc_for(structure, key) {
-            out.push_str(&comment(doc, ""));
-        }
-        // A list of tables (`[[battery.warn_levels]]`, `[[idle.stages]]`) has to carry its section in the
-        // header and has to come after the section's flat keys — serializing it as a bare one-key map gets
-        // both wrong, and yields a reference whose own text does not parse back into the section it documents.
-        if let Some(entries) = table_array(entry) {
-            for element in entries {
-                let _ = writeln!(arrays, "\n[[{section}.{key}]]");
-                arrays.push_str(&toml::to_string(element).unwrap_or_default());
+    for entry in entries {
+        match entry {
+            Entry::Key { name, default, doc } => {
+                if let Some(doc) = doc {
+                    out.push_str(&comment(doc));
+                }
+                match default {
+                    Some(value) => out.push_str(
+                        &toml::to_string(&toml::map::Map::from_iter([(
+                            name.clone(),
+                            value.clone(),
+                        )]))
+                        .unwrap_or_default(),
+                    ),
+                    None => {
+                        let _ = writeln!(out, "# {name} =   # unset by default");
+                    }
+                }
             }
-            continue;
+            Entry::Table(table) => {
+                out.push('\n');
+                if let Some(doc) = table.doc {
+                    out.push_str(&comment(doc));
+                }
+                let _ = writeln!(out, "[{}]", table.path);
+                out.push_str(&render_entries(&table.entries));
+            }
+            Entry::List {
+                path,
+                doc,
+                elements,
+            } => {
+                out.push('\n');
+                if let Some(doc) = doc {
+                    out.push_str(&comment(doc));
+                }
+                for (index, element) in elements.iter().enumerate() {
+                    if index > 0 {
+                        out.push('\n');
+                    }
+                    let _ = writeln!(out, "[[{path}]]");
+                    out.push_str(&toml::to_string(element).unwrap_or_default());
+                }
+            }
         }
-        let rendered = toml::to_string(&toml::map::Map::from_iter([(
-            key.clone(),
-            narrow_float(entry),
-        )]))
-        .unwrap_or_default();
-        out.push_str(&rendered);
     }
-    out.push_str(&render_unset(table, structure));
-    out.push_str(&nested);
-    out.push_str(&arrays);
-    out
-}
-
-/// One nested table, headed and annotated from the struct that backs it.
-///
-/// A map-valued key (`[theme.colors]`, `[background.monitors]`) has no struct and no fixed keys, so it is
-/// printed as an empty header — which is still the right answer: it tells a reader the table exists and what to
-/// call it, which is exactly what they cannot learn anywhere else.
-fn render_nested(
-    path: &str,
-    table: &toml::map::Map<String, toml::Value>,
-    doc: Option<&'static str>,
-    structure: Option<&'static str>,
-) -> String {
-    let mut out = String::from("\n");
-    if let Some(doc) = doc {
-        out.push_str(&comment(doc, ""));
-    }
-    let _ = writeln!(out, "[{path}]");
-    let Some(structure) = structure else {
-        return out;
-    };
-    let mut deeper = String::new();
-    for (key, entry) in table {
-        if let Some(inner) = entry.as_table() {
-            deeper.push_str(&render_nested(
-                &format!("{path}.{key}"),
-                inner,
-                doc_for(structure, key),
-                type_of(structure, key),
-            ));
-            continue;
-        }
-        if let Some(doc) = doc_for(structure, key) {
-            out.push_str(&comment(doc, ""));
-        }
-        out.push_str(
-            &toml::to_string(&toml::map::Map::from_iter([(
-                key.clone(),
-                narrow_float(entry),
-            )]))
-            .unwrap_or_default(),
-        );
-    }
-    out.push_str(&render_unset(table, structure));
-    out.push_str(&deeper);
     out
 }
 
@@ -284,19 +332,19 @@ fn table_array(entry: &toml::Value) -> Option<&[toml::Value]> {
 /// The keys serde left out because they default to `None`.
 ///
 /// An `Option` with no value serializes to nothing, so a reference built from the defaults alone would silently
-/// omit every optional key — `[clock] format` is a documented option a reader would never learn exists. They
-/// are emitted commented out, since there is no default to print and writing one would invent a value the
-/// shell does not use.
-fn render_unset(table: &toml::map::Map<String, toml::Value>, structure: &str) -> String {
-    let mut out = String::new();
-    for (owner, field, doc) in CONFIG_DOCS {
-        if *owner != structure || field.is_empty() || table.contains_key(*field) {
-            continue;
-        }
-        out.push_str(&comment(doc, ""));
-        let _ = writeln!(out, "# {field} =   # unset by default");
-    }
-    out
+/// omit every optional key — `[clock] format` is a documented option a reader would never learn exists.
+fn unset(table: &toml::map::Map<String, toml::Value>, structure: &str) -> Vec<Entry> {
+    CONFIG_DOCS
+        .iter()
+        .filter(|(owner, field, _)| {
+            *owner == structure && !field.is_empty() && !table.contains_key(*field)
+        })
+        .map(|(_, field, doc)| Entry::Key {
+            name: (*field).to_string(),
+            default: None,
+            doc: Some(doc),
+        })
+        .collect()
 }
 
 fn ordered_sections(
