@@ -333,16 +333,18 @@ fn table_array(entry: &toml::Value) -> Option<&[toml::Value]> {
 ///
 /// An `Option` with no value serializes to nothing, so a reference built from the defaults alone would silently
 /// omit every optional key — `[clock] format` is a documented option a reader would never learn exists.
+///
+/// Walked over every field rather than over the documented ones: `[corners] top_left` and `[background] image`
+/// carry no doc comment and are still keys, and a reference that lists a key only when somebody remembered to
+/// explain it is one where forgetting a comment deletes the key.
 fn unset(table: &toml::map::Map<String, toml::Value>, structure: &str) -> Vec<Entry> {
-    CONFIG_DOCS
+    CONFIG_FIELDS
         .iter()
-        .filter(|(owner, field, _)| {
-            *owner == structure && !field.is_empty() && !table.contains_key(*field)
-        })
-        .map(|(_, field, doc)| Entry::Key {
+        .filter(|(owner, field)| *owner == structure && !table.contains_key(*field))
+        .map(|(_, field)| Entry::Key {
             name: (*field).to_string(),
             default: None,
-            doc: Some(doc),
+            doc: doc_for(structure, field),
         })
         .collect()
 }

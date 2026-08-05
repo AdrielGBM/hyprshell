@@ -94,6 +94,9 @@ Default: \fB"fade"\fR
 How long that transition runs, before `[animation] duration_scale`. Ignored while `[animation] enabled` is off, which makes every change instant.
 .sp
 Default: \fB600\fR
+.TP
+.B image
+Unset by default.
 .SS [background.clock]
 .TP
 .B background
@@ -242,6 +245,18 @@ Default: \fB34\fR
 .B start
 Default: \fB[]\fR
 .SS [bars.bottom.shape]
+.TP
+.B mode
+Unset by default.
+.TP
+.B gap
+Unset by default.
+.TP
+.B spacing
+Unset by default.
+.TP
+.B radius
+Unset by default.
 .SS [bars.left]
 .TP
 .B center
@@ -276,6 +291,18 @@ Default: \fB34\fR
 .B start
 Default: \fB[]\fR
 .SS [bars.left.shape]
+.TP
+.B mode
+Unset by default.
+.TP
+.B gap
+Unset by default.
+.TP
+.B spacing
+Unset by default.
+.TP
+.B radius
+Unset by default.
 .SS [bars.right]
 .TP
 .B center
@@ -310,6 +337,18 @@ Default: \fB34\fR
 .B start
 Default: \fB[]\fR
 .SS [bars.right.shape]
+.TP
+.B mode
+Unset by default.
+.TP
+.B gap
+Unset by default.
+.TP
+.B spacing
+Unset by default.
+.TP
+.B radius
+Unset by default.
 .SS [bars.top]
 .TP
 .B center
@@ -344,6 +383,18 @@ Default: \fB34\fR
 .B start
 Default: \fB["workspaces"]\fR
 .SS [bars.top.shape]
+.TP
+.B mode
+Unset by default.
+.TP
+.B gap
+Unset by default.
+.TP
+.B spacing
+Unset by default.
+.TP
+.B radius
+Unset by default.
 .SS [battery]
 Low\-battery behaviour (`[battery]`): the levels that raise a notification, and the action to take once the
 charge is low enough that the machine should put itself away. On a desktop none of it ever fires, since
@@ -438,6 +489,18 @@ Overrides `twelve_hour` when set, for a user who wants seconds, a weekday, or an
 .sp
 Unset by default.
 .SS [corners]
+.TP
+.B top_left
+Unset by default.
+.TP
+.B top_right
+Unset by default.
+.TP
+.B bottom_left
+Unset by default.
+.TP
+.B bottom_right
+Unset by default.
 .SS [dashboard]
 The dashboard surface (`[dashboard]`).
 .sp
@@ -1083,6 +1146,12 @@ Default: \fB6\fR
 .TP
 .B mode
 Default: \fB"bar"\fR
+.TP
+.B spacing
+Unset by default.
+.TP
+.B radius
+Unset by default.
 .SS [sidebar]
 The notification centre (`[sidebar]`): a full\-height surface that is the home for the notification history and
 the quick toggles.
@@ -1163,6 +1232,18 @@ or `muted`. Ignored by the built\-in palettes, which carry their own.
 .sp
 Default: \fB"vibrant"\fR
 .TP
+.B radius
+Unset by default.
+.TP
+.B spacing
+Unset by default.
+.TP
+.B font_size
+Unset by default.
+.TP
+.B icon_size
+Unset by default.
+.TP
 .B font_family
 Font family the whole shell renders in (must be installed). Unset keeps the renderer's default. Applied process\-wide via [`telar::set_default_font_family`], not carried in the (`Copy`) theme struct.
 .sp
@@ -1199,9 +1280,45 @@ Default: \fBfalse\fR
 Default: \fBfalse\fR
 .SS [theme.fonts]
 .SS [theme.fonts.body]
+.TP
+.B size
+Unset by default.
+.TP
+.B weight
+Unset by default.
+.TP
+.B italic
+Unset by default.
 .SS [theme.fonts.caption]
+.TP
+.B size
+Unset by default.
+.TP
+.B weight
+Unset by default.
+.TP
+.B italic
+Unset by default.
 .SS [theme.fonts.display]
+.TP
+.B size
+Unset by default.
+.TP
+.B weight
+Unset by default.
+.TP
+.B italic
+Unset by default.
 .SS [theme.fonts.title]
+.TP
+.B size
+Unset by default.
+.TP
+.B weight
+Unset by default.
+.TP
+.B italic
+Unset by default.
 .SS [theme.scale]
 .TP
 .B font
@@ -1430,6 +1547,12 @@ Minutes between refreshes. Clamped on read: the forecast changes hourly, and ham
 every few seconds is how a shell gets its users rate\-limited.
 .sp
 Default: \fB15\fR
+.TP
+.B latitude
+Unset by default.
+.TP
+.B longitude
+Unset by default.
 .SS [workspaces]
 The `workspaces` module.
 .sp
