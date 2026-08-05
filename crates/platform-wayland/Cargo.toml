@@ -1,6 +1,6 @@
 [package]
 name = "platform-wayland"
-description = "A Wayland backend for a desktop shell: layer surfaces, session lock, idle notification, screen capture and clipboard ownership, over one connection and one event loop."
+description = "A Wayland backend for a desktop shell: layer surfaces, session lock, idle notification, screen capture, clipboard ownership, and the compositor's own workspace and window lists."
 edition.workspace = true
 version.workspace = true
 rust-version.workspace = true

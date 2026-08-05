@@ -6,7 +6,10 @@ mod idle;
 mod link;
 mod lock;
 mod platform;
+mod toplevel_control;
+mod toplevels;
 mod window;
+mod workspaces;
 
 pub use capture::{
     Backend as CaptureBackend, Capture, CaptureArea, CaptureError, IMAGE_COPY_CAPTURE_INTERFACES,
@@ -23,4 +26,19 @@ pub use platform::{
     on_outputs_changed, open_reservation, open_surface, outputs, request_close, request_margin,
     request_size, run_on_start, timeout, watch,
 };
+pub use toplevel_control::{
+    ManagedToplevel, ManagedToplevelId, TOPLEVEL_MANAGER_INTERFACE, close as close_toplevel,
+    current as current_managed_toplevels, focus as focus_toplevel, focused as focused_toplevel,
+    set_fullscreen as set_toplevel_fullscreen, set_maximized as set_toplevel_maximized,
+    set_minimized as set_toplevel_minimized, toplevel_control_supported,
+    watch as watch_managed_toplevels,
+};
+pub use toplevels::{
+    TOPLEVEL_LIST_INTERFACE, Toplevel, ToplevelId, current as current_toplevels,
+    toplevels_supported, watch as watch_toplevels,
+};
 pub use window::LayerWindow;
+pub use workspaces::{
+    WORKSPACE_INTERFACE, Workspace, WorkspaceId, activate as activate_workspace,
+    current as current_workspaces, watch as watch_workspaces, workspaces_supported,
+};
