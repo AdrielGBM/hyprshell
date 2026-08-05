@@ -1,7 +1,8 @@
 # hyprshell
 
 A Wayland desktop shell in Rust — bars, panels, launcher, dashboard, lock screen, notifications, capture and
-dynamic theming — built on [`telar`](../telar) and `wlr-layer-shell`, configured in TOML.
+dynamic theming — built on [`telar`](https://github.com/AdrielGBM/telar) and `wlr-layer-shell`, configured in
+TOML.
 
 It targets Hyprland but prefers Wayland protocols to compositor IPC wherever both exist, so most of it works
 anywhere `wlr-layer-shell`, `ext-session-lock` and `ext-idle-notify` do.
@@ -28,17 +29,14 @@ pass over the result.
 ## Install
 
 ```sh
+git clone https://github.com/AdrielGBM/hyprshell
+cd hyprshell
 cargo build --release        # target/release/hyprshell
 ```
 
-hyprshell builds against a sibling checkout of the [`telar`](../telar) UI framework, by path — the two are
-developed together, and a fix that is agnostic to this shell belongs upstream. Lay the two out side by side:
-
-```
-somewhere/
-├── hyprshell/
-└── telar/
-```
+One clone is enough. Building needs Rust 1.89 or newer and `libxkbcommon` — the only library the binary links
+besides glibc, so its development files have to be present. Everything under [Dependencies](#dependencies) is
+reached at runtime and missing gracefully; `hyprshell deps` reports which of them this machine actually has.
 
 Start it from your compositor:
 
@@ -145,11 +143,27 @@ unknown rather than zero, or does not appear at all.
 | Weather | network access | the weather card says so |
 | Workspaces, window info | Hyprland IPC | those modules are hidden |
 
+**Two bus names are owned, not consumed:** `org.freedesktop.Notifications` and
+`org.kde.StatusNotifierWatcher`. So hyprshell replaces dunst, mako or swaync rather than running beside one,
+and the same goes for any other tray watcher — whichever process claims the name first wins.
+
 ## Development
 
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+```
+
+hyprshell and [`telar`](https://github.com/AdrielGBM/telar) are developed together, and a fix that is agnostic
+to this shell belongs upstream rather than worked around here. The dependency is a published version so that a
+clone builds on its own; point cargo at a local checkout while you work on both, and take it back out before
+committing:
+
+```toml
+# Cargo.toml — never commit this block: it makes the build need a second checkout
+[patch.crates-io]
+telar = { path = "../telar/crates/telar" }
+telar-platform-headless = { path = "../telar/crates/platform/platform-headless" }
 ```
 
 The manual is generated from the command table and the config schema, and `cargo test` fails if the checked-in
@@ -169,6 +183,14 @@ cargo fmt --check -- $(find apps crates -name '*.rs' -not -path '*/target/*' -no
 
 (`.telar/build` is the transpiler's own output, not source.)
 
+`cargo fmt -- <files>` also formats more than the files you name, because cargo hands rustfmt each target's
+crate root as well. To format an exact set — one new module, without dragging a reformat of unrelated files
+into the same commit — call `rustfmt --edition 2024 <files>` directly.
+
+**The build writes into the source tree.** `rsx_modules!` transpiles into `.telar/build/` at macro-expansion
+time, so the source directory has to be writable — a build pointed at a read-only path fails with `Failed to
+create .telar/build/`. The directory is gitignored and regenerated from the `.rsx` files.
+
 Anything with a look has a PNG test behind an env var:
 
 ```sh
@@ -180,4 +202,4 @@ TELAR_PERF=1 hyprshell                 # per-phase frame timing
 
 ## Licence
 
-See the repository root.
+MIT or Apache-2.0, at your option — [`LICENSE-MIT`](LICENSE-MIT) and [`LICENSE-APACHE`](LICENSE-APACHE).
