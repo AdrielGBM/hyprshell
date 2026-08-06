@@ -7,6 +7,7 @@ mod idle;
 mod link;
 mod lock;
 mod platform;
+mod power;
 mod toplevel_control;
 mod toplevels;
 mod window;
@@ -30,6 +31,9 @@ pub use platform::{
     EventSender, LayerShellPlatform, SurfaceHandle, enumerate_outputs, interval, on_close,
     on_outputs_changed, open_reservation, open_surface, outputs, request_close, request_margin,
     request_size, run_on_start, timeout, watch,
+};
+pub use power::{
+    OUTPUT_POWER_INTERFACE, output_power_on, output_power_supported, set_output_power,
 };
 pub use toplevel_control::{
     ManagedToplevel, ManagedToplevelId, TOPLEVEL_MANAGER_INTERFACE, close as close_toplevel,

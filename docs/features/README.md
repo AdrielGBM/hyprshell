@@ -61,7 +61,7 @@ not repeated here.
 | --- | --- | --- |
 | [Clipboard](system/clipboard.md) | The shell owns the selection itself — no `wl-copy` in the loop. | — |
 | [Global shortcuts](system/global-shortcuts.md) | Registering the shell's actions with the desktop portal so the compositor can bind them by name. | `xdg-desktop-portal` |
-| [Idle](system/idle.md) | Timers that fire a command when the seat goes quiet, and what holds them off. | `ext-idle-notify` |
+| [Idle](system/idle.md) | Timers that fire a command when the seat goes quiet, and what holds them off. | `ext-idle-notify`, `wlr-output-power-management` |
 | [IPC](system/ipc.md) | Every action the shell has is a command on a socket. | — |
 | [Lock screen](system/lock.md) | One surface per monitor, and the only thing on it that matters is the password field. | `ext-session-lock`, `libpam`, `fprintd` |
 | [Night light](system/nightlight.md) | Warm the screen by setting each output's gamma ramp, with no helper process running alongside. | `wlr-gamma-control` |

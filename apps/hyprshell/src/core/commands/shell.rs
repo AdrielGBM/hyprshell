@@ -82,18 +82,13 @@ pub(crate) const SHELL: Target = Target {
             args: "<on|off>",
             help: "switch every monitor's output on or off",
             run: |args| {
-                use services::hyprland;
                 let on = match arg(args, 0, "state")? {
                     "on" => true,
                     "off" => false,
                     other => return Err(format!("expected on|off, got '{other}'")),
                 };
-                let dir = hyprland::socket_dir().ok_or("not running under Hyprland")?;
-                if hyprland::set_dpms(&dir, on) {
-                    Ok(on_off(on).to_string())
-                } else {
-                    Err("the compositor did not change its DPMS state".to_string())
-                }
+                services::power::set_screens(on)?;
+                Ok(on_off(on).to_string())
             },
         },
         Command {

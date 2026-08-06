@@ -7,7 +7,7 @@ status: stable
 compositor: any
 config: [idle]
 commands: [idle]
-deps: [ext-idle-notify]
+deps: [ext-idle-notify, wlr-output-power-management]
 see_also: [lock, session-actions, battery]
 ---
 

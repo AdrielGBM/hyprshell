@@ -68,6 +68,7 @@ pub enum Dep {
     Workspaces,
     ToplevelManagement,
     GammaControl,
+    OutputPower,
 }
 
 /// How a dependency is found, which is also how it is probed.
@@ -201,6 +202,16 @@ pub const ALL: &[Entry] = &[
         need: Need::Optional,
         what: "which window has focus, and switching to one — the `activewindow` chip and the launcher's `/` mode",
         without: "the active-window chip reads as no window and the launcher lists none to switch to",
+    },
+    Entry {
+        dep: Dep::OutputPower,
+        id: "wlr-output-power-management",
+        kind: Kind::Protocol {
+            interfaces: &[platform_wayland::OUTPUT_POWER_INTERFACE],
+        },
+        need: Need::Optional,
+        what: "blanking and waking a screen, for `shell dpms` and the idle stage that uses it",
+        without: "the screen is blanked through the compositor's own dispatcher, which cannot confirm it worked",
     },
     Entry {
         dep: Dep::GammaControl,
