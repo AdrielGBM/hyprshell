@@ -93,6 +93,29 @@ pub fn current_mic() -> Option<Volume> {
     MIC.current()
 }
 
+/// How long a caller that started the graph listener itself will wait for its first reading.
+///
+/// Short, and it has to be: an IPC command runs on the driver thread, so this is a wait the whole shell takes.
+/// It only ever covers the moment between starting the listener and its thread registering — the graph replays
+/// its last batch on registration ([`pipewire::on_graph`]), so there is nothing else to wait for. A machine
+/// with no PipeWire at all spends the whole budget once and then answers honestly.
+const COLD_START: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// The default sink's level for a caller that is *asking* rather than drawing — an IPC command, a keybind.
+///
+/// Not [`current`]: that starts the graph listener and reads in the same breath, so the first `volume get` after
+/// a shell came up answered `None` and the shell reported "no audio sink available" about a machine with one.
+/// A UI handler is right to take that answer — it has a live subscription or it has nothing to draw — but a
+/// command is the reason the listener started and can afford to wait for it.
+pub fn reading() -> Option<Volume> {
+    VOLUME.awaited(COLD_START)
+}
+
+/// The default source's level, on the same terms as [`reading`].
+pub fn mic_reading() -> Option<Volume> {
+    MIC.awaited(COLD_START)
+}
+
 /// Stands a reading in for the graph's, without starting the PipeWire listener — what a `[preview]` draws its
 /// meter from. See [`util::broadcast::Service::seed`].
 pub fn seed(volume: Volume) {
@@ -154,16 +177,17 @@ pub fn toggle_mic_mute() {
 ///
 /// Publishes the target before `wpctl` has run, so a scroll notch moves the chip and the OSD on the same frame
 /// instead of a round-trip later; the reading the graph reports next reconciles what the sink accepted.
-pub fn set(level: i32) {
+pub fn set(level: i32) -> i32 {
     let level = level.clamp(0, settings().ceiling());
     let muted = current().is_some_and(|v| v.muted);
     VOLUME.publish(Volume { level, muted });
     apply(vec!["set-volume".into(), SINK.into(), format!("{level}%")]);
+    level
 }
 
 /// A microphone has no reason to be boosted past its own maximum, so this clamps to 0–100 rather than the
 /// sink's 0–150.
-pub fn set_mic(level: i32) {
+pub fn set_mic(level: i32) -> i32 {
     let level = level.clamp(0, 100);
     let muted = current_mic().is_some_and(|v| v.muted);
     MIC.publish(Volume { level, muted });
@@ -172,6 +196,7 @@ pub fn set_mic(level: i32) {
         SOURCE.into(),
         format!("{level}%"),
     ]);
+    level
 }
 
 /// Republishes the graph with `edit` applied to one node, so a mixer's slider follows the pointer instead of

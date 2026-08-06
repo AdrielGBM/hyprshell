@@ -145,6 +145,8 @@ type GraphHandler = Box<dyn FnMut(&Graph) + Send>;
 
 static HANDLERS: Mutex<Vec<GraphHandler>> = Mutex::new(Vec::new());
 static MONITOR_THREAD: OnceLock<()> = OnceLock::new();
+/// The last batch the monitor produced, replayed to whoever registers next. See [`on_graph`].
+static LAST: Mutex<Option<Graph>> = Mutex::new(None);
 
 /// Registers `handler` on the audio graph, attaching to PipeWire on first use.
 ///
@@ -152,7 +154,16 @@ static MONITOR_THREAD: OnceLock<()> = OnceLock::new();
 /// subprocess and one parse, and every derived reading — the default sink's level, the microphone, a device
 /// list, a per-application stream — comes off the same batches. A monitor per consumer would be a subprocess
 /// per consumer on top of the shared-source design that already rules out one per bar.
-pub fn on_graph(handler: GraphHandler) {
+pub fn on_graph(mut handler: GraphHandler) {
+    // **A late registration is handed the graph as it stands.** `pw-dump --monitor` speaks only when something
+    // changes, so a handler attached after the monitor was already running heard nothing at all until the user
+    // happened to move a slider somewhere else — the default sink's level, the microphone, every reading
+    // derived from this one stream, silently absent on a machine whose audio was simply sitting still. It is
+    // the contract `Service::subscribe` already keeps for its subscribers, and it was the one thing missing
+    // here.
+    if let Some(graph) = LAST.lock().unwrap().clone() {
+        handler(&graph);
+    }
     HANDLERS.lock().unwrap().push(handler);
     MONITOR_THREAD.get_or_init(|| {
         let _ = std::thread::Builder::new()
@@ -232,6 +243,9 @@ fn monitor() -> std::io::Result<()> {
         let graph = mirror.snapshot();
         if graph != published {
             published = graph.clone();
+            // Kept before the handlers run, so one registering from another thread mid-batch replays this
+            // rather than the batch before it.
+            *LAST.lock().unwrap() = Some(graph.clone());
             for handler in HANDLERS.lock().unwrap().iter_mut() {
                 handler(&graph);
             }
@@ -766,5 +780,41 @@ mod tests {
         assert!(!mirror.apply("not json at all"));
         assert!(!mirror.apply("{}"), "a bare object is not a batch");
         assert_eq!(mirror.snapshot().nodes.len(), 1, "the graph survives it");
+    }
+
+    /// **A handler that arrives after the monitor is given the graph as it stands.**
+    ///
+    /// `pw-dump --monitor` speaks only when something changes, so a reading derived from it — the default
+    /// sink's level, the microphone — was silently absent on a machine whose audio was sitting still: the
+    /// handler had been registered and simply never called. `volume get` answered "no audio sink available"
+    /// about a machine with one, and went on answering it until someone happened to move a slider elsewhere.
+    #[test]
+    fn a_handler_registered_after_the_first_batch_is_replayed_the_last_one() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut graph = Graph::default();
+        graph.nodes.push(Node {
+            id: 7,
+            name: "sink".to_string(),
+            description: String::new(),
+            app: String::new(),
+            media: String::new(),
+            icon: String::new(),
+            kind: NodeKind::Sink,
+            level: 42,
+            muted: false,
+        });
+        *LAST.lock().unwrap() = Some(graph);
+
+        static SEEN: AtomicUsize = AtomicUsize::new(0);
+        on_graph(Box::new(|graph| {
+            SEEN.store(graph.nodes.len(), Ordering::Relaxed);
+        }));
+        assert_eq!(
+            SEEN.load(Ordering::Relaxed),
+            1,
+            "the handler was handed the graph on registration rather than waiting for a change"
+        );
+        *LAST.lock().unwrap() = None;
     }
 }

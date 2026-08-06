@@ -10,6 +10,7 @@
 
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use platform_wayland::EventSender;
 
@@ -109,6 +110,31 @@ impl<T: Clone + Send + 'static> Service<T> {
     /// scroll stepping from it) without doing blocking I/O — or spawning a process — on the render thread.
     pub fn current(&'static self) -> Option<T> {
         self.started().current()
+    }
+
+    /// The last published reading, waiting up to `patience` for the first one when the producer has only just
+    /// started.
+    ///
+    /// **[`current`](Self::current) starts the producer and reads in the same breath**, which is right for a UI
+    /// handler — it either has a reading to step from or has nothing to draw — and wrong for a caller that is
+    /// itself the reason the service started. An IPC `volume get` on a shell whose bar carries no volume chip
+    /// asked a listener that had not had a turn yet, got `None`, and answered "no audio sink available" about a
+    /// machine with one; `volume up` did nothing at all and said it had.
+    ///
+    /// Polled rather than signalled because the wait only ever happens once, on the first read of a service
+    /// nothing had subscribed to, and a condvar per broadcast is a lot of machinery for that.
+    pub fn awaited(&'static self, patience: Duration) -> Option<T> {
+        let service = self.started();
+        let deadline = Instant::now() + patience;
+        loop {
+            if let Some(value) = service.current() {
+                return Some(value);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// Records `value` as the current reading *without* starting the producer, so a reader sees it and the
@@ -224,5 +250,34 @@ mod tests {
             "update returns the new value"
         );
         assert_eq!(COUNTER.get(), 12, "and it is what later readers see");
+    }
+
+    /// **A caller that starts a service is the one caller that cannot use [`Service::current`].**
+    ///
+    /// `current` starts the producer and reads in the same breath, so the very first read of a service nothing
+    /// had subscribed to is always `None` — which reached the user as `volume get` answering "no audio sink
+    /// available" on a machine with one, and `volume up` doing nothing and reporting the step it had not taken.
+    #[test]
+    fn the_first_read_of_a_cold_service_waits_for_it_rather_than_answering_nothing() {
+        static SLOW: Service<u8> = Service::new("test-slow", |out| {
+            std::thread::sleep(Duration::from_millis(40));
+            out.publish(7);
+        });
+
+        assert_eq!(
+            SLOW.current(),
+            None,
+            "the producer has been started and has not had a turn: this is the answer that lied"
+        );
+        assert_eq!(SLOW.awaited(Duration::from_secs(2)), Some(7));
+        assert_eq!(SLOW.current(), Some(7), "and it stands for every later read");
+    }
+
+    /// The wait is bounded: a service that genuinely has nothing to report still answers, rather than holding
+    /// the caller for as long as it takes to find out there is no answer.
+    #[test]
+    fn a_service_with_nothing_to_say_still_answers_within_its_patience() {
+        static SILENT: Service<u8> = Service::new("test-silent", |_| {});
+        assert_eq!(SILENT.awaited(Duration::from_millis(30)), None);
     }
 }

@@ -68,7 +68,7 @@ pub(crate) const VOLUME: Target = Target {
             args: "",
             help: "the default sink's level, and whether it is muted",
             run: |_| {
-                let v = services::volume::current().ok_or("no audio sink available")?;
+                let v = services::volume::reading().ok_or("no audio sink available")?;
                 Ok(format!("{} {}", v.level, on_off(v.muted)))
             },
         },
@@ -89,9 +89,10 @@ pub(crate) const VOLUME: Target = Target {
             help: "move the level by a delta",
             run: |args| {
                 let delta = number(args, 0, "delta")?;
-                services::volume::step(delta);
+                let v = services::volume::reading().ok_or("no audio sink available")?;
+                let level = services::volume::set(v.level + delta);
                 modules::osd::show_volume();
-                Ok(delta.to_string())
+                Ok(level.to_string())
             },
         },
         Command {
@@ -100,9 +101,10 @@ pub(crate) const VOLUME: Target = Target {
             help: "raise the level by [audio] increment",
             run: |_| {
                 let step = services::volume::settings().step();
-                services::volume::step(step);
+                let v = services::volume::reading().ok_or("no audio sink available")?;
+                let level = services::volume::set(v.level + step);
                 modules::osd::show_volume();
-                Ok(step.to_string())
+                Ok(level.to_string())
             },
         },
         Command {
@@ -111,9 +113,10 @@ pub(crate) const VOLUME: Target = Target {
             help: "lower the level by [audio] increment",
             run: |_| {
                 let step = services::volume::settings().step();
-                services::volume::step(-step);
+                let v = services::volume::reading().ok_or("no audio sink available")?;
+                let level = services::volume::set(v.level - step);
                 modules::osd::show_volume();
-                Ok((-step).to_string())
+                Ok(level.to_string())
             },
         },
         Command {
@@ -137,7 +140,7 @@ pub(crate) const MIC: Target = Target {
             args: "",
             help: "the default source's level, and whether it is muted",
             run: |_| {
-                let v = services::volume::current_mic().ok_or("no audio source available")?;
+                let v = services::volume::mic_reading().ok_or("no audio source available")?;
                 Ok(format!("{} {}", v.level, on_off(v.muted)))
             },
         },
@@ -158,9 +161,10 @@ pub(crate) const MIC: Target = Target {
             help: "move the source level by a delta",
             run: |args| {
                 let delta = number(args, 0, "delta")?;
-                services::volume::step_mic(delta);
+                let v = services::volume::mic_reading().ok_or("no audio source available")?;
+                let level = services::volume::set_mic(v.level + delta);
                 modules::osd::show_microphone();
-                Ok(delta.to_string())
+                Ok(level.to_string())
             },
         },
         Command {
@@ -169,9 +173,10 @@ pub(crate) const MIC: Target = Target {
             help: "raise the source level by [audio] increment",
             run: |_| {
                 let step = services::volume::settings().step();
-                services::volume::step_mic(step);
+                let v = services::volume::mic_reading().ok_or("no audio source available")?;
+                let level = services::volume::set_mic(v.level + step);
                 modules::osd::show_microphone();
-                Ok(step.to_string())
+                Ok(level.to_string())
             },
         },
         Command {
@@ -180,9 +185,10 @@ pub(crate) const MIC: Target = Target {
             help: "lower the source level by [audio] increment",
             run: |_| {
                 let step = services::volume::settings().step();
-                services::volume::step_mic(-step);
+                let v = services::volume::mic_reading().ok_or("no audio source available")?;
+                let level = services::volume::set_mic(v.level - step);
                 modules::osd::show_microphone();
-                Ok((-step).to_string())
+                Ok(level.to_string())
             },
         },
         Command {
