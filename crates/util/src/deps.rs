@@ -36,7 +36,6 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 pub enum Dep {
     // Programs.
     PwDump,
-    PwCat,
     Wpctl,
     WfRecorder,
     GpuScreenRecorder,
@@ -59,6 +58,7 @@ pub enum Dep {
     Leds,
     // Libraries loaded at runtime.
     LibPam,
+    LibPipeWire,
     // Wayland protocols.
     LayerShell,
     SessionLock,
@@ -266,11 +266,14 @@ pub const ALL: &[Entry] = &[
         without: "audio can be read but not adjusted",
     },
     Entry {
-        dep: Dep::PwCat,
-        id: "pw-cat",
-        kind: Kind::Program {
-            name: "pw-cat",
-            probe: &["--version"],
+        dep: Dep::LibPipeWire,
+        id: "libpipewire",
+        kind: Kind::Library {
+            sonames: &[
+                "libpipewire-0.3.so.0",
+                "libpipewire-0.3.so",
+                "/run/current-system/sw/lib/libpipewire-0.3.so.0",
+            ],
         },
         need: Need::Optional,
         what: "capturing what the speakers are playing, for the visualiser",
@@ -645,8 +648,8 @@ pub fn available(dep: Dep) -> bool {
 }
 
 /// A [`Command`](std::process::Command) for a declared program, for the callers that must own the child rather
-/// than wait for its output: a graph monitor that streams for the life of the shell, a recorder that runs
-/// until it is stopped, an audio capture feeding the visualiser.
+/// than wait for its output: a graph monitor that streams for the life of the shell, or a recorder that runs
+/// until it is stopped.
 ///
 /// `None` for a row that is not a program, which is what stops a bus name or a sysfs path being spawned.
 pub fn command(dep: Dep) -> Option<std::process::Command> {

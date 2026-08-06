@@ -53,7 +53,7 @@ not repeated here.
 | [Panels](surfaces/panels.md) | What a chip opens — as a drawer hanging off it, or as a movable float. | `wlr-layer-shell` |
 | [Popouts](surfaces/popouts.md) | The readout a chip shows while the pointer rests on it. | `wlr-layer-shell` |
 | [Toasts](surfaces/toasts.md) | The small, self-dismissing messages the shell says about itself. | `wlr-layer-shell` |
-| [Wallpaper layer](surfaces/wallpaper.md) | The background image, its transition, and the clock and visualiser drawn on it. | `wlr-layer-shell`, `pw-cat` |
+| [Wallpaper layer](surfaces/wallpaper.md) | The background image, its transition, and the clock and visualiser drawn on it. | `wlr-layer-shell`, `libpipewire` |
 
 ## System — what it does with no chip involved
 

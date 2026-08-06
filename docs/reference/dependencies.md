@@ -29,7 +29,7 @@ table *for this machine*, and `hyprshell deps missing` narrows it to what is abs
 | `wlr-screencopy` | Wayland protocol — `zwlr_screencopy_manager_v1` | the same captures on a compositor too old for ext-image-copy-capture | nothing, as long as the compositor implements ext-image-copy-capture |
 | `pw-dump` | program `pw-dump` | the audio graph: devices, streams, levels and mutes | every audio module stays empty — volume, mic, the mixer and the per-application sliders |
 | `wpctl` | program `wpctl` | changing a volume or a mute | audio can be read but not adjusted |
-| `pw-cat` | program `pw-cat` | capturing what the speakers are playing, for the visualiser | the visualiser bars stay silent |
+| `libpipewire` | library `libpipewire-0.3.so.0`, loaded at runtime | capturing what the speakers are playing, for the visualiser | the visualiser bars stay silent |
 | `networkmanager` | system bus name `org.freedesktop.NetworkManager` | the network state, the Wi-Fi list and the VPN connections | the network module reports no connection and the VPN list is empty |
 | `bluez` | system bus name `org.bluez` | Bluetooth adapters and devices | the Bluetooth module is hidden entirely |
 | `upower` | system bus name `org.freedesktop.UPower` | battery charge, health and time remaining | the battery falls back to sysfs, and is hidden if that is absent too |

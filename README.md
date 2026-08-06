@@ -122,7 +122,7 @@ unknown rather than zero, or does not appear at all.
 | Feature | Needs | Without it |
 | --- | --- | --- |
 | Audio, mic, per-app volume | PipeWire (`pw-dump`, `wpctl`) | the audio modules stay empty |
-| Audio visualiser | PipeWire (`pw-cat`) | the bars stay silent |
+| Audio visualiser | PipeWire (`libpipewire`, opened at runtime) | the bars stay silent |
 | Network | NetworkManager (D-Bus) | the network module reports no connection |
 | VPN | NetworkManager | the VPN list is empty |
 | Bluetooth | BlueZ (D-Bus) | the Bluetooth module is hidden |

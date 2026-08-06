@@ -42,7 +42,7 @@ which. The common ones:
 | Empty | Install |
 | --- | --- |
 | volume, mic, mixer | PipeWire (`pw-dump`, `wpctl`) |
-| the visualiser | PipeWire (`pw-cat`) |
+| the visualiser | PipeWire (`libpipewire`) |
 | network panel (chip still works) | NetworkManager |
 | GPU fields | nothing on AMD/Intel — check `/sys/class/drm`; NVML on NVIDIA |
 | external monitor brightness | `ddcutil` |

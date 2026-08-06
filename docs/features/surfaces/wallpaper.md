@@ -7,7 +7,7 @@ status: stable
 compositor: any
 config: [background, wallpaper, paths, visualiser]
 commands: [wallpaper]
-deps: [wlr-layer-shell, pw-cat]
+deps: [wlr-layer-shell, libpipewire]
 see_also: [dynamic-scheme, launcher, clock]
 ---
 
@@ -73,8 +73,8 @@ renderer can; asking the compositor is the route, through `ext-background-effect
 `[visualiser]` tunes the analysis itself — `bars`, `frame_rate`, `gain`, `smoothing`, `floor_db`,
 `beat_sensitivity`.
 
-It needs **`pw-cat`**, recording the default sink's *monitor* — what is being played, not what a microphone
-hears. Without it the bars stay silent.
+It needs **`libpipewire`**, opened at runtime and read as the default sink's *monitor* — what is being played,
+not what a microphone hears. Without it the bars stay silent.
 
 This is the only service in the shell that publishes at a frame rate, and two things keep it from undoing an
 idle desktop: nothing starts until something subscribes, and a frame identical to the one before it is not
@@ -83,7 +83,7 @@ of that, not a timer.
 
 ## What it needs
 
-`wlr-layer-shell`. `pw-cat` only for the visualiser.
+`wlr-layer-shell`. `libpipewire` only for the visualiser.
 
 ## Related
 

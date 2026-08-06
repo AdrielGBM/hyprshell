@@ -1,6 +1,6 @@
 //! The sound coming out of the speakers, as a row of bars.
 //!
-//! One `pw-cat` recording the default sink's *monitor* — what is being played, not what a microphone hears —
+//! One PipeWire stream on the default sink's *monitor* — what is being played, not what a microphone hears —
 //! feeds a windowed FFT, and each transform is folded into the handful of log-spaced bands a visualiser draws.
 //! The shell's usual rule applies: one capture for the whole process, however many surfaces subscribe.
 //!
@@ -12,15 +12,14 @@
 //! also what gives every consumer its auto-hide for free: [`Spectrum::silent`] is a reading, not a timer.
 
 use std::collections::VecDeque;
-use std::io::{ErrorKind, Read};
-use std::process::{Child, Stdio};
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
 use platform_wayland::EventSender;
 use rustfft::num_complex::Complex32;
-use util::deps::{self, Dep};
 
+use crate::pwstream;
 use config::VisualiserConfig;
 use util::broadcast::{Broadcast, Service};
 
@@ -126,72 +125,19 @@ fn run(out: &Arc<Broadcast<Spectrum>>) {
 /// Runs one capture to completion, publishing a spectrum per hop that differs from the one before it.
 fn capture(out: &Arc<Broadcast<Spectrum>>, config: &VisualiserConfig) -> std::io::Result<()> {
     let hop = (RATE as f32 / config.rate() as f32).round().max(64.0) as usize;
-    let mut child = spawn(hop)?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| std::io::Error::other("pw-cat gave no stdout"))?;
-
     let mut analyser = Analyser::new(config, hop);
-    let mut bytes = vec![0u8; hop * size_of::<f32>()];
-    let mut samples = vec![0.0f32; hop];
     let mut last = Spectrum::quiet(config.band_count());
 
-    loop {
-        if let Err(e) = stdout.read_exact(&mut bytes) {
-            let _ = child.kill();
-            let _ = child.wait();
-            // A capture that ends cleanly is PipeWire going away, which the caller re-attaches to; anything
-            // else is a read error worth naming.
-            return match e.kind() {
-                ErrorKind::UnexpectedEof => Ok(()),
-                _ => Err(e),
-            };
-        }
-        for (sample, raw) in samples.iter_mut().zip(bytes.chunks_exact(4)) {
-            *sample = f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-        }
-
-        let next = analyser.push(&samples);
+    pwstream::monitor(RATE, hop, &mut |samples| {
+        let next = analyser.push(samples);
         // Silence is a state, not a stream of frames: publishing the same all-zero spectrum sixty times a
         // second is exactly the idle cost this service exists to avoid.
         if next != last {
             last = next.clone();
             out.publish(next);
         }
-    }
-}
-
-/// Captures what the default sink is playing.
-///
-/// `stream.capture.sink` is what turns a recording stream around: without it PipeWire links a capture to a
-/// *source* and the visualiser would draw the microphone. Mono, because a visualiser has one row of bars and
-/// summing two channels in PipeWire's resampler is cheaper than doing it here per hop. The latency is the hop
-/// itself, so one wakeup delivers one transform's worth of new sound rather than a buffer to unpick.
-fn spawn(hop: usize) -> std::io::Result<Child> {
-    deps::command(Dep::PwCat)
-        .ok_or_else(|| std::io::Error::other("pw-cat has no row"))?
-        .args([
-            "--record",
-            "--raw",
-            "--format",
-            "f32",
-            "--rate",
-            &RATE.to_string(),
-            "--channels",
-            "1",
-            "--latency",
-            &hop.to_string(),
-            "--media-category",
-            "Capture",
-            "--properties",
-            "stream.capture.sink=true",
-            "-",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+        ControlFlow::Continue(())
+    })
 }
 
 /// The sliding window, the transform, and the state that smooths one frame into the next.
@@ -532,9 +478,10 @@ mod tests {
 mod live {
     use super::*;
 
-    /// Captures whatever the speakers are playing and prints the bars, to check the one thing a unit test
-    /// cannot: that `stream.capture.sink` really turns the stream around onto the sink's monitor rather than
-    /// onto a microphone. Play something, then:
+    /// Captures whatever the speakers are playing and prints the bars, to check the three things a unit test
+    /// cannot: that the format negotiates at all, that `stream.capture.sink` really turns the stream around
+    /// onto the sink's monitor rather than onto a microphone, and that a buffer read as `f32` is one. Play
+    /// something, then:
     /// `TELAR_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture`
     #[test]
     fn live_capture() {
@@ -544,17 +491,11 @@ mod live {
         }
         let config = VisualiserConfig::default();
         let hop = (RATE as f32 / config.rate() as f32).round() as usize;
-        let mut child = spawn(hop).expect("pw-cat");
-        let mut stdout = child.stdout.take().unwrap();
         let mut analyser = Analyser::new(&config, hop);
-        let mut bytes = vec![0u8; hop * 4];
-        let mut samples = vec![0.0f32; hop];
-        for frame in 0..120 {
-            stdout.read_exact(&mut bytes).expect("samples");
-            for (s, raw) in samples.iter_mut().zip(bytes.chunks_exact(4)) {
-                *s = f32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-            }
-            let spectrum = analyser.push(&samples);
+        let mut frame = 0;
+        pwstream::monitor(RATE, hop, &mut |samples| {
+            assert_eq!(samples.len(), hop, "a hop is what the consumer asked for");
+            let spectrum = analyser.push(samples);
             if frame % 10 == 0 {
                 let art: String = spectrum
                     .bars
@@ -566,8 +507,12 @@ mod live {
                     spectrum.level, spectrum.beat, spectrum.silent
                 );
             }
-        }
-        let _ = child.kill();
-        let _ = child.wait();
+            frame += 1;
+            match frame < 120 {
+                true => ControlFlow::Continue(()),
+                false => ControlFlow::Break(()),
+            }
+        })
+        .expect("the capture starts");
     }
 }
