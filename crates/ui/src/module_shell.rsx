@@ -1,5 +1,5 @@
 [logic]
-use crate::module::{DragOpen, chip_pad, from_zone, open_panel};
+use crate::module::{DragOpen, chip_pad, from_chip, open_panel};
 use ::config::Variant;
 use ::config::theme::NordTheme;
 use std::cell::RefCell;
@@ -35,9 +35,16 @@ let (base, hover, active) = match props.variant {
 let inset_x = if props.square { chip_pad() } else { 8.0 };
 let inset_y = if props.square { chip_pad() } else { 2.0 };
 
-let press = props.on_press;
+// Where the chip ended up on its bar. Whatever its press opens hangs off this rather than off an end of the bar, so a drawer lands under the chip exactly as the hover popout does.
+let chip = signal(Rect::default());
+
+let pressed = chip.clone();
+let press = props
+    .on_press
+    .map(|press| move || from_chip(pressed.get(), || press()));
 let scroll = props.on_scroll;
 
+let dragged = chip.clone();
 let drag = props.drag_open;
 let origin: Rc<RefCell<Option<(f32, f32)>>> = Rc::new(RefCell::new(None));
 let released = Rc::clone(&origin);
@@ -50,14 +57,14 @@ let settle = drag.map(|drag| {
     move |x: f32, y: f32| {
         let from = released.borrow_mut().take().unwrap_or((x, y));
         if drag.travel(from, (x, y)) >= drag.threshold {
-            from_zone(drag.zone, || open_panel(&drag.module));
+            from_chip(dragged.get(), || open_panel(&drag.module));
         }
     }
 });
 
 [view]
 // Both halves of the drag sit on the pressable box itself, not on a wrapper: a child hit-tests first, so a drag armed outside it would never see the press.
-row align:center justify:center pad_x:inset_x pad_y:inset_y shrink:0 fill:base radius:radius hover_style(fill:hover) active_style(fill:active) on_press(press) on_scroll(scroll) on_drag(arm) on_drag_end(settle)
+row track_rect:$chip align:center justify:center pad_x:inset_x pad_y:inset_y shrink:0 fill:base radius:radius hover_style(fill:hover) active_style(fill:active) on_press(press) on_scroll(scroll) on_drag(arm) on_drag_end(settle)
     children
 
 [preview "Module chip" fixture:crate::preview::bar_chip]

@@ -5,7 +5,7 @@ title: Microphone
 summary: The default input's level and mute.
 status: stable
 compositor: any
-config: [audio, osd, toasts]
+config: [audio, stack, toasts]
 commands: [mic]
 deps: [pw-dump, wpctl]
 popout: true

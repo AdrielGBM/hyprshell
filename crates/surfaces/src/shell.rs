@@ -20,6 +20,7 @@ use telar::SurfaceToken;
 
 use config::Edge;
 use config::SurfaceEnv;
+use ui::panels;
 
 thread_local! {
     static OPEN: RefCell<OpenSurfaces> = RefCell::new(OpenSurfaces::default());
@@ -27,8 +28,9 @@ thread_local! {
     static AUTHOR: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// What is on screen beyond the bars. A drawer is single-slot — it dims what's behind it, so showing two at
-/// once would stack scrims — while floats and overlays are independent windows, each keyed by its own id.
+/// What is on screen beyond the bars. A drawer is single-slot — two of them would be two cards hanging off one
+/// bar, each catching the presses meant for the other — while floats and overlays are independent windows, each
+/// keyed by its own id.
 #[derive(Default)]
 struct OpenSurfaces {
     drawer: Option<(String, SurfaceToken)>,
@@ -96,6 +98,43 @@ pub fn window_is_open(id: &str) -> bool {
             .get(id)
             .is_some_and(|token| !token.is_closing())
     })
+}
+
+/// Opens or closes `id`, a window the user opens deliberately and closes deliberately: the launcher, a module's
+/// float, the notification centre. Whatever drawer was up goes first — see [`close_drawer`].
+///
+/// **What it does not touch is another standing window.** A float is the presentation you pick when you want a
+/// panel to stay put; the notification centre is where a morning's notifications are worked through. Closing
+/// either because a second window opened would be taking away something still in use — and a standing window
+/// can be closed by hand, which is the whole difference between it and a glance.
+///
+/// Closing one is only that: a second press on the settings chip is "put this away", and taking the drawer with
+/// it would close something the user never asked about.
+pub fn toggle_standing_window(id: &str, open: impl FnOnce() -> SurfaceToken) {
+    if !window_is_open(id) {
+        close_drawer();
+    }
+    toggle_window(id, open);
+}
+
+/// Closes the drawer, if one is up, telling its module that the user is done with it.
+///
+/// **The one surface another window takes away.** A drawer is a glance: it hangs off the chip you pressed and a
+/// press outside it dismisses it. Its surface also covers the whole usable area — that is how the press outside
+/// reaches it — so a window opening *under* one is a window that is painted, unreachable, and dismissed rather
+/// than used by the first press that goes near it.
+///
+/// Nothing else goes. A toast, a notification popup and the OSD are pinned to an edge and say something the
+/// user did not open a window to be told. A float and the notification centre were opened deliberately, and
+/// each other's arrival is not a reason to take one away. The region picker takes the whole screen and still
+/// does not come through here — it is drawn over a still taken the instant before it mapped, so closing a
+/// drawer first would take out of the capture exactly what the user opened the picker to photograph.
+pub fn close_drawer() {
+    let open = OPEN.with(|surfaces| surfaces.borrow().drawer.as_ref().map(|(id, _)| id.clone()));
+    if let Some(id) = open {
+        panels::closed(&id);
+        close(&id);
+    }
 }
 
 /// Opens or closes the independent surface `id`, leaving every other one alone.
@@ -223,6 +262,48 @@ mod tests {
             SurfaceToken::new(Box::new(Counting(std::rc::Rc::clone(&rebuilds)))),
             rebuilds,
         )
+    }
+
+    /// **A standing window takes the screen from the drawer, and from nothing else.**
+    ///
+    /// A drawer's surface covers the whole usable area — that is how a press beside it dismisses it — so a
+    /// window opening under one is painted, unreachable, and dismissed rather than used by the first press near
+    /// it. Everything else was opened deliberately: the float the user parked, the notification centre they are
+    /// working through, the popout the pointer owns.
+    #[test]
+    fn a_standing_window_closes_the_drawer_and_leaves_every_other_window_up() {
+        OPEN.with(|surfaces| {
+            let mut surfaces = surfaces.borrow_mut();
+            surfaces.drawer = Some(("network".to_string(), token()));
+            surfaces.windows.insert("mixer".to_string(), token());
+            surfaces.windows.insert("sidebar".to_string(), token());
+            surfaces.windows.insert("popout".to_string(), token());
+        });
+
+        toggle_standing_window("launcher", token);
+
+        assert_eq!(open_ids(), vec!["launcher", "mixer", "popout", "sidebar"]);
+    }
+
+    /// The same door for a float and for the notification centre, and neither takes the other away: two of them
+    /// overlap, and both can be closed by hand, which is the trade the user made by opening the second.
+    #[test]
+    fn two_standing_windows_stay_up_together() {
+        OPEN.with(|surfaces| {
+            surfaces.borrow_mut().drawer = Some(("network".to_string(), token()));
+        });
+
+        toggle_standing_window("sidebar", token);
+        toggle_standing_window("settings", token);
+        assert_eq!(open_ids(), vec!["settings", "sidebar"]);
+
+        // And closing one is only that: a second press on the chip puts that window away and takes nothing
+        // with it — not even a drawer opened since.
+        OPEN.with(|surfaces| {
+            surfaces.borrow_mut().drawer = Some(("network".to_string(), token()));
+        });
+        toggle_standing_window("settings", token);
+        assert_eq!(open_ids(), vec!["network", "sidebar"]);
     }
 
     #[test]

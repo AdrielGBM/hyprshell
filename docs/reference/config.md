@@ -697,7 +697,8 @@ list bothers you more than the scans do.
 
 ## `[notifications]`
 
-Notification popups: where the stack anchors (defaults to top-right), how many show at once before the rest queue, the per-popup auto-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+Notification popups: what a card shows and how it behaves. Where the column sits, how wide it is, how many
+cards it holds and how long each stays are the column's — see [`StackConfig`].
 
 The history panel's own behaviour lives here too, since it draws the same cards: `group_by_app` collapses an
 application's notifications under one header with a count, a mute and a clear, showing `group_preview_num`
@@ -710,7 +711,6 @@ silent, which is the default: a shell that started making noise on upgrade would
 command is per-machine (`canberra-gtk-play -i message`, `paplay /usr/share/sounds/…`).
 
 - **`action_on_click`** · default `true`
-- **`align`** · default `"end"`
 - **`body_lines`** · default `4`
 
   Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is on.
@@ -721,23 +721,14 @@ command is per-machine (`canberra-gtk-play -i message`, `paplay /usr/share/sound
   `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
 
 - **`critical_sticky`** · default `true`
-- **`edge`** · default `"top"`
+
+  Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
+
 - **`fullscreen`** · default `"off"`
 - **`group_by_app`** · default `true`
 - **`group_preview_num`** · default `3`
-- **`max_visible`** · default `4`
 - **`open_expanded`** · default `false`
 - **`sound`** · default `""`
-- **`timeout_ms`** · default `5000`
-- **`width`** · default `380.0`
-
-## `[osd]`
-
-Where OSD popups appear: anchored edge, cross-axis alignment, and auto-dismiss timeout in ms (`0` disables auto-dismiss); defaults to top-centre, 1200 ms.
-
-- **`align`** · default `"center"`
-- **`edge`** · default `"top"`
-- **`timeout_ms`** · default `1200`
 
 ## `[panels]`
 
@@ -896,6 +887,34 @@ so it takes the whole edge, scrolls, and hosts the utilities panel's own toggles
 
   Width for a left/right sidebar, height for a top/bottom one, in px.
 
+## `[stack]`
+
+The column of cards the shell pins to a screen edge and takes away again (`[stack]`): notification popups,
+in-shell toasts, and the OSD a volume or brightness change flashes.
+
+**One section because they are one column.** They were three, each with its own `edge`, `align`, `width` and
+timeout, and being three is what let them sit in three different places and overlap each other on a narrow
+screen with no one of them able to know. Where the column is, how wide it is and how many cards it shows at
+once are properties of the column; what each card *is* stays in `[notifications]` and `[toasts]`.
+
+`timeout_ms` is one number for the same reason. Which is not to say every card goes: a `critical`
+notification under `[notifications] critical_sticky` stays until it is dealt with, and so does an OSD with
+nothing left to say. Not expiring is a property of the card, not a second timeout.
+
+- **`align`** · default `"end"`
+- **`edge`** · default `"top"`
+- **`max_visible`** · default `4`
+
+  How many cards show at once; the rest queue behind them.
+
+  Not a hard ceiling, and the exception is the point: every source with something to say — a notification,
+  a toast, an OSD — is guaranteed one card before this is shared out, so a brightness reading you asked for
+  by pressing a key is never queued behind notifications you did not. With more sources speaking at once
+  than this allows, the column is that many cards tall.
+
+- **`timeout_ms`** · default `3000`
+- **`width`** · default `380.0`
+
 ## `[status_icons]`
 
 The compact status cluster (`[status_icons]`): several service readings sharing one chip.
@@ -1022,12 +1041,7 @@ Not notifications. A notification belongs to an application, goes into history a
 Do-Not-Disturb; "Caps Lock is on" is feedback about a key that was just pressed and is worthless a second
 later. See `shared::services::toaster`.
 
-- **`align`** · default `"center"`
-- **`edge`** · default `"bottom"`
 - **`enabled`** · default `true`
-- **`max_toasts`** · default `3`
-- **`timeout_ms`** · default `2500`
-- **`width`** · default `300.0`
 
 ### `[toasts.events]`
 

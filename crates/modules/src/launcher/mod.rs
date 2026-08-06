@@ -20,7 +20,7 @@ use surfaces::shell;
 use ui::keynav::{self, Move};
 use ui::panel::{PanelSurface, content_radius, panel_fill};
 use ui::scale::space;
-use ui::placement::Placement;
+use ui::placement::{Centred, Placement};
 use ui::thumbnail;
 use util::calc;
 use util::reactive;
@@ -389,9 +389,9 @@ pub fn results(apps: Vec<App>, query: &str, config: &LauncherConfig) -> Vec<App>
 /// Carries out `entry`.
 ///
 /// **Every caller closes the launcher first.** A compositor ignores a request to focus a window while another
-/// surface holds the seat's keyboard, and this one holds it exclusively — so switching to a window from a
-/// launcher that is still up does nothing at all. Closing first is what makes the window mode work, and it
-/// costs the other kinds nothing: none of them reads anything the surface owns.
+/// surface holds the seat's keyboard, and this one holds it for as long as it is up — so switching to a window
+/// from a launcher that is still up does nothing at all. Closing first is what makes the window mode work, and
+/// it costs the other kinds nothing: none of them reads anything the surface owns.
 fn choose(entry: &Entry) {
     match entry {
         Entry::App(app) => apps::launch(app),
@@ -415,18 +415,19 @@ fn choose(entry: &Entry) {
     }
 }
 
-/// Opens the launcher, or closes it if it is already up.
+/// Opens the launcher, or closes it if it is already up. Opening it takes the screen from whatever drawer was
+/// up — see [`shell::close_drawer`].
 pub fn toggle() {
-    shell::toggle_window(ID, open);
+    shell::toggle_standing_window(ID, open);
 }
 
 fn open() -> SurfaceToken {
     let output = shell::focused_output();
 
-    // No `.size(...)`: a modal carries a scrim, so its *surface* is full-screen and the scaffold centres the
-    // panel inside it. The panel's own size is a layout property (see `panel`), not a surface one — asking the
-    // surface to be 640×420 would shrink the scrim to that box and leave the rest of the screen live.
-    PanelSurface::new(Placement::modal().output(output), |env| {
+    // No `.size(...)`: a modal is dismissed by a press outside it, so its *surface* is full-screen and the
+    // scaffold centres the window inside it. The window's own size is a layout property (see `panel`), not a
+    // surface one — asking the surface to be 640×420 would leave every press beyond that box unheard.
+    PanelSurface::new(Placement::centred(Centred::Modal).output(output), |env| {
         panel(env.config.resolve_theme(), &env.config.launcher).expect("launcher build failed")
     })
     .open()

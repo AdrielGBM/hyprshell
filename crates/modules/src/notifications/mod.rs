@@ -1,13 +1,11 @@
 use ui::scale::paint;
 use std::collections::BTreeSet;
-use std::io::{BufRead, BufReader};
-use std::os::unix::net::UnixStream;
 use std::sync::Arc;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_wayland::{LayerConfig, SurfaceHandle, watch};
+
 use telar::{
     AlignItems, Color, Container, Image, ImageData, ImageFilter, JustifyContent, LayoutError,
     LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle, RichText,
@@ -19,9 +17,8 @@ use config::theme::{FontRole, NordTheme};
 use config::{FullscreenPopups, NotificationsConfig};
 use services::hyprland::{self, ActiveWindow, Client};
 use services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
-use ui::panel::{PanelSurface, card_gap, content_radius, panel_fill};
+use ui::panel::{card_gap, panel_fill};
 use ui::scale::space;
-use ui::placement::Placement;
 
 /// Parses the freedesktop notification body's limited HTML markup into styled runs for a [`RichText`]: `<b>`/
 /// `<strong>` bold, `<i>`/`<em>` italic, `<a href>` links (painted `link_color`), `<br>` a newline, and an
@@ -173,6 +170,12 @@ fn decode_entities(text: &str) -> String {
     out
 }
 
+/// The width a card is drawn at inside the history panel, which is what the swipe threshold is a fraction of.
+///
+/// The panel's own, not the column's: a card in the bell drawer is as wide as the drawer, and the column it also
+/// appears in is sized by `[stack] width`. One number could only be right in one of the two places.
+const PANEL_CARD_WIDTH: f32 = 380.0;
+
 fn urgency_color(urgency: Urgency, theme: &NordTheme) -> Color {
     match urgency {
         Urgency::Critical => theme.red,
@@ -181,8 +184,12 @@ fn urgency_color(urgency: Urgency, theme: &NordTheme) -> Color {
     }
 }
 
-/// The notifications to render right now: none under Do-Not-Disturb, otherwise most-recent first with `critical` urgency floated to the top, capped at `max_visible` (the rest stay queued in the daemon until a visible one clears). `fullscreen` reports whether the focused window is covering the screen, which `[notifications] fullscreen` decides what to do about.
-fn visible(snapshot: &Snapshot, cfg: &NotificationsConfig, fullscreen: bool) -> Vec<Notification> {
+/// The notifications that should pop right now: none under Do-Not-Disturb, only fresh arrivals (one restored from history belongs in the panel), and under a fullscreen window only what `[notifications] fullscreen` still allows. Neither ordered nor capped — that is [`crate::stack`]'s, over every card it holds.
+pub(crate) fn popping(
+    snapshot: &Snapshot,
+    cfg: &NotificationsConfig,
+    fullscreen: bool,
+) -> Vec<Notification> {
     if snapshot.dnd {
         return Vec::new();
     }
@@ -196,10 +203,15 @@ fn visible(snapshot: &Snapshot, cfg: &NotificationsConfig, fullscreen: bool) -> 
     if fullscreen {
         list.retain(|n| cfg.fullscreen.allows(n.urgency));
     }
-    list.reverse();
-    list.sort_by_key(|n| u8::from(n.urgency != Urgency::Critical));
-    list.truncate(cfg.max_visible.max(1) as usize);
+    // Neither ordered nor capped here any more: the column these join orders every card it holds by arrival and
+    // caps the lot at `[stack] max_visible`, and a notification queue trimmed twice would hide cards the column
+    // had already made room for.
     list
+}
+
+/// Whether a notification is one the column puts where it will be read rather than where it landed.
+pub(crate) fn is_critical(notification: &Notification) -> bool {
+    notification.urgency == Urgency::Critical
 }
 
 /// Whether the focused window is covering the screen, as a value the popup stack re-reads.
@@ -255,15 +267,17 @@ struct CardStyle {
 }
 
 impl CardStyle {
-    /// A card inside a panel: solid against the translucent surface it sits on.
-    fn new(cfg: &NotificationsConfig, theme: NordTheme, radius: f32) -> Self {
+    /// A card inside a panel: solid against the translucent surface it sits on. `width` is asked for because the
+    /// swipe threshold is a fraction of it, and a card is drawn at the panel's width in one place and the
+    /// column's in the other.
+    fn new(cfg: &NotificationsConfig, width: f32, theme: NordTheme, radius: f32) -> Self {
         Self {
             theme,
             radius,
             fill: theme.surface,
             body_lines: cfg.body_max_lines(),
             action_on_click: cfg.action_on_click,
-            swipe: cfg.swipe_distance(cfg.width),
+            swipe: cfg.swipe_distance(width),
         }
     }
 
@@ -414,7 +428,7 @@ fn swipe_to_dismiss(
 /// A card's list key. Keyed on what it *draws*, not on the notification's identity: a sender that edits a
 /// notification in place (`replaces_id`) keeps its id while the summary and body turn over entirely, and a key
 /// of just the id would leave the old card on screen.
-fn card_key(notification: &Notification) -> String {
+pub(crate) fn card_key(notification: &Notification) -> String {
     format!(
         "{}\u{1}{}\u{1}{}",
         notification.id, notification.summary, notification.body
@@ -504,179 +518,30 @@ fn action_pill(
 }
 
 /// Builds the reactive card stack from a snapshot signal. Split out so tests can drive it with a fixed snapshot instead of a live subscription.
-fn card_stack(
-    snapshot: ReadSignal<SharedSnapshot>,
-    fullscreen: Option<Memo<bool>>,
-    cfg: NotificationsConfig,
+/// One notification as the column draws it: the same card the history panel shows, at the column's width and
+/// standalone — nothing is behind it but the desktop.
+pub(crate) fn popup_card(
+    notification: &Notification,
     theme: NordTheme,
     radius: f32,
+    width: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let gap = card_gap();
-    let style = CardStyle::new(&cfg, theme, radius).standalone();
-    let source = {
-        let cfg = cfg.clone();
-        move || {
-            let covering = fullscreen.as_ref().is_some_and(|f| f.get());
-            visible(&snapshot.get(), &cfg, covering)
-        }
-    };
-    let width = cfg.width;
-    // The gap belongs on the list itself (it lays out the cards); a gap on a wrapper holding the single list
-    // node separates nothing. This spacing is also what falls through the popup's carved input region.
-    let list = ReactiveList::with_style(
-        popup_placement(&cfg).column(gap),
-        source,
-        card_key,
-        move |n: Notification| {
-            notification_card(&n, width.into(), style, Some(notifications::expire))
-        },
-    )?;
-    // No outer padding: the surface's layer margin (`Config::panel_margin`) already floats the stack off the
-    // bar and edges, so the cards sit exactly the shared panel distance from the screen — same as a drawer.
-    Ok(Box::new(list))
-}
-
-/// The popup surface content: subscribes to the daemon on this surface's thread and renders the live stack.
-fn popup_content(
-    cfg: NotificationsConfig,
-    theme: NordTheme,
-    radius: f32,
-) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let snapshot = signal(Arc::new(Snapshot::default()));
-    let setter = snapshot.clone();
-    // The producer hands its sender to the daemon and returns; the daemon then pushes snapshots here, updated on this surface's loop.
-    platform_wayland::watch(notifications::subscribe, move |snap: SharedSnapshot| {
-        setter.set(snap)
-    });
-    let fullscreen = fullscreen_focus(&cfg);
-    card_stack(snapshot.read_only(), fullscreen, cfg, theme, radius)
-}
-
-/// Where the popup surface sits: anchored per `[notifications] edge`/`align` (top-right by default), sized to hold `max_visible` cards. Its input region is carved from the cards (`interactive_input_region`), so a tap dismisses a popup while the gaps around them fall through to windows beneath. `margin` is the shared [`Config::panel_margin`](config::Config), so the stack clears the bar by the same distance as a drawer or OSD.
-fn popup_surface(
-    cfg: &NotificationsConfig,
-    margin: (i32, i32, i32, i32),
-    output: Option<String>,
-) -> Placement {
-    popup_placement(cfg).margin(margin).output(output)
-}
-
-/// Where the popup stack sits. The surface and the column of cards inside it come from this one placement, so a
-/// stack holding fewer cards than it is sized for still hugs the edge it is pinned to.
-fn popup_placement(cfg: &NotificationsConfig) -> Placement {
-    let width = cfg.width as u32;
-    let height = (cfg.max_visible.max(1) * 132).min(4000);
-    Placement::stack("hyprshell-notifications", cfg.edge, cfg.align).size(width, height)
-}
-
-/// The popup surface: which screen it is on, what keeps it up, and the layer-shell state the compositor holds
-/// for it — the last so a config change can be renegotiated against it rather than opening a second surface.
-struct Popup {
-    output: Option<String>,
-    handle: SurfaceHandle,
-    layer: LayerConfig,
-}
-
-thread_local! {
-    static POPUP: RefCell<Option<Popup>> = const { RefCell::new(None) };
-}
-
-/// Where `output`'s popup sits, from the config that screen is running.
-fn popup_config(output: Option<&str>) -> Placement {
-    let config = config::config_for(output);
-    let cfg = &config.notifications;
-    // The shared panel distance, so notifications clear the bar exactly like a drawer or an OSD does.
-    popup_surface(
-        cfg,
-        config.panel_margin(cfg.edge),
-        output.map(str::to_string),
+    let cfg = config::config()
+        .map(|c| c.notifications.clone())
+        .unwrap_or_default();
+    let style = CardStyle::new(&cfg, width, theme, radius).standalone();
+    notification_card(
+        notification,
+        SizeDimension::Percent(1.0),
+        style,
+        Some(notifications::expire),
     )
 }
 
-/// Puts the popup on `output`, replacing whatever screen it was on.
-fn show_on(output: Option<String>) {
-    let placement = popup_config(output.as_deref());
-    let layer = placement.layer_config();
-    // The one panel the shell holds the compositor's own handle for: it is chrome the config describes, so it
-    // follows an edit by renegotiating in place ([`reconcile`]) rather than being reopened.
-    let handle = PanelSurface::new(placement, |env| {
-        popup_content(
-            env.config.notifications.clone(),
-            env.config.resolve_theme(),
-            content_radius(),
-        )
-        .expect("notification content")
-    })
-    .open_handle();
-    POPUP.with(|popup| {
-        *popup.borrow_mut() = Some(Popup {
-            output,
-            handle,
-            layer,
-        })
-    });
-}
-
-/// Follows a config change: the popup takes the new edge, size and look where it stands.
-///
-/// It is chrome the config describes, like a bar, and it is reconciled like one — renegotiated and rebuilt in
-/// place. Reopening it would be invisible (the surface is empty until something is posted) and wrong for the
-/// same reason it is wrong for a bar: the popup that is up is the popup, and a notification arriving during a
-/// reload must not land on a surface that is halfway through being replaced.
-pub fn reconcile() {
-    POPUP.with(|popup| {
-        let mut popup = popup.borrow_mut();
-        let Some(popup) = popup.as_mut() else {
-            return;
-        };
-        let next = popup_config(popup.output.as_deref()).layer_config();
-        let change = popup.layer.delta(&next);
-        if !change.is_empty() {
-            popup.handle.update(change);
-        }
-        popup.layer = next;
-        popup.handle.rebuild();
-    });
-}
-
-/// Sets up the notification popup host on the driver thread (called from `setup_shell`): shows the popup on the
-/// focused monitor and moves it there whenever Hyprland's focus changes. The focus stream is read off-thread via
-/// `watch`. Long-lived — it persists across config reloads (notification state lives in the daemon, and the
-/// surface itself follows an edit through [`reconcile`] rather than being opened again).
-pub fn popup_host() {
-    let dir = services::hyprland::socket_dir();
-    show_on(dir.as_deref().and_then(services::hyprland::focused_monitor));
-
-    let producer_dir = dir.clone();
-    watch(
-        move |tx| {
-            let Some(dir) = producer_dir else {
-                return;
-            };
-            let Ok(events) = UnixStream::connect(dir.join(".socket2.sock")) else {
-                return;
-            };
-            for line in BufReader::new(events).lines().map_while(Result::ok) {
-                if let Some(monitor) = services::hyprland::monitor_from_focus_event(&line)
-                    && !tx.send(monitor)
-                {
-                    break;
-                }
-            }
-        },
-        move |monitor: String| {
-            let elsewhere = POPUP.with(|popup| {
-                popup
-                    .borrow()
-                    .as_ref()
-                    .is_none_or(|popup| popup.output.as_deref() != Some(monitor.as_str()))
-            });
-            // A move between screens *is* a new surface: a layer surface names its output when it is created.
-            if elsewhere {
-                show_on(Some(monitor));
-            }
-        },
-    );
+/// Whether the focused window is covering the screen, as a value the column re-reads. `None` when the policy
+/// never suppresses anything, so a shell that would not act on the answer does not listen for it.
+pub(crate) fn covering_focus(cfg: &NotificationsConfig) -> Option<Memo<bool>> {
+    fullscreen_focus(cfg)
 }
 
 /// The bar chip: a bell whose glyph flips to `bell-off` under Do-Not-Disturb, with an unread-count badge. Subscribes to the daemon like any other module reflecting a shared service; registered with `.opens()` so a click drops the history panel.
@@ -934,7 +799,7 @@ fn history_list(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // A signal rather than a cell, because the row list derives from it: a plain value would change without anything asking the list to rebuild.
     let expanded = signal(BTreeSet::<String>::new());
-    let style = CardStyle::new(cfg, theme, radius);
+    let style = CardStyle::new(cfg, PANEL_CARD_WIDTH, theme, radius);
     let source = {
         let cfg = cfg.clone();
         let expanded = expanded.read_only();
@@ -1159,17 +1024,21 @@ fn sample_snapshot() -> Snapshot {
     }
 }
 
-/// The popup stack the daemon mounts on the focused screen, for [`crate::preview`].
+/// Two notification cards as the column draws them, for [`crate::preview`].
 pub(crate) fn popups_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
-    let snapshot = signal(Arc::new(sample_snapshot()));
-    card_stack(
-        snapshot.read_only(),
-        None,
-        NotificationsConfig::default(),
-        theme,
-        12.0,
-    )
+    let cards = sample_snapshot()
+        .active
+        .iter()
+        .map(|n| popup_card(n, theme, 12.0, PANEL_CARD_WIDTH))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Box::new(Container::new(
+        LayoutStyle::new()
+            .flex_column()
+            .gap(card_gap())
+            .width(SizeDimension::Percent(1.0)),
+        cards,
+    )?))
 }
 
 /// The history panel behind the bell chip, for [`crate::preview`]: the same snapshot, grouped and headed.
@@ -1182,7 +1051,7 @@ pub(crate) fn panel_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
             .flex_column()
             .gap(space::LG)
             .padding_all(space::XL)
-            .width(NotificationsConfig::default().width),
+            .width(PANEL_CARD_WIDTH),
         vec![
             panel_header(read.clone(), theme)?,
             history_list(read, &NotificationsConfig::default(), theme, 12.0)?,
@@ -1260,25 +1129,27 @@ mod tests {
         }
     }
 
+    /// What pops is decided here; how many of them fit and what order they sit in is the column's.
+    ///
+    /// This used to reverse, float `critical` to the top and truncate to `max_visible` as well — a queue trimmed
+    /// on its way into a column that trims again would hide cards the column had already made room for.
     #[test]
-    fn dnd_hides_everything_and_max_visible_caps_the_rest() {
-        let cfg = NotificationsConfig {
-            max_visible: 2,
-            ..NotificationsConfig::default()
-        };
-
+    fn dnd_hides_everything_and_the_rest_is_handed_over_untrimmed() {
+        let cfg = NotificationsConfig::default();
         let snap = snapshot_of(vec![
             note(1, "a", Urgency::Normal),
             note(2, "a", Urgency::Critical),
             note(3, "a", Urgency::Normal),
         ]);
-        let shown = visible(&snap, &cfg, false);
-        assert_eq!(shown.len(), 2, "capped at max_visible");
-        assert_eq!(shown[0].id, 2, "critical floats to the top");
+        assert_eq!(
+            popping(&snap, &cfg, false).len(),
+            3,
+            "every popping notification is handed over; the column caps them"
+        );
 
         let dnd = Snapshot { dnd: true, ..snap };
         assert!(
-            visible(&dnd, &cfg, false).is_empty(),
+            popping(&dnd, &cfg, false).is_empty(),
             "DND suppresses all popups"
         );
     }
@@ -1292,7 +1163,7 @@ mod tests {
             ..note(1, "a", Urgency::Normal)
         };
         let snap = snapshot_of(vec![restored, note(2, "a", Urgency::Normal)]);
-        let shown = visible(&snap, &NotificationsConfig::default(), false);
+        let shown = popping(&snap, &NotificationsConfig::default(), false);
         assert_eq!(shown.len(), 1, "only the fresh notification pops up");
         assert_eq!(shown[0].id, 2);
     }
@@ -1313,19 +1184,19 @@ mod tests {
             FullscreenPopups::Off,
             FullscreenPopups::Never,
         ] {
-            assert_eq!(visible(&snap, &with(policy), false).len(), 2, "{policy:?}");
+            assert_eq!(popping(&snap, &with(policy), false).len(), 2, "{policy:?}");
         }
 
         assert_eq!(
-            visible(&snap, &with(FullscreenPopups::On), true).len(),
+            popping(&snap, &with(FullscreenPopups::On), true).len(),
             2,
             "'on' never suppresses"
         );
-        let urgent = visible(&snap, &with(FullscreenPopups::Off), true);
+        let urgent = popping(&snap, &with(FullscreenPopups::Off), true);
         assert_eq!(urgent.len(), 1, "'off' keeps only what is critical");
         assert_eq!(urgent[0].urgency, Urgency::Critical);
         assert!(
-            visible(&snap, &with(FullscreenPopups::Never), true).is_empty(),
+            popping(&snap, &with(FullscreenPopups::Never), true).is_empty(),
             "'never' holds back the critical ones too"
         );
         // Suppression is about the popup, never the record: the history reads `active`, which is untouched.
@@ -1505,7 +1376,7 @@ mod tests {
                         HistoryRow::Card(n) => notification_card(
                             &n,
                             SizeDimension::Percent(1.0),
-                            CardStyle::new(&cfg, NordTheme::new(), 12.0),
+                            CardStyle::new(&cfg, PANEL_CARD_WIDTH, NordTheme::new(), 12.0),
                             Some(notifications::close),
                         )
                         .map(|_| format!("card:{}", n.id)),

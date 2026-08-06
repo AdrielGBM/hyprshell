@@ -344,25 +344,6 @@ pub enum Align {
     End,
 }
 
-/// Where OSD popups appear: anchored edge, cross-axis alignment, and auto-dismiss timeout in ms (`0` disables auto-dismiss); defaults to top-centre, 1200 ms.
-#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
-#[serde(default)]
-pub struct OsdConfig {
-    pub edge: Edge,
-    pub align: Align,
-    pub timeout_ms: u64,
-}
-
-impl Default for OsdConfig {
-    fn default() -> Self {
-        Self {
-            edge: Edge::Top,
-            align: Align::Center,
-            timeout_ms: 1200,
-        }
-    }
-}
-
 /// The `active_window` module. `compact` shows the app's class instead of the document title — stable while you
 /// move around inside one app, and much narrower. `max_chars` bounds the one bar value with no natural size: a
 /// browser tab title can be a paragraph, and letting it size the chip would push every other module off the bar.

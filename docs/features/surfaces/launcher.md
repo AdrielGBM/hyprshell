@@ -15,7 +15,14 @@ see_also: [apps, palettes, wallpaper]
 
 ## What it is
 
-A modal surface that takes the keyboard exclusively while it is up. Type to filter; press Enter to run.
+A modal surface that holds the keyboard while it is up. Type to filter; press Enter to run.
+
+The keyboard, not the pointer: **the bar keeps working with the launcher open.** Hovering a chip still opens its
+popout, and pressing one opens that chip's panel rather than dismissing the launcher. Pressing anywhere else
+dismisses it, as does Escape.
+
+Opening it closes whatever drawer was up, which it would otherwise cover. A [float](floats.md), the
+[notification centre](notification-centre.md), toasts and notification popups are left where they are.
 
 ```sh
 hyprshell launcher toggle

@@ -18,8 +18,15 @@ see_also: [panels, floats, bars]
 The default presentation for a panel: a surface that hangs off the chip you clicked, on the same edge as its
 bar, sized to its content up to a limit.
 
-A drawer derives its cross-axis alignment from the **zone** its chip sits in — a chip in `start` opens a drawer
-aligned to the start, one in `end` aligns to the end — so a drawer never opens off the side of the screen.
+A drawer is positioned by the **chip's own place on the bar**, the same arithmetic a [popout](popouts.md) is
+placed by — so what a click opens and what a hover opens land in the same spot, and a chip in the middle of a
+bar no longer opens its panel at an end of it. Along a horizontal bar the drawer centres on its chip; along a
+vertical one it lines up with the chip's top. Either way it is kept clear of the far end of the screen, so a
+drawer never opens off the side.
+
+Opened with no chip in hand — `hyprshell panel toggle`, a keybind — there is nothing to follow, and the drawer
+falls back to the zone the module is configured in (`start`, `end`, or centred for a module the config cannot
+place).
 
 ## Configuring
 

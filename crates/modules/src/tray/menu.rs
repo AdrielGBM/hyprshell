@@ -15,7 +15,7 @@ use config::SurfaceEnv;
 use config::theme::{FontRole, NordTheme};
 use services::dbusmenu::{self, MenuItem, Toggle};
 use services::tray::TrayItem;
-use ui::anchor::chip_placement;
+use ui::placement::{OffChip, Placement};
 use ui::icon::{app_icon_view, icon_view};
 use ui::panel::{PanelSurface, content_radius, panel_fill};
 use ui::scale::{corner, space};
@@ -82,7 +82,7 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
             let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
             // The placement is built from the bar's own env, so the menu already resolves against the bar its
             // chip sits on — its radius and fill match the drawer that chip would have opened.
-            let placement = chip_placement(&env, chip, span);
+            let placement = Placement::off_chip(OffChip::Panel, &env, Some(chip), span);
             let (bus, path) = (event_bus.clone(), event_path.clone());
             surfaces::shell::toggle_window(SURFACE_ID, move || {
                 PanelSurface::new(placement, move |env| {

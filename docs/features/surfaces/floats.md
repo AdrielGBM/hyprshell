@@ -18,6 +18,11 @@ see_also: [panels, drawers]
 The other presentation for a panel: a free-standing surface with a frame, a drag region and a resize grip in
 its corner.
 
+Opening one closes the drawer, which it would otherwise open underneath. Nothing closes it back: opening a
+drawer, pressing a chip, opening the notification centre or opening a second float all leave it where it is.
+That is the whole difference between a float and a drawer — a drawer is a glance, a float stays until you close
+it.
+
 ```toml
 [modules.mixer]
 open   = "float"

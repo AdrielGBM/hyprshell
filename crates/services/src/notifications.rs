@@ -114,6 +114,13 @@ struct Inner {
     state: Mutex<State>,
     subscribers: Mutex<Vec<EventSender<SharedSnapshot>>>,
     policy: Mutex<Policy>,
+    /// What each notification's popup expiry *will* be, held until it is actually on screen.
+    ///
+    /// The clock cannot start when a notification arrives, because the column shows a bounded number of cards
+    /// and the rest wait: a fifth notification whose timer began on arrival spends its whole life queued and is
+    /// gone almost the moment it appears. It starts on [`shown`] instead, which the column calls for the cards
+    /// it is drawing, and an entry is spent the first time that happens.
+    pending: Mutex<HashMap<u32, (i32, Urgency)>>,
     /// The current history is shipped here after every change; a background thread debounces and writes it.
     saver: Sender<Vec<Notification>>,
 }
@@ -167,6 +174,7 @@ impl Inner {
 
     /// Removes `id` from the history entirely — a manual dismiss (a history-card tap or clear-all).
     fn close(&self, id: u32) {
+        self.disarm_expiry(id);
         self.commit(|state| state.active.retain(|n| n.id != id));
     }
 
@@ -190,11 +198,39 @@ impl Inner {
     /// `popup`), but the panel — which lists all of `active` — keeps it until dismissed. This is what a popup
     /// timeout does, so an auto-dismissed notification is still there to read later.
     fn expire(&self, id: u32) {
+        self.disarm_expiry(id);
         self.commit(|state| {
             if let Some(n) = state.active.iter_mut().find(|n| n.id == id) {
                 n.popup = false;
             }
         });
+    }
+
+    /// Records what `id`'s popup expiry will be once it is on screen. See [`Inner::pending`].
+    fn arm_expiry(&self, id: u32, expire_timeout: i32, urgency: Urgency) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.insert(id, (expire_timeout, urgency));
+        }
+    }
+
+    /// Starts `id`'s expiry, if it has one and has not started already — what the column calls for a card it has
+    /// put on screen.
+    fn start_expiry(&self, id: u32) {
+        let armed = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(&id));
+        if let Some((expire_timeout, urgency)) = armed {
+            self.schedule_expiry(id, expire_timeout, urgency);
+        }
+    }
+
+    /// Forgets `id`'s armed expiry — it was dealt with before it was ever shown, so there is no clock to start.
+    fn disarm_expiry(&self, id: u32) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&id);
+        }
     }
 
     /// Schedules a popup expiry for `id` per the spec's `expire_timeout` (`>0` ms, `0` = never, `<0` = the configured default) and the urgency/critical-sticky policy. A detached timer keeps this independent of any surface, so popups expire correctly across focus changes and reloads. The notification stays in the history.
@@ -255,6 +291,7 @@ pub fn init(policy: Policy) {
             subscribers: Mutex::new(Vec::new()),
             policy: Mutex::new(policy),
             saver,
+            pending: Mutex::new(HashMap::new()),
         });
         spawn_daemon(Arc::clone(&inner));
         NotificationService { inner }
@@ -315,6 +352,18 @@ pub fn snapshot_now() -> Option<SharedSnapshot> {
     SERVICE
         .get()
         .map(|service| service.inner.state.lock().unwrap().snapshot())
+}
+
+/// Tells the daemon `id`'s popup is on screen, which is when its expiry clock starts.
+///
+/// **Arrival is the wrong moment.** The shell shows a bounded column of cards and queues the rest, so a
+/// notification that arrives fifth waits — and one whose timer began on arrival would spend that wait burning
+/// its own life and vanish almost as it appeared. Called by the column for every card it draws, and spent the
+/// first time: a notification that stays up does not get its clock restarted on every repaint.
+pub fn shown(id: u32) {
+    if let Some(service) = SERVICE.get() {
+        service.inner.start_expiry(id);
+    }
 }
 
 /// Removes one notification from the history — a manual dismiss (history-card tap). Emits `NotificationClosed`.
@@ -555,7 +604,7 @@ impl NotificationsIface {
             },
             replaces_id,
         );
-        self.inner.schedule_expiry(id, expire_timeout, urgency);
+        self.inner.arm_expiry(id, expire_timeout, urgency);
         id
     }
 
@@ -659,6 +708,7 @@ mod tests {
     /// decided here, so the tests drive it directly rather than through the process-wide service.
     fn test_inner(muted_apps: Vec<String>) -> Inner {
         Inner {
+            pending: Mutex::new(HashMap::new()),
             state: Mutex::new(State {
                 active: Vec::new(),
                 next_id: 0,

@@ -776,24 +776,18 @@ end = ["battery", "volume"]
     }
 
     #[test]
-    fn notifications_defaults_to_top_right_with_sensible_limits() {
+    fn the_stack_defaults_to_top_right_with_sensible_limits() {
         let d: Config = toml::from_str("").unwrap();
-        assert_eq!(d.notifications.edge, Edge::Top);
-        assert_eq!(
-            d.notifications.align,
-            Align::End,
-            "align=end is the right side"
-        );
-        assert_eq!(d.notifications.max_visible, 4);
-        assert_eq!(d.notifications.timeout_ms, 5000);
+        assert_eq!(d.stack.edge, Edge::Top);
+        assert_eq!(d.stack.align, Align::End, "align=end is the right side");
+        assert_eq!(d.stack.max_visible, 4);
         assert!(d.notifications.critical_sticky);
 
         let cfg: Config =
-            toml::from_str("[notifications]\nmax_visible = 2\ntimeout_ms = 0\nedge = \"bottom\"\n")
+            toml::from_str("[stack]\nmax_visible = 2\ntimeout_ms = 400\nedge = \"bottom\"\n")
                 .unwrap();
-        assert_eq!(cfg.notifications.max_visible, 2);
-        assert_eq!(cfg.notifications.timeout_ms, 0, "0 ms = sticky popups");
-        assert_eq!(cfg.notifications.edge, Edge::Bottom);
+        assert_eq!(cfg.stack.max_visible, 2);
+        assert_eq!(cfg.stack.edge, Edge::Bottom);
         assert!(
             cfg.notifications.critical_sticky,
             "unset fields keep defaults"
@@ -946,7 +940,7 @@ accent = "orange"
             "[general]\nlanguage = \"en\"\n\n[shape]\ngap = 0\n",
             Some((
                 "DP-1",
-                "[general]\nlanguage = \"es\"\n\n[notifications]\nmax_visible = 99\n\n[shape]\ngap = 12\n",
+                "[general]\nlanguage = \"es\"\n\n[stack]\nmax_visible = 99\n\n[shape]\ngap = 12\n",
             )),
         );
         let path = dir.join("config.toml");
@@ -954,9 +948,9 @@ accent = "orange"
 
         assert_eq!(cfg.general.language, "en", "[general] is global-only");
         assert_eq!(
-            cfg.notifications.max_visible,
-            NotificationsConfig::default().max_visible,
-            "[notifications] is global-only — one daemon owns it"
+            cfg.stack.max_visible,
+            StackConfig::default().max_visible,
+            "[stack] is global-only — the column follows the focused screen rather than existing per output"
         );
         assert_eq!(
             cfg.shape.gap, 12,
@@ -1416,17 +1410,38 @@ accent = "orange"
         }
     }
 
+    /// v1 → v2: three sections that each said where their cards went became one that says where the column is.
+    ///
+    /// `[notifications]` is the set brought forward — a toast and an OSD go where the shell put them, a
+    /// notification goes where the user put it — and the keys are dropped from all three either way, because a
+    /// stale `edge` under `[toasts]` is an afternoon spent wondering why moving it does nothing.
     #[test]
-    fn osd_position_parses_edge_and_align() {
-        let cfg: Config =
-            toml::from_str("[osd]\nedge = \"bottom\"\nalign = \"end\"\ntimeout_ms = 0\n").unwrap();
-        assert_eq!(cfg.osd.edge, Edge::Bottom);
-        assert_eq!(cfg.osd.align, Align::End);
-        assert_eq!(cfg.osd.timeout_ms, 0, "0 ms = no auto-dismiss");
-        let d: Config = toml::from_str("").unwrap();
-        assert_eq!(d.osd.edge, Edge::Top);
-        assert_eq!(d.osd.align, Align::Center);
-        assert_eq!(d.osd.timeout_ms, 1200);
+    fn the_three_stacks_that_became_one_carry_the_position_the_user_chose() {
+        let mut document: toml::Value = toml::from_str(
+            "version = 1\n\
+             [notifications]\nedge = \"bottom\"\nalign = \"start\"\nmax_visible = 7\ncritical_sticky = false\n\
+             [toasts]\nedge = \"top\"\nwidth = 300.0\nenabled = false\n\
+             [osd]\nedge = \"left\"\ntimeout_ms = 1200\n",
+        )
+        .unwrap();
+        crate::load::migrate(&mut document);
+        let cfg: Config = document.clone().try_into().unwrap();
+
+        assert_eq!(cfg.stack.edge, Edge::Bottom, "the notifications' edge won");
+        assert_eq!(cfg.stack.align, Align::Start);
+        assert_eq!(cfg.stack.max_visible, 7);
+        assert!(!cfg.notifications.critical_sticky, "what is not the column's stays where it was");
+        assert!(!cfg.toasts.enabled);
+        assert!(document.get("osd").is_none(), "`[osd]` held nothing else");
+
+        // Idempotent: a document already at v2 is left alone, and one already carrying `[stack]` is not
+        // overwritten by the keys someone left behind in the old sections.
+        let mut chosen: toml::Value =
+            toml::from_str("version = 1\n[stack]\nedge = \"left\"\n[notifications]\nedge = \"bottom\"\n")
+                .unwrap();
+        crate::load::migrate(&mut chosen);
+        let cfg: Config = chosen.try_into().unwrap();
+        assert_eq!(cfg.stack.edge, Edge::Left, "the new section wins outright");
     }
 
     #[test]

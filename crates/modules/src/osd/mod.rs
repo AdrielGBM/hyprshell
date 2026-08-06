@@ -1,22 +1,25 @@
-use std::cell::RefCell;
-use std::sync::Arc;
-use std::time::Duration;
-
-use telar::{LayoutItem, SurfaceToken, set_theme};
+use telar::{LayoutItem, set_theme};
 
 use config::theme::NordTheme;
-use ui::panel::PanelSurface;
-use ui::placement::Placement;
-
-const OSD_W: u32 = 280;
-const OSD_H: u32 = 60;
 
 /// Which live state an OSD reflects. A single-slot OSD (§6): one at a time, replaced on the next trigger.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OsdKind {
     Volume,
     Brightness,
     Microphone,
+}
+
+impl OsdKind {
+    /// What the column keys an OSD card on. One slot per kind rather than one for every OSD, so a wheel spun ten
+    /// notches redraws one card instead of pushing ten.
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            OsdKind::Volume => "volume",
+            OsdKind::Brightness => "brightness",
+            OsdKind::Microphone => "microphone",
+        }
+    }
 }
 
 /// Which state the OSD being built reflects, provided into its surface's scope so `osd.rsx` reads it via
@@ -46,47 +49,12 @@ pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme) -> Box<dyn LayoutItem
     crate::osd().expect("osd content build failed")
 }
 
-thread_local! {
-    // Dropping the token closes any previous OSD, so a new trigger replaces the old (single-slot).
-    static OPEN_OSD: RefCell<Option<SurfaceToken>> = const { RefCell::new(None) };
-}
-
-/// Shows (or replaces) the single-slot OSD for `kind`; resolves the configured accent here on the bar thread since the OSD surface has no config of its own.
+/// Shows (or replaces) the single-slot OSD for `kind`.
 ///
-/// The bar surface in scope supplies the monitor when a chip triggered this. Triggered from outside a surface —
-/// an IPC call or a keybind — there is none, so it falls back to the running config and the focused monitor
-/// rather than to bare defaults, which would flash an unthemed OSD on the wrong screen.
+/// It has no surface of its own any more: an OSD is a card in the shell's one column, so this posts it there
+/// and [`crate::stack`] decides where it goes, how long it stays and that it never takes the pointer.
 pub fn show(kind: OsdKind) {
-    let env = ui::module::surface_env();
-    let config = env
-        .as_ref()
-        .map(|e| Arc::clone(&e.config))
-        .or_else(config::config);
-    let osd = config.as_ref().map(|c| c.osd).unwrap_or_default();
-    let output = match env.as_ref() {
-        Some(env) => env.output.clone(),
-        None => surfaces::shell::focused_output(),
-    };
-    // The shared panel gap. The surface's exclusive_zone=0 already clears the bar via the compositor, so this is only the extra gap beyond it — same rule the drawer and notifications use.
-    let inset = config
-        .as_ref()
-        .map(|c| c.panel_gap(osd.edge) as i32)
-        .unwrap_or(config::DEFAULT_PANEL_GAP as i32);
-    // A zero timeout disables the auto-dismiss; the OSD then stays until the next trigger replaces it.
-    let placement = Placement::flash(osd.edge, osd.align, Duration::from_millis(osd.timeout_ms))
-        .size(OSD_W, OSD_H)
-        .inset(inset)
-        .output(output);
-    OPEN_OSD.with(|slot| {
-        *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
-        // The screen it landed on is fixed for its short life; its look is not, so it is resolved per build —
-        // an OSD still up when the theme changes is rebuilt in the new one rather than left behind in the old.
-        let token = PanelSurface::new(placement, move |env| {
-            osd_content(kind, env.config.resolve_theme())
-        })
-        .open();
-        *slot.borrow_mut() = Some(token);
-    });
+    crate::stack::show_osd(kind);
 }
 
 /// Percentage points to move for a scroll delta: one configured `increment` per notch, in the scrolled

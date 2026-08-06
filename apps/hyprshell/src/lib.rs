@@ -149,13 +149,11 @@ fn setup_shell(config_path: PathBuf) {
         std::process::exit(1);
     }
 
-    // The popup host is long-lived: set up once, it persists across reloads — it follows an edit in place
-    // like the rest of the chrome, and the notification state it shows lives in the daemon either way.
-    modules::notifications::popup_host();
-
-    // Toasts. The host holds no surface until something is posted; the watchers are installed by `apply_config`,
-    // which has already run, so an event switched on later gets its watcher on the next reload.
-    modules::toast::toast_host();
+    // The one column of cards — notification popups, toasts, the OSD. Long-lived: set up once, it persists
+    // across reloads, and it holds no surface at all until one of the three has something to say. The toast
+    // watchers are installed by `apply_config`, which has already run, so an event switched on later gets its
+    // watcher on the next reload.
+    modules::stack::host();
 
     let surfaces = Rc::new(RefCell::new(Surfaces::default()));
     // The config the shell is currently running. A reload that fails to parse keeps this one rather than
@@ -193,7 +191,7 @@ fn setup_shell(config_path: PathBuf) {
                 // opened over the chrome, and the notification popup that follows the focused screen. Each
                 // keeps its surface — and what the user was in the middle of — and takes the new config.
                 surfaces::shell::rebuild_all();
-                modules::notifications::reconcile();
+                modules::stack::reconcile_config();
             }
             *live.borrow_mut() = config;
         }
@@ -325,10 +323,12 @@ fn apply_config(config: &Arc<Config>) {
     modules::toast::watch_events(config);
 }
 
-/// The daemon's slice of `[notifications]`, resolved in one place so startup and reload agree on it.
+/// The daemon's slice of the config, resolved in one place so startup and reload agree on it. The timeout is the
+/// column's — a notification, a toast and an OSD all go after `[stack] timeout_ms` — while what is particular to
+/// a notification stays under `[notifications]`.
 fn notification_policy(config: &Config) -> services::notifications::Policy {
     services::notifications::Policy {
-        timeout: Duration::from_millis(config.notifications.timeout_ms),
+        timeout: config.stack.lifetime(),
         critical_sticky: config.notifications.critical_sticky,
         sound: config.notifications.sound.clone(),
     }

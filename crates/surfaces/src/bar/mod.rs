@@ -12,8 +12,7 @@ use telar::{
 use config::theme::NordTheme;
 use config::{Config, Edge, ModuleEntry, ResolvedShape, Shape, Zone};
 use ui::module::{
-    DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, from_zone, module_foreground,
-    set_module_fg,
+    DragOpen, ModuleClick, ModuleCtx, ModuleDef, ModuleRegistry, module_foreground, set_module_fg,
 };
 use ui::{ModuleShellProps, module_shell};
 
@@ -122,7 +121,6 @@ fn build_whole_bar(
         let items = build_items(
             config,
             entries,
-            *in_zone,
             registry,
             ctx,
             Color::TRANSPARENT,
@@ -170,7 +168,7 @@ fn build_units(
     };
     let mut slots = Vec::with_capacity(3);
     for (entries, in_zone) in zones {
-        let items = build_items(config, entries, *in_zone, registry, ctx, rest, shell_radius)?;
+        let items = build_items(config, entries, registry, ctx, rest, shell_radius)?;
         let content: Vec<Box<dyn LayoutItem>> = if items.is_empty() {
             Vec::new()
         } else {
@@ -290,7 +288,7 @@ fn chip_wrapper(
 ///
 /// Only a module whose click *opens a panel* gets one: dragging a volume chip has nothing to open, and arming
 /// a gesture that can only do nothing would still cancel the tap that does something.
-fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge, zone: Zone) -> Option<DragOpen> {
+fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge) -> Option<DragOpen> {
     if !matches!(def?.click, Some(ModuleClick::Panel)) {
         return None;
     }
@@ -298,7 +296,6 @@ fn drag_open_for(id: &str, def: Option<&ModuleDef>, edge: Edge, zone: Zone) -> O
     Some(DragOpen {
         module: id.to_string(),
         edge,
-        zone,
         threshold,
     })
 }
@@ -317,7 +314,6 @@ fn axis(style: LayoutStyle, edge: Edge) -> LayoutStyle {
 fn build_items(
     config: &Config,
     entries: &[ModuleEntry],
-    in_zone: Zone,
     registry: &ModuleRegistry,
     ctx: &ModuleCtx,
     rest: Color,
@@ -357,15 +353,13 @@ fn build_items(
             }
             continue;
         }
-        // Wrapped so whatever the press opens knows which zone it was pressed from, `Panel` and `Action` alike — a drawer aligns to the end of the bar its chip sits at, and only the bar knows which that is.
+        // Handed over bare: the chip shell dispatches every press with its own rect in scope, `Panel` and `Action` alike, so whatever this opens can hang off the chip without being told where it is.
         let on_press: Option<Box<dyn Fn()>> = match def.and_then(|d| d.click) {
             Some(ModuleClick::Panel) => {
                 let id = id.clone();
-                Some(Box::new(move || {
-                    from_zone(in_zone, || crate::panel::toggle_panel(&id))
-                }))
+                Some(Box::new(move || crate::panel::toggle_panel(&id)))
             }
-            Some(ModuleClick::Action(action)) => Some(Box::new(move || from_zone(in_zone, action))),
+            Some(ModuleClick::Action(action)) => Some(Box::new(action)),
             None => None,
         };
         let mut inner = Slots::new();
@@ -381,7 +375,7 @@ fn build_items(
                 on_scroll: def
                     .and_then(|d| d.scroll)
                     .map(|wheel| Box::new(wheel) as Box<dyn Fn(f32, f32)>),
-                drag_open: drag_open_for(id, def, ctx.edge, in_zone),
+                drag_open: drag_open_for(id, def, ctx.edge),
             },
             inner,
         )?;

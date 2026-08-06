@@ -80,19 +80,26 @@ pub fn current() -> Vec<Toast> {
 /// The gate lives here rather than at each call site: every place that reports something is a place that would
 /// otherwise have to remember to ask, and the one that forgot would be the one the user cannot switch off.
 pub fn post(event: Event, icon: &str, title: impl Into<String>, body: impl Into<String>) {
-    let config = config::shared_config()
-        .map(|c| c.toasts.clone())
-        .unwrap_or_default();
-    if !config.allows(event) {
+    let config = config::shared_config();
+    let allowed = config
+        .as_ref()
+        .map(|c| c.toasts.allows(event))
+        .unwrap_or(true);
+    if !allowed {
         return;
     }
+    // The column's lifetime, not a toast's own: a toast, a notification popup and an OSD are one stack now.
+    let lifetime = config
+        .as_ref()
+        .map(|c| c.stack.lifetime())
+        .unwrap_or_else(|| config::StackConfig::default().lifetime());
     let toast = Toast {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         event,
         icon: icon.to_string(),
         title: title.into(),
         body: body.into(),
-        expires_at: Instant::now() + config.lifetime(),
+        expires_at: Instant::now() + lifetime,
     };
     let _ = queue().send(Message::Post(toast));
 }
@@ -131,7 +138,7 @@ fn queue() -> &'static Sender<Message> {
                     match message {
                         Some(Message::Post(toast)) => {
                             let max = config::shared_config()
-                                .map(|c| c.toasts.visible())
+                                .map(|c| c.stack.visible())
                                 .unwrap_or(3);
                             admit(&mut live, toast, max);
                         }

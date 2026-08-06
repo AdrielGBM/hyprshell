@@ -11,7 +11,7 @@ use crate::drawer::{content_radius, module_panel, panel_wants_keyboard};
 use config::SurfaceEnv;
 use config::theme::{FontRole, NordTheme};
 use ui::panel::PanelSurface;
-use ui::placement::Placement;
+use ui::placement::{Centred, Placement};
 
 /// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per its `[modules.<id>]` override or `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::panel::toggle_panel`]) via the returned token.
 ///
@@ -21,7 +21,9 @@ use ui::placement::Placement;
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let module = module_id.to_string();
     let (width, height) = env.config.float_size_for(module_id);
-    let placement = Placement::window((width, height), panel_wants_keyboard(module_id))
+    let placement = Placement::centred(Centred::Float)
+        .size(width, height)
+        .keyboard(panel_wants_keyboard(module_id))
         .output(env.output.clone());
     // A float hangs off no edge of its own, so it reads the bar its chip lives on — which is what makes its
     // radius, gaps and opacity match the drawer showing the very same panel.

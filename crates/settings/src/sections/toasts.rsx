@@ -1,20 +1,14 @@
 [logic]
 use crate::form::{
-    ALIGNS, EDGES, align_str, edge_str, parse_align, parse_edge, parse_f32, parse_u32,
-    parse_u64, persist, source,
+    persist, source,
 };
 use ::config::theme::FontRole;
 use ::config::{ToastEvents, ToastsConfig};
 
 let (config, path) = source();
 let t = &config.toasts;
-let base = t.clone();
+
 let enabled = signal(t.enabled);
-let edge = signal(edge_str(t.edge).to_string());
-let align = signal(align_str(t.align).to_string());
-let max_toasts = signal(t.max_toasts.to_string());
-let timeout = signal(t.timeout_ms.to_string());
-let width = signal(t.width.to_string());
 
 let events = t.events;
 let config_loaded = signal(events.config_loaded);
@@ -31,12 +25,7 @@ let screenshot = signal(events.screenshot);
 let recording = signal(events.recording);
 
 let save: Box<dyn Fn()> = Box::new({
-    let (enabled, edge, align) = (enabled.clone(), edge.clone(), align.clone());
-    let (max_toasts, timeout, width) = (
-        max_toasts.clone(),
-        timeout.clone(),
-        width.clone(),
-    );
+    let enabled = enabled.clone();
     let (config_loaded, charging, game_mode, dnd) = (
         config_loaded.clone(),
         charging.clone(),
@@ -58,11 +47,7 @@ let save: Box<dyn Fn()> = Box::new({
     move || {
         let value = ToastsConfig {
             enabled: enabled.peek(),
-            edge: parse_edge(&edge.peek()),
-            align: parse_align(&align.peek()),
-            max_toasts: parse_u32(&max_toasts.peek(), base.max_toasts),
-            timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
-            width: parse_f32(&width.peek(), base.width),
+
             events: ToastEvents {
                 config_loaded: config_loaded.peek(),
                 charging: charging.peek(),
@@ -85,11 +70,6 @@ let save: Box<dyn Fn()> = Box::new({
 [view]
 form_section title(|| telar::t!("settings.section.toasts"))
     toggle_row label(|| telar::t!("settings.field.enabled")) value:$enabled
-    enum_row label(|| telar::t!("settings.field.edge")) value:$edge options:EDGES
-    enum_row label(|| telar::t!("settings.field.align")) value:$align options:ALIGNS
-    text_row label(|| telar::t!("settings.field.max_toasts")) value:$max_toasts placeholder:"3"
-    text_row label(|| telar::t!("settings.field.timeout_ms")) value:$timeout placeholder:"2500"
-    text_row label(|| telar::t!("settings.field.width")) value:$width placeholder:"300"
     text "{telar::t!(\"settings.subheader.events\")}" color:muted size:theme.font(FontRole::Caption) weight:700
     toggle_row label(|| telar::t!("settings.field.event_config_loaded")) value:$config_loaded
     toggle_row label(|| telar::t!("settings.field.event_charging")) value:$charging

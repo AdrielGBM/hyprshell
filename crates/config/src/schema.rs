@@ -27,8 +27,8 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("corners", "CornersConfig"),
         ("panels", "PanelsConfig"),
         ("popouts", "PopoutsConfig"),
-        ("osd", "OsdConfig"),
         ("icons", "IconsConfig"),
+        ("stack", "StackConfig"),
         ("notifications", "NotificationsConfig"),
         ("toasts", "ToastsConfig"),
         ("screenshot", "ScreenshotConfig"),
@@ -393,7 +393,7 @@ mod tests {
         assert!(text.contains("max_visible = 4"), "{text}");
         // And it round-trips: what the reference prints is a config the shell would accept.
         let parsed: Config = toml::from_str(&text).expect("the printed schema parses");
-        assert_eq!(parsed.notifications.max_visible, 4);
+        assert_eq!(parsed.stack.max_visible, 4);
     }
 
     #[test]

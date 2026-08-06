@@ -32,6 +32,10 @@ hyprshell notifs center open
 | Closes | when you look away | when you close it |
 | For | a glance | working through a backlog |
 
+Opening the centre closes whatever drawer was up — including the bell's own, which is the same notifications
+seen the other way. Nothing closes the centre back: a chip pressed afterwards opens its drawer beside it and
+leaves the centre where it is.
+
 ## What is on it
 
 The notification history, grouped by application, and the **utilities panel's own toggles** — not a second set

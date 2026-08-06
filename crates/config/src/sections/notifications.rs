@@ -1,4 +1,4 @@
-//! `[notifications]`, `[toasts]` and `[sidebar]`.
+//! `[stack]`, `[notifications]`, `[toasts]` and `[sidebar]`.
 //!
 //! One type per `[toml]` table, each with the defaults the shell falls back to. The doc comment on a
 //! field is what `hyprshell config schema` prints for it, so it is written for a user reading the reference.
@@ -6,6 +6,60 @@
 use serde::{Deserialize, Serialize};
 
 use crate::sections::*;
+
+/// The column of cards the shell pins to a screen edge and takes away again (`[stack]`): notification popups,
+/// in-shell toasts, and the OSD a volume or brightness change flashes.
+///
+/// **One section because they are one column.** They were three, each with its own `edge`, `align`, `width` and
+/// timeout, and being three is what let them sit in three different places and overlap each other on a narrow
+/// screen with no one of them able to know. Where the column is, how wide it is and how many cards it shows at
+/// once are properties of the column; what each card *is* stays in `[notifications]` and `[toasts]`.
+///
+/// `timeout_ms` is one number for the same reason. Which is not to say every card goes: a `critical`
+/// notification under `[notifications] critical_sticky` stays until it is dealt with, and so does an OSD with
+/// nothing left to say. Not expiring is a property of the card, not a second timeout.
+#[derive(Deserialize, Serialize, Clone, Copy, Debug)]
+#[serde(default)]
+pub struct StackConfig {
+    pub edge: Edge,
+    pub align: Align,
+    pub width: f32,
+    /// How many cards show at once; the rest queue behind them.
+    ///
+    /// Not a hard ceiling, and the exception is the point: every source with something to say — a notification,
+    /// a toast, an OSD — is guaranteed one card before this is shared out, so a brightness reading you asked for
+    /// by pressing a key is never queued behind notifications you did not. With more sources speaking at once
+    /// than this allows, the column is that many cards tall.
+    pub max_visible: u32,
+    pub timeout_ms: u64,
+}
+
+impl Default for StackConfig {
+    fn default() -> Self {
+        Self {
+            edge: Edge::Top,
+            align: Align::End,
+            width: 380.0,
+            max_visible: 4,
+            // Between the 5 s a notification used to get and the 1.2 s an OSD did: long enough to read a line
+            // of text that arrived unannounced, short enough that a volume nudge is gone before it is in the way.
+            timeout_ms: 3000,
+        }
+    }
+}
+
+impl StackConfig {
+    /// How long a card stays. Floored rather than allowed to be zero: a card that expires on the frame it was
+    /// posted is a feature that looks broken. A card that must *not* expire says so itself.
+    pub fn lifetime(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_ms.clamp(400, 60_000))
+    }
+
+    /// How many cards are on screen at once, bounded so a typo cannot ask for a column taller than the screen.
+    pub fn visible(&self) -> usize {
+        self.max_visible.clamp(1, 10) as usize
+    }
+}
 
 /// Whether a popup still appears while a fullscreen window has focus. The three values escalate: `on` never
 /// holds anything back, `off` holds back everything but `critical` (don't interrupt a game or a film unless it
@@ -32,7 +86,8 @@ impl FullscreenPopups {
     }
 }
 
-/// Notification popups: where the stack anchors (defaults to top-right), how many show at once before the rest queue, the per-popup auto-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+/// Notification popups: what a card shows and how it behaves. Where the column sits, how wide it is, how many
+/// cards it holds and how long each stays are the column's — see [`StackConfig`].
 ///
 /// The history panel's own behaviour lives here too, since it draws the same cards: `group_by_app` collapses an
 /// application's notifications under one header with a count, a mute and a clear, showing `group_preview_num`
@@ -46,12 +101,8 @@ impl FullscreenPopups {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct NotificationsConfig {
-    pub edge: Edge,
-    pub align: Align,
-    pub max_visible: u32,
-    pub timeout_ms: u64,
+    /// Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
     pub critical_sticky: bool,
-    pub width: f32,
     pub fullscreen: FullscreenPopups,
     pub group_by_app: bool,
     pub group_preview_num: u32,
@@ -68,12 +119,7 @@ pub struct NotificationsConfig {
 impl Default for NotificationsConfig {
     fn default() -> Self {
         Self {
-            edge: Edge::Top,
-            align: Align::End,
-            max_visible: 4,
-            timeout_ms: 5000,
             critical_sticky: true,
-            width: 380.0,
             fullscreen: FullscreenPopups::default(),
             group_by_app: true,
             group_preview_num: 3,
@@ -168,11 +214,6 @@ impl Default for ToastEvents {
 #[serde(default)]
 pub struct ToastsConfig {
     pub enabled: bool,
-    pub edge: Edge,
-    pub align: Align,
-    pub max_toasts: u32,
-    pub timeout_ms: u64,
-    pub width: f32,
     pub events: ToastEvents,
 }
 
@@ -180,11 +221,6 @@ impl Default for ToastsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            edge: Edge::Bottom,
-            align: Align::Center,
-            max_toasts: 3,
-            timeout_ms: 2500,
-            width: 300.0,
             events: ToastEvents::default(),
         }
     }
@@ -211,15 +247,6 @@ impl ToastsConfig {
             }
     }
 
-    /// How long a toast stays. Floored rather than allowed to be zero: a toast that expires on the frame it was
-    /// posted is a feature that looks broken.
-    pub fn lifetime(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(self.timeout_ms.clamp(400, 60_000))
-    }
-
-    pub fn visible(&self) -> usize {
-        self.max_toasts.clamp(1, 10) as usize
-    }
 }
 
 /// The notification centre (`[sidebar]`): a full-height surface that is the home for the notification history and

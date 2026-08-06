@@ -5,7 +5,7 @@ title: Volume
 summary: The default output's level and mute.
 status: stable
 compositor: any
-config: [audio, osd, toasts]
+config: [audio, stack, toasts]
 commands: [volume, audio]
 deps: [pw-dump, wpctl]
 popout: true

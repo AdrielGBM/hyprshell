@@ -302,15 +302,22 @@ mod tests {
     /// surface host mounts and presses next to the panel.
     #[test]
     fn a_press_beside_the_panel_dismisses_the_drawer() {
-        use crate::placement::Placement;
+        use crate::placement::{OffChip, Placement};
         use std::cell::Cell;
         use telar::{
-            AvailableSpace, Component, Event, KeyboardMode, PointerButton, PointerSource,
-            SurfaceScaffold, compute_layout,
+            AvailableSpace, Component, Event, PointerButton, PointerSource, SurfaceScaffold,
+            compute_layout,
         };
 
         const PANEL_WIDTH: f32 = 320.0;
         const SURFACE: f32 = 1280.0;
+
+        let env = SurfaceEnv {
+            edge: Edge::Top,
+            bar_size: 34,
+            output: None,
+            config: Arc::new(Config::starter()),
+        };
 
         for align in [
             telar::SurfaceAlign::Start,
@@ -328,7 +335,7 @@ mod tests {
 
             let dismissed = Rc::new(Cell::new(0u32));
             let sink = Rc::clone(&dismissed);
-            let placement = Placement::sheet(Edge::Top, KeyboardMode::None)
+            let placement = Placement::off_chip(OffChip::Panel, &env, None, None)
                 .margin((8, 8, 8, 8))
                 .hosted_placement()
                 .align(align);
@@ -376,10 +383,9 @@ mod tests {
     /// environment is *there*.
     #[test]
     fn every_shape_a_panel_takes_can_see_its_own_config() {
-        use crate::placement::Placement;
+        use crate::placement::{Centred, OffChip, Placement};
         use config::Align;
         use std::cell::RefCell;
-        use telar::KeyboardMode;
 
         let chip = telar::Rect {
             x: 200.0,
@@ -396,27 +402,25 @@ mod tests {
         // Every primitive a window that is not a bar is built from, and the edge each must report: the one it
         // hangs off, or the one named for a shape that hangs off none.
         let every: Vec<(&str, Placement, Option<Edge>)> = vec![
-            ("drawer", Placement::sheet(Edge::Bottom, KeyboardMode::None), None),
-            ("float", Placement::window((640, 480), KeyboardMode::None), Some(Edge::Left)),
-            ("launcher", Placement::modal(), None),
             (
-                "osd",
-                Placement::flash(Edge::Right, Align::Center, std::time::Duration::from_secs(2)).size(280, 60),
+                "drawer",
+                Placement::off_chip(OffChip::Panel, &env, Some(chip), Some(260.0)),
                 None,
             ),
             (
-                "toasts",
-                Placement::stack("hyprshell-toasts", Edge::Bottom, Align::End).size(320, 200),
+                "float",
+                Placement::centred(Centred::Float).size(640, 480),
+                Some(Edge::Left),
+            ),
+            ("launcher", Placement::centred(Centred::Modal), None),
+            (
+                "card column",
+                Placement::stack("hyprshell-stack", Edge::Bottom, Align::End).size(320, 200),
                 None,
             ),
             (
                 "popout",
-                Placement::card("hyprshell-popout", &env, chip, Some(260.0)).size(260, 180),
-                None,
-            ),
-            (
-                "tray menu",
-                crate::anchor::chip_placement(&env, chip, Some(260.0)).size(260, 180),
+                Placement::off_chip(OffChip::Card, &env, Some(chip), Some(260.0)).size(260, 180),
                 None,
             ),
             (

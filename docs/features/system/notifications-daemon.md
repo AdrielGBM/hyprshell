@@ -5,7 +5,7 @@ title: Notification daemon
 summary: hyprshell is the freedesktop notification daemon — nothing else to install.
 status: stable
 compositor: any
-config: [notifications]
+config: [stack, notifications]
 commands: [notifs]
 deps: []
 see_also: [notifications, notification-centre, toasts]
@@ -39,9 +39,12 @@ Per-application mute is a separate, binary switch.
 
 ## Configuring
 
-`[notifications]` — `edge`, `align`, `width`, `max_visible`, `timeout_ms`, `body_lines`,
-`group_by_app`, `group_preview_num`, `open_expanded`, `critical_sticky`, `clear_threshold`,
-`action_on_click`, `fullscreen`, `sound`.
+`[notifications]` — `body_lines`, `group_by_app`, `group_preview_num`, `open_expanded`, `critical_sticky`,
+`clear_threshold`, `action_on_click`, `fullscreen`, `sound`.
+
+Where a popup appears, how wide it is, how many show at once and how long each stays are not the daemon's: a
+notification popup, a toast and an OSD are one column, and the column is `[stack]` — `edge`, `align`, `width`,
+`max_visible`, `timeout_ms`.
 
 `critical_sticky` keeps urgency-critical notifications up until they are dismissed. `fullscreen` is the policy
 for what happens while a window is fullscreen.

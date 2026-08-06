@@ -144,7 +144,7 @@ pub const PAGES: &[Page] = &[
             ),
             section!("panels", ["panels"], crate::panels),
             section!("popouts", ["popouts"], crate::popouts),
-            section!("osd", ["osd"], crate::osd),
+            section!("stack", ["stack"], crate::stack),
             section!("clock", ["clock"], crate::clock),
             section!("active_window", ["active_window"], crate::active_window),
             section!("workspaces", ["workspaces"], crate::workspaces),

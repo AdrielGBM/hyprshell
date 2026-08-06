@@ -24,8 +24,12 @@ pub const ID: &str = "sidebar";
 /// Opens the centre, or closes it if it is up. Registered with the shell's surface registry under [`ID`], so a
 /// press on the bell, `hyprshell notifs center` and a keybind all reach the same surface rather than stacking
 /// copies of it.
+///
+/// A standing window, not a glance: opening it takes the screen from whatever drawer was up — including the
+/// bell's own, which is the same notifications seen the other way — and nothing takes it away again but the
+/// user. Opening a drawer afterwards leaves it exactly where it was.
 pub fn toggle() {
-    surfaces::shell::toggle_window(ID, open_sidebar);
+    surfaces::shell::toggle_standing_window(ID, open_sidebar);
 }
 
 pub fn open() {

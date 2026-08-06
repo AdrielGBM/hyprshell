@@ -879,7 +879,8 @@ out of a list anyway, so it is a row that can only disappoint.
 .sp
 Default: \fBfalse\fR
 .SS [notifications]
-Notification popups: where the stack anchors (defaults to top\-right), how many show at once before the rest queue, the per\-popup auto\-dismiss (`0` = sticky), whether `critical` urgency ignores that timeout, and the card width. Popups follow the focused monitor.
+Notification popups: what a card shows and how it behaves. Where the column sits, how wide it is, how many
+cards it holds and how long each stays are the column's \(em see [`StackConfig`].
 .sp
 The history panel's own behaviour lives here too, since it draws the same cards: `group_by_app` collapses an
 application's notifications under one header with a count, a mute and a clear, showing `group_preview_num`
@@ -894,9 +895,6 @@ command is per\-machine (`canberra\-gtk\-play \-i message`, `paplay /usr/share/s
 .B action_on_click
 Default: \fBtrue\fR
 .TP
-.B align
-Default: \fB"end"\fR
-.TP
 .B body_lines
 Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is on.
 .sp
@@ -909,10 +907,9 @@ How far sideways a card must be dragged before letting go dismisses it, as a fra
 Default: \fB0.35\fR
 .TP
 .B critical_sticky
+Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
+.sp
 Default: \fBtrue\fR
-.TP
-.B edge
-Default: \fB"top"\fR
 .TP
 .B fullscreen
 Default: \fB"off"\fR
@@ -923,31 +920,11 @@ Default: \fBtrue\fR
 .B group_preview_num
 Default: \fB3\fR
 .TP
-.B max_visible
-Default: \fB4\fR
-.TP
 .B open_expanded
 Default: \fBfalse\fR
 .TP
 .B sound
 Default: \fB""\fR
-.TP
-.B timeout_ms
-Default: \fB5000\fR
-.TP
-.B width
-Default: \fB380.0\fR
-.SS [osd]
-Where OSD popups appear: anchored edge, cross\-axis alignment, and auto\-dismiss timeout in ms (`0` disables auto\-dismiss); defaults to top\-centre, 1200 ms.
-.TP
-.B align
-Default: \fB"center"\fR
-.TP
-.B edge
-Default: \fB"top"\fR
-.TP
-.B timeout_ms
-Default: \fB1200\fR
 .SS [panels]
 Panel presentation shared by drawers and floating windows (`[panels]`): each form's size, and the gesture
 that opens one. One home for both so a drawer and a float are configured the same way.
@@ -1148,6 +1125,40 @@ Default: \fBtrue\fR
 Width for a left/right sidebar, height for a top/bottom one, in px.
 .sp
 Default: \fB400\fR
+.SS [stack]
+The column of cards the shell pins to a screen edge and takes away again (`[stack]`): notification popups,
+in\-shell toasts, and the OSD a volume or brightness change flashes.
+.sp
+**One section because they are one column.** They were three, each with its own `edge`, `align`, `width` and
+timeout, and being three is what let them sit in three different places and overlap each other on a narrow
+screen with no one of them able to know. Where the column is, how wide it is and how many cards it shows at
+once are properties of the column; what each card *is* stays in `[notifications]` and `[toasts]`.
+.sp
+`timeout_ms` is one number for the same reason. Which is not to say every card goes: a `critical`
+notification under `[notifications] critical_sticky` stays until it is dealt with, and so does an OSD with
+nothing left to say. Not expiring is a property of the card, not a second timeout.
+.TP
+.B align
+Default: \fB"end"\fR
+.TP
+.B edge
+Default: \fB"top"\fR
+.TP
+.B max_visible
+How many cards show at once; the rest queue behind them.
+.sp
+Not a hard ceiling, and the exception is the point: every source with something to say \(em a notification,
+a toast, an OSD \(em is guaranteed one card before this is shared out, so a brightness reading you asked for
+by pressing a key is never queued behind notifications you did not. With more sources speaking at once
+than this allows, the column is that many cards tall.
+.sp
+Default: \fB4\fR
+.TP
+.B timeout_ms
+Default: \fB3000\fR
+.TP
+.B width
+Default: \fB380.0\fR
 .SS [status_icons]
 The compact status cluster (`[status_icons]`): several service readings sharing one chip.
 .sp
@@ -1326,23 +1337,8 @@ Not notifications. A notification belongs to an application, goes into history a
 Do\-Not\-Disturb; "Caps Lock is on" is feedback about a key that was just pressed and is worthless a second
 later. See `shared::services::toaster`.
 .TP
-.B align
-Default: \fB"center"\fR
-.TP
-.B edge
-Default: \fB"bottom"\fR
-.TP
 .B enabled
 Default: \fBtrue\fR
-.TP
-.B max_toasts
-Default: \fB3\fR
-.TP
-.B timeout_ms
-Default: \fB2500\fR
-.TP
-.B width
-Default: \fB300.0\fR
 .SS [toasts.events]
 .TP
 .B audio_input

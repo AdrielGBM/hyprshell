@@ -26,7 +26,7 @@ use config::{Config, Edge};
 use ui::CardFrameProps;
 use ui::module::SurfaceEnv;
 use ui::panel::PanelSurface;
-use ui::placement::Placement;
+use ui::placement::{OffChip, Placement};
 use ui::popouts;
 
 /// One popout at a time: a second card on screen would be two readouts competing for the same glance.
@@ -177,7 +177,7 @@ fn placement(env: &SurfaceEnv, chip: Rect) -> Placement {
     } else {
         width
     };
-    Placement::card("hyprshell-popout", env, chip, Some(span))
+    Placement::off_chip(OffChip::Card, env, Some(chip), Some(span))
         .size(width.ceil() as u32, height.ceil() as u32)
 }
 

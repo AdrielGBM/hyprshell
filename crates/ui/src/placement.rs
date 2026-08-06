@@ -17,12 +17,16 @@
 //! | [`backdrop`](Placement::backdrop) | the whole screen, click-through, reserving nothing | wallpaper, frame ring |
 //! | [`dock`](Placement::dock) | spans an edge, over the windows | the notification centre |
 //! | [`stack`](Placement::stack) | pinned to a spot along an edge, input from its content | toasts, notification popups |
-//! | [`card`](Placement::card) | beside the chip that opened it | popouts, the tray menu |
-//! | [`sheet`](Placement::sheet) | hangs off a bar edge, dismissed from outside | a module's drawer |
-//! | [`window`](Placement::window) | centred, framed, resizable | a module's float |
-//! | [`modal`](Placement::modal) | owns the screen and the keyboard | the launcher |
-//! | [`flash`](Placement::flash) | brief, click-through, self-dismissing | the OSD |
+//! | [`off_chip`](Placement::off_chip) | hangs off the chip that opened it | popouts, drawers, the tray menu |
+//! | [`centred`](Placement::centred) | a window in the middle of the screen | a module's float, the launcher |
 //! | [`screen`](Placement::screen) | the whole screen, over everything, takes the keyboard | the region picker |
+//!
+//! Two of those rows used to be four. A popout, a drawer and the tray's menu are one *position* — the chip's
+//! rect and the bar's edge — asked for by three callers, and describing them apart is what let the menu be built
+//! as a card that had been made dismissable, which quietly turned it into a drawer built through the wrong door
+//! and announcing a namespace nobody chose. A float and the launcher are likewise one shape, differing in how
+//! they go away. What actually varies in each pair is [`OffChip`] and [`Centred`], and those say what the
+//! surface *is*, not where it goes.
 //!
 //! **The namespace belongs to the shape, not to the surface.** It is what a compositor rule matches
 //! (`layer_rule = blur, hyprshell-drawer`), so it is a public interface: the strings below are the ones
@@ -53,6 +57,77 @@ pub enum Input {
     /// Only where the content actually draws something pressable, recomputed as it changes — a stack of
     /// cards with gaps between them, where the gaps belong to the window underneath.
     FromContent,
+}
+
+/// Which of the two things that hang off a chip this is.
+///
+/// They share a position and nothing else, so what this picks is the *kind of surface*: one is opened by resting
+/// a pointer and one by pressing, and everything below follows from that.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OffChip {
+    /// A reading the pointer opened by resting on the chip. It renders itself, at the size of the tallest card
+    /// it may be, and carves its input region out of what it actually draws — so the surplus around a short card
+    /// belongs to the window underneath. There is no way to dismiss it because there was no press to undo.
+    Card,
+    /// A panel a press opened: sized to its content, dismissed by a press outside it, scaffolded and slid in by
+    /// the surface host. A module's drawer and the tray's context menu are the same surface asked for twice.
+    Panel,
+}
+
+impl OffChip {
+    fn namespace(self) -> &'static str {
+        match self {
+            OffChip::Card => "hyprshell-popout",
+            OffChip::Panel => "hyprshell-drawer",
+        }
+    }
+}
+
+/// Which of the two windows that open in the middle of the screen this is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Centred {
+    /// A module's panel as a window of its own, with a title bar, a ✕ and a resize grip. It goes when the user
+    /// closes it and at no other time, which is the whole reason to choose it over a drawer.
+    Float,
+    /// A window that takes the screen behind it too: the launcher. A press anywhere outside closes it.
+    Modal,
+}
+
+impl Centred {
+    fn role(self) -> SurfaceRole {
+        match self {
+            Centred::Float => SurfaceRole::Float,
+            Centred::Modal => SurfaceRole::Overlay,
+        }
+    }
+
+    /// The namespace this shape has always announced. Kept in step with [`role`](Self::role) by hand because a
+    /// hosted surface is lowered by the surface host, which derives the namespace from the role and never sees
+    /// this — the two disagreeing is what made the tray's menu announce a name nobody chose.
+    fn namespace(self) -> &'static str {
+        match self {
+            Centred::Float => "hyprshell-float",
+            Centred::Modal => "hyprshell-overlay",
+        }
+    }
+
+    /// **A modal asks for the keyboard on demand, not exclusively, and that is about the *pointer*.** An
+    /// exclusive layer surface is an input grab: the compositor stops delivering pointer events to every other
+    /// surface while it is up, so with the launcher open the bar went dead — no chip highlighted, no popout
+    /// opened, and a press on a chip reached the launcher's own scaffold and dismissed it instead of opening
+    /// that chip's panel. On demand is the same keyboard for a surface that maps focused, without taking the
+    /// pointer from the rest of the shell. The grab is still right for the region picker, which is selecting an
+    /// area of the screen and must not have the bar answering clicks inside it — see [`Placement::screen`].
+    ///
+    /// A float starts at none and is told what its module needs ([`Placement::keyboard`]): a layer surface
+    /// granted focus takes it from the window the user was in and gives it back when the panel closes, which
+    /// moves a scrolling layout on the way back. A panel that only shows readings must not provoke that.
+    fn keyboard(self) -> KeyboardMode {
+        match self {
+            Centred::Float => KeyboardMode::None,
+            Centred::Modal => KeyboardMode::OnDemand,
+        }
+    }
 }
 
 /// The screen-shape a surface takes, and everything the compositor needs to place it.
@@ -197,62 +272,55 @@ impl Placement {
         }
     }
 
-    /// A card beside the chip that opened it, on the bar's own screen — the anchoring is
-    /// [`shared::anchor`](crate::anchor), shared with everything that hangs off a chip.
-    pub fn card(namespace: &'static str, env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> Self {
-        let off_bar = env.config.panel_gap(env.edge) as f32;
-        let mut placement = Self::new(namespace, beside_a_chip(env.edge), Layer::Overlay)
-            .margin(crate::anchor::chip_margin(env, chip, off_bar, span))
-            .input(Input::FromContent)
-            .output(env.output.clone());
+    /// A surface hanging off the chip that opened it: the hover popout, a module's drawer, the tray's context
+    /// menu. `chip` is that chip's laid-out rect, or `None` for a panel reached with no chip in hand — IPC, a
+    /// keybind — which has nothing to line up with and takes [`align`](Self::align) instead.
+    ///
+    /// **One shape, because the position is one piece of arithmetic.** The chip's rect decides where the surface
+    /// sits along the bar and the bar's edge decides which side it hangs off, for all three
+    /// ([`chip_margin`](crate::anchor::chip_margin)) — so what a hover opens and what a click opens land in the
+    /// same place. Only [`OffChip`] differs, and it differs in what the surface *is* rather than in where it
+    /// goes.
+    ///
+    /// The alignment is `Start` whenever a chip decided the margin, and that is not a taste: the host lays a
+    /// hosted surface out inside a full-screen scaffold where the margin is padding, so the distance that lines
+    /// the panel up with its chip is measured from whichever end the panel packs against. Centre it and the
+    /// same number pushes it half a screen the other way.
+    pub fn off_chip(kind: OffChip, env: &SurfaceEnv, chip: Option<Rect>, span: Option<f32>) -> Self {
+        let mut placement = match kind {
+            OffChip::Card => Self::new(kind.namespace(), beside_a_chip(env.edge), Layer::Overlay)
+                .input(Input::FromContent),
+            OffChip::Panel => {
+                let mut panel = Self::hosted(SurfaceRole::Drawer, kind.namespace(), KeyboardMode::None);
+                panel.anchor = edge_anchor(env.edge);
+                panel.dismiss_on_outside = true;
+                panel
+            }
+        };
         placement.edge = Some(env.edge);
+        placement.output = env.output.clone();
+        placement.margin = match chip {
+            Some(chip) => {
+                placement.align = SurfaceAlign::Start;
+                crate::anchor::chip_margin(env, chip, env.config.panel_gap(env.edge) as f32, span)
+            }
+            None => env.config.panel_margin(env.edge),
+        };
         placement
     }
 
-    /// A panel hanging off a bar edge, dismissed by a press outside it — a module's drawer.
+    /// A window in the middle of the screen, sized by what is in it rather than by an edge of the screen: a
+    /// module's float, the launcher. Which of the two is [`Centred`]'s to say — they are one shape, and differ
+    /// only in how they go away.
     ///
-    /// `keyboard` is asked for rather than assumed: a layer surface granted focus takes it from the window
-    /// the user was in, and gives it back when the panel closes — which moves a scrolling layout on the way
-    /// back. A panel that only shows readings must not provoke that.
-    pub fn sheet(edge: Edge, keyboard: KeyboardMode) -> Self {
-        let mut placement = Self::hosted(SurfaceRole::Drawer, "hyprshell-drawer", keyboard);
-        placement.anchor = edge_anchor(edge);
-        placement.edge = Some(edge);
-        placement.dismiss_on_outside = true;
-        placement
-    }
-
-    /// A centred window with its own title bar and close button — a module's float.
-    pub fn window(size: (u32, u32), keyboard: KeyboardMode) -> Self {
-        let mut placement = Self::hosted(SurfaceRole::Float, "hyprshell-float", keyboard);
-        placement.size = size;
-        placement
-    }
-
-    /// A surface that owns the screen while it is up, keyboard included: the launcher, a command palette.
-    ///
-    /// `dismiss_on_outside` is not only the way out. It is also what makes this a *full-screen* surface with
-    /// the panel positioned inside it — the host scaffolds anything that has to catch a press beyond its
-    /// content. Without it the surface would be centred, unanchored and unsized, which layer-shell rejects
-    /// outright (a surface not anchored to both edges of an axis has to name a size on it).
-    pub fn modal() -> Self {
-        let mut placement = Self::hosted(
-            SurfaceRole::Overlay,
-            "hyprshell-overlay",
-            KeyboardMode::Exclusive,
-        );
-        placement.dismiss_on_outside = true;
-        placement
-    }
-
-    /// A brief, click-through status flash that takes itself away again.
-    pub fn flash(edge: Edge, align: Align, after: std::time::Duration) -> Self {
-        let mut placement = Self::hosted(SurfaceRole::Osd, "hyprshell-osd", KeyboardMode::None)
-            .input(Input::Transparent);
-        placement.anchor = edge_anchor(edge);
-        placement.edge = Some(edge);
-        placement.align = surface_align(align);
-        placement.timeout = (!after.is_zero()).then_some(after);
+    /// A float names its size ([`size`](Self::size)); a modal does not, because `dismiss_on_outside` is not
+    /// only its way out — it is also what makes its *surface* full-screen with the window positioned inside,
+    /// since the host scaffolds anything that has to catch a press beyond its content. Without it the surface
+    /// would be centred, unanchored and unsized, which layer-shell rejects outright (a surface not anchored to
+    /// both edges of an axis has to name a size on it).
+    pub fn centred(kind: Centred) -> Self {
+        let mut placement = Self::hosted(kind.role(), kind.namespace(), kind.keyboard());
+        placement.dismiss_on_outside = kind == Centred::Modal;
         placement
     }
 
@@ -305,18 +373,7 @@ impl Placement {
         self.margin((px, px, px, px))
     }
 
-    /// Dismissed by a press outside it. On its own, without a scrim: what the tray's context menus want,
-    /// where dimming the screen behind a small menu would be theatre.
-    ///
-    /// Hosted from here on whatever the primitive was: dismiss-on-outside is the scaffold's, and a
-    /// self-rendered surface has nothing to implement it with.
-    pub fn dismissable(mut self) -> Self {
-        self.dismiss_on_outside = true;
-        self.hosted = true;
-        self
-    }
-
-    pub fn zone(mut self, zone: i32) -> Self {
+    fn zone(mut self, zone: i32) -> Self {
         self.exclusive_zone = zone;
         self
     }
@@ -331,7 +388,7 @@ impl Placement {
         self
     }
 
-    pub fn input(mut self, input: Input) -> Self {
+    fn input(mut self, input: Input) -> Self {
         self.input = input;
         self
     }
@@ -343,11 +400,6 @@ impl Placement {
 
     pub fn output(mut self, output: Option<String>) -> Self {
         self.output = output;
-        self
-    }
-
-    pub fn anchor(mut self, anchor: Anchor) -> Self {
-        self.anchor = anchor;
         self
     }
 
@@ -504,6 +556,29 @@ fn across(edge: Edge, thickness: u32) -> (u32, u32) {
 mod tests {
     use super::*;
 
+    fn env_on(edge: Edge) -> SurfaceEnv {
+        SurfaceEnv {
+            edge,
+            bar_size: 34,
+            output: None,
+            config: std::sync::Arc::new(config::Config::starter()),
+        }
+    }
+
+    fn a_chip() -> Rect {
+        Rect {
+            x: 200.0,
+            y: 200.0,
+            width: 30.0,
+            height: 30.0,
+        }
+    }
+
+    /// What a press on a chip on `edge` opens — a drawer, or the tray's menu, which are one shape.
+    fn chip_panel(edge: Edge) -> Placement {
+        Placement::off_chip(OffChip::Panel, &env_on(edge), Some(a_chip()), Some(260.0))
+    }
+
     /// A stack's cards pack against the very edge its surface is pinned to.
     ///
     /// The surface is sized for a *full* run of cards, because a layer surface names its size before it knows
@@ -563,17 +638,15 @@ mod tests {
                 Placement::stack("hyprshell-toasts", Edge::Top, Align::End).size(320, 200),
             ),
             (
-                "card",
-                Placement::card("hyprshell-popout", &env, chip, Some(260.0)).size(260, 180),
+                "off_chip card",
+                Placement::off_chip(OffChip::Card, &env, Some(chip), Some(260.0)).size(260, 180),
             ),
-            ("sheet", Placement::sheet(Edge::Top, KeyboardMode::None)),
-            ("window", Placement::window((920, 680), KeyboardMode::None)),
-            ("modal", Placement::modal()),
             (
-                "flash",
-                Placement::flash(Edge::Top, Align::Center, std::time::Duration::from_secs(2))
-                    .size(280, 60),
+                "off_chip panel",
+                Placement::off_chip(OffChip::Panel, &env, Some(chip), Some(260.0)),
             ),
+            ("centred float", Placement::centred(Centred::Float).size(920, 680)),
+            ("centred modal", Placement::centred(Centred::Modal)),
             ("screen", Placement::screen("hyprshell-picker")),
         ];
 
@@ -599,26 +672,58 @@ mod tests {
 
     /// The namespaces are a public interface — a user's `layer_rule` matches on them — so they are asserted,
     /// not left to whatever a refactor happens to produce.
+    ///
+    /// **And a hosted shape is asserted twice**, because it announces its namespace through a second path: the
+    /// surface host derives it from the [`SurfaceRole`], which never sees the string this carries. The two are
+    /// kept in step by hand, and while they were not, the tray's menu — a card that had been made dismissable —
+    /// went out as `hyprshell-popup`, a name no primitive claims and no `layer_rule` in anyone's config
+    /// mentions.
     #[test]
     fn every_primitive_announces_the_namespace_it_always_has() {
+        let env = SurfaceEnv {
+            edge: Edge::Top,
+            bar_size: 34,
+            output: None,
+            config: std::sync::Arc::new(config::Config::starter()),
+        };
+        let chip = Rect {
+            x: 200.0,
+            y: 0.0,
+            width: 30.0,
+            height: 30.0,
+        };
+
         assert_eq!(Placement::bar(Edge::Top, 34).namespace, "hyprshell-top");
         assert_eq!(
             Placement::reservation(Edge::Left, 40).namespace,
             "hyprshell-reserve-left"
         );
         assert_eq!(
-            Placement::sheet(Edge::Top, KeyboardMode::None).namespace,
+            Placement::off_chip(OffChip::Card, &env, Some(chip), None).namespace,
+            "hyprshell-popout"
+        );
+        assert_eq!(
+            Placement::off_chip(OffChip::Panel, &env, Some(chip), None).namespace,
             "hyprshell-drawer"
         );
         assert_eq!(
-            Placement::window((100, 100), KeyboardMode::None).namespace,
+            Placement::centred(Centred::Float).namespace,
             "hyprshell-float"
         );
-        assert_eq!(Placement::modal().namespace, "hyprshell-overlay");
         assert_eq!(
-            Placement::flash(Edge::Top, Align::Center, std::time::Duration::ZERO).namespace,
-            "hyprshell-osd"
+            Placement::centred(Centred::Modal).namespace,
+            "hyprshell-overlay"
         );
+
+        // The role every hosted shape is realized as, which is what the host turns into the same string.
+        let role_of = |placement: Placement| placement.hosted_placement().role;
+        assert_eq!(
+            role_of(Placement::off_chip(OffChip::Panel, &env, Some(chip), None)),
+            SurfaceRole::Drawer,
+            "the drawer's namespace and the tray menu's now come from one place, so they cannot disagree"
+        );
+        assert_eq!(role_of(Placement::centred(Centred::Float)), SurfaceRole::Float);
+        assert_eq!(role_of(Placement::centred(Centred::Modal)), SurfaceRole::Overlay);
     }
 
     #[test]
@@ -684,10 +789,7 @@ mod tests {
     /// stays dismissible; it just leaves the rest of the screen at alpha zero, where `ignorealpha` skips it.
     #[test]
     fn a_scaffolded_panel_leaves_the_rest_of_the_screen_untouched() {
-        for hosted in [
-            Placement::sheet(Edge::Top, KeyboardMode::None),
-            Placement::modal(),
-        ] {
+        for hosted in [chip_panel(Edge::Top), Placement::centred(Centred::Modal)] {
             let placement = hosted.hosted_placement();
             assert!(
                 !placement.scrim,
@@ -704,17 +806,46 @@ mod tests {
     /// off — a spanning anchor has to collapse to it rather than confusing the scaffold with two.
     #[test]
     fn a_hosted_placement_keeps_the_edge_it_hangs_off() {
-        let sheet = Placement::sheet(Edge::Right, KeyboardMode::OnDemand).hosted_placement();
-        assert_eq!(sheet.anchor, SurfaceAnchor::Right);
-        assert!(sheet.dismiss_on_outside);
-        assert_eq!(sheet.keyboard, KeyboardMode::OnDemand);
+        let panel = chip_panel(Edge::Right)
+            .keyboard(KeyboardMode::OnDemand)
+            .hosted_placement();
+        assert_eq!(panel.anchor, SurfaceAnchor::Right);
+        assert!(panel.dismiss_on_outside);
+        assert_eq!(panel.keyboard, KeyboardMode::OnDemand);
 
-        let modal = Placement::modal().hosted_placement();
+        let modal = Placement::centred(Centred::Modal).hosted_placement();
         assert_eq!(
             modal.anchor,
             SurfaceAnchor::Center,
             "a modal is not anchored to an edge at all"
         );
-        assert_eq!(modal.keyboard, KeyboardMode::Exclusive);
+        assert_eq!(modal.keyboard, KeyboardMode::OnDemand);
+    }
+
+    /// **Only the surface that is selecting part of the screen may grab the pointer.**
+    ///
+    /// An exclusive layer surface is an input grab: while one is up the compositor delivers pointer events to
+    /// nothing else, so the bar stops highlighting chips, stops opening popouts, and answers a press by handing
+    /// it to the grabbing surface. The launcher held that grab, which is why opening it made the bar dead and a
+    /// press on a chip dismissed the launcher instead of opening that chip's panel.
+    ///
+    /// The region picker keeps it, and is the one shape that should: it is drawn over the whole screen to
+    /// select an area *of* it, and a bar answering clicks inside that area would be answering clicks meant for
+    /// the selection.
+    #[test]
+    fn nothing_but_the_region_picker_takes_the_pointer_from_the_rest_of_the_shell() {
+        let grabs = |placement: &Placement| placement.keyboard == KeyboardMode::Exclusive;
+        assert!(grabs(&Placement::screen("hyprshell-picker")));
+        for shared in [
+            Placement::centred(Centred::Modal),
+            Placement::centred(Centred::Float).keyboard(KeyboardMode::OnDemand),
+            chip_panel(Edge::Top).keyboard(KeyboardMode::OnDemand),
+            Placement::dock("hyprshell-sidebar", Edge::Right, 380),
+        ] {
+            assert!(
+                !grabs(&shared),
+                "this shape shares the screen with the bar, so it must not hold the pointer away from it"
+            );
+        }
     }
 }

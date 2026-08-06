@@ -1185,9 +1185,9 @@ fn layer_config_for(placement: &SurfacePlacement) -> LayerConfig {
         SurfaceRole::Overlay => "hyprshell-overlay",
     }
     .to_string();
-    // `on-demand` grants focus on interaction (a click into a text field) without seizing it; `exclusive` holds
-    // the keyboard from the moment the surface maps, which is what a launcher needs — it opens on a keybind and
-    // the next keystroke is already its first search character.
+    // `exclusive` is an input grab, not merely a keyboard one: while such a surface is up the compositor stops
+    // delivering pointer events to every other surface, the shell's own bar included. Only a surface selecting
+    // part of the screen wants that — see `Placement::modal` for the launcher, which does not.
     let keyboard_interactivity = match placement.keyboard {
         KeyboardMode::None => KeyboardInteractivity::None,
         KeyboardMode::OnDemand => KeyboardInteractivity::OnDemand,

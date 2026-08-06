@@ -1,23 +1,25 @@
 //! Placing a surface against the bar chip that opened it.
 //!
 //! A bar is only its own thickness tall, so anything larger than a chip has to become a surface of its own.
-//! The tray's context menus and the hover popouts anchor the same way: the chip's laid-out rect decides where
-//! the surface sits along the bar, and the bar's edge decides which side it hangs off. No platform capability
-//! beyond an anchor and a margin is involved, which is why both work on all four edges unchanged.
+//! A module's drawer, the tray's context menus and the hover popouts all anchor the same way: the chip's
+//! laid-out rect decides where the surface sits along the bar, and the bar's edge decides which side it hangs
+//! off. No platform capability beyond an anchor and a margin is involved, which is why all three work on all
+//! four edges unchanged — and why a click and a hover on one chip open two surfaces in the same place.
+//!
+//! This is the arithmetic only. Which *shape* of surface it positions is
+//! [`Placement::off_chip`](crate::placement::Placement::off_chip), the one door all three go through.
 
-use telar::{Rect, SurfaceAnchor};
-
-use crate::placement::{Input, Placement};
+use telar::Rect;
 
 use config::SurfaceEnv;
-use config::{Align, Edge};
+use config::Edge;
 
 /// Stand-in for an output the compositor has not reported a logical size for yet. Only ever feeds the clamp
 /// arithmetic, which needs a finite screen to clamp against.
 const ASSUMED_OUTPUT: (f32, f32) = (1920.0, 1080.0);
 
 /// The logical size of the monitor this bar is on, for keeping an anchored surface on screen.
-pub fn output_size(env: &SurfaceEnv) -> (f32, f32) {
+fn output_size(env: &SurfaceEnv) -> (f32, f32) {
     let outputs = platform_wayland::outputs();
     let matched = match &env.output {
         Some(name) => outputs.iter().find(|o| o.name.as_deref() == Some(name)),
@@ -27,15 +29,6 @@ pub fn output_size(env: &SurfaceEnv) -> (f32, f32) {
         .and_then(|o| o.logical_size)
         .map(|(w, h)| (w as f32, h as f32))
         .unwrap_or(ASSUMED_OUTPUT)
-}
-
-pub fn anchor_for(edge: Edge) -> SurfaceAnchor {
-    match edge {
-        Edge::Top => SurfaceAnchor::Top,
-        Edge::Bottom => SurfaceAnchor::Bottom,
-        Edge::Left => SurfaceAnchor::Left,
-        Edge::Right => SurfaceAnchor::Right,
-    }
 }
 
 /// How far along the bar the surface starts, in the coordinates its margin is measured in.
@@ -85,19 +78,6 @@ pub fn chip_margin(
         Edge::Left => (along, 0, 0, off_bar),
         Edge::Right => (along, off_bar, 0, 0),
     }
-}
-
-/// A placement for a surface hanging off the bar under `chip`, dismissed by a press outside it — the tray's
-/// context menus.
-///
-/// The distance off the bar is the shared [`panel_gap`](crate::Config::panel_gap) and nothing more: the
-/// surface underneath uses `exclusive_zone = 0`, so the compositor has already positioned it past the bar's
-/// reserved zone, exactly as a drawer is positioned.
-pub fn chip_placement(env: &SurfaceEnv, chip: Rect, span: Option<f32>) -> Placement {
-    Placement::card("hyprshell-drawer", env, chip, span)
-        .align(Align::Start)
-        .dismissable()
-        .input(Input::Solid)
 }
 
 #[cfg(test)]
@@ -220,18 +200,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_placement_carries_the_bar_edge_and_dismisses_on_an_outside_press() {
-        for edge in Edge::ALL {
-            let env = env(edge);
-            let hosted = chip_placement(&env, chip(200.0, 200.0), Some(SPAN)).hosted_placement();
-            assert_eq!(hosted.anchor, anchor_for(edge));
-            assert_eq!(hosted.align, telar::SurfaceAlign::Start);
-            assert!(hosted.dismiss_on_outside, "a click outside closes a menu");
-            assert!(
-                !hosted.scrim,
-                "and does it without dimming the screen: a context menu is not a modal"
-            );
-        }
-    }
 }

@@ -5,7 +5,7 @@ title: On-screen display
 summary: The overlay that shows a level while you are changing it.
 status: partial
 compositor: any
-config: [osd]
+config: [stack]
 commands: [volume, mic, brightness]
 deps: [wlr-layer-shell]
 see_also: [toasts, volume, brightness]
@@ -24,7 +24,8 @@ text, an OSD carries a bar.
 
 ## Configuring
 
-`[osd]` — `edge`, `align`, `timeout_ms`.
+An OSD is a card in the shell's one column, so where it appears and how long it stays are the column's:
+`[stack]` — `edge`, `align`, `width`, `max_visible`, `timeout_ms`. See [Toasts](toasts.md) for the column itself.
 
 ## Showing one without changing anything
 

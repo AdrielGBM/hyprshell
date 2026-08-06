@@ -1,10 +1,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
-use telar::{Color, LayoutError, LayoutItem, ReadSignal, signal};
+use telar::{Color, LayoutError, LayoutItem, ReadSignal, Rect, signal};
 
 use config::theme::NordTheme;
-use config::{Edge, Variant, Zone};
+use config::{Edge, Variant};
 
 pub use config::{SurfaceEnv, set_surface_env, surface_env};
 
@@ -13,29 +13,32 @@ pub fn bar_edge() -> Edge {
 }
 
 thread_local! {
-    static PRESS_ORIGIN: Cell<Option<Zone>> = const { Cell::new(None) };
+    static PRESSED_CHIP: Cell<Option<Rect>> = const { Cell::new(None) };
 }
 
-/// Runs `act` — a chip's press or drag-open handler — with the chip's own zone in scope.
+/// Runs `act` — a chip's press or drag-open handler — with the chip's own laid-out rect in scope.
 ///
-/// The zone is what a drawer aligns to, and only the bar knows it: the same module id can sit in all three zones
-/// at once, and a `[corners]` module sits in none of them, so looking the id up in the config answers the wrong
-/// question (the first zone that mentions it) or no question at all (centre). What opened the drawer is the chip
-/// that was pressed, and this is how that travels the closures between the press and [`crate::open_panel`].
+/// The rect is what a drawer hangs off, on the same terms as the card a hover opens over the same chip, and
+/// only the chip knows it. What travelled here before was the *zone* the chip sat in, which could say no more
+/// than which end of the bar to align to — and could not always say that: an id placed in more than one zone
+/// resolves to whichever the config search reaches first, and a `[corners]` module sits in no zone at all
+/// despite being laid out at a very definite end of its bar. A rect answers both without asking the config
+/// anything.
 ///
 /// Ambient rather than a parameter because the handler that reads it may be a `ModuleClick::Action` — a bare
 /// `fn()` that opens someone else's panel — which no signature change reaches. Scoped strictly to the
-/// synchronous dispatch, so nothing can read a stale origin afterwards.
-pub fn from_zone<R>(zone: Zone, act: impl FnOnce() -> R) -> R {
-    let previous = PRESS_ORIGIN.with(|origin| origin.replace(Some(zone)));
+/// synchronous dispatch, so nothing can read a stale rect afterwards.
+pub fn from_chip<R>(chip: Rect, act: impl FnOnce() -> R) -> R {
+    let previous = PRESSED_CHIP.with(|pressed| pressed.replace(Some(chip)));
     let done = act();
-    PRESS_ORIGIN.with(|origin| origin.set(previous));
+    PRESSED_CHIP.with(|pressed| pressed.set(previous));
     done
 }
 
-/// The zone of the chip whose press is being dispatched, if a press is what is running.
-pub fn press_origin() -> Option<Zone> {
-    PRESS_ORIGIN.with(|origin| origin.get())
+/// The rect of the chip whose press is being dispatched, if a press is what is running. `None` for a panel
+/// reached from anywhere else — IPC, a keybind — where there is no chip to hang off.
+pub fn pressed_chip() -> Option<Rect> {
+    PRESSED_CHIP.with(|pressed| pressed.get())
 }
 
 /// How a chip opens its module's panel.
@@ -123,8 +126,6 @@ pub struct DragOpen {
     pub module: String,
     /// The bar's edge, which is what says which direction "away from the bar" is.
     pub edge: Edge,
-    /// The chip's own zone, so a dragged-open panel aligns exactly where a tapped-open one would.
-    pub zone: Zone,
     /// How far the pointer must travel inwards before letting go opens the panel, in px.
     pub threshold: f32,
 }
@@ -284,7 +285,6 @@ mod tests {
         let gesture = |edge| DragOpen {
             module: "clock".to_string(),
             edge,
-            zone: Zone::Start,
             threshold: 48.0,
         };
         // "Away from the bar" is a different direction on each edge, and the sign is what decides.

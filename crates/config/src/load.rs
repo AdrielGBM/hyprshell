@@ -38,7 +38,7 @@ pub(crate) fn keep_subtables_with_their_parent(doc: &mut DocumentMut) {
 /// The schema this build writes. A file carrying an older `version` is brought forward by [`migrate`] before
 /// it is deserialized; one carrying a *newer* version is read as-is, since guessing at a future schema is how a
 /// downgrade destroys a config.
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 /// Brings an older config document forward to [`CONFIG_VERSION`], in memory.
 ///
@@ -58,7 +58,56 @@ pub(crate) fn migrate(document: &mut toml::Value) {
     if from < 1 {
         migrate_terminal_into_apps(document);
     }
+    if from < 2 {
+        migrate_stack_out_of_its_three_sections(document);
+    }
     tracing::info!("config migrated from version {from} to {CONFIG_VERSION}");
+}
+
+/// v1 → v2: notification popups, toasts and the OSD became one column, so where they sit became `[stack]`.
+///
+/// The three used to carry an `edge`, an `align`, a `width` and a timeout each. Only one set can survive a merge
+/// and the choice is not arbitrary: `[notifications]` is the section whose cards a user actually positioned on
+/// purpose — a toast and an OSD go where the shell put them — so its keys are the ones brought forward, and the
+/// other two are simply dropped. `max_visible` comes with it for the same reason.
+///
+/// Anything already under `[stack]` wins outright: a user who has written the new section is not asking to have
+/// it overwritten by the old one they left behind.
+pub(crate) fn migrate_stack_out_of_its_three_sections(document: &mut toml::Value) {
+    const MOVED: [&str; 5] = ["edge", "align", "width", "max_visible", "timeout_ms"];
+    let carried: Vec<(&str, toml::Value)> = document
+        .get("notifications")
+        .and_then(toml::Value::as_table)
+        .map(|from| {
+            MOVED
+                .iter()
+                .filter_map(|key| from.get(*key).map(|value| (*key, value.clone())))
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(root) = document.as_table_mut() else {
+        return;
+    };
+    // Dropped whether or not anything was carried: they name nothing this build reads, and a stale `edge` under
+    // `[toasts]` is a user wondering for an afternoon why moving it does nothing. `[osd]` held only these three,
+    // so what is left of it is nothing at all.
+    for section in ["notifications", "toasts"] {
+        if let Some(table) = root.get_mut(section).and_then(toml::Value::as_table_mut) {
+            table.retain(|key, _| !MOVED.contains(&key));
+        }
+    }
+    root.remove("osd");
+    if carried.is_empty() {
+        return;
+    }
+    let stack = root
+        .entry("stack".to_string())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    if let Some(stack) = stack.as_table_mut() {
+        for (key, value) in carried {
+            stack.entry(key.to_string()).or_insert(value);
+        }
+    }
 }
 
 /// v0 → v1: `[general] terminal` became `[general.apps] terminal` when the other helper applications arrived.
@@ -103,6 +152,9 @@ pub const GLOBAL_ONLY_SECTIONS: &[&str] = &[
     "general",
     "icons",
     "notifications",
+    // The column follows the focused screen rather than existing per output, so where it sits is one answer for
+    // the whole shell; a per-monitor `edge` would apply on whichever screen it last opened on.
+    "stack",
     "launcher",
     "paths",
     "audio",
