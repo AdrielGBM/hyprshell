@@ -282,8 +282,16 @@ fn plan_output(config: &Arc<Config>, output: Option<&str>) -> Vec<Planned> {
     if config.background.is_enabled() {
         push(
             Role::Wallpaper,
-            backdrop_placement("hyprshell-wallpaper", output),
+            wallpaper_placement(output),
         );
+    }
+    // Before the bars, and on their layer rather than the wallpaper's. The ring *is* the bars' own edge
+    // continued around the screen, so it has to be where they are: on the background it was painted behind
+    // every window, which left the strip a framed bar draws nothing in showing the app through it. Before
+    // them, because the ring covers exactly the strips the bars occupy — drawn after, it would paint over
+    // the chips in `chips` and `sections` mode.
+    if config.shape.frame {
+        push(Role::Frame, frame_placement(config, output));
     }
     for edge in Edge::ALL {
         if !config.edge_present(edge) || config.bars.excludes(output) {
@@ -300,9 +308,6 @@ fn plan_output(config: &Arc<Config>, output: Option<&str>) -> Vec<Planned> {
                 reservation_placement(config, edge, output),
             );
         }
-    }
-    if config.shape.frame {
-        push(Role::Frame, backdrop_placement("hyprshell-frame", output));
     }
     planned
 }
@@ -356,10 +361,20 @@ fn reservation_placement(config: &Config, edge: Edge, output: Option<&str>) -> P
     Placement::reservation(edge, config.edge_reserved(edge)).output(output.map(str::to_string))
 }
 
-/// The wallpaper and the frame ring are the same shape — the whole screen, under the windows, click-through —
-/// and differ only in which of them is planned first, which is what puts the ring over the picture.
-fn backdrop_placement(namespace: &'static str, output: Option<&str>) -> Placement {
-    Placement::backdrop(namespace).output(output.map(str::to_string))
+/// The picture behind the desktop: the whole screen, under every window, click-through.
+fn wallpaper_placement(output: Option<&str>) -> Placement {
+    Placement::backdrop("hyprshell-wallpaper").output(output.map(str::to_string))
+}
+
+/// The frame ring: the same full-screen click-through shape as the wallpaper, on the *bars'* layer.
+///
+/// It is the bars' own edge continued around the screen — under `[shape] frame` a bar paints no background at
+/// all and the ring draws that strip instead — so a ring on the background layer is a bar that disappears
+/// behind whatever window is under it. Click-through, so sharing the bars' layer costs the bars nothing.
+fn frame_placement(config: &Config, output: Option<&str>) -> Placement {
+    Placement::backdrop("hyprshell-frame")
+        .layer(chrome_layer(config))
+        .output(output.map(str::to_string))
 }
 
 #[cfg(test)]
@@ -395,11 +410,50 @@ mod tests {
             Some(&Role::Wallpaper),
             "the wallpaper is planned first so it stacks under everything on the background layer"
         );
-        assert_eq!(
-            roles(&dressed).last(),
-            Some(&Role::Frame),
-            "and the ring after it, so it is drawn over the picture rather than under it"
+        let order = roles(&dressed);
+        let at = |role: Role| order.iter().position(|planned| *planned == role);
+        assert!(
+            at(Role::Frame) < at(Role::Bar(Edge::Top)),
+            "the ring is planned before the bars it shares a layer with: it covers exactly the strips they \
+             occupy, so drawn after them it would paint over the chips"
         );
+    }
+
+    /// The ring belongs on the bars' layer, not the wallpaper's.
+    ///
+    /// It shipped on the background, which looked right on an empty desktop and was wrong the moment a window
+    /// covered it: a framed bar paints no background of its own — the ring draws that strip — so the strip
+    /// showed the *application* through, and there was nothing on the bar's layer for a compositor blur rule to
+    /// find either.
+    #[test]
+    fn the_frame_ring_sits_with_the_bars_rather_than_behind_the_windows() {
+        let framed = config("[shape]\nframe=true\n[bars.top]\ncenter=[\"clock\"]\n");
+        let layer_of = |role: Role| {
+            plan_output(&framed, None)
+                .into_iter()
+                .find(|planned| planned.key.role == role)
+                .map(|planned| planned.layer.layer)
+        };
+        assert_eq!(layer_of(Role::Frame), layer_of(Role::Bar(Edge::Top)));
+
+        // And it follows the bars when they move over a fullscreen window, or it would be left behind on a
+        // layer they no longer share.
+        let over = config(
+            "[general]\nshow_over_fullscreen=true\n[shape]\nframe=true\n[bars.top]\ncenter=[\"clock\"]\n",
+        );
+        let frame_layer = plan_output(&over, None)
+            .into_iter()
+            .find(|planned| planned.key.role == Role::Frame)
+            .map(|planned| planned.layer.layer);
+        assert_eq!(frame_layer, Some(Layer::Overlay));
+
+        // The wallpaper stays where it belongs: a picture behind the desktop, not chrome over it.
+        let papered = config("[background]\nenabled=true\n[shape]\nframe=true\n");
+        let wallpaper = plan_output(&papered, None)
+            .into_iter()
+            .find(|planned| planned.key.role == Role::Wallpaper)
+            .map(|planned| planned.layer.layer);
+        assert_eq!(wallpaper, Some(Layer::Background));
     }
 
     /// `[shape] inactive_size` is what an edge with nothing on it is worth: the strip it reserves, the surface
