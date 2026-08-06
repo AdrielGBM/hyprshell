@@ -27,7 +27,7 @@ pub use gamma::{
 pub use globals::{advertises, advertises_all};
 pub use idle::{IdleHandle, idle_notification, idle_supported};
 pub use link::SurfaceUpdate;
-pub use lock::{LockHandle, lock_session, lock_supported};
+pub use lock::{LockHandle, lock_session, lock_supported, session_is_locked};
 pub use platform::{
     EventSender, LayerShellPlatform, SurfaceHandle, enumerate_outputs, interval, on_close,
     on_outputs_changed, open_reservation, open_surface, outputs, request_close, request_margin,

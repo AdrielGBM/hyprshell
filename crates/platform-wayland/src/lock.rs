@@ -39,6 +39,21 @@ use crate::window::LayerWindow;
 /// name). One handler per output, so the lock screen can differ per monitor exactly as the bars do.
 type LockFactory = Box<dyn Fn(Option<String>) -> BoxedHandler>;
 
+/// Whether the compositor has the session locked, readable from **any** thread.
+///
+/// The per-session [`LockShared`] below is reached through a driver-thread handle, and the shell's own mirror of
+/// it is refreshed by a timer on the driver's loop — so a busy driver could not tell anyone the screen was
+/// already covered. That is not a cosmetic delay: it is what a suspend waits on before letting the machine
+/// sleep, and a wait that cannot observe success gives up and sleeps anyway. Written where the compositor's own
+/// `Locked`/`Finished` events are handled, so it is true exactly when the screen is.
+static SESSION_LOCKED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the compositor currently has the session locked. Safe to call from any thread, and deliberately not
+/// routed through the shell's polled copy — see [`SESSION_LOCKED`].
+pub fn session_is_locked() -> bool {
+    SESSION_LOCKED.load(Ordering::Relaxed)
+}
+
 /// The lock's state as the shell sees it, shared with the driver by atomics because the shell reads it from a
 /// UI handler while the driver writes it from a Wayland callback.
 pub(crate) struct LockShared {
@@ -295,6 +310,7 @@ fn end(
         }
     }
     session.shared.locked.store(false, Ordering::Relaxed);
+    SESSION_LOCKED.store(false, Ordering::Relaxed);
     let _ = conn.flush();
 }
 
@@ -334,6 +350,7 @@ impl Dispatch<ExtSessionLockV1, ()> for Driver {
         match event {
             ext_session_lock_v1::Event::Locked => {
                 session.shared.locked.store(true, Ordering::Relaxed);
+                SESSION_LOCKED.store(true, Ordering::Relaxed);
                 tracing::info!("session locked");
             }
             ext_session_lock_v1::Event::Finished => {

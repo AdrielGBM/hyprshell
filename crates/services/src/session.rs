@@ -259,12 +259,19 @@ fn wait_until_locked() {
     }
     let deadline = Instant::now() + SLEEP_GRACE;
     while Instant::now() < deadline {
-        if crate::lock::is_locked() {
+        // The compositor's own flag, not the shell's polled copy of it ([`crate::lock::is_locked`]). That copy
+        // is refreshed by a timer on the driver's loop, so a driver with work queued ahead of it could not tell
+        // this thread the screen was already covered — and a wait that cannot observe success gives up and
+        // sleeps the machine anyway. It happened: a critical-battery suspend while the driver was busy, and the
+        // laptop slept with the session open.
+        if platform_wayland::session_is_locked() {
             return;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    tracing::warn!("the session did not lock within {SLEEP_GRACE:?}; suspending anyway");
+    tracing::error!(
+        "the session did not lock within {SLEEP_GRACE:?}; suspending with the screen uncovered"
+    );
 }
 
 /// One iterator over every signal this shell cares about. A match rule cannot express "either of these", so it
