@@ -358,12 +358,22 @@ fn watch_bus(out: &Broadcast<Player>, conn: &Connection) -> Option<()> {
     // Every message this connection receives, rather than one rule's: `for_match_rule` builds an iterator that
     // *filters* to its own rule, so the ownership signals reached the socket and were then dropped on the floor —
     // which is why a player quitting went unnoticed and its track stayed on the bar and the dashboard until
-    // something else happened to change. Waking on anything and re-reading is the honest shape here: only a
-    // reading that actually differs is published, so an extra wake costs one property get and nothing else.
+    // something else happened to change.
     let signals = MessageIterator::from(conn);
 
     let mut last = read_active(conn);
-    for _ in signals {
+    for message in signals.flatten() {
+        // **Only signals.** Re-reading on *any* message is a loop that feeds itself: `read_active` calls
+        // `ListNames` and three property gets over this same connection, each reply arrives here as a message,
+        // and each message asks for another read. It ran at a third of a core from startup to shutdown with
+        // nothing playing, and it took a wedged shell and a live `/proc` to notice — the cost is invisible from
+        // inside, because the shell stays correct the whole time.
+        //
+        // A reply is a `MethodReturn` and an error is an `Error`, so this is the whole of the fix: the two rules
+        // registered above only ever deliver signals, which nothing here produces.
+        if message.message_type() != MessageType::Signal {
+            continue;
+        }
         // A player's position and metadata churn while a track runs; only a reading that actually differs is
         // worth waking every subscribed surface for.
         let current = read_active(conn);
