@@ -42,7 +42,11 @@ panel open differently depending on how you asked for it.
 
 ## Configuring
 
-`[panels]` — `opacity`, `gap`, `drag_threshold`.
+`[panels]` — `drag_threshold`.
+
+How translucent a panel is, and how far it sits off the bar, are not panel settings: the opacity is
+`[theme] opacity` for the whole shell at once, and the gap is the bar's own, so a panel floats off the bar by
+exactly what the bar floats off the screen.
 `[panels.drawer]` — `width`, `max_height`.
 `[panels.float]` — `width`, `height`.
 

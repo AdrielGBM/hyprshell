@@ -39,7 +39,7 @@ Per-application mute is a separate, binary switch.
 
 ## Configuring
 
-`[notifications]` — `edge`, `align`, `width`, `gap`, `max_visible`, `timeout_ms`, `body_lines`,
+`[notifications]` — `edge`, `align`, `width`, `max_visible`, `timeout_ms`, `body_lines`,
 `group_by_app`, `group_preview_num`, `open_expanded`, `critical_sticky`, `clear_threshold`,
 `action_on_click`, `fullscreen`, `sound`.
 

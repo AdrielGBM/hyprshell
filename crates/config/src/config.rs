@@ -545,11 +545,13 @@ impl Config {
         self.bar_peek(edge) as i32 - self.edge_thickness(edge) as i32
     }
 
-    /// The standard gap panels (drawers/floats) keep from the bar and the screen edges. A `[panels] gap` override wins; otherwise it's derived — the bar's own outer gap when it floats (so panels float in step with it), else a default so a hugging bar's panels still breathe. This is the "gaps_out"-style spacing that keeps a panel off the bar and off the corners.
+    /// The gap every panel keeps from the bar and the screen edges: the bar's own outer gap when it floats, so
+    /// panels float in step with it, else a default so a hugging bar's panels still breathe. This is the
+    /// "gaps_out"-style spacing that keeps a panel off the bar and off the corners.
+    ///
+    /// Derived, with no key to override it. There is no third case — a panel at a distance the bar is not at
+    /// is not a preference, it is the shell losing its spacing.
     pub fn panel_gap(&self, edge: Edge) -> u32 {
-        if let Some(gap) = self.panels.gap {
-            return gap;
-        }
         match self.edge_gap(edge) {
             0 => DEFAULT_PANEL_GAP,
             gap => gap,
@@ -561,18 +563,49 @@ impl Config {
         self.resolved_radius(edge)
     }
 
-    /// The background every panel paints, at the configured `[panels] opacity`.
+    /// The space between two stacked cards — a run of toasts, a run of notification popups.
     ///
-    /// Floored well above transparent: a panel faded past readability is indistinguishable from one that
-    /// failed to open, and the user's next move is to file a bug rather than to reach for the setting.
-    pub fn panel_fill(&self) -> Color {
-        let theme = self.resolve_theme();
-        let opacity = if self.panels.opacity.is_finite() {
-            self.panels.opacity.clamp(0.2, 1.0)
+    /// The shell's own `spacing` token, which is also what separates two chips on a bar: they are the same
+    /// question asked one level out, and answering it twice is how two stacks of cards end up with different
+    /// rhythms for no reason anybody chose. Read from the global `[shape] spacing` rather than a bar's, since
+    /// a stack hangs off no bar in particular.
+    pub fn card_gap(&self) -> f32 {
+        self.shape
+            .spacing
+            .map(|spacing| spacing as f32)
+            .unwrap_or_else(|| self.resolve_theme().spacing)
+    }
+
+    /// How opaque the shell paints itself, `0.2`–`1` — every bar, panel, card and flash, from `[theme]
+    /// opacity`. One key rather than one per surface: a shell whose drawer is translucent and whose bar is not
+    /// is not a preference anybody holds, it is two settings that drifted.
+    ///
+    /// This is also the half of "a blurred shell" that belongs here. The blur itself is the compositor's —
+    /// hyprshell names every surface it opens, so Hyprland can be told to blur them:
+    ///
+    /// ```text
+    /// layer_rule = blur, ^hyprshell
+    /// ```
+    ///
+    /// Drawing it here instead would mean copying the screen behind every surface each frame and blurring it
+    /// on the CPU, to reproduce what the compositor is already doing on the GPU. What the compositor cannot do
+    /// is see through an opaque surface, which is what this key is for: without it the rule above blurs a
+    /// region nothing shows.
+    ///
+    /// Floored well above transparent, and clamped rather than trusted: a shell painted at `0` is one whose
+    /// panels are invisible and whose clicks land on them anyway, which reads as the whole thing being broken.
+    /// A non-finite value in the file falls back to solid instead of poisoning every colour it touches.
+    pub fn opacity(&self) -> f32 {
+        if self.theme.opacity.is_finite() {
+            self.theme.opacity.clamp(0.2, 1.0)
         } else {
             1.0
-        };
-        theme.surface.with_alpha(opacity)
+        }
+    }
+
+    /// The background every panel paints: the theme's surface token at the shell's opacity.
+    pub fn panel_fill(&self) -> Color {
+        self.resolve_theme().surface.with_alpha(self.opacity())
     }
 
     /// A panel's margin `(top, right, bottom, left)` off the screen edges: uniformly the [`panel_gap`](Self::panel_gap). A panel surface uses `exclusive_zone = 0`, so the compositor already positions it past every bar's reserved zone (the reservation strip's exclusive zone); the panel only adds the standard gap beyond that — re-adding the bar's thickness here would double the distance off the bar. The one distance rule every panel shares, so a drawer, an OSD and a notification stack all clear the bar by the same config-controlled gap.
@@ -623,10 +656,19 @@ impl Config {
         (owned(lead), owned(trail))
     }
 
-    /// Whether the bar surface is fully opaque; only mode=bar with no gap/radius (or frame) stays opaque.
+    /// Whether the bar surface is fully opaque, which is what lets it be cleared to a solid colour and declared
+    /// non-transparent to the compositor. Only a hugging `bar` at full opacity, with no frame, qualifies.
+    ///
+    /// **Both exclusions are things that used to be invisible.** A bar below full opacity cleared to a solid
+    /// colour is a bar whose opacity does nothing — the clear paints over what the alpha was for. And a framed
+    /// bar paints no background of its own at all, because the frame's ring already covers the strip; clearing
+    /// it solid puts that background back and darkens where the two overlap.
     pub fn bar_surface_opaque(&self, edge: Edge) -> bool {
+        if self.shape.frame || self.opacity() < 1.0 {
+            return false;
+        }
         let s = self.shape_for(edge);
-        s.mode == Shape::Bar && (self.shape.frame || (s.gap == 0 && s.radius == 0.0))
+        s.mode == Shape::Bar && s.gap == 0 && s.radius == 0.0
     }
 
     /// Reads and parses `config.toml`, writing the starter config on a fresh install (the `Missing` arm's job is

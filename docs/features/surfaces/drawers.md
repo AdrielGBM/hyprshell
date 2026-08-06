@@ -24,7 +24,8 @@ aligned to the start, one in `end` aligns to the end — so a drawer never opens
 ## Configuring
 
 `[panels.drawer]` — `width`, `max_height`.
-`[panels]` — `gap` (the distance from the bar), `opacity`.
+The distance from the bar is the bar's own outer gap, and the translucency is `[theme] opacity` for the whole
+shell — neither is a drawer setting.
 
 `max_height` is a maximum, not a height: a drawer with two rows in it is two rows tall.
 

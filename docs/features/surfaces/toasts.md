@@ -52,7 +52,7 @@ thing they cannot rely on is a surface being up to time them out.
 
 ## Configuring
 
-`[toasts]` — `enabled`, `edge`, `align`, `gap`, `width`, `max_toasts`, `timeout_ms`, plus `[toasts.events]`.
+`[toasts]` — `enabled`, `edge`, `align`, `width`, `max_toasts`, `timeout_ms`, plus `[toasts.events]`. The space between two cards is the shell's `spacing` token, the same one that separates two chips on a bar.
 
 ## Known limit
 

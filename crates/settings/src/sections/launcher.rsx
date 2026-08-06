@@ -28,7 +28,6 @@ let save: Box<dyn Fn()> = Box::new({
         persist_with(&path, "launcher", |current| LauncherConfig {
             width: parse_u32(&width.peek(), base.width),
             height: parse_u32(&height.peek(), base.height),
-            radius: base.radius,
             max_results: parse_u32(&max_results.peek(), base.max_results),
             fuzzy: fuzzy.peek(),
             calculator: calculator.peek(),

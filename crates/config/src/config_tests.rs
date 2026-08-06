@@ -155,7 +155,7 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
         let path = dir.join("config.toml");
         std::fs::write(
             &path,
-            "[shape]\ngap = 8\n\n[panels]\ngap = 8\n\n[theme]\nname = \"nord\"\n\n[workspaces]\nshown = 10\n",
+            "[shape]\ngap = 8\n\n[panels]\ndrag_threshold = 32\n\n[theme]\nname = \"nord\"\n\n[workspaces]\nshown = 10\n",
         )
         .unwrap();
 
@@ -186,7 +186,7 @@ start = ["workspaces", { id = "clock", accent = "red" }, { id = "clock", variant
         );
         let reloaded: Config = toml::from_str(&text).expect("the saved file parses");
         assert_eq!(reloaded.workspaces.shown, 10);
-        assert_eq!(reloaded.panels.gap, Some(8));
+        assert_eq!(reloaded.panels.drag_threshold, 32.0);
         assert_eq!(reloaded.theme.name, "nord");
 
         std::fs::remove_dir_all(&dir).ok();
@@ -267,7 +267,6 @@ end = ["battery", "volume"]
         assert_eq!(cfg.panels.drawer.width, 320.0);
         assert_eq!(cfg.panels.float.width, 360);
         assert_eq!(cfg.panels.float.height, 240);
-        assert_eq!(cfg.panels.gap, None, "gap is derived unless overridden");
         assert_eq!(cfg.open_mode_for("clock"), OpenMode::Drawer);
 
         let floaty: Config = toml::from_str(
@@ -288,7 +287,6 @@ end = ["battery", "volume"]
         let parsed: Config = toml::from_str(&text).expect("starter re-parses");
         assert_eq!(parsed.panels.drawer.width, starter.panels.drawer.width);
         assert_eq!(parsed.panels.float.width, starter.panels.float.width);
-        assert_eq!(parsed.panels.gap, None);
         // An unset coordinate is the one field type TOML has no value for, so it is the one that would break
         // the write of a fresh config rather than merely round-trip oddly.
         assert_eq!(parsed.weather.latitude, None);
@@ -425,26 +423,23 @@ end = ["battery", "volume"]
     }
 
     #[test]
-    fn panels_gap_override_pins_a_fixed_gap_on_every_edge() {
-        let cfg: Config = toml::from_str(
-            "[shape]\ngap=20\n[panels]\ngap=4\n[bars.top]\ncenter=[\"clock\"]\n[bars.bottom]\nstart=[\"clock\"]\n",
-        )
-        .unwrap();
-        assert_eq!(cfg.panels.gap, Some(4));
-        assert_eq!(
-            cfg.panel_gap(Edge::Top),
-            4,
-            "the override wins over the derived bar gap"
-        );
-        assert_eq!(cfg.panel_gap(Edge::Bottom), 4);
-
+    fn a_panel_keeps_the_gap_its_bar_floats_at_and_there_is_no_key_to_break_that() {
         let derived: Config =
             toml::from_str("[shape]\ngap=20\n[bars.top]\ncenter=[\"clock\"]\n").unwrap();
         assert_eq!(
             derived.panel_gap(Edge::Top),
             20,
-            "without an override it tracks the bar gap"
+            "a panel floats off the bar by exactly what the bar floats off the screen"
         );
+
+        // `[panels] gap` used to pin a fixed distance regardless of the bar. It is gone, and a file that still
+        // names it changes nothing: the derivation is the whole rule.
+        let pinned: Config = toml::from_str(
+            "[shape]\ngap=20\n[panels]\ngap=4\n[bars.top]\ncenter=[\"clock\"]\n[bars.bottom]\nstart=[\"clock\"]\n",
+        )
+        .unwrap();
+        assert_eq!(pinned.panel_gap(Edge::Top), 20);
+        assert_eq!(pinned.panel_gap(Edge::Bottom), 20);
     }
 
     #[test]
@@ -1123,6 +1118,81 @@ accent = "orange"
         assert_eq!(absurd.resolve_theme().font(FontRole::Body), 200.0);
     }
 
+    /// One key for the whole shell, and no way to break it apart. `[bars] opacity` and `[panels] opacity`
+    /// existed and were removed: the only thing they bought was a drawer at an opacity the bar it hangs off
+    /// does not share, which nobody configures on purpose and which two settings drift into on their own.
+    #[test]
+    fn one_key_sets_the_opacity_of_every_surface() {
+        let translucent = Config {
+            theme: ThemeConfig {
+                opacity: 0.8,
+                ..ThemeConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(translucent.opacity(), 0.8);
+        assert_eq!(translucent.panel_fill().a, 0.8, "and panels, from one key");
+
+        // The floor applies to the general key too, or one number makes the whole shell unusable at once.
+        let ghost = Config {
+            theme: ThemeConfig {
+                opacity: 0.0,
+                ..ThemeConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(ghost.opacity(), 0.2);
+        assert_eq!(ghost.panel_fill().a, 0.2);
+
+        let broken = Config {
+            theme: ThemeConfig {
+                opacity: f32::NAN,
+                ..ThemeConfig::default()
+            },
+            ..Config::starter()
+        };
+        assert_eq!(broken.opacity(), 1.0, "an unusable value is no value");
+    }
+
+    /// A per-surface opacity key is gone rather than deprecated, and a file that still carries one must not
+    /// take the whole config down with it — an unknown key is ignored, so the shell comes up solid.
+    #[test]
+    fn a_config_still_naming_a_per_surface_opacity_still_loads() {
+        let old: Config = toml::from_str("[bars]\nopacity = 0.5\n[panels]\nopacity = 0.75\ngap = 4\n")
+            .expect("a removed key is ignored, not an error");
+        assert_eq!(old.opacity(), 1.0);
+        assert_eq!(old.panel_fill().a, 1.0);
+    }
+
+    #[test]
+    fn a_bar_is_solid_by_default() {
+        assert_eq!(Config::starter().opacity(), 1.0);
+    }
+
+    /// A surface declared opaque is cleared to a solid colour before anything draws, so declaring it while the
+    /// bar is translucent — or while a frame is painting the strip instead — is how an opacity setting does
+    /// nothing at all. Both cases were reachable: a side bar in `bar` mode under a frame stayed solid however
+    /// the opacity was set.
+    #[test]
+    fn a_bar_that_is_not_solid_never_declares_an_opaque_surface() {
+        let hugging = |toml: &str| toml::from_str::<Config>(toml).unwrap();
+
+        let solid = hugging("[shape]\nmode = \"bar\"\ngap = 0\nradius = 0\n");
+        assert!(
+            solid.bar_surface_opaque(Edge::Left),
+            "a hugging bar at full opacity is the one case that may be cleared solid"
+        );
+
+        let translucent = hugging("[shape]\nmode = \"bar\"\ngap = 0\nradius = 0\n[theme]\nopacity = 0.5\n");
+        assert!(!translucent.bar_surface_opaque(Edge::Left));
+
+        let framed = hugging("[shape]\nmode = \"bar\"\ngap = 0\nradius = 0\nframe = true\n");
+        assert!(
+            !framed.bar_surface_opaque(Edge::Left),
+            "the frame's ring covers this strip, so the bar clearing it solid paints the background twice"
+        );
+    }
+
     #[test]
     fn the_panel_background_is_solid_by_default_and_never_fades_past_readable() {
         let solid = Config::starter();
@@ -1138,31 +1208,13 @@ accent = "orange"
         );
 
         let translucent = Config {
-            panels: PanelsConfig {
+            theme: ThemeConfig {
                 opacity: 0.75,
-                ..PanelsConfig::default()
+                ..ThemeConfig::default()
             },
             ..Config::starter()
         };
         assert_eq!(translucent.panel_fill().a, 0.75);
-
-        // Floored: a panel faded past readability looks like one that failed to open.
-        let ghost = Config {
-            panels: PanelsConfig {
-                opacity: 0.0,
-                ..PanelsConfig::default()
-            },
-            ..Config::starter()
-        };
-        assert_eq!(ghost.panel_fill().a, 0.2);
-        let broken = Config {
-            panels: PanelsConfig {
-                opacity: f32::NAN,
-                ..PanelsConfig::default()
-            },
-            ..Config::starter()
-        };
-        assert_eq!(broken.panel_fill().a, 1.0, "an unusable value is no value");
     }
 
     #[test]

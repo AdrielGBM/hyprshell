@@ -70,7 +70,7 @@ dates; without it those queries simply do not resolve. `[launcher] calculator` a
 
 ## Configuring
 
-`[launcher]` — `width`, `height`, `radius`, `max_results`, `fuzzy`, `calculator`, `qalc`, `actions`,
+`[launcher]` — `width`, `height`, `max_results`, `fuzzy`, `calculator`, `qalc`, `actions`,
 `favourites`, `hidden`, `enable_dangerous_actions`, plus `[launcher.icons]`.
 
 ## What it needs

@@ -52,7 +52,6 @@ pub struct NotificationsConfig {
     pub timeout_ms: u64,
     pub critical_sticky: bool,
     pub width: f32,
-    pub gap: f32,
     pub fullscreen: FullscreenPopups,
     pub group_by_app: bool,
     pub group_preview_num: u32,
@@ -75,7 +74,6 @@ impl Default for NotificationsConfig {
             timeout_ms: 5000,
             critical_sticky: true,
             width: 380.0,
-            gap: 10.0,
             fullscreen: FullscreenPopups::default(),
             group_by_app: true,
             group_preview_num: 3,
@@ -175,7 +173,6 @@ pub struct ToastsConfig {
     pub max_toasts: u32,
     pub timeout_ms: u64,
     pub width: f32,
-    pub gap: f32,
     pub events: ToastEvents,
 }
 
@@ -188,7 +185,6 @@ impl Default for ToastsConfig {
             max_toasts: 3,
             timeout_ms: 2500,
             width: 300.0,
-            gap: 8.0,
             events: ToastEvents::default(),
         }
     }

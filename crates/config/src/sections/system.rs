@@ -462,7 +462,6 @@ impl LauncherAction {
 pub struct LauncherConfig {
     pub width: u32,
     pub height: u32,
-    pub radius: f32,
     pub max_results: u32,
     pub fuzzy: bool,
     /// Show the calculator's answer above the app matches when the query reads as arithmetic. Unit conversions (`3 km in mi`) count as arithmetic.
@@ -489,7 +488,6 @@ impl Default for LauncherConfig {
         Self {
             width: 640,
             height: 420,
-            radius: 14.0,
             max_results: 12,
             fuzzy: true,
             calculator: true,

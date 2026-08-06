@@ -546,7 +546,6 @@ above the ranking, in the order given. `actions` are the `>`-prefixed commands o
 
   Fall back to `qalc` (Qalculate) for an explicit `=` query the built-in evaluator cannot answer — currencies, constants, dates. Silently does nothing when qalc is not installed.
 
-- **`radius`** · default `14.0`
 - **`width`** · default `640`
 
 ### `[launcher.icons]`
@@ -724,7 +723,6 @@ command is per-machine (`canberra-gtk-play -i message`, `paplay /usr/share/sound
 - **`critical_sticky`** · default `true`
 - **`edge`** · default `"top"`
 - **`fullscreen`** · default `"off"`
-- **`gap`** · default `10.0`
 - **`group_by_app`** · default `true`
 - **`group_preview_num`** · default `3`
 - **`max_visible`** · default `4`
@@ -743,36 +741,20 @@ Where OSD popups appear: anchored edge, cross-axis alignment, and auto-dismiss t
 
 ## `[panels]`
 
-Panel presentation shared by drawers and floating windows (`[panels]`): the gap they keep from the bar and the screen edges, and each form's size. One home for both so a drawer and a float are configured the same way.
+Panel presentation shared by drawers and floating windows (`[panels]`): each form's size, and the gesture
+that opens one. One home for both so a drawer and a float are configured the same way.
+
+**What is deliberately not here.** The gap a panel keeps from the bar is derived, never set: the bar's own
+outer gap when it floats, else a default so a hugging bar's panels still breathe. And its opacity is
+`[theme] opacity`, for every surface at once. Both used to be overridable per-panel, and neither key
+bought anything but the chance for a drawer to sit at a distance, or at an opacity, that nothing else on
+the screen shares.
 
 - **`drag_threshold`** · default `48.0`
 
   How far a chip must be dragged away from the bar before letting go opens its panel, in px. `0` switches
   the gesture off. One threshold for every panel rather than one each: the gesture is the same everywhere
   on the bar, and a per-panel distance would make the bar feel inconsistent under the same finger.
-
-- **`opacity`** · default `1.0`
-
-  How opaque a panel's background is, `0`–`1`. `1` (the default) is solid.
-
-  This is also the half of "blurred panels" that belongs to the shell. The blur itself is the
-  compositor's — hyprshell already names each surface, so Hyprland can be told to blur them:
-
-  ```text
-  layer_rule = blur, hyprshell-drawer
-  layer_rule = blur, hyprshell-float
-  layer_rule = blur, hyprshell-popup
-  layer_rule = blur, hyprshell-osd
-  ```
-
-  Drawing the blur here instead would mean copying the screen behind every panel each frame and blurring
-  it on the CPU, to reproduce something the compositor is already doing on the GPU. What the compositor
-  cannot do is see through an opaque panel, which is what this key is for: without it the rules above
-  blur a region nothing shows.
-
-- **`gap`** · unset by default
-
-  Gap a panel keeps from the bar and the screen edges. Unset (the default) derives it — the bar's own outer gap when it floats, else [`DEFAULT_PANEL_GAP`] — so panels sit off the bar just like tiled apps; set a value to pin a fixed gap on every edge regardless of the bar.
 
 ### `[panels.drawer]`
 
@@ -957,6 +939,16 @@ Theme selection and overrides. `name` picks a built-in palette, `custom`, or `dy
   a sibling in the asked-for mode switches to it (`gruvbox` ↔ `gruvbox-light`); one without keeps its own.
 
 - **`name`** · default `"nord"`
+- **`opacity`** · default `1.0`
+
+  How opaque every surface the shell paints is, from `0.2` to `1.0` — bars, panels, cards and flashes
+  alike. One key for the whole shell and no way to break it apart: a drawer at an opacity the bar it
+  hangs off does not share is not a look anybody chooses, it is two settings that drifted.
+
+  **This is the half a compositor cannot supply.** Blur behind a surface is the compositor's job — a
+  `layer_rule = blur, ^hyprshell`, which needs no code here — and it shows nothing through a surface
+  painted opaque. Lowering this is what gives it something to blur.
+
 - **`variant`** · default `"vibrant"`
 
   How much colour a `dynamic` scheme carries: `vibrant` (the default), `content`, `expressive`, `fidelity`
@@ -1033,7 +1025,6 @@ later. See `shared::services::toaster`.
 - **`align`** · default `"center"`
 - **`edge`** · default `"bottom"`
 - **`enabled`** · default `true`
-- **`gap`** · default `8.0`
 - **`max_toasts`** · default `3`
 - **`timeout_ms`** · default `2500`
 - **`width`** · default `300.0`

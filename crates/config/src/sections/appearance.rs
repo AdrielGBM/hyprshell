@@ -446,6 +446,14 @@ pub struct ThemeConfig {
     pub font_family: Option<String>,
     /// Stroke width forced on stroke-based icon glyphs (e.g. `1.5`). Unset keeps each glyph's own stroke.
     pub icon_stroke: Option<f32>,
+    /// How opaque every surface the shell paints is, from `0.2` to `1.0` — bars, panels, cards and flashes
+    /// alike. One key for the whole shell and no way to break it apart: a drawer at an opacity the bar it
+    /// hangs off does not share is not a look anybody chooses, it is two settings that drifted.
+    ///
+    /// **This is the half a compositor cannot supply.** Blur behind a surface is the compositor's job — a
+    /// `layer_rule = blur, ^hyprshell`, which needs no code here — and it shows nothing through a surface
+    /// painted opaque. Lowering this is what gives it something to blur.
+    pub opacity: f32,
     pub scale: ScaleConfig,
     pub fonts: FontsConfig,
     pub colors: HashMap<String, String>,
@@ -513,6 +521,7 @@ impl Default for ThemeConfig {
             icon_size: None,
             font_family: None,
             icon_stroke: None,
+            opacity: 1.0,
             scale: ScaleConfig::default(),
             fonts: FontsConfig::default(),
             colors: HashMap::new(),

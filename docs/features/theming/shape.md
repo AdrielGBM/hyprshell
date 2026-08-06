@@ -55,4 +55,4 @@ Nothing.
 ## Related
 
 - [Bars](../surfaces/bars.md) — where the shape modes are visible.
-- [Panels](../surfaces/panels.md) — `[panels] opacity` and `gap` sit alongside these.
+- [Panels](../surfaces/panels.md) — a panel takes its gap from the bar's, and its opacity from `[theme]`.
