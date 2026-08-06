@@ -16,6 +16,7 @@
 //!
 //! [`enumerate_outputs`]: crate::enumerate_outputs
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -30,7 +31,12 @@ use smithay_client_toolkit::{delegate_output, delegate_registry, delegate_shm, r
 use wayland_client::globals::{GlobalList, registry_queue_init};
 use wayland_client::protocol::{wl_output, wl_shm};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum};
+use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
+    ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
+    ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
+};
 use wayland_protocols::ext::image_capture_source::v1::client::{
+    ext_foreign_toplevel_image_capture_source_manager_v1::ExtForeignToplevelImageCaptureSourceManagerV1,
     ext_image_capture_source_v1::ExtImageCaptureSourceV1,
     ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1,
 };
@@ -118,6 +124,79 @@ pub fn capture(
     }
 }
 
+#[cfg(test)]
+mod toplevel_tests {
+    use super::*;
+
+    /// Capturing one window by the identifier the *other* connection reported, which is the whole claim: a
+    /// protocol object cannot be shared between connections, and it does not have to be.
+    ///
+    /// `HYPRSHELL_WAYLAND_LIVE=1 cargo test -p platform-wayland toplevel_capture -- --nocapture`
+    #[test]
+    fn toplevel_capture_names_a_window_across_two_connections() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        if std::env::var("HYPRSHELL_WAYLAND_LIVE").is_err() {
+            eprintln!("set HYPRSHELL_WAYLAND_LIVE to capture a real window; skipping");
+            return;
+        }
+        assert!(toplevel_capture_supported());
+
+        // The watcher's connection, which is where a caller's identifier would come from.
+        let (published, changes) = mpsc::channel();
+        assert!(crate::watch_toplevels(move |windows| {
+            let _ = published.send(windows.to_vec());
+        }));
+        let mut listed = Vec::new();
+        while let Ok(windows) = changes.recv_timeout(Duration::from_millis(500)) {
+            listed = windows;
+        }
+        let window = listed.first().expect("a window is open").clone();
+        eprintln!("capturing {:?} {:?}", window.app_id, window.identifier);
+
+        // And the capture's own, which has never seen that handle.
+        let shot = capture_toplevel(&window.identifier, false).expect("the window captures");
+        eprintln!("{}x{}", shot.width, shot.height);
+        assert!(shot.width > 0 && shot.height > 0);
+        assert_eq!(
+            shot.pixels.len(),
+            shot.width as usize * shot.height as usize * 4,
+            "tightly packed RGBA8, like every other capture"
+        );
+        assert!(
+            shot.pixels.chunks_exact(4).any(|px| px[..3] != [0, 0, 0]),
+            "an all-black window means the capture went through but read nothing"
+        );
+
+        assert!(
+            capture_toplevel("not-a-window", false).is_err(),
+            "an identifier nothing answers to is an error, not someone else's pixels"
+        );
+    }
+}
+
+/// Captures one window, named by the identifier `ext-foreign-toplevel-list-v1` gave it.
+///
+/// Only the newer protocol can do this: `wlr-screencopy` captures outputs, so there is no fallback and a
+/// compositor without `ext-image-copy-capture` says so rather than quietly handing back a screen.
+pub fn capture_toplevel(identifier: &str, cursor: bool) -> Result<Capture, CaptureError> {
+    Reader::open()?.toplevel(identifier, cursor)
+}
+
+/// The interfaces capturing a *window* needs, which is a different pair from capturing an output: the source
+/// comes from the toplevel factory, and the list is what hands out the handles that factory takes.
+pub const TOPLEVEL_CAPTURE_INTERFACES: &[&str] = &[
+    "ext_image_copy_capture_manager_v1",
+    "ext_foreign_toplevel_image_capture_source_manager_v1",
+    "ext_foreign_toplevel_list_v1",
+];
+
+/// Whether this compositor can be asked for one window's pixels.
+pub fn toplevel_capture_supported() -> bool {
+    crate::globals::advertises_all(TOPLEVEL_CAPTURE_INTERFACES) == Some(true)
+}
+
 /// The output to read from, and the two facts about it a capture needs afterwards.
 struct Target {
     output: wl_output::WlOutput,
@@ -147,6 +226,7 @@ impl Reader {
             shm: Shm::bind(&globals, &qh).map_err(CaptureError::from)?,
             session: Session::default(),
             frame: Frame::default(),
+            toplevels: HashMap::new(),
         };
         // Two round trips: the first announces the outputs, the second delivers each one's name and mode.
         for _ in 0..2 {
@@ -198,6 +278,52 @@ impl Reader {
             .globals
             .bind(&qh, 1..=1, ())
             .map_err(|e| CaptureError(format!("no ext-image-capture-source: {e}")))?;
+        let source = sources.create_source(&target.output, &qh, ());
+        let full = self.capture_from(source, cursor)?;
+        crop_to(full, area, target)
+    }
+
+    /// One window's pixels, named by the identifier `ext-foreign-toplevel-list-v1` gave it.
+    ///
+    /// The list is bound here rather than borrowed from the watcher: what the two share is the identifier, not
+    /// the object. Two round trips, because the first announces the handles and the second delivers what each
+    /// one is called.
+    fn toplevel(&mut self, identifier: &str, cursor: bool) -> Result<Capture, CaptureError> {
+        let qh = self.queue.handle();
+        let list: ExtForeignToplevelListV1 = self
+            .globals
+            .bind(&qh, 1..=1, ())
+            .map_err(|e| CaptureError(format!("no ext-foreign-toplevel-list: {e}")))?;
+        for _ in 0..2 {
+            self.queue
+                .roundtrip(&mut self.state)
+                .map_err(CaptureError::from)?;
+        }
+        let handle = self
+            .state
+            .toplevels
+            .get(identifier)
+            .cloned()
+            .ok_or_else(|| CaptureError(format!("no window with identifier '{identifier}'")))?;
+
+        let sources: ExtForeignToplevelImageCaptureSourceManagerV1 = self
+            .globals
+            .bind(&qh, 1..=1, ())
+            .map_err(|e| CaptureError(format!("no toplevel capture source: {e}")))?;
+        let source = sources.create_source(&handle, &qh, ());
+        // Nothing here wants to go on hearing about windows; the handles stay valid until this connection ends.
+        list.stop();
+        self.capture_from(source, cursor)
+    }
+
+    /// Everything a capture does once it has a source, which is all of it: the two source factories differ and
+    /// both hand back the same `ext_image_capture_source_v1`.
+    fn capture_from(
+        &mut self,
+        source: ExtImageCaptureSourceV1,
+        cursor: bool,
+    ) -> Result<Capture, CaptureError> {
+        let qh = self.queue.handle();
         let manager: ExtImageCopyCaptureManagerV1 = self
             .globals
             .bind(&qh, 1..=1, ())
@@ -205,7 +331,6 @@ impl Reader {
 
         self.state.session = Session::default();
         self.state.frame = Frame::default();
-        let source = sources.create_source(&target.output, &qh, ());
         let options = if cursor {
             Options::PaintCursors
         } else {
@@ -256,13 +381,12 @@ impl Reader {
         session.destroy();
         source.destroy();
 
-        let full = upright(
+        Ok(upright(
             pixels?,
             constraints.width,
             constraints.height,
             self.state.frame.transform,
-        );
-        crop_to(full, area, target)
+        ))
     }
 
     /// The wlroots route, which crops on the compositor's side and so never sends more than the selection.
@@ -632,6 +756,13 @@ struct CaptureState {
     shm: Shm,
     session: Session,
     frame: Frame,
+    /// The open windows this connection was told about, by the identifier they announced.
+    ///
+    /// A capture cannot borrow the toplevel watcher's handle — a protocol object belongs to the connection
+    /// that made it — but it does not have to: the identifier is what crosses. The protocol promises it is
+    /// unique and stable for the window's life, so listing the toplevels again here and matching on it names
+    /// the same window without anything being shared.
+    toplevels: HashMap<String, ExtForeignToplevelHandleV1>,
 }
 
 impl OutputHandler for CaptureState {
@@ -757,6 +888,40 @@ fn failure(reason: WEnum<ext_image_copy_capture_frame_v1::FailureReason>) -> Str
 wayland_client::delegate_noop!(CaptureState: ignore ZwlrScreencopyManagerV1);
 wayland_client::delegate_noop!(CaptureState: ignore ExtImageCopyCaptureManagerV1);
 wayland_client::delegate_noop!(CaptureState: ignore ExtOutputImageCaptureSourceManagerV1);
+wayland_client::delegate_noop!(CaptureState: ignore ExtForeignToplevelImageCaptureSourceManagerV1);
+
+impl Dispatch<ExtForeignToplevelListV1, ()> for CaptureState {
+    wayland_client::event_created_child!(CaptureState, ExtForeignToplevelListV1, [
+        ext_foreign_toplevel_list_v1::EVT_TOPLEVEL_OPCODE => (ExtForeignToplevelHandleV1, ()),
+    ]);
+
+    fn event(
+        _: &mut Self,
+        _: &ExtForeignToplevelListV1,
+        _: ext_foreign_toplevel_list_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+/// Only the identifier is kept. A capture names a window by the one field the protocol promises is unique and
+/// stable, and has no use for a title it would only have to guess with.
+impl Dispatch<ExtForeignToplevelHandleV1, ()> for CaptureState {
+    fn event(
+        state: &mut Self,
+        proxy: &ExtForeignToplevelHandleV1,
+        event: ext_foreign_toplevel_handle_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let ext_foreign_toplevel_handle_v1::Event::Identifier { identifier } = event {
+            state.toplevels.insert(identifier, proxy.clone());
+        }
+    }
+}
 wayland_client::delegate_noop!(CaptureState: ignore ExtImageCaptureSourceV1);
 
 delegate_output!(CaptureState);

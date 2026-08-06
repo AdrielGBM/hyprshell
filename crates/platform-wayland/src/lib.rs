@@ -15,7 +15,8 @@ mod workspaces;
 
 pub use capture::{
     Backend as CaptureBackend, Capture, CaptureArea, CaptureError, IMAGE_COPY_CAPTURE_INTERFACES,
-    SCREENCOPY_INTERFACES, capture, capture_supported,
+    SCREENCOPY_INTERFACES, TOPLEVEL_CAPTURE_INTERFACES, capture, capture_supported,
+    capture_toplevel, toplevel_capture_supported,
 };
 pub use clipboard::{clipboard_supported, set_selection};
 pub use config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
