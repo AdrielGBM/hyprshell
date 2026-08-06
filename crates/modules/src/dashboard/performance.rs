@@ -5,6 +5,7 @@
 //! the page owns is *how often it redraws*: `[dashboard] resource_update_interval` throttles the resource
 //! subscription, so a slower dashboard costs less without slowing down the bar chips reading the same service.
 
+use ui::scale::{space};
 use std::time::{Duration, Instant};
 
 use telar::{
@@ -189,7 +190,7 @@ fn storage_card(
         move || mounts.get(),
         |disk: &resources::Disk| disk.mount.to_string_lossy().into_owned(),
         move |disk: resources::Disk| disk_row(disk, theme),
-        8.0,
+        space::MD,
     )?;
     let io = derive(machine, |r| match r {
         Some(r) => format!(
@@ -228,7 +229,7 @@ fn disk_row(disk: resources::Disk, theme: NordTheme) -> Result<Box<dyn LayoutIte
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(4.0)
+            .gap(space::SM)
             .width(SizeDimension::Percent(1.0)),
         vec![
             widget::label_value(

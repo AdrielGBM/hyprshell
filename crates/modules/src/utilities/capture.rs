@@ -3,6 +3,7 @@
 //! The elapsed readout is the only thing here that ticks, and it ticks off the shared clock service rather than a
 //! timer of its own — the same second boundary the bar's clock uses, so nothing in the shell has two.
 
+use ui::scale::space;
 use std::path::{Path, PathBuf};
 
 use telar::{
@@ -35,7 +36,7 @@ pub fn capture_card(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError
     let shots = Container::new(
         LayoutStyle::new()
             .flex_row()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![
             pill(
@@ -164,7 +165,7 @@ fn recorder_row(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -349,7 +350,7 @@ fn row(
         move || theme.text_style(FontRole::Caption, theme.subtle),
     )?;
     let labels = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(1.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         vec![box_item(name), box_item(subtitle)],
     )?;
 
@@ -370,9 +371,9 @@ fn row(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::SPACE_BETWEEN)
-            .gap(10.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(8.0)
+            .gap(space::LG)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         {
             let is_armed = is_armed.clone();
@@ -448,8 +449,8 @@ fn card(
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
-            .padding_all(12.0)
+            .gap(space::MD)
+            .padding_all(space::LG)
             .width(SizeDimension::Percent(1.0)),
         move |_| RectStyle::filled(theme.base, surfaces::drawer::content_radius()),
         children,
@@ -515,9 +516,9 @@ fn pill_live(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER)
-            .gap(5.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(6.0)
+            .gap(space::SM)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .flex_shrink(0.0),
         move |_| {
             let fill = if fill_active() {

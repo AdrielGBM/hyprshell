@@ -8,6 +8,7 @@
 //! guarantees is distinct in both directions: an inset well on a dark palette, a raised one on a light palette,
 //! never a card that vanishes into its panel.
 
+use ui::scale::space;
 use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, RectStyle, SizeDimension,
     StyledContainer, Text, box_item,
@@ -100,7 +101,7 @@ pub fn frame(
         LayoutStyle::new()
             .flex_column()
             .gap(CARD_GAP)
-            .padding_all(14.0)
+            .padding_all(space::XL)
             .width(SizeDimension::Percent(1.0)),
         move |_r| RectStyle::filled(theme.base, radius),
         children,
@@ -146,7 +147,7 @@ fn heading(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         row,
     )?))
@@ -166,7 +167,7 @@ pub fn page(cards: Vec<Box<dyn LayoutItem>>) -> Result<Box<dyn LayoutItem>, Layo
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         cards,
     )?))

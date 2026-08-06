@@ -27,7 +27,7 @@ let fg_tint = fg.clone();
 let percent = memo(move || format!("{:.0}%", used_text.get()));
 
 [view]
-row align:center gap:6
+row align:center gap(::ui::scale::space::MD)
     icon_glyph name(|| "memory-stick".to_string()) tint(move || pressure_color(used_tint.get(), fg_tint.get())) size:(ui::module::icon_px())
     text "{$percent}" size:theme.font(FontRole::Body) color:$fg
 

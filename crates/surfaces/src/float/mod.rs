@@ -1,14 +1,16 @@
+use ui::scale::paint;
 use std::rc::Rc;
 
 use platform_wayland::{request_close, request_size};
 use telar::{
-    LayoutError, LayoutItem, LayoutStyle, RectStyle, StyledContainer, SurfaceFrameStyle,
-    SurfaceToken, box_item, open_surface, set_theme, surface_content, surface_frame, use_theme,
+    LayoutError, LayoutItem, LayoutStyle, StyledContainer, SurfaceFrameStyle,
+    SurfaceToken, box_item, surface_frame, use_theme,
 };
 
-use crate::drawer::{module_panel, panel_wants_keyboard};
+use crate::drawer::{content_radius, module_panel, panel_wants_keyboard};
 use config::SurfaceEnv;
 use config::theme::{FontRole, NordTheme};
+use ui::panel::PanelSurface;
 use ui::placement::Placement;
 
 /// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per its `[modules.<id>]` override or `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::panel::toggle_panel`]) via the returned token.
@@ -18,40 +20,32 @@ use ui::placement::Placement;
 /// does and is deliberately not written back — persisting it would mean a config write, and a reload, per drag.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let module = module_id.to_string();
-    let edge = env.edge;
-    let output = env.output.clone();
     let (width, height) = env.config.float_size_for(module_id);
     let placement = Placement::window((width, height), panel_wants_keyboard(module_id))
-        .output(env.output.clone())
-        .hosted_placement();
-    open_surface(
-        placement,
-        // Resolved per build rather than captured: the window outlives the config it opened under, and a
-        // rebuild is how it follows an edit. What is captured is which module it shows and where it is.
-        surface_content(move || {
-            let config = config::config_for(output.as_deref());
-            let theme = config.resolve_theme();
-            let radius = config.panel_radius(edge);
-            set_theme(theme);
-            // So panel content that rounds to the bar radius (e.g. notification cards) matches inside the float too.
-            crate::drawer::set_content_radius(radius);
-            let body = module_panel(&module).expect("float panel build failed");
-            let style = SurfaceFrameStyle {
-                background: config.panel_fill(),
-                title_bar: theme.overlay,
-                title_text: theme.text,
-                close: theme.muted,
-                radius,
-                font_size: theme.font(FontRole::Title),
-            };
-            let close: Rc<dyn Fn()> = Rc::new(request_close);
-            // The grip hands back the size the *surface* should take; rounding up rather than down keeps a half-pixel drag from shrinking the window by one every frame it is held still.
-            let resize: Rc<dyn Fn(f32, f32)> =
-                Rc::new(|w: f32, h: f32| request_size(w.ceil() as u32, h.ceil() as u32));
-            surface_frame(module.clone(), style, close, body, Some(resize))
-                .expect("surface frame build failed")
-        }),
-    )
+        .output(env.output.clone());
+    // A float hangs off no edge of its own, so it reads the bar its chip lives on — which is what makes its
+    // radius, gaps and opacity match the drawer showing the very same panel.
+    PanelSurface::new(placement, move |env| {
+        let theme = use_theme::<NordTheme>();
+        let radius = content_radius();
+        let body = module_panel(&module).expect("float panel build failed");
+        let style = SurfaceFrameStyle {
+            background: env.config.panel_fill(),
+            title_bar: theme.overlay,
+            title_text: theme.text,
+            close: theme.muted,
+            radius,
+            font_size: theme.font(FontRole::Title),
+        };
+        let close: Rc<dyn Fn()> = Rc::new(request_close);
+        // The grip hands back the size the *surface* should take; rounding up rather than down keeps a half-pixel drag from shrinking the window by one every frame it is held still.
+        let resize: Rc<dyn Fn(f32, f32)> =
+            Rc::new(|w: f32, h: f32| request_size(w.ceil() as u32, h.ceil() as u32));
+        surface_frame(module.clone(), style, close, body, Some(resize))
+            .expect("surface frame build failed")
+    })
+    .edge(env.edge)
+    .open()
 }
 
 /// The window chrome a float is presented in — title bar, ✕ and a placeholder body — for [`crate::preview`].
@@ -61,7 +55,7 @@ pub(crate) fn frame_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let theme = use_theme::<NordTheme>();
     let body = box_item(StyledContainer::new(
         LayoutStyle::new().width(220.0).height(90.0),
-        move |_| RectStyle::filled(theme.overlay, 8.0),
+        paint::md(theme.overlay),
         vec![],
     )?);
     let style = SurfaceFrameStyle {

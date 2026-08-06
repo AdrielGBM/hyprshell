@@ -1,3 +1,4 @@
+use ui::scale::{corner, paint, space};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -78,7 +79,7 @@ pub fn settings_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(16.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         vec![header(query, reseed, path, theme)?, Box::new(body)],
     )?;
@@ -119,9 +120,9 @@ fn header(
     let boxed = StyledContainer::new(
         LayoutStyle::new()
             .width(SEARCH_WIDTH)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::MD)
+            .padding_vertical(space::SM),
+        paint::md(theme.base),
         vec![box_item(input)],
     )?;
 
@@ -129,11 +130,11 @@ fn header(
     let revert_ink = theme.red;
     let revert = StyledContainer::new(
         LayoutStyle::new()
-            .padding_horizontal(12.0)
-            .padding_vertical(6.0)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .flex_shrink(0.0)
             .justify_content(JustifyContent::CENTER),
-        move |_| RectStyle::filled(theme.base, 8.0),
+        paint::md(theme.base),
         vec![box_item(Text::auto(
             || telar::t!("settings.revert"),
             LayoutStyle::new(),
@@ -144,7 +145,7 @@ fn header(
             },
         )?)],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(paint::md(theme.overlay))
     .on_press(move || {
         revert_to_opened(path.as_path());
         // Straight away rather than waiting for the reload the write triggers: Revert is the one moment the
@@ -156,7 +157,7 @@ fn header(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(title), Box::new(boxed), Box::new(revert)],
     )?))
@@ -181,7 +182,7 @@ fn nav_pane(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(2.0)
+            .gap(space::XS)
             .width(NAV_WIDTH)
             .flex_shrink(0.0),
         rows,
@@ -224,24 +225,25 @@ fn nav_row(
 
     let fill = selected.read_only();
     let press = selected;
+    let rounded = corner::md();
     let row = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(10.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(7.0)
+            .gap(space::LG)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         move |_| {
             if fill.get() == index {
-                RectStyle::filled(theme.accent, 8.0)
+                RectStyle::filled(theme.accent, rounded)
             } else {
                 RectStyle::default()
             }
         },
         vec![glyph, Box::new(label)],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.surface, 8.0))
+    .on_hover_style(paint::md(theme.surface))
     .on_press(move || press.set(index));
     Ok(Box::new(row))
 }
@@ -327,7 +329,7 @@ fn build_page_area(
     Ok(Box::new(ReactiveList::with_style(
         LayoutStyle::new()
             .flex_column()
-            .gap(20.0)
+            .gap(space::XXL)
             .width(SizeDimension::Percent(1.0)),
         source,
         // Keyed on the query and the re-seed as well as the form: narrowing changes which forms are here, and
@@ -478,7 +480,6 @@ mod tests {
             reset_layout_runtime();
             let theme = NordTheme::new();
             set_theme(theme);
-            surfaces::drawer::set_content_radius(12.0);
             let body = settings_panel().expect("the settings panel builds");
             let frame = telar::surface_frame(
                 MODULE.to_string(),

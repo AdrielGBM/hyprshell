@@ -3,6 +3,7 @@
 //! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
 //! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
+use ui::scale::space;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
@@ -94,7 +95,7 @@ fn palette_preview(palette: Palette, theme: NordTheme) -> Result<Box<dyn LayoutI
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .flex_grow(1.0)
             .min_width(0.0),
         swatches,
@@ -126,7 +127,7 @@ fn theme_swatches(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .flex_grow(1.0)
             .min_width(0.0),
         tiles,
@@ -170,7 +171,7 @@ fn theme_tile(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(5.0),
+            .gap(space::SM),
         vec![Box::new(dot), box_item(label)],
     )?;
 
@@ -180,7 +181,7 @@ fn theme_tile(
         LayoutStyle::new()
             .width(TILE_WIDTH)
             .height(TILE_HEIGHT)
-            .padding_horizontal(6.0)
+            .padding_horizontal(space::MD)
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER),
         move |_r| {
@@ -228,7 +229,7 @@ fn accent_swatches(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .flex_grow(1.0)
             .min_width(0.0),
         swatches,
@@ -249,6 +250,7 @@ pub(crate) fn theme_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let radius = signal(opt_num(t.radius));
     let spacing = signal(opt_num(t.spacing));
     let font_size = signal(opt_num(t.font_size));
+    let opacity = signal(t.opacity.to_string());
     let icon_size = signal(opt_num(t.icon_size));
     let icon_stroke = signal(opt_num(t.icon_stroke));
     let scale_rounding = signal(t.scale.rounding.to_string());
@@ -313,6 +315,12 @@ pub(crate) fn theme_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
             theme,
         )?,
         text_field(
+            || telar::t!("settings.field.opacity"),
+            opacity.clone(),
+            "1",
+            theme,
+        )?,
+        text_field(
             || telar::t!("settings.field.icon_size"),
             icon_size.clone(),
             "(theme)",
@@ -356,6 +364,7 @@ pub(crate) fn theme_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
         || telar::t!("settings.save.theme"),
         move || {
             let value = ThemeConfig {
+                opacity: parse_f32(&opacity.peek(), base.opacity),
                 name: name.peek(),
                 mode: mode.peek(),
                 variant: variant.peek(),

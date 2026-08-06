@@ -3,6 +3,7 @@
 //! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
 //! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
+use ui::scale::space;
 use std::rc::Rc;
 
 use telar::{
@@ -206,7 +207,7 @@ fn zone_row(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .flex_grow(1.0)
             .min_width(0.0),
         move || source.get().into_iter().enumerate().collect(),
@@ -224,8 +225,8 @@ fn zone_row(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
-            .padding_all(6.0)
+            .gap(space::MD)
+            .padding_all(space::MD)
             .min_height(theme.font(FontRole::Body) * 2.4)
             .width(SizeDimension::Percent(1.0)),
         move |_r| {
@@ -278,9 +279,9 @@ fn module_pill(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(4.0)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0)
+            .gap(space::SM)
+            .padding_horizontal(space::MD)
+            .padding_vertical(space::SM)
             .flex_shrink(0.0),
         move |_r| RectStyle::filled(theme.surface, PILL_RADIUS),
         vec![box_item(label), remove],
@@ -321,8 +322,8 @@ fn module_palette(
         chips.push(Box::new(
             StyledContainer::new(
                 LayoutStyle::new()
-                    .padding_horizontal(8.0)
-                    .padding_vertical(4.0)
+                    .padding_horizontal(space::MD)
+                    .padding_vertical(space::SM)
                     .flex_shrink(0.0),
                 move |_r| RectStyle::filled(theme.base, PILL_RADIUS),
                 vec![box_item(text)],
@@ -338,7 +339,7 @@ fn module_palette(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .flex_grow(1.0)
             .min_width(0.0),
         chips,

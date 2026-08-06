@@ -1,6 +1,7 @@
 //! The widgets a form of repeating rows is built from — a table with an add button, a delete per row,
 //! and the pills a membership list is edited through.
 
+use ui::scale::{corner, paint, space};
 use std::rc::Rc;
 
 use telar::{
@@ -98,7 +99,7 @@ impl<T: Clone + 'static> TableList<T> {
             move || order.get(),
             |id: &u64| id.to_string(),
             move |id: u64| row(id),
-            10.0,
+            space::LG,
         )?))
     }
 }
@@ -167,10 +168,10 @@ pub(crate) fn entry_card<T: Clone + 'static>(
     let card = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(6.0)
-            .padding_all(10.0)
+            .gap(space::MD)
+            .padding_all(space::LG)
             .width(SizeDimension::Percent(1.0)),
-        move |_r| RectStyle::filled(theme.surface, 8.0),
+        paint::md(theme.surface),
         fields,
     )?;
     util::reactive::keeping_all(Box::new(card), subscriptions)
@@ -201,16 +202,17 @@ pub(crate) fn toggle_pill(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let ink = if on { theme.base } else { theme.muted };
     let icon = icon_view(move || glyph.to_string(), move || ink, 16.0)?;
+    let rounded = corner::md();
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
                 .flex_shrink(0.0)
-                .padding_all(6.0)
+                .padding_all(space::MD)
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER),
             move |_r| {
                 let fill = if on { tint } else { theme.overlay };
-                RectStyle::filled(fill, 8.0)
+                RectStyle::filled(fill, rounded)
             },
             vec![icon],
         )?

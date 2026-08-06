@@ -9,6 +9,7 @@
 //! Everything it shows is a subscription to [`lock::LockState`], which is written from a worker thread. The
 //! screen never authenticates; it collects a password and hands it over.
 
+use ui::scale::{corner, space};
 use std::sync::Arc;
 
 use telar::{
@@ -17,8 +18,8 @@ use telar::{
     reset_layout_runtime, set_theme, signal, use_theme,
 };
 
-use config::Config;
 use config::theme::{FontRole, NordTheme};
+use config::{Config, SurfaceEnv, set_surface_env};
 use services::lock::{self, LockState, Method};
 use ui::surface_root::SurfaceRoot;
 
@@ -43,6 +44,16 @@ impl App for LockApp {
             .unwrap_or_else(|| Arc::new(Config::default()));
         set_theme(config.resolve_theme());
         services::locale::attach(config.language());
+        // Not a `PanelSurface` — the compositor's lock session mounts this, and it is the one surface that must
+        // never be translucent — but its content reads settings the same way every panel does, so it installs
+        // the same environment by hand.
+        let edge = ui::panel::drawn_edge(&config);
+        set_surface_env(SurfaceEnv {
+            edge,
+            bar_size: config.bars.get(edge).size,
+            output: self.output.clone(),
+            config: Arc::clone(&config),
+        });
         let content = screen(&config).expect("lock screen build failed");
         Box::new(SurfaceRoot::new(content).expect("lock screen layout failed"))
     }
@@ -94,9 +105,9 @@ fn screen(config: &Arc<Config>) -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_column()
             .align_items(AlignItems::CENTER)
-            .gap(16.0)
+            .gap(space::XL)
             .width(CARD_WIDTH)
-            .padding_all(28.0),
+            .padding_all(space::XXL),
         move |_| RectStyle::filled(theme.surface, card_radius()),
         column,
     )?;
@@ -157,7 +168,7 @@ fn clock(config: &Config, theme: NordTheme) -> Result<Box<dyn LayoutItem>, Layou
         move || theme.text_style(FontRole::Caption, theme.muted),
     )?;
     Ok(Box::new(Container::new(
-        LayoutStyle::new().flex_column().gap(2.0),
+        LayoutStyle::new().flex_column().gap(space::XS),
         vec![centred(box_item(hhmm))?, centred(box_item(day))?],
     )?))
 }
@@ -225,13 +236,14 @@ fn field(
     .placeholder(telar::t!("lock.password"))
     .on_submit(submit);
 
+    let rounded = corner::xl();
     let outline = state.clone();
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .padding_horizontal(14.0)
-            .padding_vertical(6.0)
+            .padding_horizontal(space::XL)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         move |_| {
             // The field itself carries the verdict: a wrong password tints the box the user is already
@@ -241,7 +253,7 @@ fn field(
             } else {
                 theme.base
             };
-            RectStyle::filled(fill, 12.0)
+            RectStyle::filled(fill, rounded)
         },
         vec![box_item(input)],
     )?))

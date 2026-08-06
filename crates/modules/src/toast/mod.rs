@@ -15,18 +15,18 @@ pub use events::{config_reloaded, watch_events};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, watch};
+use platform_wayland::{SurfaceHandle, watch};
 use telar::{
-    AlignItems, App, Color, Component, Container, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, SizeDimension, StyledContainer, Text, WindowConfig, box_item,
-    reset_layout_runtime, set_theme, signal, use_theme,
+    AlignItems, Container, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
+    SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
 };
 
 use config::theme::{FontRole, NordTheme};
 use config::{Edge, ToastsConfig};
 use services::toaster::{self, Toast};
+use ui::panel::{PanelSurface, card_gap, content_radius, panel_fill};
+use ui::scale::space;
 use ui::placement::Placement;
-use ui::surface_root::SurfaceRoot;
 
 /// A card's height, used only to size the surface: the stack lays itself out inside it, and a layer surface has
 /// to name a size before it knows what it will hold.
@@ -60,55 +60,26 @@ fn open_stack() -> SurfaceHandle {
     let config = config::config_for(output.as_deref());
     // The shared panel distance, so a toast clears the bar by exactly as much as a drawer or an OSD does.
     let margin = config.panel_margin(config.toasts.edge);
-    open_surface(
-        layer_config(&config.toasts, margin, output.clone()),
-        ToastApp { output },
-    )
+    PanelSurface::new(placement_for(&config.toasts, margin, output), |env| {
+        stack(env.config.toasts.clone(), content_radius()).expect("toast stack build failed")
+    })
+    .open_handle()
 }
 
 /// Where the stack sits. The surface and the cards inside it come from this one placement, so the column packs
 /// against the very edge the surface is pinned to.
 fn placement(config: &ToastsConfig) -> Placement {
-    let height = config.visible() as u32 * (CARD_HEIGHT + config.gap.max(0.0) as u32);
+    let height = config.visible() as u32 * (CARD_HEIGHT + card_gap().max(0.0) as u32);
     Placement::stack(NAMESPACE, config.edge, config.align)
         .size(config.width.max(120.0) as u32, height.max(CARD_HEIGHT))
 }
 
-fn layer_config(
+fn placement_for(
     config: &ToastsConfig,
     margin: (i32, i32, i32, i32),
     output: Option<String>,
-) -> LayerConfig {
-    placement(config)
-        .margin(margin)
-        .output(output)
-        .layer_config()
-}
-
-struct ToastApp {
-    output: Option<String>,
-}
-
-impl App for ToastApp {
-    fn root(&self) -> Box<dyn Component> {
-        reset_layout_runtime();
-        let config = config::config_for(self.output.as_deref());
-        set_theme(config.resolve_theme());
-        let radius = config.panel_radius(config.toasts.edge);
-        let content = stack(config.toasts.clone(), radius).expect("toast stack build failed");
-        Box::new(SurfaceRoot::new(content).expect("toast surface root"))
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        None
-    }
-
-    fn window_config(&self) -> Option<WindowConfig> {
-        Some(WindowConfig {
-            is_transparent: true,
-            ..WindowConfig::default()
-        })
-    }
+) -> Placement {
+    placement(config).margin(margin).output(output)
 }
 
 /// The live stack. Subscribes on this surface's own thread, so the list follows the queue while the surface is up
@@ -150,7 +121,7 @@ fn stack_of(
     let theme = use_theme::<NordTheme>();
     let bottom_up = config.edge == Edge::Bottom;
     let list = ReactiveList::with_style(
-        placement(&config).column(config.gap),
+        placement(&config).column(card_gap()),
         move || {
             let mut live = source.get();
             // Anchored to the bottom, the newest card belongs nearest the edge the stack grows from — otherwise
@@ -212,7 +183,7 @@ fn card(toast: &Toast, theme: NordTheme, radius: f32) -> Result<Box<dyn LayoutIt
     let text = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(2.0)
+            .gap(space::XS)
             .flex_grow(1.0)
             .width(SizeDimension::Percent(1.0)),
         column,
@@ -224,10 +195,10 @@ fn card(toast: &Toast, theme: NordTheme, radius: f32) -> Result<Box<dyn LayoutIt
             LayoutStyle::new()
                 .flex_row()
                 .align_items(AlignItems::CENTER)
-                .gap(10.0)
-                .padding_all(12.0)
+                .gap(space::LG)
+                .padding_all(space::XL)
                 .width(SizeDimension::Percent(1.0)),
-            move |_| RectStyle::filled(theme.surface, radius),
+            move |_| RectStyle::filled(panel_fill(), radius),
             vec![icon, Box::new(text)],
         )?
         .on_hover_style(move |_| RectStyle::filled(theme.overlay, radius))
@@ -243,7 +214,7 @@ mod tests {
     /// module's own is the size it asks for and what it does with the pointer.
     #[test]
     fn the_surface_only_takes_input_where_a_card_is() {
-        let layer = layer_config(&ToastsConfig::default(), (0, 0, 0, 0), None);
+        let layer = placement_for(&ToastsConfig::default(), (0, 0, 0, 0), None).layer_config();
         assert!(
             layer.interactive_input_region,
             "a toast must not swallow the click that follows it"

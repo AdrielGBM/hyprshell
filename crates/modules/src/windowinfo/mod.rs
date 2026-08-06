@@ -10,6 +10,7 @@
 //! a shape and checks whether the compositor's own client list moved. Closing is the exception: it gets one
 //! attempt, because trying a second spelling of a close is how the wrong window gets closed twice.
 
+use ui::scale::space;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -93,7 +94,7 @@ pub fn window_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -239,7 +240,7 @@ fn details(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(4.0)
+            .gap(space::SM)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -314,7 +315,7 @@ fn actions(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_row()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -367,7 +368,7 @@ fn workspace_row(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -410,9 +411,9 @@ fn pill(
                 .flex_row()
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER)
-                .gap(5.0)
-                .padding_horizontal(10.0)
-                .padding_vertical(6.0)
+                .gap(space::SM)
+                .padding_horizontal(space::LG)
+                .padding_vertical(space::MD)
                 .flex_shrink(0.0),
             move |_| RectStyle::filled(theme.base, ROW_RADIUS),
             children,

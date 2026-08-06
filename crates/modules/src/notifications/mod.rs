@@ -1,3 +1,4 @@
+use ui::scale::paint;
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
@@ -6,12 +7,11 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, watch};
+use platform_wayland::{LayerConfig, SurfaceHandle, watch};
 use telar::{
-    AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
-    LayoutError, LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle,
-    RichText, RwSignal, SizeDimension, StyledContainer, Text, TextRun, WindowConfig, box_item,
-    memo, reset_layout_runtime, set_theme, signal, use_theme,
+    AlignItems, Color, Container, Image, ImageData, ImageFilter, JustifyContent, LayoutError,
+    LayoutItem, LayoutStyle, Memo, ObjectFit, ReactiveList, ReadSignal, RectStyle, RichText,
+    RwSignal, SizeDimension, StyledContainer, Text, TextRun, box_item, memo, signal, use_theme,
 };
 
 use config::surface_env;
@@ -19,8 +19,9 @@ use config::theme::{FontRole, NordTheme};
 use config::{FullscreenPopups, NotificationsConfig};
 use services::hyprland::{self, ActiveWindow, Client};
 use services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
+use ui::panel::{PanelSurface, card_gap, content_radius, panel_fill};
+use ui::scale::space;
 use ui::placement::Placement;
-use ui::surface_root::SurfaceRoot;
 
 /// Parses the freedesktop notification body's limited HTML markup into styled runs for a [`RichText`]: `<b>`/
 /// `<strong>` bold, `<i>`/`<em>` italic, `<a href>` links (painted `link_color`), `<br>` a newline, and an
@@ -238,6 +239,13 @@ fn fullscreen_focus(cfg: &NotificationsConfig) -> Option<Memo<bool>> {
 struct CardStyle {
     theme: NordTheme,
     radius: f32,
+    /// What the card paints behind itself.
+    ///
+    /// Two answers, because a card is two different things. On the popup surface it *is* the panel — nothing
+    /// else is on that surface — so it takes `[panels] opacity` and the compositor's blur has something to
+    /// show through. In the history it sits inside a panel that is already translucent, and a second
+    /// translucent layer over the first would only make the card harder to read than the drawer under it.
+    fill: Color,
     /// The body's line cap, or `None` for the whole body (`open_expanded`).
     body_lines: Option<u16>,
     /// A tap on the card body invokes the notification's `default` action, when it declares one.
@@ -247,13 +255,23 @@ struct CardStyle {
 }
 
 impl CardStyle {
+    /// A card inside a panel: solid against the translucent surface it sits on.
     fn new(cfg: &NotificationsConfig, theme: NordTheme, radius: f32) -> Self {
         Self {
             theme,
             radius,
+            fill: theme.surface,
             body_lines: cfg.body_max_lines(),
             action_on_click: cfg.action_on_click,
             swipe: cfg.swipe_distance(cfg.width),
+        }
+    }
+
+    /// A card that is the panel — the popup stack, where nothing is behind it but the desktop.
+    fn standalone(self) -> Self {
+        Self {
+            fill: panel_fill(),
+            ..self
         }
     }
 }
@@ -274,7 +292,9 @@ fn notification_card(
     style: CardStyle,
     dismiss: Option<fn(u32)>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let CardStyle { theme, radius, .. } = style;
+    let CardStyle {
+        theme, radius, fill, ..
+    } = style;
     let accent = urgency_color(notification.urgency, &theme);
     let summary = notification.summary.clone();
     let body = body_runs(&notification.body, theme.muted, theme.accent);
@@ -319,7 +339,7 @@ fn notification_card(
     let text_column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(3.0)
+            .gap(space::XS)
             .flex_grow(1.0)
             .width(SizeDimension::Percent(1.0)),
         column,
@@ -332,10 +352,10 @@ fn notification_card(
     let mut card = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
-            .gap(10.0)
-            .padding_all(12.0)
+            .gap(space::LG)
+            .padding_all(space::XL)
             .width(width),
-        move |_| RectStyle::filled(theme.surface, radius),
+        move |_| RectStyle::filled(fill, radius),
         children,
     )?;
     if let Some(dismiss) = dismiss {
@@ -422,7 +442,7 @@ fn leading_visual(
     }
     let dot = StyledContainer::new(
         LayoutStyle::new().width(8.0).height(8.0).flex_shrink(0.0),
-        move |_| RectStyle::filled(accent, 4.0),
+        paint::xs(accent),
         Vec::new(),
     )?;
     Ok(Box::new(dot))
@@ -453,7 +473,7 @@ fn action_buttons(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         buttons,
     )?;
@@ -473,12 +493,12 @@ fn action_pill(
     )?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
-            .padding_horizontal(10.0)
-            .padding_vertical(4.0),
-        move |_| RectStyle::filled(theme.overlay, 8.0),
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::SM),
+        paint::md(theme.overlay),
         vec![box_item(text)],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay.darken(0.12), 8.0))
+    .on_hover_style(paint::md(theme.overlay.darken(0.12)))
     .on_press(move || notifications::invoke_action(id, &key));
     Ok(Box::new(pill))
 }
@@ -491,8 +511,8 @@ fn card_stack(
     theme: NordTheme,
     radius: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let gap = cfg.gap;
-    let style = CardStyle::new(&cfg, theme, radius);
+    let gap = card_gap();
+    let style = CardStyle::new(&cfg, theme, radius).standalone();
     let source = {
         let cfg = cfg.clone();
         move || {
@@ -532,44 +552,13 @@ fn popup_content(
     card_stack(snapshot.read_only(), fullscreen, cfg, theme, radius)
 }
 
-struct PopupApp {
-    output: Option<String>,
-}
-
-impl App for PopupApp {
-    fn root(&self) -> Box<dyn Component> {
-        reset_layout_runtime();
-        let config = config::config_for(self.output.as_deref());
-        let theme = config.resolve_theme();
-        set_theme(theme);
-        let radius = config.panel_radius(config.notifications.edge);
-        let content = popup_content(config.notifications.clone(), theme, radius)
-            .expect("notification content");
-        Box::new(SurfaceRoot::new(content).expect("notification surface root"))
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        None
-    }
-
-    fn window_config(&self) -> Option<WindowConfig> {
-        Some(WindowConfig {
-            is_transparent: true,
-            ..WindowConfig::default()
-        })
-    }
-}
-
-/// Layer-shell config for the popup surface: anchored per `[notifications] edge`/`align` (top-right by default), sized to hold `max_visible` cards. Its input region is carved from the cards (`interactive_input_region`), so a tap dismisses a popup while the gaps around them fall through to windows beneath. `margin` is the shared [`Config::panel_margin`](config::Config), so the stack clears the bar by the same distance as a drawer or OSD.
-fn popup_layer_config(
+/// Where the popup surface sits: anchored per `[notifications] edge`/`align` (top-right by default), sized to hold `max_visible` cards. Its input region is carved from the cards (`interactive_input_region`), so a tap dismisses a popup while the gaps around them fall through to windows beneath. `margin` is the shared [`Config::panel_margin`](config::Config), so the stack clears the bar by the same distance as a drawer or OSD.
+fn popup_surface(
     cfg: &NotificationsConfig,
     margin: (i32, i32, i32, i32),
     output: Option<String>,
-) -> LayerConfig {
-    popup_placement(cfg)
-        .margin(margin)
-        .output(output)
-        .layer_config()
+) -> Placement {
+    popup_placement(cfg).margin(margin).output(output)
 }
 
 /// Where the popup stack sits. The surface and the column of cards inside it come from this one placement, so a
@@ -592,12 +581,12 @@ thread_local! {
     static POPUP: RefCell<Option<Popup>> = const { RefCell::new(None) };
 }
 
-/// The layer-shell configuration `output`'s popup should have, from the config that screen is running.
-fn popup_config(output: Option<&str>) -> LayerConfig {
+/// Where `output`'s popup sits, from the config that screen is running.
+fn popup_config(output: Option<&str>) -> Placement {
     let config = config::config_for(output);
     let cfg = &config.notifications;
     // The shared panel distance, so notifications clear the bar exactly like a drawer or an OSD does.
-    popup_layer_config(
+    popup_surface(
         cfg,
         config.panel_margin(cfg.edge),
         output.map(str::to_string),
@@ -606,13 +595,19 @@ fn popup_config(output: Option<&str>) -> LayerConfig {
 
 /// Puts the popup on `output`, replacing whatever screen it was on.
 fn show_on(output: Option<String>) {
-    let layer = popup_config(output.as_deref());
-    let handle = open_surface(
-        layer.clone(),
-        PopupApp {
-            output: output.clone(),
-        },
-    );
+    let placement = popup_config(output.as_deref());
+    let layer = placement.layer_config();
+    // The one panel the shell holds the compositor's own handle for: it is chrome the config describes, so it
+    // follows an edit by renegotiating in place ([`reconcile`]) rather than being reopened.
+    let handle = PanelSurface::new(placement, |env| {
+        popup_content(
+            env.config.notifications.clone(),
+            env.config.resolve_theme(),
+            content_radius(),
+        )
+        .expect("notification content")
+    })
+    .open_handle();
     POPUP.with(|popup| {
         *popup.borrow_mut() = Some(Popup {
             output,
@@ -634,7 +629,7 @@ pub fn reconcile() {
         let Some(popup) = popup.as_mut() else {
             return;
         };
-        let next = popup_config(popup.output.as_deref());
+        let next = popup_config(popup.output.as_deref()).layer_config();
         let change = popup.layer.delta(&next);
         if !change.is_empty() {
             popup.handle.update(change);
@@ -722,7 +717,7 @@ pub fn bell_module() -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(4.0),
+            .gap(space::SM),
         vec![icon, Box::new(badge)],
     )?;
     Ok(Box::new(row))
@@ -760,7 +755,7 @@ pub fn bell_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         vec![header, list],
     )?;
@@ -802,7 +797,7 @@ fn panel_header(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(6.0),
+            .gap(space::MD),
         vec![dnd, clear],
     )?;
     let header = Container::new(
@@ -810,7 +805,7 @@ fn panel_header(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::SPACE_BETWEEN)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(title), Box::new(actions)],
     )?;
@@ -827,9 +822,9 @@ fn pill_button(
     })?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
-            .padding_horizontal(10.0)
-            .padding_vertical(5.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::SM),
+        paint::md(theme.base),
         vec![Box::new(text) as Box<dyn LayoutItem>],
     )?
     .on_press(on_press);
@@ -971,7 +966,7 @@ fn history_list(
     };
     // Gap on the list itself (which lays the cards out); the wrapper only pins the full width so the
     // percent-width cards resolve against it.
-    let list = ReactiveList::with_gap(source, row_key, build, cfg.gap)?;
+    let list = ReactiveList::with_gap(source, row_key, build, card_gap())?;
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
@@ -1045,8 +1040,8 @@ fn group_header(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
-            .padding_horizontal(4.0)
+            .gap(space::MD)
+            .padding_horizontal(space::SM)
             .width(SizeDimension::Percent(1.0)),
         |_| RectStyle::default(),
         vec![
@@ -1082,7 +1077,7 @@ fn expander_row(
         LayoutStyle::new()
             .flex_row()
             .justify_content(JustifyContent::CENTER)
-            .padding_vertical(2.0)
+            .padding_vertical(space::XS)
             .width(SizeDimension::Percent(1.0)),
         |_| RectStyle::default(),
         vec![Box::new(text) as Box<dyn LayoutItem>],
@@ -1101,11 +1096,11 @@ fn icon_button(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let icon = ui::icon::icon_view(move || glyph.to_string(), move || tint, 14.0)?;
     let button = StyledContainer::new(
-        LayoutStyle::new().padding_all(4.0),
+        LayoutStyle::new().padding_all(space::SM),
         |_| RectStyle::default(),
         vec![icon],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 6.0))
+    .on_hover_style(paint::xs(theme.overlay))
     .on_press(on_press);
     Ok(Box::new(button))
 }
@@ -1185,8 +1180,8 @@ pub(crate) fn panel_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
-            .padding_all(16.0)
+            .gap(space::LG)
+            .padding_all(space::XL)
             .width(NotificationsConfig::default().width),
         vec![
             panel_header(read.clone(), theme)?,

@@ -3,6 +3,7 @@ use crate::osd::{OsdKind, current_osd_kind, current_osd_radius};
 use ::config::theme::NordTheme;
 use ::services::{brightness, volume};
 use ::ui::glyph;
+use ::ui::panel::panel_fill;
 
 const TRACK_W: f32 = 172.0;
 const TRACK_H: f32 = 6.0;
@@ -44,13 +45,15 @@ let (glyph, frac, dimmed) = match current_osd_kind() {
     }
 };
 let fill_w = (frac.clamp(0.0, 1.0) * TRACK_W).max(0.0);
+// A capsule: half the track's own height, so the ends stay round whatever height it is given.
+let track_rad = TRACK_H / 2.0;
 let rad = current_osd_radius();
 
 [view]
-box direction:row align:center justify:center gap:14 pad_x:18 pad_y:14 width:100% height:100% fill:surface radius:rad
+box direction:row align:center justify:center gap(::ui::scale::space::XL) pad_x(::ui::scale::space::XL) pad_y(::ui::scale::space::XL) width:100% height:100% fill:panel_fill() radius:rad
     icon_glyph name(move || glyph.to_string()) tint(move || osd_tint(dimmed)) size:theme.icon_size
-    box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:3
-        box width:fill_w height:TRACK_H fill:accent radius:3
+    box direction:row align:center width:TRACK_W height:TRACK_H fill:muted radius:track_rad
+        box width:fill_w height:TRACK_H fill:accent radius:track_rad
 
 [preview "Osd" fixture:crate::preview::osd]
 osd

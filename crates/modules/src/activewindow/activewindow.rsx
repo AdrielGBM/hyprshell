@@ -48,7 +48,7 @@ let leading = show_icon && !config.inverted;
 let trailing = show_icon && config.inverted;
 
 [view]
-row align:center gap:8
+row align:center gap(::ui::scale::space::MD)
     if leading
         build "crate::activewindow::icon_slot(&class, size)?"
     text "{$title_view}" size:theme.font(FontRole::Body) color:$fg

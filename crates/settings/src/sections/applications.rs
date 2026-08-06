@@ -3,8 +3,9 @@
 //! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
 //! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
+use ui::scale::{paint, space};
 use telar::{
-    AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList, RectStyle,
+    AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
     RwSignal, SizeDimension, StyledContainer, Text, VirtualList, box_item, signal,
 };
 
@@ -207,7 +208,7 @@ fn app_row(
             .flex_column()
             .flex_grow(1.0)
             .min_width(0.0)
-            .gap(1.0),
+            .gap(space::XS),
         vec![box_item(name_text), box_item(id_text)],
     )?;
 
@@ -238,9 +239,9 @@ fn app_row(
         LayoutStyle::new()
             .width(150.0)
             .flex_shrink(0.0)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0),
-        move |_r| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::MD)
+            .padding_vertical(space::SM),
+        paint::md(theme.base),
         vec![box_item(
             Input::new(
                 icon_field,
@@ -272,13 +273,13 @@ fn app_row(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(10.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(6.0)
+            .gap(space::LG)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .height(row_pitch(theme) - ROW_GAP)
             .margin_bottom(ROW_GAP)
             .width(SizeDimension::Percent(1.0)),
-        move |_r| RectStyle::filled(theme.base, 8.0),
+        paint::md(theme.base),
         vec![
             icon,
             Box::new(labels),

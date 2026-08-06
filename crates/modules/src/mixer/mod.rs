@@ -9,6 +9,7 @@
 //! by node id, which is what lets a row survive its own drag: a slider that rebuilt on every value it set
 //! would drop the gesture that was setting it (the same trap the network panel's signal strength documents).
 
+use ui::scale::space;
 use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
     RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
@@ -105,7 +106,7 @@ pub fn mixer_view(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -189,7 +190,7 @@ fn group_list(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![box_item(heading), Box::new(rows)],
     )?))
@@ -277,7 +278,7 @@ fn node_row(
         )?
     };
     let labels = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(1.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         vec![box_item(name), box_item(detail)],
     )?;
     // Only a device has a default to be made; wrapping a stream's labels in a press target would give a user
@@ -309,7 +310,7 @@ fn node_row(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(10.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(mute), labels, box_item(percent)],
     )?;
@@ -331,9 +332,9 @@ fn node_row(
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(2.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(8.0)
+            .gap(space::XS)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         move |_r| RectStyle::filled(theme.base, ROW_RADIUS),
         vec![Box::new(head), bar],

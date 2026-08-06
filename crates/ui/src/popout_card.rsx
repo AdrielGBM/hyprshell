@@ -41,13 +41,13 @@ let bar = props
     .transpose()?;
 
 [view]
-col width:100% gap:8
-    row width:100% gap:10 align:center
+col width:100% gap(crate::scale::space::MD)
+    row width:100% gap(crate::scale::space::LG) align:center
         match icon
             Some(glyph)
                 icon_glyph name(move || glyph.get()) tint(move || icon_tint.as_ref().map(|t| t.get()).unwrap_or(ink)) size:HEADER_ICON
             None
-        col grow:1 gap:1
+        col grow:1 gap(crate::scale::space::XS)
             text "{$title}" size:heading color:text
             match subtitle
                 Some(line)
@@ -58,7 +58,7 @@ col width:100% gap:8
             widget "bar"
         None
     for (label, value) in rows
-        row width:100% gap:10 align:center justify:between
+        row width:100% gap(crate::scale::space::LG) align:center justify:between
             text "{$label}" size:caption color:muted shrink:0
             text "{$value}" size:caption color:text
 

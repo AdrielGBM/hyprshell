@@ -5,6 +5,7 @@
 //! [`bluetooth`](services::bluetooth) service, so the chip, the cluster icon, the popout card
 //! and this panel are four views of one subscription rather than four readers of the bus.
 
+use ui::scale::space;
 use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, ReactiveList,
     RectStyle, RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
@@ -78,7 +79,7 @@ pub fn bluetooth_view(config: BluetoothConfig) -> Result<Box<dyn LayoutItem>, La
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -112,7 +113,7 @@ fn header(
         },
     )?;
     let labels = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         vec![box_item(title), box_item(subtitle)],
     )?;
 
@@ -145,7 +146,7 @@ fn header(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(labels), power, scan],
     )?))
@@ -213,7 +214,7 @@ fn list(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(rows), box_item(empty)],
     )?))
@@ -306,7 +307,7 @@ fn row(
         },
     )?;
     let labels = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(1.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         vec![box_item(name), box_item(status)],
     )?;
 
@@ -328,9 +329,9 @@ fn row(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::SPACE_BETWEEN)
-            .gap(10.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(8.0)
+            .gap(space::LG)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         {
             let is_armed = is_armed.clone();
@@ -420,8 +421,8 @@ fn pill(
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
-                .padding_horizontal(10.0)
-                .padding_vertical(5.0)
+                .padding_horizontal(space::LG)
+                .padding_vertical(space::SM)
                 .flex_shrink(0.0)
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER),

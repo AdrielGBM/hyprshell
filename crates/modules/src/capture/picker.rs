@@ -14,23 +14,24 @@
 //! **It covers the focused screen.** A selection is made on one monitor; the overlay opens on the focused one and
 //! reports its rectangle in the compositor's global logical coordinates, which is what every consumer wants.
 
+use ui::scale::{paint, space};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use platform_wayland::{LayerConfig, SurfaceHandle, open_surface, request_close};
+use platform_wayland::{SurfaceHandle, request_close};
 use telar::{
-    AlignItems, App, Canvas, Color, Component, Container, Image, ImageData, ImageFilter,
-    JustifyContent, Key, LayoutError, LayoutItem, LayoutStyle, NamedKey, ObjectFit, PathData,
-    PathStyle, Point, Rect, RectStyle, RenderNode, RwSignal, ShapeStyle, SizeDimension, Stroke,
-    StyledContainer, Text, WindowConfig, box_item, reset_layout_runtime, set_theme, signal,
+    AlignItems, Canvas, Color, Container, Image, ImageData, ImageFilter, JustifyContent, Key,
+    LayoutError, LayoutItem, LayoutStyle, NamedKey, ObjectFit, PathData, PathStyle, Point, Rect,
+    RectStyle, RenderNode, RwSignal, ShapeStyle, SizeDimension, Stroke, StyledContainer, Text,
+    box_item, signal,
 };
 
 use config::theme::{FontRole, NordTheme};
 use services::hyprland::{self, Client};
 use services::screenshot::{self, Area};
+use ui::panel::PanelSurface;
 use ui::placement::Placement;
-use ui::surface_root::SurfaceRoot;
 
 /// How close an edge has to come to a window's own before it snaps to it, in logical pixels. Generous enough
 /// that a hand-drawn box lands flush, small enough that it never pulls a deliberate selection off target.
@@ -82,13 +83,20 @@ pub fn pick(then: impl Fn(Picked) + 'static) {
         .then(|| output.as_deref().and_then(frozen_output))
         .flatten();
 
-    let app = PickerApp {
-        output: output.clone(),
-        screen,
-        frozen: Rc::new(RefCell::new(frozen)),
-        then: Rc::new(then),
-    };
-    let handle = open_surface(layer_config(output), app);
+    // Held on the surface rather than in the tree, so both survive a rebuild: a config change while a
+    // selection is being drawn must not throw away the picture it is being drawn on, nor who is waiting for it.
+    let frozen = Rc::new(RefCell::new(frozen));
+    let then: Rc<dyn Fn(Picked)> = Rc::new(then);
+    let handle = PanelSurface::new(placement(output), move |env| {
+        overlay(
+            env.config.resolve_theme(),
+            screen,
+            Rc::clone(&frozen),
+            Rc::clone(&then),
+        )
+        .expect("picker build failed")
+    })
+    .open_handle();
     OPEN.with(|slot| *slot.borrow_mut() = Some(handle));
 }
 
@@ -100,10 +108,8 @@ pub fn close() {
 /// The whole screen, over everything — including a fullscreen window, because the user asked to select a
 /// region of what they can *see* — and holding the keyboard, so Escape arrives without the overlay having to
 /// be clicked into first. Both are what [`Placement::screen`] means.
-fn layer_config(output: Option<String>) -> LayerConfig {
-    Placement::screen("hyprshell-picker")
-        .output(output)
-        .layer_config()
+fn placement(output: Option<String>) -> Placement {
+    Placement::screen("hyprshell-picker").output(output)
 }
 
 /// Where the picker's screen is and how big it is, in the compositor's logical coordinates. The origin is what
@@ -136,40 +142,6 @@ fn frozen_output(name: &str) -> Option<screenshot::Image> {
         .into_iter()
         .find(|(output, _)| output == name)
         .map(|(_, image)| image)
-}
-
-struct PickerApp {
-    output: Option<String>,
-    screen: Screen,
-    frozen: Rc<RefCell<Option<screenshot::Image>>>,
-    then: Rc<dyn Fn(Picked)>,
-}
-
-impl App for PickerApp {
-    fn root(&self) -> Box<dyn Component> {
-        reset_layout_runtime();
-        let theme = config::config_for(self.output.as_deref()).resolve_theme();
-        set_theme(theme);
-        let content = overlay(
-            theme,
-            self.screen,
-            Rc::clone(&self.frozen),
-            Rc::clone(&self.then),
-        )
-        .expect("picker build failed");
-        Box::new(SurfaceRoot::new(content).expect("picker surface root"))
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        None
-    }
-
-    fn window_config(&self) -> Option<WindowConfig> {
-        Some(WindowConfig {
-            is_transparent: true,
-            ..WindowConfig::default()
-        })
-    }
 }
 
 /// The live selection, in surface-local logical pixels. `None` before the first press, which is what draws the
@@ -392,9 +364,9 @@ fn readout(
     )?;
     let pill = StyledContainer::new(
         LayoutStyle::new()
-            .padding_horizontal(14.0)
-            .padding_vertical(8.0),
-        move |_| RectStyle::filled(theme.surface, 10.0),
+            .padding_horizontal(space::XL)
+            .padding_vertical(space::MD),
+        paint::xl(theme.surface),
         vec![box_item(text)],
     )?;
     Ok(Box::new(Container::new(
@@ -403,7 +375,7 @@ fn readout(
             .flex_row()
             .align_items(AlignItems::FLEX_START)
             .justify_content(JustifyContent::CENTER)
-            .padding_all(24.0),
+            .padding_all(space::XXL),
         vec![Box::new(pill)],
     )?))
 }
@@ -585,7 +557,7 @@ mod tests {
 
     #[test]
     fn the_overlay_covers_the_whole_screen_and_takes_the_keyboard() {
-        let layer = layer_config(Some("DP-1".to_string()));
+        let layer = placement(Some("DP-1".to_string())).layer_config();
         assert_eq!(
             layer.exclusive_zone, -1,
             "a picker ignores the bars' reserved space: the user is selecting what they can see"

@@ -1,11 +1,11 @@
 //! The application launcher: a modal that owns the keyboard while it is up.
 
+use ui::scale::{corner, paint};
 use std::rc::Rc;
 
 use telar::{
     AlignItems, Container, Input, KeyboardMode, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, StyledContainer, SurfaceToken, Text, box_item, memo, open_surface, set_theme,
-    signal, surface_content, use_theme,
+    SizeDimension, StyledContainer, SurfaceToken, Text, box_item, memo, signal, use_theme,
 };
 
 use platform_wayland::ManagedToplevel;
@@ -18,6 +18,8 @@ use services::state;
 use services::wallpaper;
 use surfaces::shell;
 use ui::keynav::{self, Move};
+use ui::panel::{PanelSurface, content_radius, panel_fill};
+use ui::scale::space;
 use ui::placement::Placement;
 use ui::thumbnail;
 use util::calc;
@@ -54,8 +56,6 @@ const TILE_ASPECT: f32 = 9.0 / 16.0;
 
 const TILE_GAP: f32 = 8.0;
 
-/// The panel's own inset, which is what the grid has to subtract to know how much width it really has.
-const PANEL_PADDING: f32 = 14.0;
 
 /// The width to lay a grid out for when there is no config to read one from — a headless render, or a preview.
 const DEFAULT_PANEL_WIDTH: f32 = 640.0;
@@ -136,7 +136,7 @@ impl QueryMode {
         if self != QueryMode::Wallpapers {
             return 1;
         }
-        let inner = (width - PANEL_PADDING * 2.0).max(TILE_WIDTH);
+        let inner = (width - space::XL * 2.0).max(TILE_WIDTH);
         (((inner + TILE_GAP) / (TILE_WIDTH + TILE_GAP)).floor() as usize).clamp(2, 8)
     }
 }
@@ -426,16 +426,10 @@ fn open() -> SurfaceToken {
     // No `.size(...)`: a modal carries a scrim, so its *surface* is full-screen and the scaffold centres the
     // panel inside it. The panel's own size is a layout property (see `panel`), not a surface one — asking the
     // surface to be 640×420 would shrink the scrim to that box and leave the rest of the screen live.
-    let placement = Placement::modal().output(output.clone()).hosted_placement();
-    open_surface(
-        placement,
-        surface_content(move || {
-            let config = config::config_for(output.as_deref());
-            let theme = config.resolve_theme();
-            set_theme(theme);
-            panel(theme, &config.launcher).expect("launcher build failed")
-        }),
-    )
+    PanelSurface::new(Placement::modal().output(output), |env| {
+        panel(env.config.resolve_theme(), &env.config.launcher).expect("launcher build failed")
+    })
+    .open()
 }
 
 /// Where the arrow keys move the selection, given the current index and how many results there are.
@@ -511,10 +505,10 @@ fn panel(theme: NordTheme, config: &LauncherConfig) -> Result<Box<dyn LayoutItem
     let panel = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(10.0)
-            .padding_all(14.0)
+            .gap(space::LG)
+            .padding_all(space::XL)
             .width(config.width as f32),
-        move |_| RectStyle::filled(theme.surface, config.radius),
+        move |_| RectStyle::filled(panel_fill(), content_radius()),
         vec![field, list],
     )?
     // `on_key` fires before the event reaches the children, which is what lets the arrows drive the list while
@@ -642,10 +636,10 @@ fn search_field(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .padding_horizontal(12.0)
-            .padding_vertical(6.0)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
-        move |_| RectStyle::filled(theme.base, 10.0),
+        paint::xl(theme.base),
         vec![box_item(input)],
     )?;
     Ok(Box::new(boxed))
@@ -716,9 +710,9 @@ pub(crate) fn wallpaper_grid_preview() -> Result<Box<dyn LayoutItem>, LayoutErro
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .padding_all(PANEL_PADDING)
+            .padding_all(space::XL)
             .width(640.0),
-        move |_| RectStyle::filled(theme.surface, 14.0),
+        paint::xl(theme.surface),
         vec![list],
     )?))
 }
@@ -888,7 +882,7 @@ fn tile_row(
 /// The width one tile gets when `columns` of them share the panel, gaps included.
 fn tile_width(columns: usize, panel_width: f32) -> f32 {
     let columns = columns.max(1);
-    let inner = (panel_width - PANEL_PADDING * 2.0).max(TILE_WIDTH);
+    let inner = (panel_width - space::XL * 2.0).max(TILE_WIDTH);
     ((inner - TILE_GAP * (columns - 1) as f32) / columns as f32).max(48.0)
 }
 
@@ -961,6 +955,7 @@ fn tile(
     )?;
 
     let chosen = Rc::new(entry);
+    let rounded = corner::md();
     let tile = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
@@ -975,7 +970,7 @@ fn tile(
             } else {
                 telar::Color::TRANSPARENT
             };
-            RectStyle::filled(fill, 8.0)
+            RectStyle::filled(fill, rounded)
         },
         vec![picture, box_item(label)],
     )?
@@ -1103,7 +1098,7 @@ fn row(
         lines.push(box_item(subtitle));
     }
     let text_column = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(1.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         lines,
     )?;
 
@@ -1117,13 +1112,14 @@ fn row(
     // armed signal, so a dangerous row simply refuses the click and leaves arming to the keyboard.
     let chosen = Rc::new(entry);
     let armed_press = is_armed.clone();
+    let rounded = corner::md();
     let row = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(10.0)
-            .padding_horizontal(10.0)
-            .padding_vertical(7.0)
+            .gap(space::LG)
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD)
             .width(SizeDimension::Percent(1.0)),
         move |_| {
             let fill = if is_armed() {
@@ -1133,7 +1129,7 @@ fn row(
             } else {
                 telar::Color::TRANSPARENT
             };
-            RectStyle::filled(fill, 8.0)
+            RectStyle::filled(fill, rounded)
         },
         children,
     )?
@@ -1906,8 +1902,8 @@ mod tests {
         let panel = new_container(
             LayoutStyle::new()
                 .flex_column()
-                .gap(10.0)
-                .padding_all(PANEL_PADDING)
+                .gap(space::LG)
+                .padding_all(space::XL)
                 .width(640.0),
             &[list.layout_node()],
         )
@@ -1932,7 +1928,7 @@ mod tests {
         let rect = rect.get();
         assert_eq!(
             (rect.width, rect.height),
-            (612.0, 260.0),
+            (640.0 - space::XL * 2.0, 260.0),
             "the list measured {}x{} — a zero-height viewport clips every result",
             rect.width,
             rect.height

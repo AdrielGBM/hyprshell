@@ -57,5 +57,5 @@ pub fn entries() -> Vec<PreviewEntry> {
 /// scope before the panel builds. `clock` because it needs nothing from the machine to draw.
 pub fn drawer() {
     ui::preview::bar_chip();
-    crate::drawer::set_drawer_ctx("clock".to_string(), DrawerConfig::default(), 14.0);
+    crate::drawer::set_drawer_ctx("clock".to_string(), DrawerConfig::default());
 }

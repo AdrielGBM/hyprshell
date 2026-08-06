@@ -3,7 +3,7 @@
 /// up while it is hovered. `on_hover` is also what registers the box as an interactive target, which is how the
 /// surface knows which part of itself to take input over.
 ///
-/// `fill` is a prop rather than a theme read, because it carries `[panels] opacity` — and a popout surface is
+/// `fill` is a prop rather than a theme read, because it carries `[theme] opacity` — and a popout surface is
 /// not a bar, so the config it should resolve against is the one its opener had in hand.
 pub struct Props {
 pub fill: Color = Color::TRANSPARENT,
@@ -18,7 +18,7 @@ let radius = props.radius;
 let on_hover = props.on_hover;
 
 [view]
-col width:width pad:12 shrink:0 fill:fill radius:radius on_hover(|hovered| on_hover(hovered))
+col width:width pad:crate::scale::space::XL shrink:0 fill:fill radius:radius on_hover(|hovered| on_hover(hovered))
     children
 
 [preview "Popout frame"]

@@ -14,11 +14,11 @@
 //! | --- | --- | --- |
 //! | [`bar`](Placement::bar) | spans an edge, reserves nothing itself | the bars |
 //! | [`reservation`](Placement::reservation) | invisible, carves an edge's strip | the bars' strips |
-//! | [`backdrop`](Placement::backdrop) | the whole screen, under everything, click-through | wallpaper, frame ring |
+//! | [`backdrop`](Placement::backdrop) | the whole screen, click-through, reserving nothing | wallpaper, frame ring |
 //! | [`dock`](Placement::dock) | spans an edge, over the windows | the notification centre |
 //! | [`stack`](Placement::stack) | pinned to a spot along an edge, input from its content | toasts, notification popups |
 //! | [`card`](Placement::card) | beside the chip that opened it | popouts, the tray menu |
-//! | [`sheet`](Placement::sheet) | hangs off a bar edge behind a scrim | a module's drawer |
+//! | [`sheet`](Placement::sheet) | hangs off a bar edge, dismissed from outside | a module's drawer |
 //! | [`window`](Placement::window) | centred, framed, resizable | a module's float |
 //! | [`modal`](Placement::modal) | owns the screen and the keyboard | the launcher |
 //! | [`flash`](Placement::flash) | brief, click-through, self-dismissing | the OSD |
@@ -83,6 +83,9 @@ pub struct Placement {
     timeout: Option<std::time::Duration>,
     /// A reservation strip is a surface with no content at all — an exclusive zone and a transparent buffer.
     reserve_only: bool,
+    /// Whether this shape is realized by the surface host's scaffold or renders itself. Kept rather than
+    /// inferred from `role`, which every placement has a value for whether or not it is hosted.
+    hosted: bool,
 }
 
 impl Placement {
@@ -104,6 +107,7 @@ impl Placement {
             dismiss_on_outside: false,
             timeout: None,
             reserve_only: false,
+            hosted: false,
         }
     }
 
@@ -126,8 +130,12 @@ impl Placement {
         placement
     }
 
-    /// The whole screen, at the bottom of the stack and click-through: what is painted *behind* the desktop
-    /// rather than on it. `-1` so a bar's reserved strip does not shrink it.
+    /// The whole screen and click-through: something painted across the desktop rather than placed on it.
+    /// `-1` so a bar's reserved strip does not shrink it.
+    ///
+    /// The background layer is only the default — the wallpaper's. The frame ring takes the same shape up on
+    /// the bars' layer ([`layer`](Self::layer)), because it draws the strip a framed bar leaves empty and on
+    /// the background that strip showed the window through.
     pub fn backdrop(namespace: &'static str) -> Self {
         Self::new(namespace, FULLSCREEN, Layer::Background)
             .zone(-1)
@@ -201,7 +209,7 @@ impl Placement {
         placement
     }
 
-    /// A panel hanging off a bar edge, behind a scrim that dismisses it — a module's drawer.
+    /// A panel hanging off a bar edge, dismissed by a press outside it — a module's drawer.
     ///
     /// `keyboard` is asked for rather than assumed: a layer surface granted focus takes it from the window
     /// the user was in, and gives it back when the panel closes — which moves a scrolling layout on the way
@@ -210,7 +218,6 @@ impl Placement {
         let mut placement = Self::hosted(SurfaceRole::Drawer, "hyprshell-drawer", keyboard);
         placement.anchor = edge_anchor(edge);
         placement.edge = Some(edge);
-        placement.scrim = true;
         placement.dismiss_on_outside = true;
         placement
     }
@@ -224,8 +231,9 @@ impl Placement {
 
     /// A surface that owns the screen while it is up, keyboard included: the launcher, a command palette.
     ///
-    /// The scrim is not decoration. It is what makes this a *full-screen* surface with the panel positioned
-    /// inside it — without one the surface is centred, unanchored and unsized, which layer-shell rejects
+    /// `dismiss_on_outside` is not only the way out. It is also what makes this a *full-screen* surface with
+    /// the panel positioned inside it — the host scaffolds anything that has to catch a press beyond its
+    /// content. Without it the surface would be centred, unanchored and unsized, which layer-shell rejects
     /// outright (a surface not anchored to both edges of an axis has to name a size on it).
     pub fn modal() -> Self {
         let mut placement = Self::hosted(
@@ -233,7 +241,6 @@ impl Placement {
             "hyprshell-overlay",
             KeyboardMode::Exclusive,
         );
-        placement.scrim = true;
         placement.dismiss_on_outside = true;
         placement
     }
@@ -261,7 +268,26 @@ impl Placement {
         let mut placement = Self::new(namespace, Anchor::empty(), Layer::Overlay);
         placement.role = role;
         placement.keyboard = keyboard;
+        placement.hosted = true;
         placement
+    }
+
+    /// Whether the surface host realizes this shape — a scaffold, a scrim, an entrance — or the surface renders
+    /// itself. The one thing a caller must not decide for itself: lowering a hosted shape to a
+    /// [`LayerConfig`] yields a surface anchored to nothing, which the compositor rejects outright.
+    pub fn is_hosted(&self) -> bool {
+        self.hosted
+    }
+
+    /// The edge this surface hangs off, when it hangs off one. What a panel's environment reports, so its
+    /// content resolves the same per-edge settings a bar module does.
+    pub fn hangs_off(&self) -> Option<Edge> {
+        self.edge
+    }
+
+    /// The monitor this surface opens on; `None` is the compositor's choice.
+    pub fn monitor(&self) -> Option<&str> {
+        self.output.as_deref()
     }
 
     pub fn size(mut self, width: u32, height: u32) -> Self {
@@ -281,8 +307,12 @@ impl Placement {
 
     /// Dismissed by a press outside it. On its own, without a scrim: what the tray's context menus want,
     /// where dimming the screen behind a small menu would be theatre.
+    ///
+    /// Hosted from here on whatever the primitive was: dismiss-on-outside is the scaffold's, and a
+    /// self-rendered surface has nothing to implement it with.
     pub fn dismissable(mut self) -> Self {
         self.dismiss_on_outside = true;
+        self.hosted = true;
         self
     }
 
@@ -503,8 +533,9 @@ mod tests {
     /// that never appears. A scaffolded placement is exempt because the host makes it full-screen and positions
     /// the panel inside it, so this is the same question the host asks, asked here over the whole taxonomy.
     ///
-    /// It is not hypothetical: `modal` shipped without its scrim for exactly one build, which took it out of
-    /// the scaffolded branch and left the launcher unanchored and unsized. Pressing the search chip killed it.
+    /// It is not hypothetical: `modal` shipped without the flag that scaffolds it for exactly one build, which
+    /// took it out of the scaffolded branch and left the launcher unanchored and unsized. Pressing the search
+    /// chip killed it.
     #[test]
     fn every_primitive_is_a_surface_the_compositor_will_accept() {
         let chip = Rect {
@@ -547,7 +578,7 @@ mod tests {
         ];
 
         for (name, placement) in every {
-            if placement.scrim || placement.dismiss_on_outside {
+            if placement.is_hosted() {
                 continue;
             }
             let layer = placement.layer_config();
@@ -644,13 +675,38 @@ mod tests {
         assert!(!dock.input_transparent && !dock.interactive_input_region);
     }
 
+    /// A panel paints nothing outside itself, and that is a requirement rather than a taste.
+    ///
+    /// A scaffolded surface is full-screen — that is how a press beside the panel reaches it — so anything it
+    /// paints out there covers the screen. A scrim is exactly that, and it made a compositor
+    /// `layer_rule = blur` unusable: blur follows the alpha the surface writes, so a 35%-black wash meant
+    /// opening a drawer blurred the whole desktop instead of the panel. The surface stays full-screen and
+    /// stays dismissible; it just leaves the rest of the screen at alpha zero, where `ignorealpha` skips it.
+    #[test]
+    fn a_scaffolded_panel_leaves_the_rest_of_the_screen_untouched() {
+        for hosted in [
+            Placement::sheet(Edge::Top, KeyboardMode::None),
+            Placement::modal(),
+        ] {
+            let placement = hosted.hosted_placement();
+            assert!(
+                !placement.scrim,
+                "a panel that washes the screen behind it makes every pixel of it blurrable"
+            );
+            assert!(
+                placement.dismiss_on_outside,
+                "and it is this, not the wash, that scaffolds the surface full-screen"
+            );
+        }
+    }
+
     /// The host positions a panel inside a full-screen scaffold, so it wants the one edge the panel hangs
     /// off — a spanning anchor has to collapse to it rather than confusing the scaffold with two.
     #[test]
     fn a_hosted_placement_keeps_the_edge_it_hangs_off() {
         let sheet = Placement::sheet(Edge::Right, KeyboardMode::OnDemand).hosted_placement();
         assert_eq!(sheet.anchor, SurfaceAnchor::Right);
-        assert!(sheet.scrim && sheet.dismiss_on_outside);
+        assert!(sheet.dismiss_on_outside);
         assert_eq!(sheet.keyboard, KeyboardMode::OnDemand);
 
         let modal = Placement::modal().hosted_placement();

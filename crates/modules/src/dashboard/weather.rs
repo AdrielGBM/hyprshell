@@ -7,10 +7,11 @@
 //! a preference, and writing `[temperature] unit` from a glance would change what the bar and the OSD show
 //! because someone looked at a number. The settings application is where that choice is made.
 
+use ui::scale::{paint, space};
 use chrono::NaiveDate;
 use telar::{
     AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle,
-    ReactiveList, RectStyle, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item,
+    ReactiveList, RwSignal, SizeDimension, StyledContainer, Text, TextStyle, box_item,
     signal,
 };
 
@@ -79,12 +80,12 @@ fn current_card(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(14.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         vec![
             icon,
             Box::new(Container::new(
-                LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
+                LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
                 vec![
                     unit_toggle(reading, unit.clone(), theme)?,
                     box_item(Text::auto(
@@ -149,11 +150,11 @@ fn unit_toggle(
     )?;
     Ok(Box::new(
         StyledContainer::new(
-            LayoutStyle::new().padding_horizontal(4.0),
-            move |_r| RectStyle::filled(Color::TRANSPARENT, 6.0),
+            LayoutStyle::new().padding_horizontal(space::SM),
+            paint::xs(Color::TRANSPARENT),
             vec![box_item(text)],
         )?
-        .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 6.0))
+        .on_hover_style(paint::xs(theme.overlay))
         .on_press(move || unit.set(other_unit(unit.peek()))),
     ))
 }
@@ -252,7 +253,7 @@ fn forecast_row(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::SPACE_BETWEEN)
-            .gap(10.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         cells,
     )?))

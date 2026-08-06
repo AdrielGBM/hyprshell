@@ -4,12 +4,13 @@
 //! write-back to `config.toml`, and the recorder that tells a button whether anything under it moved — so the
 //! sections themselves are a description of *which* fields they have rather than of how a field behaves.
 
+use ui::scale::{paint, space};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use serde::Serialize;
 use telar::{
-    AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, RectStyle, RwSignal,
+    AlignItems, Container, Input, LayoutError, LayoutItem, LayoutStyle, RwSignal,
     SizeDimension, StyledContainer, Text, box_item, signal,
 };
 
@@ -288,7 +289,7 @@ pub(crate) fn section(
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?;
@@ -331,7 +332,7 @@ pub(crate) fn labelled(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(label_text), control],
     )?;
@@ -356,9 +357,9 @@ pub(crate) fn text_field(
     let boxed = StyledContainer::new(
         LayoutStyle::new()
             .flex_grow(1.0)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::MD)
+            .padding_vertical(space::SM),
+        paint::md(theme.base),
         vec![box_item(input)],
     )?;
     labelled(label, Box::new(boxed), theme)

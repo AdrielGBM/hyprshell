@@ -94,6 +94,16 @@ enum Granularity {
     Chip,
 }
 
+/// What a bar paints its own background with: the token at `[bars] opacity`, or nothing at all while a frame
+/// is up, because the frame draws the ring covering exactly these strips and two fills stacking is a darker
+/// band along every edge they share.
+fn bar_fill(config: &Config, token: Color) -> Color {
+    if config.shape.frame {
+        return Color::TRANSPARENT;
+    }
+    token.with_alpha(config.opacity())
+}
+
 fn build_whole_bar(
     config: &Config,
     chrome: &Chrome,
@@ -102,6 +112,9 @@ fn build_whole_bar(
     ctx: &ModuleCtx,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let Chrome { edge, shape, theme } = *chrome;
+    // With a frame up, the ring it draws already fills the strip this bar sits in. Painting again on top is
+    // what made two translucent fills stack and darken along the edges the two share.
+    let base = bar_fill(config, theme.base);
     let spacing = shape.spacing;
     let mut slots = Vec::with_capacity(3);
     for (entries, in_zone) in zones {
@@ -134,7 +147,7 @@ fn build_whole_bar(
     );
     Ok(Box::new(StyledContainer::new(
         style,
-        move |_r| RectStyle::filled(theme.base, radius),
+        move |_r| RectStyle::filled(base, radius),
         slots,
     )?))
 }
@@ -150,9 +163,10 @@ fn build_units(
     let Chrome { edge, shape, theme } = *chrome;
     let spacing = shape.spacing;
     // Section: modules share a per-zone surface panel (wrapped in `unit`); Chip: each module is its own free-standing pill, no `unit`.
+    let surface = bar_fill(config, theme.surface);
     let (rest, shell_radius) = match granularity {
         Granularity::Section => (Color::TRANSPARENT, shape.chip_radius()),
-        Granularity::Chip => (theme.surface, shape.chip_radius()),
+        Granularity::Chip => (surface, shape.chip_radius()),
     };
     let mut slots = Vec::with_capacity(3);
     for (entries, in_zone) in zones {
@@ -162,7 +176,7 @@ fn build_units(
         } else {
             match granularity {
                 Granularity::Section => {
-                    vec![unit(edge, shape.radius, spacing, theme.surface, items)?]
+                    vec![unit(edge, shape.radius, spacing, surface, items)?]
                 }
                 // The shells already are the chips; place them directly.
                 Granularity::Chip => items,

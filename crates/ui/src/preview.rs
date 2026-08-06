@@ -9,7 +9,9 @@ use std::sync::Arc;
 
 use telar::{PreviewEntry, PreviewSurface};
 
-use config::{Config, Edge, SurfaceEnv, set_surface_env};
+use config::{Config, SurfaceEnv, set_surface_env};
+
+use crate::panel::drawn_edge;
 
 /// The previews this crate registers by hand, because what they draw is built by a Rust function and a
 /// `[preview]` block needs a `.rsx` component to hang off. The app collects these next to every generated
@@ -57,13 +59,4 @@ pub fn bar_chip_with(edit: impl FnOnce(&mut Config)) -> SurfaceEnv {
     };
     set_surface_env(env.clone());
     env
-}
-
-/// The first edge the config puts modules on — the bar the user looks at — falling back to the top for a config
-/// that has no bars at all.
-fn drawn_edge(config: &Config) -> Edge {
-    [Edge::Top, Edge::Bottom, Edge::Left, Edge::Right]
-        .into_iter()
-        .find(|edge| !config.bars.get(*edge).is_empty())
-        .unwrap_or(Edge::Top)
 }

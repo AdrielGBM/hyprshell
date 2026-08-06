@@ -1,5 +1,6 @@
 //! The Dash page: what time it is, what month it is, and whose machine this is.
 
+use ui::scale::{paint, space};
 use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Days, Local, Months, NaiveDate, Weekday};
@@ -63,7 +64,7 @@ fn clock_card(config: ClockConfig, theme: NordTheme) -> Result<Box<dyn LayoutIte
         LayoutStyle::new()
             .flex_column()
             .align_items(AlignItems::CENTER)
-            .gap(2.0)
+            .gap(space::XS)
             .width(SizeDimension::Percent(1.0)),
         vec![box_item(time_text), box_item(date_text)],
     )?;
@@ -91,7 +92,7 @@ fn calendar_card(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![
             step_button("chevron-left", anchor.clone(), -1, theme)?,
@@ -138,13 +139,13 @@ fn step_button(
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
-                .padding_all(4.0)
+                .padding_all(space::SM)
                 .flex_shrink(0.0)
                 .align_items(AlignItems::CENTER),
-            move |_r| RectStyle::filled(Color::TRANSPARENT, 6.0),
+            paint::xs(Color::TRANSPARENT),
             vec![icon],
         )?
-        .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 6.0))
+        .on_hover_style(paint::xs(theme.overlay))
         .on_press(move || anchor.set(shift_months(anchor.peek(), months))),
     ))
 }
@@ -200,7 +201,7 @@ fn month_grid(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(2.0)
+            .gap(space::XS)
             .width(SizeDimension::Percent(1.0)),
         rows,
     )?))
@@ -315,7 +316,7 @@ fn user_card(
     )?;
 
     let labels = Container::new(
-        LayoutStyle::new().flex_column().flex_grow(1.0).gap(2.0),
+        LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::XS),
         vec![
             box_item(name_text),
             box_item(host_text),
@@ -327,7 +328,7 @@ fn user_card(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(14.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         vec![avatar, Box::new(labels)],
     )?;
@@ -402,16 +403,16 @@ fn browser(
     let up = StyledContainer::new(
         LayoutStyle::new()
             .flex_shrink(0.0)
-            .padding_horizontal(8.0)
-            .padding_vertical(4.0),
-        move |_r| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::MD)
+            .padding_vertical(space::SM),
+        paint::md(theme.base),
         vec![icon_view(
             || "corner-left-up".to_string(),
             move || theme.text,
             16.0,
         )?],
     )?
-    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(paint::md(theme.overlay))
     .on_press(move || {
         let here = up_folder.peek();
         if let Some(parent) = here.parent() {
@@ -425,7 +426,7 @@ fn browser(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         move || entries_in(&list_folder.get()),
         |choice: &Choice| choice.path.display().to_string(),
@@ -436,7 +437,7 @@ fn browser(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(up), box_item(path_label)],
     )?;
@@ -444,7 +445,7 @@ fn browser(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(header), Box::new(tiles)],
     )?))
@@ -529,15 +530,15 @@ fn choice_tile(
     let tile = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(4.0)
+            .gap(space::SM)
             .width(PICKER_TILE + 12.0)
-            .padding_all(4.0)
+            .padding_all(space::SM)
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER),
-        move |_r| RectStyle::filled(theme.base, 8.0),
+        paint::md(theme.base),
         vec![picture, box_item(label)],
     )?
-    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(paint::md(theme.overlay))
     .on_press(move || {
         if choice.folder {
             folder.set(choice.path.clone());
@@ -705,7 +706,7 @@ mod tests {
         let root = new_container(
             LayoutStyle::new()
                 .flex_column()
-                .padding_all(16.0)
+                .padding_all(space::XL)
                 .width(380.0)
                 .height(900.0),
             &[card.layout_node()],

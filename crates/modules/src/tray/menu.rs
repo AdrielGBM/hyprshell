@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use telar::{
     AlignItems, Color, Container, LayoutError, LayoutItem, LayoutStyle, Rect, RectStyle,
-    SizeDimension, StyledContainer, Text, box_item, open_surface, set_theme, surface_content,
+    SizeDimension, StyledContainer, Text, box_item,
 };
 
 use config::SurfaceEnv;
@@ -17,6 +17,8 @@ use services::dbusmenu::{self, MenuItem, Toggle};
 use services::tray::TrayItem;
 use ui::anchor::chip_placement;
 use ui::icon::{app_icon_view, icon_view};
+use ui::panel::{PanelSurface, content_radius, panel_fill};
+use ui::scale::{corner, space};
 
 /// The shell's id for the menu surface. One at a time: a second tray menu on screen would be two context
 /// menus at once, which no desktop does.
@@ -78,20 +80,22 @@ pub fn toggle(item: &TrayItem, chip: Rect, env: SurfaceEnv) {
             };
             // Along a horizontal bar the menu's extent is its fixed width; along a vertical one it would be its height, which is content-derived and unknown before layout.
             let span = (!env.edge.is_vertical()).then_some(MENU_WIDTH);
-            let placement = chip_placement(&env, chip, span).hosted_placement();
-            let (edge, output) = (env.edge, env.output.clone());
+            // The placement is built from the bar's own env, so the menu already resolves against the bar its
+            // chip sits on — its radius and fill match the drawer that chip would have opened.
+            let placement = chip_placement(&env, chip, span);
             let (bus, path) = (event_bus.clone(), event_path.clone());
             surfaces::shell::toggle_window(SURFACE_ID, move || {
-                open_surface(
-                    placement,
-                    surface_content(move || {
-                        let config = config::config_for(output.as_deref());
-                        let theme = config.resolve_theme();
-                        set_theme(theme);
-                        menu_view(&root, &bus, &path, theme, config.panel_radius(edge))
-                            .expect("tray menu build failed")
-                    }),
-                )
+                PanelSurface::new(placement, move |env| {
+                    menu_view(
+                        &root,
+                        &bus,
+                        &path,
+                        env.config.resolve_theme(),
+                        content_radius(),
+                    )
+                    .expect("tray menu build failed")
+                })
+                .open()
             });
         },
     );
@@ -109,9 +113,9 @@ fn menu_view(
         LayoutStyle::new()
             .flex_column()
             .width(MENU_WIDTH)
-            .padding_all(6.0)
-            .gap(1.0),
-        move |_| RectStyle::filled(theme.surface, radius),
+            .padding_all(space::MD)
+            .gap(space::XS),
+        move |_| RectStyle::filled(panel_fill(), radius),
         rows,
     )?;
     Ok(Box::new(panel))
@@ -207,19 +211,23 @@ fn row(
         )?);
     }
 
-    let indent = 8.0 + depth as f32 * 14.0;
+    // The row's own half of the panel's inset, so a label lands exactly where a drawer's content does. A
+    // submenu is expanded in place, so each level adds its indent on top of that.
+    let indent = space::MD + depth as f32 * 14.0;
     let style = LayoutStyle::new()
         .flex_row()
         .align_items(AlignItems::CENTER)
-        .gap(8.0)
+        .gap(space::MD)
         .width(SizeDimension::Percent(1.0))
         .height(ROW_HEIGHT)
         .padding_left(indent)
-        .padding_right(8.0);
+        .padding_right(space::MD);
 
+    // Resolved here and captured, not read inside the closures: a style closure runs on every paint.
+    let pill = corner::xs();
     let mut container = StyledContainer::new(
         style,
-        move |_| RectStyle::filled(Color::TRANSPARENT, 6.0),
+        move |_| RectStyle::filled(Color::TRANSPARENT, pill),
         content,
     )?;
 
@@ -228,7 +236,7 @@ fn row(
     if item.is_actionable() {
         let (bus, path, id) = (bus.to_string(), path.to_string(), item.id);
         container = container
-            .on_hover_style(move |_| RectStyle::filled(theme.overlay, 6.0))
+            .on_hover_style(move |_| RectStyle::filled(theme.overlay, pill))
             .on_press(move || {
                 dbusmenu::activate(&bus, &path, id);
                 close();

@@ -15,20 +15,19 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
-use platform_wayland::{LayerConfig, open_surface, timeout};
+use platform_wayland::timeout;
 use telar::{
-    AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
-    LayoutStyle, Rect, SizeDimension, Slots, SurfaceToken, WindowConfig, reset_layout_runtime,
-    set_theme,
+    AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, Rect,
+    SizeDimension, Slots,
 };
 
 use config::theme::NordTheme;
 use config::{Config, Edge};
 use ui::CardFrameProps;
-use ui::module::{SurfaceEnv, set_surface_env};
+use ui::module::SurfaceEnv;
+use ui::panel::PanelSurface;
 use ui::placement::Placement;
 use ui::popouts;
-use ui::surface_root::SurfaceRoot;
 
 /// One popout at a time: a second card on screen would be two readouts competing for the same glance.
 const SURFACE_ID: &str = "popout";
@@ -155,22 +154,22 @@ fn open(module_id: &str, chip: Rect, env: &SurfaceEnv) {
     }
     close();
     STATE.with(|s| s.borrow_mut().target = Some(module_id.to_string()));
-    let app = PopoutApp {
-        module: module_id.to_string(),
-        edge: env.edge,
-        bar_size: env.bar_size,
-        output: env.output.clone(),
-    };
-    let layer = layer_config(env, chip);
+    let module = module_id.to_string();
+    let placement = placement(env, chip);
     crate::shell::toggle_window(SURFACE_ID, move || {
-        SurfaceToken::new(Box::new(open_surface(layer, app)))
+        PanelSurface::new(placement, move |env| {
+            let theme = telar::use_theme::<NordTheme>();
+            popout_content(&module, &env.config, env.edge, theme)
+                .expect("popout content build failed")
+        })
+        .open()
     });
 }
 
 /// The surface is the tallest a popout may be, not the size of this card: a layer surface pinned to two edges
 /// has to name a size, and a card's height is content-derived. `interactive_input_region` is what makes that
 /// affordable — the compositor is handed only the card's own rect, so the surplus stays click-through.
-fn layer_config(env: &SurfaceEnv, chip: Rect) -> LayerConfig {
+fn placement(env: &SurfaceEnv, chip: Rect) -> Placement {
     let popouts = env.config.popouts;
     let (width, height) = (popouts.card_width(), popouts.card_height());
     let span = if env.edge.is_vertical() {
@@ -180,7 +179,6 @@ fn layer_config(env: &SurfaceEnv, chip: Rect) -> LayerConfig {
     };
     Placement::card("hyprshell-popout", env, chip, Some(span))
         .size(width.ceil() as u32, height.ceil() as u32)
-        .layer_config()
 }
 
 /// Which corner of its surface the card sits in — the one the surface is anchored to, so the card lands
@@ -243,44 +241,6 @@ pub fn popout_content(
     Ok(Box::new(Container::new(corner_style(edge), vec![framed])?))
 }
 
-pub struct PopoutApp {
-    pub module: String,
-    pub edge: Edge,
-    pub bar_size: u32,
-    pub output: Option<String>,
-}
-
-impl App for PopoutApp {
-    fn root(&self) -> Box<dyn Component> {
-        reset_layout_runtime();
-        let config = config::config_for(self.output.as_deref());
-        let theme = config.resolve_theme();
-        set_theme(theme);
-        services::locale::attach(config.language());
-        // The card reads config through the same `surface_env` a bar module does, so both resolve the same settings.
-        set_surface_env(SurfaceEnv {
-            edge: self.edge,
-            bar_size: self.bar_size,
-            output: self.output.clone(),
-            config: Arc::clone(&config),
-        });
-        let content = popout_content(&self.module, &config, self.edge, theme)
-            .expect("popout content build failed");
-        Box::new(SurfaceRoot::new(content).expect("popout surface root"))
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        None
-    }
-
-    fn window_config(&self) -> Option<WindowConfig> {
-        Some(WindowConfig {
-            is_transparent: true,
-            ..WindowConfig::default()
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,7 +268,7 @@ mod tests {
     fn the_surface_pins_itself_to_the_bar_edge_and_the_one_it_runs_along() {
         // A margin only positions a layer surface on an edge it is anchored to, so pinning the bar edge alone would centre the popout on screen instead of lining it up with its chip.
         for edge in Edge::ALL {
-            let anchor = layer_config(&env(edge), chip()).anchor;
+            let anchor = placement(&env(edge), chip()).layer_config().anchor;
             assert_eq!(
                 anchor.iter().count(),
                 2,
@@ -319,7 +279,7 @@ mod tests {
 
     #[test]
     fn the_surface_never_reserves_space_or_takes_the_keyboard() {
-        let config = layer_config(&env(Edge::Top), chip());
+        let config = placement(&env(Edge::Top), chip()).layer_config();
         assert_eq!(
             config.exclusive_zone, 0,
             "a popout must not carve space out of the desktop"
@@ -367,7 +327,7 @@ mod tests {
         let config = Config::starter();
         let theme = config.resolve_theme();
         telar::reset_layout_runtime();
-        set_theme(theme);
+        telar::set_theme(theme);
         assert!(popout_content("nothing-registered", &config, Edge::Top, theme).is_ok());
     }
 

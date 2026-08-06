@@ -8,18 +8,16 @@
 
 use std::sync::Arc;
 
-use platform_wayland::{LayerConfig, open_surface};
 use telar::{
-    AlignItems, App, Color, Component, Container, JustifyContent, LayoutError, LayoutItem,
-    LayoutScrollArea, LayoutStyle, RectStyle, SizeDimension, StyledContainer, SurfaceToken, Text,
-    WindowConfig, box_item, reset_layout_runtime, set_theme, use_theme,
+    AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutScrollArea, LayoutStyle,
+    RectStyle, SizeDimension, StyledContainer, SurfaceToken, Text, box_item, use_theme,
 };
 
 use config::Config;
 use config::theme::{FontRole, NordTheme};
-use ui::module::{SurfaceEnv, set_surface_env};
+use ui::panel::{PanelSurface};
+use ui::scale::{corner, space};
 use ui::placement::Placement;
-use ui::surface_root::SurfaceRoot;
 
 pub const ID: &str = "sidebar";
 
@@ -47,59 +45,20 @@ pub fn is_open() -> bool {
 fn open_sidebar() -> SurfaceToken {
     let config = config::config().unwrap_or_else(|| Arc::new(Config::default()));
     let output = surfaces::shell::focused_output();
-    // `open_surface` on the platform crate rather than `telar::open_surface`: this is a full-height docked surface
-    // with its own layer and anchor, not one of the placements the surface host describes.
-    let handle = open_surface(layer_config(&config, output.clone()), SidebarApp { output });
-    // Wrapped as a token so the shell's own registry owns it like any other panel: `SurfaceHandle` already
-    // implements the control trait the token wants, which is what lets a platform surface be toggled by id.
-    SurfaceToken::new(Box::new(handle))
+    PanelSurface::new(placement(&config, output), |env| {
+        body(&env.config).expect("sidebar build failed")
+    })
+    .open()
 }
 
 /// A dock: spans its edge over the windows, at the shared panel margin off them. The zone a dock takes is
 /// zero, not -1 — the compositor has already cleared the bars, and the margin is the only extra distance a
 /// panel of any kind puts between itself and them.
-fn layer_config(config: &Config, output: Option<String>) -> LayerConfig {
+fn placement(config: &Config, output: Option<String>) -> Placement {
     let sidebar = &config.sidebar;
     Placement::dock("hyprshell-sidebar", sidebar.edge, sidebar.thickness())
         .margin(config.panel_margin(sidebar.edge))
         .output(output)
-        .layer_config()
-}
-
-struct SidebarApp {
-    output: Option<String>,
-}
-
-impl App for SidebarApp {
-    fn root(&self) -> Box<dyn Component> {
-        reset_layout_runtime();
-        let config = config::config_for(self.output.as_deref());
-        let theme = config.resolve_theme();
-        set_theme(theme);
-        services::locale::attach(config.language());
-        // The panels this surface hosts read their settings off the surface env, exactly as they do inside a bar's
-        // drawer — without it the history would fall back to defaults while the drawer used the user's config.
-        set_surface_env(SurfaceEnv {
-            edge: config.sidebar.edge,
-            bar_size: config.bars.get(config.sidebar.edge).size,
-            output: self.output.clone(),
-            config: Arc::clone(&config),
-        });
-        surfaces::drawer::set_content_radius(config.panel_radius(config.sidebar.edge));
-        let content = body(&config).expect("sidebar build failed");
-        Box::new(SurfaceRoot::new(content).expect("sidebar surface root"))
-    }
-
-    fn clear_color(&self) -> Option<Color> {
-        None
-    }
-
-    fn window_config(&self) -> Option<WindowConfig> {
-        Some(WindowConfig {
-            is_transparent: true,
-            ..WindowConfig::default()
-        })
-    }
 }
 
 fn body(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
@@ -117,7 +76,7 @@ fn body(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(14.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?;
@@ -134,7 +93,7 @@ fn body(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .padding_all(16.0)
+            .padding_all(space::XL)
             .width(SizeDimension::Percent(1.0))
             .height(SizeDimension::Percent(1.0)),
         move |_| RectStyle::filled(surfaces::drawer::panel_fill(), radius),
@@ -159,16 +118,17 @@ fn header(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
         },
     )?;
     let glyph = ui::icon::icon_view(|| "x".to_string(), move || theme.text, 18.0)?;
+    let rounded = corner::md();
     let close_button = StyledContainer::new(
         LayoutStyle::new()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER)
-            .padding_all(6.0)
+            .padding_all(space::MD)
             .flex_shrink(0.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+        move |_| RectStyle::filled(theme.base, rounded),
         vec![glyph],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, rounded))
     // Through the registry rather than `request_close`, so `panel list` and a second `notifs center` agree with
     // what is on screen the moment the button is pressed.
     .on_press(close);
@@ -177,7 +137,7 @@ fn header(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![box_item(title), Box::new(close_button)],
     )?))
@@ -202,7 +162,7 @@ mod tests {
     #[test]
     fn the_centre_docks_full_length_on_every_edge() {
         for edge in Edge::ALL {
-            let layer = layer_config(&config(edge), None);
+            let layer = placement(&config(edge), None).layer_config();
             let (across, along) = if edge.is_vertical() {
                 (layer.size.0, layer.size.1)
             } else {
@@ -237,7 +197,7 @@ mod tests {
         telar::set_theme(NordTheme::new());
         assert!(header(NordTheme::new()).is_ok());
 
-        let layer = layer_config(&config(Edge::Right), None);
+        let layer = placement(&config(Edge::Right), None).layer_config();
         assert!(
             matches!(layer.keyboard_interactivity, KeyboardInteractivity::None),
             "a centre held open while the user types must not hold their keyboard — which is exactly why it \

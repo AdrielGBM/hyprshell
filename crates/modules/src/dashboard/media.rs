@@ -5,6 +5,7 @@
 //! shell several times a second for a number no bar chip shows. This page therefore owns the only ticker, at
 //! the rate `[dashboard] media_update_interval` sets, and it dies with the surface.
 
+use ui::scale::{paint, space};
 use std::time::Duration;
 
 use telar::{
@@ -179,7 +180,7 @@ fn lyrics_card(
             Ok(Box::new(ReactiveList::with_style(
                 LayoutStyle::new()
                     .flex_column()
-                    .gap(2.0)
+                    .gap(space::XS)
                     .width(SizeDimension::Percent(1.0)),
                 source,
                 |line: &LyricLine| line.key(),
@@ -260,12 +261,12 @@ fn now_playing(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(14.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         vec![
             cover(player.clone(), config, theme)?,
             Box::new(Container::new(
-                LayoutStyle::new().flex_column().flex_grow(1.0).gap(4.0),
+                LayoutStyle::new().flex_column().flex_grow(1.0).gap(space::SM),
                 vec![
                     text(title, theme.font(FontRole::Title), theme.text, true)?,
                     text(artist, theme.font(FontRole::Body), theme.subtle, false)?,
@@ -373,7 +374,7 @@ fn placeholder(theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
             .flex_shrink(0.0)
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER),
-        move |_r| RectStyle::filled(theme.overlay, 8.0),
+        paint::md(theme.overlay),
         vec![icon],
     )?))
 }
@@ -408,7 +409,7 @@ fn scrubber(
     let track = StyledContainer::new(
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
-            .padding_vertical(6.0),
+            .padding_vertical(space::MD),
         move |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
         vec![bar],
     )?;
@@ -435,7 +436,7 @@ fn scrubber(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(2.0)
+            .gap(space::XS)
             .width(SizeDimension::Percent(1.0)),
         vec![
             Box::new(track),
@@ -524,7 +525,7 @@ fn transport(
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER)
-            .gap(10.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         buttons,
     )?))
@@ -547,13 +548,13 @@ fn button(
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
-                .padding_all(6.0)
+                .padding_all(space::MD)
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER),
-            move |_r| RectStyle::filled(Color::TRANSPARENT, 8.0),
+            paint::md(Color::TRANSPARENT),
             vec![icon],
         )?
-        .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+        .on_hover_style(paint::md(theme.overlay))
         .on_press(action),
     ))
 }

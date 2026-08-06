@@ -15,6 +15,7 @@ mod media;
 mod performance;
 mod weather;
 
+use ui::scale::{corner, paint, space};
 use std::sync::Arc;
 
 use platform_wayland::EventSender;
@@ -98,7 +99,7 @@ pub fn dashboard_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         vec![strip(&tabs, active, theme)?, Box::new(body)],
     )?))
@@ -138,7 +139,7 @@ fn strip(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_row()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         pills,
     )?))
@@ -176,6 +177,7 @@ fn pill(
         },
     )?;
 
+    let rounded = corner::md();
     Ok(Box::new(
         StyledContainer::new(
             LayoutStyle::new()
@@ -184,20 +186,20 @@ fn pill(
                 .flex_basis(0.0)
                 .align_items(AlignItems::CENTER)
                 .justify_content(JustifyContent::CENTER)
-                .gap(6.0)
-                .padding_vertical(7.0)
-                .padding_horizontal(8.0),
+                .gap(space::MD)
+                .padding_vertical(space::MD)
+                .padding_horizontal(space::MD),
             move |_r| {
                 let fill = if fill_state.get() == tab {
                     theme.accent
                 } else {
                     Color::TRANSPARENT
                 };
-                RectStyle::filled(fill, 8.0)
+                RectStyle::filled(fill, rounded)
             },
             vec![icon, box_item(label)],
         )?
-        .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+        .on_hover_style(paint::md(theme.overlay))
         // Through the store, not the local signal: a click and `hyprshell dashboard tab …` must land in the
         // same place, and the watch above is what brings the change back to this surface.
         .on_press(move || set_tab(tab)),

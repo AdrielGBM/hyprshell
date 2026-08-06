@@ -12,6 +12,7 @@ use telar::{
 use config::theme::{FontRole, NordTheme};
 use services::notes::{self, Note};
 use surfaces::drawer::content_radius;
+use ui::scale::{corner, space};
 use ui::icon::{icon_picker_overlay, icon_view};
 use ui::module::{icon_px, module_fg, surface_env};
 
@@ -55,7 +56,7 @@ pub fn notes_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let panel = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         vec![header, list],
     )?;
@@ -83,7 +84,7 @@ fn header(state: &PanelState, theme: NordTheme) -> Result<Box<dyn LayoutItem>, L
             .flex_row()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::SPACE_BETWEEN)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(title), add],
     )?;
@@ -101,12 +102,12 @@ fn note_list(
         move || notes.get(),
         |n: &Note| n.id,
         move |note: Note| note_card(&build_state, note, theme, radius),
-        8.0,
+        space::MD,
     )?;
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![Box::new(list) as Box<dyn LayoutItem>],
     )?;
@@ -135,12 +136,14 @@ fn note_card(
         let picking = picking.clone();
         move || picking.update(|p| *p = !*p)
     };
+    // Resolved once and captured: a style closure runs on every paint, and the lookup behind it is not free.
+    let rounded = corner::md();
     let icon_button = StyledContainer::new(
         square_style(),
-        move |_| RectStyle::filled(theme.base, 8.0),
+        move |_| RectStyle::filled(theme.base, rounded),
         vec![icon_view(glyph, move || theme.text, 20.0)?],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, rounded))
     .on_press(toggle_picking);
     // The icon button anchors the picker overlay; its rect (filled in by layout) positions the popover.
     let trigger_node = icon_button.layout_node();
@@ -160,19 +163,20 @@ fn note_card(
     .placeholder(telar::t!("notes.title_placeholder"));
 
     let delete_state = state.clone();
+    let rounded = corner::md();
     let delete = StyledContainer::new(
         square_style(),
-        move |_| RectStyle::filled(theme.base, 8.0),
+        move |_| RectStyle::filled(theme.base, rounded),
         vec![icon_view(|| "x".to_string(), move || theme.muted, 16.0)?],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, rounded))
     .on_press(move || delete_note(&delete_state, id));
 
     let row = Container::new(
         LayoutStyle::new()
             .flex_row()
             .align_items(AlignItems::CENTER)
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![
             Box::new(icon_button),
@@ -191,8 +195,8 @@ fn note_card(
     let card = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
-            .padding_all(12.0)
+            .gap(space::MD)
+            .padding_all(space::LG)
             .width(SizeDimension::Percent(1.0)),
         move |_| RectStyle::filled(theme.surface, radius),
         vec![
@@ -308,14 +312,15 @@ fn pill_button(
     let text = Text::auto(label, LayoutStyle::new(), move || {
         theme.text_style(FontRole::Caption, theme.text)
     })?;
+    let rounded = corner::md();
     let pill = StyledContainer::new(
         LayoutStyle::new()
-            .padding_horizontal(10.0)
-            .padding_vertical(5.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::SM),
+        move |_| RectStyle::filled(theme.base, rounded),
         vec![Box::new(text) as Box<dyn LayoutItem>],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, rounded))
     .on_press(on_press);
     Ok(Box::new(pill))
 }

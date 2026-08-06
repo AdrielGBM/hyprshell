@@ -1,5 +1,6 @@
 //! The power chip and the menu it opens.
 
+use ui::scale::{corner, space};
 use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
@@ -57,7 +58,7 @@ pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(8.0)
+            .gap(space::MD)
             .justify_content(JustifyContent::CENTER)
             .width(SizeDimension::Percent(1.0)),
         tiles,
@@ -66,7 +67,7 @@ pub fn session_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let panel = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(12.0)
+            .gap(space::LG)
             .width(SizeDimension::Percent(1.0)),
         |_| RectStyle::default(),
         vec![box_item(title), box_item(grid)],
@@ -203,14 +204,15 @@ fn tile(
         },
     )?;
 
+    let rounded = corner::xl();
     let tile = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER)
-            .gap(6.0)
+            .gap(space::MD)
             .width(88.0)
-            .padding_vertical(12.0),
+            .padding_vertical(space::LG),
         move |_| {
             // Armed wins over selected: a tile one press from ending the session must not be mistaken for one the cursor is merely resting on.
             let fill = if armed_fill.get() == id {
@@ -220,7 +222,7 @@ fn tile(
             } else {
                 theme.base
             };
-            RectStyle::filled(fill, 10.0)
+            RectStyle::filled(fill, rounded)
         },
         vec![icon, box_item(caption)],
     )?
@@ -232,7 +234,7 @@ fn tile(
         } else {
             theme.overlay
         };
-        RectStyle::filled(fill, 10.0)
+        RectStyle::filled(fill, rounded)
     });
     // No press handler at all, rather than one that returns early: a tile with nothing behind it should not
     // take the click away from the surface either.

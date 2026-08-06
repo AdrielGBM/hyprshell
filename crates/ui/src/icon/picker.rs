@@ -1,3 +1,4 @@
+use crate::scale::{paint, space};
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -57,10 +58,10 @@ pub fn icon_picker_overlay(
         LayoutStyle::new()
             .flex_column()
             .width(PANEL_WIDTH)
-            .padding_all(8.0)
+            .padding_all(space::MD)
             .margin_left(anchor.x)
             .margin_top(anchor.y + anchor.height + 4.0),
-        move |_| RectStyle::filled(theme.surface, 10.0),
+        paint::xl(theme.surface),
         vec![picker_body(theme, pick)?],
     )?
     // Swallow presses on the panel so they don't fall through to the backdrop and dismiss it.
@@ -102,7 +103,7 @@ fn picker_body(
     let column = Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![search, Box::new(scroll)],
     )?;
@@ -309,14 +310,14 @@ fn cell(
             .flex_shrink(0.0)
             .align_items(AlignItems::CENTER)
             .justify_content(JustifyContent::CENTER),
-        move |_| RectStyle::filled(theme.base, 8.0),
+        paint::md(theme.base),
         vec![icon_view(
             move || id_icon.clone(),
             move || theme.text,
             ICON,
         )?],
     )?
-    .on_hover_style(move |_| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(paint::md(theme.overlay))
     .on_press(move || pick(id.clone()));
     Ok(Box::new(button))
 }
@@ -337,9 +338,9 @@ fn search_box(
         LayoutStyle::new()
             .flex_row()
             .width(SizeDimension::Percent(1.0))
-            .padding_horizontal(10.0)
-            .padding_vertical(8.0),
-        move |_| RectStyle::filled(theme.base, 8.0),
+            .padding_horizontal(space::LG)
+            .padding_vertical(space::MD),
+        paint::md(theme.base),
         vec![box_item(input)],
     )?;
     Ok(Box::new(boxed))
@@ -353,7 +354,7 @@ fn message(
         theme.text_style(FontRole::Caption, theme.muted)
     })?;
     let wrap = Container::new(
-        LayoutStyle::new().padding_all(12.0),
+        LayoutStyle::new().padding_all(space::LG),
         vec![Box::new(label) as Box<dyn LayoutItem>],
     )?;
     Ok(Box::new(wrap))
@@ -388,8 +389,8 @@ pub(crate) fn grid_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
         LayoutStyle::new()
             .flex_column()
             .width(PANEL_WIDTH)
-            .padding_all(8.0),
-        move |_| RectStyle::filled(theme.surface, 10.0),
+            .padding_all(space::MD),
+        paint::xl(theme.surface),
         vec![Box::new(scroll)],
     )?))
 }
@@ -526,7 +527,7 @@ mod tests {
 
         let trigger = StyledContainer::new(
             LayoutStyle::new().width(36.0).height(36.0),
-            move |_| RectStyle::filled(theme.base, 8.0),
+            paint::md(theme.base),
             vec![],
         )
         .expect("trigger");
@@ -601,8 +602,8 @@ mod tests {
                     LayoutStyle::new()
                         .flex_column()
                         .width(PANEL_WIDTH)
-                        .padding_all(8.0),
-                    move |_| RectStyle::filled(theme.surface, 10.0),
+                        .padding_all(space::MD),
+                    paint::xl(theme.surface),
                     vec![Box::new(scroll)],
                 )?
                 .on_press(|| {});
@@ -646,7 +647,7 @@ mod tests {
         set_theme(theme);
         let trigger = StyledContainer::new(
             LayoutStyle::new().width(36.0).height(36.0),
-            move |_| RectStyle::filled(theme.base, 8.0),
+            paint::md(theme.base),
             vec![],
         )
         .expect("trigger");

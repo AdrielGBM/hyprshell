@@ -11,6 +11,7 @@
 
 mod capture;
 
+use ui::scale::{paint, space};
 use telar::{
     AlignItems, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
     RwSignal, SizeDimension, StyledContainer, Text, box_item, signal, use_theme,
@@ -231,7 +232,7 @@ pub fn utilities_panel() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(14.0)
+            .gap(space::XL)
             .width(SizeDimension::Percent(1.0)),
         children,
     )?))
@@ -245,9 +246,9 @@ pub(crate) fn panel_preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
     Ok(Box::new(StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .padding_all(16.0)
+            .padding_all(space::XL)
             .width(420.0),
-        move |_| RectStyle::filled(theme.surface, 14.0),
+        paint::xl(theme.surface),
         vec![utilities_panel()?],
     )?))
 }
@@ -362,7 +363,7 @@ fn tile(quick: Quick, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutErr
         LayoutStyle::new()
             .flex_column()
             .align_items(AlignItems::CENTER)
-            .gap(4.0),
+            .gap(space::SM),
         vec![icon, box_item(label), box_item(detail)],
     )?;
 
@@ -373,8 +374,8 @@ fn tile(quick: Quick, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutErr
             .justify_content(JustifyContent::CENTER)
             .flex_grow(1.0)
             .flex_basis(0.0)
-            .padding_vertical(12.0)
-            .padding_horizontal(6.0),
+            .padding_vertical(space::LG)
+            .padding_horizontal(space::MD),
         move |_| {
             let state = fill_state.get();
             let fill = if state.active && !quick.is_action() {

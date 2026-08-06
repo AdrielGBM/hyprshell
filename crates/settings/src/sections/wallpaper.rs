@@ -3,6 +3,7 @@
 //! What is left here is the forms this area cannot say in `.rsx`: the ones whose rows are a list the machine
 //! decides the length of. The static-shape forms are `.rsx` components beside this file.
 
+use ui::scale::{corner, paint, space};
 use std::path::{Path, PathBuf};
 
 use telar::{
@@ -106,7 +107,7 @@ pub(crate) fn wallpaper_browser_section() -> Result<Box<dyn LayoutItem>, LayoutE
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![
             section_label(|| telar::t!("settings.section.library"), theme)?,
@@ -181,7 +182,7 @@ fn wallpaper_group(
         LayoutStyle::new()
             .flex_row()
             .flex_wrap()
-            .gap(8.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         tiles,
     )?;
@@ -200,7 +201,7 @@ fn wallpaper_group(
     Ok(Box::new(Container::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(6.0)
+            .gap(space::MD)
             .width(SizeDimension::Percent(1.0)),
         vec![heading, Box::new(grid)],
     )?))
@@ -235,21 +236,22 @@ fn wallpaper_tile(
 
     let path = entry.path.clone();
     let chosen = entry.path.clone();
+    let rounded = corner::md();
     let tile = StyledContainer::new(
         LayoutStyle::new()
             .flex_column()
-            .gap(4.0)
+            .gap(space::SM)
             .width(WALL_TILE + 8.0)
-            .padding_all(4.0)
+            .padding_all(space::SM)
             .align_items(AlignItems::CENTER),
         move |_r| {
             let is_current = current.get().as_deref() == Some(path.as_path());
             let fill = if is_current { theme.accent } else { theme.base };
-            RectStyle::filled(fill, 8.0)
+            RectStyle::filled(fill, rounded)
         },
         vec![picture, box_item(label)],
     )?
-    .on_hover_style(move |_r| RectStyle::filled(theme.overlay, 8.0))
+    .on_hover_style(paint::md(theme.overlay))
     .on_press(move || services::wallpaper::set(&chosen, None));
     Ok(Box::new(tile))
 }

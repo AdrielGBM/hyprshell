@@ -2,9 +2,10 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Duration;
 
-use telar::{LayoutItem, SurfaceToken, open_surface, set_theme, surface_content};
+use telar::{LayoutItem, SurfaceToken, set_theme};
 
 use config::theme::NordTheme;
+use ui::panel::PanelSurface;
 use ui::placement::Placement;
 
 const OSD_W: u32 = 280;
@@ -18,12 +19,11 @@ pub enum OsdKind {
     Microphone,
 }
 
-/// The per-OSD-surface context (which state it reflects, and the bar-matching corner radius), provided into the
-/// OSD surface's scope so `osd.rsx` reads it via `inject` — scoped to the surface, not a global thread-local.
+/// Which state the OSD being built reflects, provided into its surface's scope so `osd.rsx` reads it via
+/// `inject` — scoped to the surface, not a global thread-local.
 #[derive(Clone, Copy)]
 struct OsdCtx {
     kind: OsdKind,
-    radius: f32,
 }
 
 /// The kind the OSD being built reflects; read by `osd.rsx`.
@@ -33,18 +33,16 @@ pub fn current_osd_kind() -> OsdKind {
         .unwrap_or(OsdKind::Volume)
 }
 
-/// The corner radius the OSD being built uses (the bar's); read by `osd.rsx`.
+/// The corner radius the OSD being built uses — the bar's, like every other panel's; read by `osd.rsx`.
 pub fn current_osd_radius() -> f32 {
-    util::state::context::<OsdCtx>()
-        .map(|ctx| ctx.radius)
-        .unwrap_or(16.0)
+    ui::panel::content_radius()
 }
 
-/// Builds the OSD's content tree for `kind`/`theme`/`radius` (declared in `osd.rsx`), putting both in scope for
-/// it first — which is why the surface calls this rather than the component directly.
-pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme, radius: f32) -> Box<dyn LayoutItem> {
+/// Builds the OSD's content tree for `kind`/`theme` (declared in `osd.rsx`), putting both in scope for it
+/// first — which is why the surface calls this rather than the component directly.
+pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme) -> Box<dyn LayoutItem> {
     set_theme(theme);
-    util::state::set_context(OsdCtx { kind, radius });
+    util::state::set_context(OsdCtx { kind });
     crate::osd().expect("osd content build failed")
 }
 
@@ -69,7 +67,6 @@ pub fn show(kind: OsdKind) {
         Some(env) => env.output.clone(),
         None => surfaces::shell::focused_output(),
     };
-    let output_for = output.clone();
     // The shared panel gap. The surface's exclusive_zone=0 already clears the bar via the compositor, so this is only the extra gap beyond it — same rule the drawer and notifications use.
     let inset = config
         .as_ref()
@@ -79,24 +76,15 @@ pub fn show(kind: OsdKind) {
     let placement = Placement::flash(osd.edge, osd.align, Duration::from_millis(osd.timeout_ms))
         .size(OSD_W, OSD_H)
         .inset(inset)
-        .output(output)
-        .hosted_placement();
+        .output(output);
     OPEN_OSD.with(|slot| {
         *slot.borrow_mut() = None; // drop the previous token → closes whatever OSD was up
-        let token = open_surface(
-            placement,
-            // The screen it landed on is fixed for its short life; its look is not, so it is resolved per
-            // build — an OSD still up when the theme changes is rebuilt in the new one rather than left
-            // behind in the old.
-            surface_content(move || {
-                let config = config::config_for(output_for.as_deref());
-                osd_content(
-                    kind,
-                    config.resolve_theme(),
-                    config.panel_radius(config.osd.edge),
-                )
-            }),
-        );
+        // The screen it landed on is fixed for its short life; its look is not, so it is resolved per build —
+        // an OSD still up when the theme changes is rebuilt in the new one rather than left behind in the old.
+        let token = PanelSurface::new(placement, move |env| {
+            osd_content(kind, env.config.resolve_theme())
+        })
+        .open();
         *slot.borrow_mut() = Some(token);
     });
 }
