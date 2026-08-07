@@ -15,6 +15,7 @@ status mirrors that — see [Scripting](../guides/scripting.md).
 | `ping` |  | check the shell is alive |
 | `version` |  | the running build's version |
 | `reload` |  | re-read config.toml and rebuild every surface |
+| `status` |  | what the shell is holding: surfaces, threads and running services |
 | `outputs` |  | list the compositor's monitors |
 | `screens` |  | the compositor's monitors with mode, scale and make |
 | `clients` |  | every open window: address, workspace, class and title |

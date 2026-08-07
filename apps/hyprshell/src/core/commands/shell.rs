@@ -31,6 +31,12 @@ pub(crate) const SHELL: Target = Target {
             },
         },
         Command {
+            name: "status",
+            args: "",
+            help: "what the shell is holding: surfaces, threads and running services",
+            run: |_| Ok(status()),
+        },
+        Command {
             name: "outputs",
             args: "",
             help: "list the compositor's monitors",
@@ -314,6 +320,34 @@ pub(crate) const DEPS: Target = Target {
         },
     ],
 };
+
+/// What the shell is holding right now, as a census a script can diff.
+///
+/// The shell's standing rule is that nothing runs, and nothing is resident, unless something is asking for it —
+/// and unmeasured that regresses silently: a module switched off in a reload leaving its poller reading the
+/// system for nobody is invisible from the outside, and was only ever findable in `top`. Every number here is
+/// counted from the thing itself rather than tracked alongside it, so none of them can drift from what is true.
+fn status() -> String {
+    let services = util::broadcast::running_services();
+    let mut out = format!(
+        "surfaces  {}\nthreads   {}\nservices  {}\n",
+        platform_wayland::live_surfaces(),
+        live_threads()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        services.len()
+    );
+    for service in services {
+        out.push_str(&format!("          {service}\n"));
+    }
+    out
+}
+
+/// Threads in this process, counted from the kernel rather than from anything the shell bookkeeps — a thread
+/// leaked by a library the shell only calls into still shows up here.
+fn live_threads() -> Option<usize> {
+    Some(std::fs::read_dir("/proc/self/task").ok()?.count())
+}
 
 /// One line per dependency: whether it is there, what it is for, and — when it is not — what that costs.
 ///
