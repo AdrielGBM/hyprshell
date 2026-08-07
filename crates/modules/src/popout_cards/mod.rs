@@ -69,7 +69,7 @@ fn audio_card(side: AudioSide, config: &Config, theme: NordTheme) -> Card {
     match side {
         AudioSide::Output => platform_wayland::watch(volume::subscribe, move |v| sink.set(v)),
         AudioSide::Input => platform_wayland::watch(volume::subscribe_mic, move |v| sink.set(v)),
-    }
+    };
 
     // Which device the level belongs to. The chip is one glyph for whatever happens to be default, and after a
     // headset is plugged in "is this the speakers or the headphones" is the question the hover is asked.

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use telar::{
@@ -18,7 +18,7 @@ use telar::{
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState, Region};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::channel::{
-    Event as ChannelEvent, Sender as ChannelSender, channel,
+    Channel, Event as ChannelEvent, Sender as ChannelSender, channel,
 };
 use smithay_client_toolkit::reexports::calloop::ping::make_ping;
 use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
@@ -100,6 +100,17 @@ fn track_source(token: RegistrationToken) {
             sink.borrow_mut().push(token);
         }
     });
+}
+
+/// Wayland surfaces the driver is holding, refreshed once a turn. An atomic rather than a thread-local because
+/// the point is to be readable as a number without being on the driver thread, which is what makes a surface
+/// leak observable from a script instead of from `top`.
+static LIVE_SURFACES: AtomicUsize = AtomicUsize::new(0);
+
+/// How many surfaces are mapped right now — every bar, panel, drawer and popup the driver holds, not just the
+/// ones a user opened. Reported by `shell status`.
+pub fn live_surfaces() -> usize {
+    LIVE_SURFACES.load(Ordering::Relaxed)
 }
 
 /// Registers a closure to run once on the driver thread just after its loop is set up (its `LOOP_HANDLE` and
@@ -222,37 +233,114 @@ pub fn timeout(delay: Duration, callback: impl FnOnce() + 'static) {
     });
 }
 
-pub struct EventSender<T>(ChannelSender<T>);
+pub struct EventSender<T> {
+    channel: ChannelSender<T>,
+    receiver: Weak<()>,
+}
 
 impl<T> EventSender<T> {
     pub fn send(&self, event: T) -> bool {
-        self.0.send(event).is_ok()
+        self.channel.send(event).is_ok()
     }
+
+    /// Whether the surface on the other end still exists — asked *without* sending anything.
+    ///
+    /// A failed `send` answers the same question and was the only way to ask it, which meant a service could
+    /// not discover it was unwanted without first doing the work of a reading: the producer that nobody is
+    /// listening to is precisely the one that must not take one. The strong half of this handle lives in the
+    /// loop source's callback, so removing that source with its surface is what makes this `false`.
+    pub fn alive(&self) -> bool {
+        self.receiver.strong_count() > 0
+    }
+}
+
+/// The receiving end of a [`detached`] subscription, held by the caller instead of by a loop source.
+pub struct Subscription<T> {
+    channel: Channel<T>,
+    /// Never read — holding it is the point. The sender's weak twin dies when this drops, which is what makes
+    /// `EventSender::alive` answer `false`.
+    #[allow(dead_code)]
+    receiver: Arc<()>,
+}
+
+impl<T> Subscription<T> {
+    /// The next value the producer sent, or `None` if it has not sent one yet.
+    pub fn try_recv(&self) -> Option<T> {
+        self.channel.try_recv().ok()
+    }
+}
+
+/// A subscription with no surface behind it: the caller holds the receiving end itself, and the producer's
+/// sender reports itself dead once that end is dropped. What stands in for a surface where there is no event
+/// loop to file one against — a test, or a producer consuming another service.
+pub fn detached<T>() -> (EventSender<T>, Subscription<T>) {
+    let (tx, rx) = channel::<T>();
+    let receiver = Arc::new(());
+    let sender = EventSender {
+        channel: tx,
+        receiver: Arc::downgrade(&receiver),
+    };
+    (
+        sender,
+        Subscription {
+            channel: rx,
+            receiver,
+        },
+    )
 }
 
 /// Runs `producer` on its own thread and delivers what it sends to `on_event` on the loop thread. Bound to the
 /// surface that registered it: tearing that surface down removes the channel source, which drops the receiver
-/// so the producer's next `send` fails and it winds itself down (every producer here checks that result).
-pub fn watch<T, P, F>(producer: P, mut on_event: F)
+/// so the producer's next `send` fails and it winds itself down (every producer here checks that result), and
+/// makes [`EventSender::alive`] answer `false` so a producer with nothing left to feed can retire before it
+/// takes another reading.
+///
+/// Returns a handle to the registration for the app-level caller that has to be able to take it back — a watcher
+/// installed from the config, which a reload may switch off. A caller inside a surface can ignore it: the
+/// surface's own teardown already removes the source.
+pub fn watch<T, P, F>(producer: P, mut on_event: F) -> Option<WatchToken>
 where
     T: Send + 'static,
     P: FnOnce(EventSender<T>) + Send + 'static,
     F: FnMut(T) + 'static,
 {
     LOOP_HANDLE.with(|h| {
-        if let Some(handle) = h.borrow().as_ref() {
-            let (tx, rx) = channel::<T>();
-            let _ = std::thread::Builder::new()
-                .name("hyprshell-watch".to_string())
-                .spawn(move || producer(EventSender(tx)));
-            let registered = handle.insert_source(rx, move |event, _meta, _state: &mut Driver| {
-                if let ChannelEvent::Msg(item) = event {
-                    on_event(item);
-                }
-            });
-            if let Ok(token) = registered {
-                track_source(token);
+        let handle = h.borrow();
+        let handle = handle.as_ref()?;
+        let (tx, rx) = channel::<T>();
+        let receiver = Arc::new(());
+        let sender = EventSender {
+            channel: tx,
+            receiver: Arc::downgrade(&receiver),
+        };
+        let _ = std::thread::Builder::new()
+            .name("hyprshell-watch".to_string())
+            .spawn(move || producer(sender));
+        let registered = handle.insert_source(rx, move |event, _meta, _state: &mut Driver| {
+            // Owned by this callback so it dies with the source: that is what `EventSender::alive` reads.
+            let _ = &receiver;
+            if let ChannelEvent::Msg(item) = event {
+                on_event(item);
             }
+        });
+        let token = registered.ok()?;
+        track_source(token);
+        Some(WatchToken(token))
+    })
+}
+
+/// A [`watch`] registration, so the caller that installed it can take it back.
+pub struct WatchToken(RegistrationToken);
+
+/// Removes a [`watch`], dropping the channel that fed it. The producer's next `send` fails and
+/// `EventSender::alive` turns false, so the service behind it winds down too — which is the point: switching a
+/// watcher off has to stop the thing it started, not just stop listening to it.
+///
+/// Must run on the driver thread, which is where every `watch` callback and every config reload already runs.
+pub fn unwatch(token: WatchToken) {
+    LOOP_HANDLE.with(|h| {
+        if let Some(handle) = h.borrow().as_ref() {
+            handle.remove(token.0);
         }
     });
 }
@@ -1095,6 +1183,7 @@ where
             tear_down(entry, &loop_handle);
         }
 
+        LIVE_SURFACES.store(driver.surfaces.len(), Ordering::Relaxed);
         next_timeout = min_timeout;
     }
 
