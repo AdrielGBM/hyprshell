@@ -1,10 +1,10 @@
-use ui::scale::paint;
 use std::rc::Rc;
+use ui::scale::paint;
 
-use platform_wayland::{request_close, request_size};
+use platform_wayland::request_close;
 use telar::{
-    LayoutError, LayoutItem, LayoutStyle, StyledContainer, SurfaceFrameStyle,
-    SurfaceToken, box_item, surface_frame, use_theme,
+    LayoutError, LayoutItem, LayoutStyle, StyledContainer, SurfaceFrameStyle, SurfaceToken,
+    box_item, surface_frame, use_theme,
 };
 
 use crate::drawer::{content_radius, module_panel, panel_wants_keyboard};
@@ -15,9 +15,16 @@ use ui::placement::{Centred, Placement};
 
 /// Opens `module_id`'s panel as a centred, titled, closable window on the bar's own monitor, sized per its `[modules.<id>]` override or `[panels.float]`; the shell only declares the placement, the rsx surface host and `surface_frame` realize the window chrome. Toggle/close is the caller's job ([`crate::panel::toggle_panel`]) via the returned token.
 ///
-/// `[modules.<id>]` (or `[panels.float]`) is the size the window *opens* at, not the size it is stuck at: the
-/// frame's corner grip renegotiates the layer surface as it is dragged. That size lasts as long as the window
-/// does and is deliberately not written back — persisting it would mean a config write, and a reload, per drag.
+/// `[modules.<id>]` (or `[panels.float]`) is the size the window opens at, and for now the size it keeps.
+///
+/// **The corner grip is gone until this is an xdg toplevel.** Dragging one costs a swapchain rebuild per
+/// step, and a rebuild is a `vkDeviceWaitIdle` on the device every surface shares — measured at ~11 ms
+/// against ~1.5 ms to draw the frame. Making that cheaper means not rebuilding on every step, which means
+/// holding the layout still for a moment; and a layer surface has no interactive-resize protocol, so the grip
+/// is the client's own — it reads laid-out rects, and the pointer only reaches it through an input region
+/// built from that same laid-out tree. Holding the layout holds the pointer, and the drag then advances at
+/// the throttle's pace rather than the cursor's. `xdg_toplevel.resize` gives the grab and the sizing to the
+/// compositor, which unties it.
 pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
     let module = module_id.to_string();
     let (width, height) = env.config.float_size_for(module_id);
@@ -40,11 +47,7 @@ pub(crate) fn open_float(env: &SurfaceEnv, module_id: &str) -> SurfaceToken {
             font_size: theme.font(FontRole::Title),
         };
         let close: Rc<dyn Fn()> = Rc::new(request_close);
-        // The grip hands back the size the *surface* should take; rounding up rather than down keeps a half-pixel drag from shrinking the window by one every frame it is held still.
-        let resize: Rc<dyn Fn(f32, f32)> =
-            Rc::new(|w: f32, h: f32| request_size(w.ceil() as u32, h.ceil() as u32));
-        surface_frame(module.clone(), style, close, body, Some(resize))
-            .expect("surface frame build failed")
+        surface_frame(module.clone(), style, close, body, None).expect("surface frame build failed")
     })
     .edge(env.edge)
     .open()
