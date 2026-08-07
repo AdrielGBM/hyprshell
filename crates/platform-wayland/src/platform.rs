@@ -11,7 +11,7 @@ use telar::{
     App, Color, Component, Event, EventHandler, Key, KeyboardMode, ModifiersState,
     MultiSurfacePlatform, NamedKey, PlatformError, PointerButton, PointerSource, ScrollDelta,
     SurfaceAnchor, SurfaceContent, SurfaceControl, SurfaceHost, SurfaceId, SurfacePlacement,
-    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, SurfaceTransition,
+    SurfaceRole, SurfaceRoot, SurfaceScaffold, SurfaceSize, SurfaceToken, SurfaceTransition, Window,
     WindowConfig,
     begin_batch, build_surface_handler, end_batch, reset_layout_runtime, set_surface_host,
 };
@@ -547,7 +547,25 @@ impl SurfaceEntry {
         if let Some(keyboard) = change.keyboard_interactivity {
             layer.set_keyboard_interactivity(keyboard);
         }
-        layer.commit();
+        self.commit_pending();
+    }
+
+    /// Applies what this thread has queued on the surface — or leaves it for the renderer's next frame to carry.
+    ///
+    /// **A `wl_surface` has one set of pending state and nothing guarding it.** The renderer commits from its
+    /// own thread to present, so a commit from here can land between the buffer it attached and the commit it
+    /// was about to make — taking its explicit-sync acquire point with no buffer of our own behind it, which
+    /// the compositor answers with `wp_linux_drm_syncobj_surface_v1` error 3 and the death of the whole
+    /// connection. Asking for a frame instead lets the one thread that owns the surface's buffer carry both,
+    /// which costs a frame's delay on an input region or a renegotiated size and nothing else.
+    ///
+    /// A surface with no renderer — a reservation strip, or one that has not had its first frame — has no such
+    /// thread, and commits here.
+    fn commit_pending(&self) {
+        match &self.window {
+            Some(window) => window.request_redraw(),
+            None => self.shell.commit(),
+        }
     }
 
     /// Builds this surface's content again on the surface it is already on, and drops everything the outgoing
@@ -1058,13 +1076,15 @@ where
                     .as_ref()
                     .map(|handler| handler.interactive_rects())
                     .unwrap_or_default();
-                update_input_region(
+                if update_input_region(
                     &compositor,
                     entry.shell.wl_surface(),
                     &entry.namespace,
                     rects,
                     &mut entry.input_region,
-                );
+                ) {
+                    entry.commit_pending();
+                }
             }
             min_timeout = merge_timeout(min_timeout, entry.timeout);
             min_timeout = merge_timeout(min_timeout, entry.exit_timeout());
@@ -1163,13 +1183,17 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
 /// correctness of this function: the registry is one of the handler's *per-surface* worlds, live only inside
 /// its own calls. Read from out here — after the handler has returned — the ambient world answers, and it is
 /// always empty, so every surface using this was click-through everywhere.
+///
+/// Returns whether the region moved, since the surface it was set on still has to be committed — which is the
+/// caller's to do, and not from this thread while a renderer owns the surface (see
+/// [`SurfaceEntry::commit_pending`]).
 fn update_input_region(
     compositor: &CompositorState,
     surface: &wl_surface::WlSurface,
     namespace: &str,
     rects: Vec<telar::Rect>,
     last: &mut Vec<(i32, i32, i32, i32)>,
-) {
+) -> bool {
     let mut rects: Vec<(i32, i32, i32, i32)> = rects
         .into_iter()
         .map(|r| {
@@ -1182,7 +1206,7 @@ fn update_input_region(
         .collect();
     rects.sort_unstable();
     if rects == *last {
-        return;
+        return false;
     }
     // What distinguishes "the compositor is not delivering to us" from "we told it not to": zero rects means no pointer input at all.
     tracing::debug!(
@@ -1190,14 +1214,14 @@ fn update_input_region(
         rects.len()
     );
     let Ok(region) = Region::new(compositor) else {
-        return;
+        return false;
     };
     for (x, y, w, h) in &rects {
         region.add(*x, *y, *w, *h);
     }
     surface.set_input_region(Some(region.wl_region()));
-    surface.commit();
     *last = rects;
+    true
 }
 
 pub(crate) struct NoPaths;
