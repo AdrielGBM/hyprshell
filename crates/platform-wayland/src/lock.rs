@@ -256,11 +256,10 @@ fn create_surface(
     };
     let surface = compositor.create_surface(qh);
     let lock_surface = lock.get_lock_surface(&surface, output, qh, ());
-    surface.set_buffer_scale(scale);
     let wl_id = surface.id();
     let handler = factory(name);
 
-    driver.surfaces.push(SurfaceEntry::new(
+    let mut entry = SurfaceEntry::new(
         Shell::Lock {
             surface,
             lock: lock_surface,
@@ -271,7 +270,9 @@ fn create_surface(
         String::from("hyprshell-lock"),
         scale,
         logical,
-    ));
+    );
+    driver.attach_scaling(&mut entry, qh);
+    driver.surfaces.push(entry);
     if let Some(session) = driver.lock.as_mut() {
         session.covered.push(output.id());
     }

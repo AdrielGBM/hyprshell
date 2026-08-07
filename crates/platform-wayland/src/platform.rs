@@ -46,7 +46,13 @@ use smithay_client_toolkit::{
 use wayland_client::backend::ObjectId;
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
-use wayland_client::{Connection, Proxy, QueueHandle};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, delegate_noop};
+use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_manager_v1::WpFractionalScaleManagerV1;
+use wayland_protocols::wp::fractional_scale::v1::client::wp_fractional_scale_v1::{
+    self, WpFractionalScaleV1,
+};
+use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 
 use crate::config::{Anchor, KeyboardInteractivity, Layer, LayerConfig, OutputDescriptor};
 use crate::link::{ExitPlan, SurfaceLink, SurfaceUpdate};
@@ -351,8 +357,17 @@ pub(crate) struct SurfaceEntry {
     namespace: String,
     reserve_only: bool,
     interactive_input_region: bool,
-    scale: i32,
+    /// The scale to render at, in 120ths — `wp_fractional_scale_v1`'s own unit, and the only one that can carry
+    /// the 1.25× and 1.5× a compositor rounds to 1 or 2 when it has to answer in whole numbers.
+    scale_120: u32,
+    /// The pair that makes a fractional scale renderable, and `None` together on a compositor without them: the
+    /// viewport maps a device-pixel buffer back onto its logical size, and the scale object is what says which.
+    viewport: Option<WpViewport>,
+    fractional: Option<WpFractionalScaleV1>,
     logical_size: (u32, u32),
+    /// The size or the scale moved and the buffer behind them has not caught up yet. Cleared once per turn by
+    /// [`Self::apply_geometry`], which is the only thing that resizes what the renderer draws into.
+    geometry_dirty: bool,
     configured: bool,
     resumed: bool,
     closed: bool,
@@ -386,8 +401,11 @@ impl SurfaceEntry {
             namespace,
             reserve_only: false,
             interactive_input_region: false,
-            scale,
+            scale_120: scale.max(1) as u32 * 120,
+            viewport: None,
+            fractional: None,
             logical_size,
+            geometry_dirty: false,
             configured: false,
             resumed: false,
             closed: false,
@@ -398,19 +416,97 @@ impl SurfaceEntry {
         }
     }
 
-    /// Adopts a compositor-decided size: records it, resizes the window behind the renderer, and (once the
-    /// first configure has been taken) tells the handler to re-lay-out.
+    /// What the renderer draws at, as a multiplier of the logical size.
+    fn scale(&self) -> f64 {
+        f64::from(self.scale_120) / 120.0
+    }
+
+    /// The logical size in device pixels — the buffer the renderer has to fill.
+    fn device_size(&self) -> (u32, u32) {
+        (
+            device_pixels(self.logical_size.0, self.scale_120),
+            device_pixels(self.logical_size.1, self.scale_120),
+        )
+    }
+
+    /// Tells the compositor how to put this surface's buffer on the screen.
+    ///
+    /// Two routes, and the fractional one is the reason the pair is bound together: a viewport whose
+    /// destination is the *logical* size lets the buffer be any size at all, so 1.5× is a buffer 1.5× the
+    /// logical size rather than a 1× buffer the compositor stretches. The protocol asks for a buffer scale of 1
+    /// alongside it, since the destination already says everything about the mapping. Without the pair the only
+    /// thing that can be said is a whole number, which is what a compositor at 1.5× rounds for us.
+    fn map_buffer(&self) {
+        let surface = self.shell.wl_surface();
+        match &self.viewport {
+            Some(viewport) => {
+                surface.set_buffer_scale(1);
+                let (width, height) = self.logical_size;
+                viewport.set_destination(width.max(1) as i32, height.max(1) as i32);
+            }
+            None => surface.set_buffer_scale((self.scale_120 / 120).max(1) as i32),
+        }
+    }
+
+    /// Adopts a compositor-decided size, and (once the first configure has been taken) tells the handler to
+    /// re-lay-out. The buffer behind it is resized by [`Self::apply_geometry`] rather than here.
     pub(crate) fn apply_configure(&mut self, width: u32, height: u32) {
         self.logical_size = (width, height);
-        let scale = self.scale.max(1) as u32;
-        if let Some(window) = &self.window {
-            window.set_size(width * scale, height * scale);
-        }
-        self.shell.wl_surface().set_buffer_scale(self.scale.max(1));
+        self.geometry_dirty = true;
         if self.configured {
             self.events.push(Event::WindowResized { width, height });
         }
         self.configured = true;
+    }
+
+    /// Takes a new scale, or does nothing if it is the one already in use.
+    ///
+    /// The resize is pushed as well as the scale: the logical size has not moved, but the buffer behind it has,
+    /// and a renderer told only that the scale changed would keep drawing at the old device size.
+    fn rescale(&mut self, scale_120: u32) {
+        if scale_120 == 0 || scale_120 == self.scale_120 {
+            return;
+        }
+        self.scale_120 = scale_120;
+        self.geometry_dirty = true;
+        // The preferred scale usually lands before the first configure, where the size is still a placeholder
+        // and the window is built from the scale rather than told about it — so there is nothing to tell yet.
+        if !self.configured {
+            return;
+        }
+        self.events.push(Event::ScaleFactorChanged {
+            scale_factor: self.scale(),
+        });
+        let (width, height) = self.logical_size;
+        self.events.push(Event::WindowResized { width, height });
+    }
+
+    /// Hands the size and scale the compositor last asked for to the surface and the renderer, once per turn.
+    ///
+    /// **One change arrives as two events** — `configure` carries the logical size and `preferred_scale` the
+    /// scale — and acting on each as it lands is what makes a scale change expensive out of all proportion to
+    /// it: the renderer is handed the new size at the old scale, throws away its swapchain and every texture
+    /// sized to the old one to build them again, and is then handed the same size at the new scale and does it
+    /// all a second time. Deferring to the turn also collapses a *burst* — a scale flipped back and forth, a
+    /// monitor reconfigured — into the one resize its end state deserves, across every surface at once.
+    fn apply_geometry(&mut self) {
+        if !self.geometry_dirty {
+            return;
+        }
+        self.geometry_dirty = false;
+        self.map_buffer();
+        let (device_width, device_height) = self.device_size();
+        tracing::debug!(
+            "{}: scale {}/120, {}×{} logical, {device_width}×{device_height} device",
+            self.namespace,
+            self.scale_120,
+            self.logical_size.0,
+            self.logical_size.1
+        );
+        if let Some(window) = &self.window {
+            window.set_size(device_width, device_height);
+            window.set_scale_factor(self.scale());
+        }
     }
 
     /// Pushes whatever the surface asked to renegotiate since the last turn to the compositor. Only a layer
@@ -506,6 +602,16 @@ impl SurfaceEntry {
     }
 }
 
+/// A logical length in device pixels, at a scale given in 120ths.
+///
+/// Rounded half away from zero, which is the rule `wp_fractional_scale_v1` states rather than one chosen here:
+/// a client that rounds the other way from its compositor hands over a buffer a row short of the destination
+/// it declared, and gets it stretched back. The integer arithmetic is the same rule without the float — 60 is
+/// half of 120.
+fn device_pixels(logical: u32, scale_120: u32) -> u32 {
+    (logical.saturating_mul(scale_120).saturating_add(60) / 120).max(1)
+}
+
 /// The single-thread driver: one Wayland connection's shared globals (registry/output/seat/shm) plus every
 /// live surface. The SCTK delegate handlers route each event to its surface by `wl_surface` id.
 pub(crate) struct Driver {
@@ -526,6 +632,15 @@ pub(crate) struct Driver {
     /// refuse to lock rather than draw an overlay it cannot enforce.
     pub(crate) lock_manager: Option<ExtSessionLockManagerV1>,
     pub(crate) lock: Option<LockSession>,
+    pub(crate) scaling: Option<Scaling>,
+}
+
+/// The two globals a surface needs to render on the device pixel grid, held together because either alone is
+/// useless: a preferred scale with no viewport is a number nothing can act on, and a viewport with no scale to
+/// put in it is a mapping with nothing to map.
+pub(crate) struct Scaling {
+    manager: WpFractionalScaleManagerV1,
+    viewporter: WpViewporter,
 }
 
 /// What the shell can ask about this compositor before it commits to a feature. Read from any thread that has
@@ -546,6 +661,23 @@ pub(crate) fn with_driver_facts<R>(read: impl FnOnce(&DriverFacts) -> R) -> R {
 impl Driver {
     fn entry_mut(&mut self, wl_id: &ObjectId) -> Option<&mut SurfaceEntry> {
         self.surfaces.iter_mut().find(|e| &e.wl_id == wl_id)
+    }
+
+    /// Gives a freshly created surface its scale and viewport objects, where the compositor has them.
+    ///
+    /// Called for every surface this driver mounts, lock surfaces included: a lock screen covers a whole output
+    /// with text, which is the last place a shell can afford to hand over a buffer for the compositor to blur.
+    pub(crate) fn attach_scaling(&self, entry: &mut SurfaceEntry, qh: &QueueHandle<Driver>) {
+        if let Some(scaling) = &self.scaling {
+            let surface = entry.shell.wl_surface();
+            entry.viewport = Some(scaling.viewporter.get_viewport(surface, qh, ()));
+            entry.fractional = Some(scaling.manager.get_fractional_scale(
+                surface,
+                qh,
+                entry.wl_id.clone(),
+            ));
+        }
+        entry.map_buffer();
     }
 
     /// The layer-shell namespace of the surface an event landed on, for diagnostics. `None` means the event
@@ -634,7 +766,6 @@ fn create_surface_entry(
     let (mt, mr, mb, ml) = config.margin;
     layer.set_margin(mt, mr, mb, ml);
     layer.set_keyboard_interactivity(config.keyboard_interactivity);
-    layer.wl_surface().set_buffer_scale(scale);
     // A fully click-through surface, and an interactive-region one before its first frame computes its rects,
     // both start with an empty input region so they never steal clicks from windows beneath.
     if (config.input_transparent || config.interactive_input_region)
@@ -644,7 +775,6 @@ fn create_surface_entry(
             .wl_surface()
             .set_input_region(Some(region.wl_region()));
     }
-    layer.commit();
 
     let wl_id = layer.wl_surface().id();
     let mut entry = SurfaceEntry::new(
@@ -658,6 +788,9 @@ fn create_surface_entry(
     );
     entry.reserve_only = config.reserve_only;
     entry.interactive_input_region = config.interactive_input_region;
+    // Before the first commit, so the surface is never mapped under a mapping it is about to replace.
+    driver.attach_scaling(&mut entry, qh);
+    entry.shell.commit();
     driver.surfaces.push(entry);
 }
 
@@ -693,6 +826,19 @@ where
         .bind::<ExtIdleNotifierV1, Driver, ()>(&qh, 1..=2, ())
         .inspect_err(|e| tracing::info!("ext-idle-notify-v1 unavailable: {e}"))
         .ok();
+    // Both or neither, since neither is any use alone. A compositor without them still draws every surface —
+    // through the whole-number buffer scale, which is what this replaces.
+    let scaling = globals
+        .bind::<WpFractionalScaleManagerV1, Driver, ()>(&qh, 1..=1, ())
+        .and_then(|manager| {
+            let viewporter = globals.bind::<WpViewporter, Driver, ()>(&qh, 1..=1, ())?;
+            Ok(Scaling {
+                manager,
+                viewporter,
+            })
+        })
+        .inspect_err(|e| tracing::info!("fractional scaling unavailable: {e}"))
+        .ok();
     FACTS.with(|facts| facts.borrow_mut().lock_supported = lock_manager.is_some());
 
     let mut driver = Driver {
@@ -708,6 +854,7 @@ where
         surfaces: Vec::new(),
         lock_manager,
         lock: None,
+        scaling,
     };
 
     let mut event_loop: EventLoop<Driver> =
@@ -825,6 +972,7 @@ where
             if !entry.configured {
                 continue;
             }
+            entry.apply_geometry();
             if entry.reserve_only {
                 commit_reservation(shm_state, entry);
                 continue;
@@ -841,14 +989,14 @@ where
                     remove.push(index);
                     continue;
                 };
-                let scale = entry.scale.max(1) as u32;
+                let (device_width, device_height) = entry.device_size();
                 let ping = ping.clone();
                 entry.window = Some(LayerWindow::new(
                     surface_ptr,
                     display_ptr,
-                    entry.logical_size.0 * scale,
-                    entry.logical_size.1 * scale,
-                    entry.scale as f64,
+                    device_width,
+                    device_height,
+                    entry.scale(),
                     move || ping.ping(),
                 ));
             }
@@ -947,6 +1095,15 @@ pub(crate) fn tear_down(mut entry: SurfaceEntry, loop_handle: &LoopHandle<'stati
     for token in entry.sources.borrow_mut().drain(..) {
         loop_handle.remove(token);
     }
+    // Both hang off the wl_surface and neither is freed by dropping its handle, so they go before it does:
+    // every request on a viewport whose surface is gone is a protocol error, which kills the connection rather
+    // than the surface.
+    if let Some(viewport) = entry.viewport.take() {
+        viewport.destroy();
+    }
+    if let Some(fractional) = entry.fractional.take() {
+        fractional.destroy();
+    }
     // A layer surface is destroyed by dropping SCTK's wrapper; a lock surface has no wrapper, so its two
     // protocol objects are released here — the role object first, as the protocol's ordering requires.
     if let Shell::Lock { surface, lock } = &entry.shell {
@@ -965,9 +1122,7 @@ fn merge_timeout(a: Option<Duration>, b: Option<Duration>) -> Option<Duration> {
 /// (Re)commits a fully-transparent shm buffer sized to the reservation strip so its exclusive_zone takes hold;
 /// only rebuilds when the pixel size changed.
 fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
-    let scale = entry.scale.max(1) as u32;
-    let w = (entry.logical_size.0 * scale).max(1);
-    let h = (entry.logical_size.1 * scale).max(1);
+    let (w, h) = entry.device_size();
     if entry
         .reservation
         .as_ref()
@@ -992,7 +1147,6 @@ fn commit_reservation(shm: &Shm, entry: &mut SurfaceEntry) {
         }
     };
     let surface = entry.shell.wl_surface();
-    surface.set_buffer_scale(scale as i32);
     if buffer.attach_to(surface).is_ok() {
         surface.damage_buffer(0, 0, w as i32, h as i32);
         entry.shell.commit();
@@ -1384,28 +1538,16 @@ impl CompositorHandler for Driver {
         surface: &wl_surface::WlSurface,
         new_factor: i32,
     ) {
-        let scale = new_factor.max(1);
         let id = surface.id();
         let Some(entry) = self.entry_mut(&id) else {
             return;
         };
-        if scale == entry.scale {
+        // The whole-number scale keeps arriving alongside the fractional one and says less: a 1.5× output
+        // announces 2 here. Taking it would resize the buffer to something the viewport then squeezes.
+        if entry.fractional.is_some() {
             return;
         }
-        entry.scale = scale;
-        surface.set_buffer_scale(scale);
-        let (lw, lh) = entry.logical_size;
-        if let Some(window) = &entry.window {
-            window.set_size(lw * scale as u32, lh * scale as u32);
-            window.set_scale_factor(scale as f64);
-        }
-        entry.events.push(Event::ScaleFactorChanged {
-            scale_factor: scale as f64,
-        });
-        entry.events.push(Event::WindowResized {
-            width: lw,
-            height: lh,
-        });
+        entry.rescale(new_factor.max(1) as u32 * 120);
     }
     fn transform_changed(
         &mut self,
@@ -1440,6 +1582,33 @@ impl CompositorHandler for Driver {
     ) {
     }
 }
+
+/// The event this whole pair exists for: the scale the compositor actually wants, in 120ths.
+///
+/// It arrives before the first configure and again whenever the surface moves to an output at another scale,
+/// so it is also what a surface dragged between a 1× and a 1.5× monitor redraws on.
+impl Dispatch<WpFractionalScaleV1, ObjectId> for Driver {
+    fn event(
+        state: &mut Self,
+        _proxy: &WpFractionalScaleV1,
+        event: wp_fractional_scale_v1::Event,
+        wl_id: &ObjectId,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+    ) {
+        let wp_fractional_scale_v1::Event::PreferredScale { scale } = event else {
+            return;
+        };
+        if let Some(entry) = state.entry_mut(wl_id) {
+            entry.rescale(scale);
+        }
+    }
+}
+
+// The other three carry no events at all: two are factories and a viewport is written to and never read.
+delegate_noop!(Driver: ignore WpFractionalScaleManagerV1);
+delegate_noop!(Driver: ignore WpViewporter);
+delegate_noop!(Driver: ignore WpViewport);
 
 impl OutputHandler for Driver {
     fn output_state(&mut self) -> &mut OutputState {
@@ -1824,6 +1993,51 @@ mod tests {
         assert_eq!(plan.linger(), Duration::from_millis(320));
         plan.run();
         assert_eq!(*fired.borrow(), vec!["scaffold", "panel"]);
+    }
+
+    /// The whole point of the pair: the scales a whole number cannot say.
+    #[test]
+    fn a_fractional_scale_reaches_the_buffer_it_asks_for() {
+        assert_eq!(device_pixels(1000, 120), 1000, "1×");
+        assert_eq!(device_pixels(1000, 180), 1500, "1.5×");
+        assert_eq!(device_pixels(1000, 150), 1250, "1.25×");
+        assert_eq!(device_pixels(1000, 240), 2000, "2×");
+        // What the integer buffer scale did instead, and the reason this exists: the same 1.5× output rounds
+        // to 2 there, so the buffer was a third larger than the screen and the compositor scaled it back down.
+        assert_ne!(device_pixels(1000, 180), device_pixels(1000, 240));
+    }
+
+    #[test]
+    fn a_size_that_does_not_land_on_a_pixel_rounds_the_way_the_compositor_does() {
+        // Half away from zero, per the protocol. Rounding down here would leave the last row of the surface
+        // outside the buffer that has to fill it.
+        assert_eq!(device_pixels(31, 180), 47, "46.5 rounds up");
+        assert_eq!(device_pixels(33, 180), 50, "49.5 rounds up");
+        assert_eq!(device_pixels(7, 150), 9, "8.75 rounds up");
+        assert_eq!(device_pixels(9, 150), 11, "11.25 rounds down");
+        // A surface can be configured to nothing on an axis it does not own; a zero-sized buffer is not a
+        // buffer, and every renderer behind this asks for at least one pixel.
+        assert_eq!(device_pixels(0, 180), 1);
+    }
+
+    /// Whether this compositor can be asked for a fractional scale at all — the one half of this a unit test
+    /// cannot answer, since the fallback is silent by design and looks like success from inside.
+    /// `HYPRSHELL_WAYLAND_LIVE=1 cargo test -p platform-wayland advertises_fractional -- --nocapture`
+    #[test]
+    fn advertises_fractional_scaling() {
+        if std::env::var("HYPRSHELL_WAYLAND_LIVE").is_err() {
+            eprintln!("set HYPRSHELL_WAYLAND_LIVE to ask the real compositor; skipping");
+            return;
+        }
+        let interfaces = ["wp_fractional_scale_manager_v1", "wp_viewporter"];
+        for interface in interfaces {
+            println!("{interface}: {:?}", crate::advertises(interface));
+        }
+        assert_eq!(
+            crate::advertises_all(&interfaces),
+            Some(true),
+            "this compositor cannot be asked for a fractional scale; surfaces fall back to whole numbers"
+        );
     }
 
     #[test]
