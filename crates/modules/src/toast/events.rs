@@ -8,34 +8,37 @@
 //!
 //! **A watcher only exists if its toast is switched on.** Subscribing starts the service behind it — a D-Bus
 //! connection, or in the lock keys' case a poll — so a user who switched an event off pays nothing for it. This
-//! is why the set is decided from the config here rather than filtered at the point the toast is posted.
+//! is why the set is decided from the config here rather than filtered at the point the toast is posted, and why
+//! switching one off *removes* its watcher: leaving it installed and silent would leave the service it started
+//! running for nobody, which is the cost this rule exists to avoid rather than a cosmetic detail.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::rc::Rc;
 
-use platform_wayland::watch;
+use platform_wayland::{WatchToken, unwatch, watch};
 
 use config::Config;
 use services::toaster::{self, Event};
 use ui::glyph;
 
 thread_local! {
-    /// Which watchers are already up. A subscription cannot be undone — and would double-toast if it were
-    /// installed twice — so switching an event on in the config has to add the one that is missing rather than
-    /// re-run the lot. Switching one *off* needs nothing here: [`toaster::post`] reads the live config, so the
-    /// watcher keeps running and says nothing. A thread-local because this only ever runs on the driver thread.
-    static INSTALLED: RefCell<HashSet<&'static str>> = RefCell::new(HashSet::new());
+    /// Which watchers are up, and the registration that takes each one back. Installing twice would double-toast
+    /// and start a second subscription, so a reload adds only what is missing and removes only what is no longer
+    /// asked for. A thread-local because this only ever runs on the driver thread, which is also where
+    /// [`unwatch`] has to run.
+    static INSTALLED: RefCell<HashMap<&'static str, WatchToken>> = RefCell::new(HashMap::new());
 }
 
-/// Installs the watchers the config asks for and does not already have. Called from the startup path and again on
-/// every reload, so a user who turns an event on gets it without restarting the shell.
+/// An event's id, whether the config asks for it, and how to install its watcher.
+type Wanted = (&'static str, bool, fn() -> Option<WatchToken>);
+
+/// Reconciles the installed watchers with the ones the config asks for. Called from the startup path and again on
+/// every reload, so turning an event on gets it without restarting the shell — and turning one off gives back
+/// the service behind it.
 pub fn watch_events(config: &Config) {
     let events = &config.toasts;
-    if !events.enabled {
-        return;
-    }
-    let wanted: [(&'static str, bool, fn()); 8] = [
+    let wanted: [Wanted; 8] = [
         ("charging", events.events.charging, charging),
         ("game_mode", events.events.game_mode, game_mode),
         ("dnd", events.events.dnd, dnd),
@@ -50,19 +53,27 @@ pub fn watch_events(config: &Config) {
         ("now_playing", events.events.now_playing, now_playing),
     ];
     for (id, asked_for, install) in wanted {
-        if !asked_for {
-            continue;
-        }
-        let fresh = INSTALLED.with(|installed| installed.borrow_mut().insert(id));
-        if fresh {
-            install();
+        let asked_for = asked_for && events.enabled;
+        let installed = INSTALLED.with(|installed| installed.borrow().contains_key(id));
+        match (asked_for, installed) {
+            (true, false) => {
+                if let Some(token) = install() {
+                    INSTALLED.with(|installed| installed.borrow_mut().insert(id, token));
+                }
+            }
+            (false, true) => {
+                if let Some(token) = INSTALLED.with(|installed| installed.borrow_mut().remove(id)) {
+                    unwatch(token);
+                }
+            }
+            _ => {}
         }
     }
 }
 
 /// A change watcher: remembers the last reading and calls `report` only when the next one differs. The seed
 /// delivery is recorded and not reported, which is what keeps startup quiet.
-fn on_change<T, S>(subscribe: S, report: impl Fn(&T, &T) + 'static)
+fn on_change<T, S>(subscribe: S, report: impl Fn(&T, &T) + 'static) -> Option<WatchToken>
 where
     T: Clone + PartialEq + Send + 'static,
     S: FnOnce(platform_wayland::EventSender<T>) + Send + 'static,
@@ -75,10 +86,10 @@ where
         {
             report(&previous, &current);
         }
-    });
+    })
 }
 
-fn charging() {
+fn charging() -> Option<WatchToken> {
     use services::battery::{self, Battery};
     on_change(
         battery::subscribe,
@@ -98,10 +109,10 @@ fn charging() {
                 format!("{}%", current.level),
             );
         },
-    );
+    )
 }
 
-fn game_mode() {
+fn game_mode() -> Option<WatchToken> {
     use services::gamemode::{self, GameMode};
     on_change(
         gamemode::subscribe,
@@ -116,10 +127,10 @@ fn game_mode() {
                 on_off(current.active),
             );
         },
-    );
+    )
 }
 
-fn dnd() {
+fn dnd() -> Option<WatchToken> {
     use services::notifications::{self, SharedSnapshot};
     // Compared on the flag alone: the snapshot changes on every notification, and none of those is a DND event.
     let last: Rc<RefCell<Option<bool>>> = Rc::new(RefCell::new(None));
@@ -134,7 +145,7 @@ fn dnd() {
             telar::t!("toast.dnd"),
             on_off(snapshot.dnd),
         );
-    });
+    })
 }
 
 /// The default output and input *devices* — which is a different question from their level, and the one worth a
@@ -142,7 +153,7 @@ fn dnd() {
 ///
 /// One watcher for both halves, since both come off the same graph reading. Which half is wanted is read live
 /// rather than captured, so switching one off in the config takes effect on the next change.
-fn audio() {
+fn audio() -> Option<WatchToken> {
     use services::pipewire::{self, Graph};
     let last: Rc<RefCell<Option<(String, String)>>> = Rc::new(RefCell::new(None));
     watch(pipewire::subscribe, move |graph: Graph| {
@@ -178,10 +189,10 @@ fn audio() {
                 devices.1.clone(),
             );
         }
-    });
+    })
 }
 
-fn lock_keys() {
+fn lock_keys() -> Option<WatchToken> {
     use services::lockkeys::{self, LockKeys};
     on_change(
         lockkeys::subscribe,
@@ -203,10 +214,10 @@ fn lock_keys() {
                 );
             }
         },
-    );
+    )
 }
 
-fn keyboard_layout() {
+fn keyboard_layout() -> Option<WatchToken> {
     use services::hyprland::{self, KeyboardLayout};
     on_change(
         hyprland::subscribe_keyboard,
@@ -218,10 +229,10 @@ fn keyboard_layout() {
                 current.name.clone(),
             );
         },
-    );
+    )
 }
 
-fn vpn() {
+fn vpn() -> Option<WatchToken> {
     use services::vpn::{self, Vpn};
     on_change(vpn::subscribe, |previous: &Vpn, current: &Vpn| {
         if previous.is_connected() == current.is_connected() {
@@ -237,10 +248,10 @@ fn vpn() {
             telar::t!("toast.vpn"),
             body,
         );
-    });
+    })
 }
 
-fn now_playing() {
+fn now_playing() -> Option<WatchToken> {
     use services::mpris::{self, Player};
     on_change(mpris::subscribe, |previous: &Player, current: &Player| {
         // The track, not the position: a player republishes on every progress tick, and none of those is a new
@@ -259,7 +270,7 @@ fn now_playing() {
             current.title.clone(),
             artist,
         );
-    });
+    })
 }
 
 /// The shell's own config reload. Not a service watcher: the reload path is what knows a save was applied, and
