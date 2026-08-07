@@ -388,7 +388,7 @@ fn watch_bus(out: &Broadcast<Player>, conn: &Connection) -> Option<()> {
 /// Belt-and-suspenders when the bus refuses the match rules: a plain re-scan.
 fn poll_fallback(out: &Broadcast<Player>, conn: &Connection) {
     let mut last = read_active(conn);
-    loop {
+    while out.wanted() {
         std::thread::sleep(RESCAN);
         let current = read_active(conn);
         if current != last {

@@ -122,7 +122,7 @@ fn watch_upower(service: &Broadcast<Battery>) -> Option<()> {
 
 /// Belt-and-suspenders when UPower is missing: the pre-existing 30 s sysfs poll.
 fn poll_fallback(service: &Broadcast<Battery>) {
-    loop {
+    while service.wanted() {
         std::thread::sleep(Duration::from_secs(30));
         match read() {
             Some(b) => service.publish(b),

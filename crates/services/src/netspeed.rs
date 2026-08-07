@@ -90,6 +90,9 @@ fn run(out: &Arc<Broadcast<NetSpeed>>) {
             total_down: rx,
             total_up: tx,
         });
+        if !out.wanted() {
+            return;
+        }
     }
 }
 

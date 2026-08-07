@@ -440,6 +440,9 @@ fn run(out: &Arc<Broadcast<Resources>>) {
             sensors,
             disks: disks.clone(),
         });
+        if !out.wanted() {
+            return;
+        }
     }
 }
 

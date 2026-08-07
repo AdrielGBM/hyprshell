@@ -310,7 +310,7 @@ fn watch_udev(out: &Broadcast<Snapshot>) -> Option<()> {
 
 fn poll_fallback(out: &Broadcast<Snapshot>) {
     let mut last = read();
-    loop {
+    while out.wanted() {
         std::thread::sleep(FALLBACK_POLL);
         let current = read();
         if current != last {

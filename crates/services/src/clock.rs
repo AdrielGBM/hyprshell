@@ -26,6 +26,9 @@ fn run(out: &Arc<Broadcast<Now>>) {
     loop {
         let now = Local::now();
         out.publish(now);
+        if !out.wanted() {
+            return;
+        }
         std::thread::sleep(until_next_second(now));
     }
 }

@@ -844,7 +844,7 @@ fn watch_network_manager(out: &Broadcast<Network>) -> Option<()> {
 
 fn poll_fallback(out: &Broadcast<Network>) {
     let mut last = read();
-    loop {
+    while out.wanted() {
         std::thread::sleep(FALLBACK_POLL);
         let current = read();
         if current != last {

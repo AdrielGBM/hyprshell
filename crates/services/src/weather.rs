@@ -367,14 +367,18 @@ fn run(out: &Arc<Broadcast<Weather>>) {
         out.publish(cached);
     }
     loop {
-        match fetch(&config) {
+        let wait = match fetch(&config) {
             Some(weather) => {
                 save_cache(&weather);
                 out.publish(weather);
-                std::thread::sleep(config.refresh());
+                config.refresh()
             }
-            None => std::thread::sleep(RETRY),
+            None => RETRY,
+        };
+        if !out.wanted() {
+            return;
         }
+        std::thread::sleep(wait);
     }
 }
 

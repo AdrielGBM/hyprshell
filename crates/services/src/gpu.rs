@@ -264,6 +264,9 @@ fn run(out: &Arc<Broadcast<Gpu>>) {
             }
             None => {}
         }
+        if !out.wanted() {
+            return;
+        }
         std::thread::sleep(POLL);
     }
 }

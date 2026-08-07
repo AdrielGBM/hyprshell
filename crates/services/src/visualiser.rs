@@ -105,7 +105,8 @@ fn run(out: &Arc<Broadcast<Spectrum>>) {
     let mut attached = false;
     loop {
         match capture(out, &config) {
-            Ok(()) => {
+            Ok(Wanted::No) => return,
+            Ok(Wanted::Yes) => {
                 attached = true;
                 tracing::warn!("the audio capture exited; re-attaching");
             }
@@ -118,17 +119,31 @@ fn run(out: &Arc<Broadcast<Spectrum>>) {
             Err(e) => tracing::warn!("cannot re-attach the audio capture ({e}); retrying"),
         }
         out.publish(Spectrum::quiet(config.band_count()));
+        if !out.wanted() {
+            return;
+        }
         std::thread::sleep(REATTACH);
     }
 }
 
+/// Why a capture stopped: because the stream did, or because the last spectrum widget went away.
+enum Wanted {
+    Yes,
+    No,
+}
+
 /// Runs one capture to completion, publishing a spectrum per hop that differs from the one before it.
-fn capture(out: &Arc<Broadcast<Spectrum>>, config: &VisualiserConfig) -> std::io::Result<()> {
+///
+/// This is the one service that publishes at a frame rate, so it is also the one that must notice soonest that
+/// nobody is watching: the check runs per hop and breaks the stream itself rather than waiting for a reattach,
+/// which is what stops an idle machine paying for an FFT nothing draws.
+fn capture(out: &Arc<Broadcast<Spectrum>>, config: &VisualiserConfig) -> std::io::Result<Wanted> {
     let hop = (RATE as f32 / config.rate() as f32).round().max(64.0) as usize;
     let mut analyser = Analyser::new(config, hop);
     let mut last = Spectrum::quiet(config.band_count());
+    let mut wanted = Wanted::Yes;
 
-    pwstream::monitor(RATE, hop, &mut |samples| {
+    let captured = pwstream::monitor(RATE, hop, &mut |samples| {
         let next = analyser.push(samples);
         // Silence is a state, not a stream of frames: publishing the same all-zero spectrum sixty times a
         // second is exactly the idle cost this service exists to avoid.
@@ -136,8 +151,14 @@ fn capture(out: &Arc<Broadcast<Spectrum>>, config: &VisualiserConfig) -> std::io
             last = next.clone();
             out.publish(next);
         }
-        ControlFlow::Continue(())
-    })
+        if out.wanted() {
+            ControlFlow::Continue(())
+        } else {
+            wanted = Wanted::No;
+            ControlFlow::Break(())
+        }
+    });
+    captured.map(|()| wanted)
 }
 
 /// The sliding window, the transform, and the state that smooths one frame into the next.

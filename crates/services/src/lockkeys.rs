@@ -3,7 +3,8 @@
 //! This is the one service in the shell with no event source to subscribe to. Wayland reports locked modifiers
 //! only to a surface holding keyboard focus, which a bar deliberately does not take, and Hyprland's event
 //! stream carries no lock state. So it polls — two small sysfs reads on a lazily-started thread, so a shell
-//! without the `lockstatus` module never runs it at all.
+//! without the `lockstatus` module never runs it at all, and the poller retires the moment the last indicator
+//! goes away rather than reading sysfs for nobody.
 
 use std::fs;
 use std::path::Path;
@@ -79,7 +80,7 @@ fn run(out: &Arc<Broadcast<LockKeys>>) {
     }
     let mut last = read_from(leds);
     out.publish(last);
-    loop {
+    while out.wanted() {
         std::thread::sleep(POLL);
         let current = read_from(leds);
         if current != last {
