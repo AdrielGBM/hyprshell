@@ -168,7 +168,16 @@ struct Analyser {
     window: Vec<f32>,
     /// The last `WINDOW` samples, oldest first. Each hop shifts it along by `hop`.
     history: Vec<f32>,
+    /// The transform's buffer: the windowed samples going in, the spectrum coming out.
     scratch: Vec<Complex32>,
+    /// Working space the transform needs beside its buffer, held rather than asked for each hop.
+    ///
+    /// `Fft::process` allocates this itself on every call — `vec![Complex::zero(); get_inplace_scratch_len()]`,
+    /// straight from its source — and the visualiser runs one per audio hop for as long as anything is
+    /// listening. It was the single largest source of transient allocation in the shell: 66,571 of the 66,839
+    /// allocations at that call site were freed almost immediately, 99.6%, and that churn is what keeps glibc's
+    /// arenas fragmented and RSS above the heap that is actually live.
+    fft_scratch: Vec<Complex32>,
     /// The first and last FFT bin of each band, inclusive.
     bands: Vec<(usize, usize)>,
     /// How many leading bands count as bass for beat detection.
@@ -200,8 +209,10 @@ impl Analyser {
             .max(1);
         let frames_per_second = RATE as f32 / hop as f32;
 
+        let plan = rustfft::FftPlanner::new().plan_fft_forward(WINDOW);
         Self {
-            plan: rustfft::FftPlanner::new().plan_fft_forward(WINDOW),
+            fft_scratch: vec![Complex32::default(); plan.get_inplace_scratch_len()],
+            plan,
             window: (0..WINDOW)
                 .map(|n| 0.5 * (1.0 - (std::f32::consts::TAU * n as f32 / WINDOW as f32).cos()))
                 .collect(),
@@ -238,7 +249,8 @@ impl Analyser {
         {
             *slot = Complex32::new(sample * weight, 0.0);
         }
-        self.plan.process(&mut self.scratch);
+        self.plan
+            .process_with_scratch(&mut self.scratch, &mut self.fft_scratch);
 
         // A full-scale sine puts half its energy in each of two mirrored bins and the Hann window halves the
         // amplitude again, so this is the factor that makes such a tone read as exactly 1.0.
