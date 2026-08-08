@@ -16,6 +16,8 @@ status mirrors that — see [Scripting](../guides/scripting.md).
 | `version` |  | the running build's version |
 | `reload` |  | re-read config.toml and rebuild every surface |
 | `status` |  | what the shell is holding: surfaces, threads and running services |
+| `caches` |  | what the renderer's caches hold, per cache: bytes, entries and budget |
+| `reclaim` |  | drop idle renderer caches and hand freed heap pages back to the kernel |
 | `outputs` |  | list the compositor's monitors |
 | `screens` |  | the compositor's monitors with mode, scale and make |
 | `clients` |  | every open window: address, workspace, class and title |

@@ -37,6 +37,18 @@ pub(crate) const SHELL: Target = Target {
             run: |_| Ok(status()),
         },
         Command {
+            name: "caches",
+            args: "",
+            help: "what the renderer's caches hold, per cache: bytes, entries and budget",
+            run: |_| Ok(caches()),
+        },
+        Command {
+            name: "reclaim",
+            args: "",
+            help: "drop idle renderer caches and hand freed heap pages back to the kernel",
+            run: |_| Ok(reclaim()),
+        },
+        Command {
             name: "outputs",
             args: "",
             help: "list the compositor's monitors",
@@ -347,6 +359,82 @@ fn status() -> String {
 /// leaked by a library the shell only calls into still shows up here.
 fn live_threads() -> Option<usize> {
     Some(std::fs::read_dir("/proc/self/task").ok()?.count())
+}
+
+/// What the renderer is holding, one line per cache, so a growing process can be told from a growing cache.
+///
+/// RSS alone cannot answer that: a shell whose memory climbs looks identical whether the climb is in a text raster
+/// cache doing its job or in something with no ceiling at all. Every figure comes from the cache itself, summed
+/// across the threads that render, and is at most a second old — the caches are thread-local, so a rendering thread
+/// leaves its own count where this can read it rather than this reaching across for a set it cannot see.
+fn caches() -> String {
+    let stats = telar::cache_stats();
+    if stats.is_empty() {
+        return "no frame has been rendered yet\n".to_string();
+    }
+    let total: usize = stats.iter().map(|stat| stat.bytes).sum();
+    let mut out = String::new();
+    for stat in &stats {
+        out.push_str(&format!(
+            "{:<18} {:>9} {:>8} entries  of {}\n",
+            stat.name,
+            kib(stat.bytes),
+            stat.entries,
+            kib(stat.capacity),
+        ));
+    }
+    out.push_str(&format!("{:<18} {:>9}\n", "total", kib(total)));
+    out
+}
+
+fn kib(bytes: usize) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0))
+}
+
+/// Gives back what the shell is holding but not using, and reports what that came to.
+///
+/// Two separate hoards, and neither returns on its own. The renderer's caches evict by age only while something
+/// is drawing, so a shell that has gone quiet keeps its last frame's rasters indefinitely. And glibc keeps the
+/// pages it has freed inside its arenas rather than returning them to the kernel — which is most of why a shell
+/// with no leak still climbs, since profiling put a quarter of its three million allocations in the transient
+/// bucket, and that churn is what leaves arenas full of holes.
+///
+/// A command rather than a timer because the shell already has somewhere to put it: `[[idle.stages]]` runs shell
+/// commands, so `action = "shell reclaim"` on a stage makes this automatic at whatever idleness the user means.
+fn reclaim() -> String {
+    let before = rss_kb();
+    telar::sweep_renderer_caches();
+    trim_heap();
+    let after = rss_kb();
+    match (before, after) {
+        (Some(before), Some(after)) => format!(
+            "reclaimed {:.1} MiB ({:.1} → {:.1} MiB)",
+            (before.saturating_sub(after)) as f64 / 1024.0,
+            before as f64 / 1024.0,
+            after as f64 / 1024.0,
+        ),
+        _ => "reclaimed".to_string(),
+    }
+}
+
+/// Returns glibc's freed-but-retained pages to the kernel. A no-op anywhere `malloc_trim` does not exist.
+fn trim_heap() {
+    #[cfg(target_env = "gnu")]
+    // SAFETY: `malloc_trim` takes a pad in bytes and touches only the allocator's own bookkeeping.
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+fn rss_kb() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("VmRSS:"))?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
 }
 
 /// One line per dependency: whether it is there, what it is for, and — when it is not — what that costs.

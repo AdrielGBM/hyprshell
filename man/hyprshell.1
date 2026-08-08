@@ -71,6 +71,12 @@ re\-read config.toml and rebuild every surface
 \fBstatus\fR
 what the shell is holding: surfaces, threads and running services
 .TP
+\fBcaches\fR
+what the renderer's caches hold, per cache: bytes, entries and budget
+.TP
+\fBreclaim\fR
+drop idle renderer caches and hand freed heap pages back to the kernel
+.TP
 \fBoutputs\fR
 list the compositor's monitors
 .TP
