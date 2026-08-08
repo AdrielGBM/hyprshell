@@ -22,10 +22,22 @@ fn usage() -> String {
     out
 }
 
+// glibc hands each thread its own malloc arena, up to 8×ncores of them, each reserving 64 MB of address space and never returning what it fragments; a shell running one thread per service reaches that ceiling and pays for it in RSS, so cap it before any of those threads start. An explicit `MALLOC_ARENA_MAX` still wins.
+#[cfg(target_env = "gnu")]
+fn cap_malloc_arenas() {
+    if std::env::var_os("MALLOC_ARENA_MAX").is_none() {
+        unsafe { libc::mallopt(libc::M_ARENA_MAX, 4) };
+    }
+}
+
+#[cfg(not(target_env = "gnu"))]
+fn cap_malloc_arenas() {}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         None | Some("run") => {
+            cap_malloc_arenas();
             // Held for the whole run: dropping the guard stops the writer thread and flushes what it has.
             let _logging = init_tracing();
             hyprshell::run();
