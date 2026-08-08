@@ -1212,6 +1212,7 @@ dependencies = [
  "hyprshell-surfaces",
  "hyprshell-ui",
  "hyprshell-util",
+ "libc",
  "platform-wayland",
  "telar",
  "toml",
