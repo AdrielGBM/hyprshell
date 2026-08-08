@@ -95,11 +95,7 @@ fn current(generation: u64) -> bool {
 }
 
 fn connection() -> Option<Connection> {
-    zbus::blocking::connection::Builder::system()
-        .ok()?
-        .method_timeout(METHOD_TIMEOUT)
-        .build()
-        .ok()
+    crate::bus::system(Some(METHOD_TIMEOUT))
 }
 
 /// The reader fprintd would use, or `None` on a machine with none — which is the ordinary case and not worth a

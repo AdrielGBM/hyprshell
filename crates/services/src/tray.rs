@@ -47,11 +47,7 @@ static ACTIVATE_CACHE: LazyLock<Mutex<HashMap<String, bool>>> =
 
 /// A session connection that gives up on an unanswered call. See [`METHOD_TIMEOUT`].
 fn session() -> Option<Connection> {
-    zbus::blocking::connection::Builder::session()
-        .ok()?
-        .method_timeout(METHOD_TIMEOUT)
-        .build()
-        .ok()
+    crate::bus::session(Some(METHOD_TIMEOUT))
 }
 
 /// How an item wants to be presented, per the spec's `Status` property.

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use platform_wayland::EventSender;
-use zbus::blocking::{Connection, fdo::PropertiesProxy};
+use zbus::blocking::fdo::PropertiesProxy;
 
 use config::BatteryWarning;
 use util::broadcast::{Broadcast, Service};
@@ -103,7 +103,7 @@ fn run_battery(service: &Arc<Broadcast<Battery>>) {
 }
 
 fn watch_upower(service: &Broadcast<Battery>) -> Option<()> {
-    let conn = Connection::system().ok()?;
+    let conn = crate::bus::system(None)?;
     let props = PropertiesProxy::builder(&conn)
         .destination(UPOWER)
         .ok()?
@@ -164,7 +164,7 @@ fn read_details(props: &PropertiesProxy) -> Option<BatteryDetails> {
 }
 
 fn upower_details() -> Option<BatteryDetails> {
-    let conn = Connection::system().ok()?;
+    let conn = crate::bus::system(None)?;
     let props = PropertiesProxy::builder(&conn)
         .destination(UPOWER)
         .ok()?
@@ -203,7 +203,7 @@ pub fn stream_details(tx: EventSender<BatteryDetails>) {
 }
 
 fn watch_upower_details(tx: &EventSender<BatteryDetails>) -> Option<()> {
-    let conn = Connection::system().ok()?;
+    let conn = crate::bus::system(None)?;
     let props = PropertiesProxy::builder(&conn)
         .destination(UPOWER)
         .ok()?
@@ -417,7 +417,7 @@ mod tests {
         if std::env::var("HYPRSHELL_TEST_UPOWER").is_err() {
             return;
         }
-        let conn = Connection::system().expect("system bus");
+        let conn = zbus::blocking::Connection::system().expect("system bus");
         let props = PropertiesProxy::builder(&conn)
             .destination(UPOWER)
             .unwrap()

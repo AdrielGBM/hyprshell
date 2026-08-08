@@ -80,7 +80,7 @@ impl Action {
 }
 
 fn connection() -> Option<Connection> {
-    Connection::system().ok()
+    crate::bus::system(None)
 }
 
 /// Whether logind will let this session perform `action`. The `Can…` methods answer `"yes"`, `"no"`,

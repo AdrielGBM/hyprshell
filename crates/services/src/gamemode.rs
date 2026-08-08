@@ -44,11 +44,7 @@ pub struct GameMode {
 }
 
 fn connection() -> Option<Connection> {
-    zbus::blocking::connection::Builder::session()
-        .ok()?
-        .method_timeout(METHOD_TIMEOUT)
-        .build()
-        .ok()
+    crate::bus::session(Some(METHOD_TIMEOUT))
 }
 
 /// The number of registered clients, or `None` when the daemon isn't there.

@@ -221,11 +221,7 @@ fn parse_child(value: &Value<'_>) -> Option<MenuItem> {
 }
 
 fn connect(bus: &str) -> Option<(Connection, BusName<'static>)> {
-    let conn = zbus::blocking::connection::Builder::session()
-        .ok()?
-        .method_timeout(METHOD_TIMEOUT)
-        .build()
-        .ok()?;
+    let conn = crate::bus::session(Some(METHOD_TIMEOUT))?;
     let name = BusName::try_from(bus.to_string()).ok()?;
     Some((conn, name))
 }

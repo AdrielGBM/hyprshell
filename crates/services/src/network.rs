@@ -316,11 +316,7 @@ impl Wifi {
 }
 
 fn nm_connection(timeout: Duration) -> Option<Connection> {
-    zbus::blocking::connection::Builder::system()
-        .ok()?
-        .method_timeout(timeout)
-        .build()
-        .ok()
+    crate::bus::system(Some(timeout))
 }
 
 fn property(conn: &Connection, path: &str, iface: &str, name: &str) -> Option<OwnedValue> {

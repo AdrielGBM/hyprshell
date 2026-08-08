@@ -227,9 +227,7 @@ fn lyric_row(
     )?))
 }
 
-/// Reads the playhead on one long-lived thread. `mpris::position` opens its own session connection per call,
-/// which is the right shape for a one-off read from a click handler and the wrong one several times a second —
-/// so the loop pays for it once and the poll is a property get.
+/// Reads the playhead on one long-lived thread.
 fn poll_position(tx: platform_wayland::EventSender<i64>, interval: Duration) {
     loop {
         if !tx.send(mpris::position().unwrap_or(0)) {

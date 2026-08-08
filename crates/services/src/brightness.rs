@@ -20,7 +20,6 @@ use std::time::Duration;
 
 use platform_wayland::EventSender;
 use util::deps::{self, Dep};
-use zbus::blocking::Connection;
 
 use crate::ddc;
 use crate::hyprland;
@@ -412,7 +411,7 @@ fn set_backlight_directly(percent: i32) {
 }
 
 fn write_logind(device: &str, absolute: u32) -> Option<()> {
-    let conn = Connection::system().ok()?;
+    let conn = crate::bus::system(None)?;
     conn.call_method(
         Some(LOGIND),
         SESSION_PATH,

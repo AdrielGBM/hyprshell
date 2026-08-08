@@ -234,11 +234,7 @@ fn state_from_objects(objects: &ManagedObjects) -> Bluetooth {
 }
 
 fn connection(timeout: Duration) -> Option<Connection> {
-    zbus::blocking::connection::Builder::system()
-        .ok()?
-        .method_timeout(timeout)
-        .build()
-        .ok()
+    crate::bus::system(Some(timeout))
 }
 
 fn read_state(conn: &Connection) -> Bluetooth {

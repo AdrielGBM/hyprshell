@@ -312,7 +312,7 @@ const RESCAN: Duration = Duration::from_secs(3);
 static MPRIS: Service<Player> = Service::new("hyprshell-mpris", run);
 
 fn run(out: &Arc<Broadcast<Player>>) {
-    let Ok(conn) = Connection::session() else {
+    let Some(conn) = crate::bus::session(None) else {
         tracing::info!("no session bus; media control is unavailable");
         return;
     };
@@ -414,7 +414,7 @@ fn control(method: &'static str) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-call".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else {
+            let Some(conn) = crate::bus::session(None) else {
                 return;
             };
             let Ok(name) = BusName::try_from(player.bus.clone()) else {
@@ -453,7 +453,7 @@ where
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-call".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else {
+            let Some(conn) = crate::bus::session(None) else {
                 return;
             };
             let Ok(name) = BusName::try_from(player.bus.clone()) else {
@@ -474,7 +474,7 @@ fn set_property(name: &'static str, value: Value<'static>) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-mpris-set".to_string())
         .spawn(move || {
-            let Ok(conn) = Connection::session() else {
+            let Some(conn) = crate::bus::session(None) else {
                 return;
             };
             let Ok(bus) = BusName::try_from(player.bus.clone()) else {
@@ -529,7 +529,7 @@ pub fn cycle_loop() {
 /// continuously, and publishing it would wake every subscriber many times a second.
 pub fn position() -> Option<i64> {
     let player = current()?;
-    let conn = Connection::session().ok()?;
+    let conn = crate::bus::session(None)?;
     let props = props_for(&conn, &player.bus)?;
     let value = props.get(PLAYER_IFACE.try_into().ok()?, "Position").ok()?;
     i64::try_from(value).ok()
