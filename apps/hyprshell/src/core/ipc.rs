@@ -4,11 +4,12 @@
 //! here. Commands run on the driver thread, the same thread every surface lives on, so a handler can open a
 //! panel or publish to a service exactly as a click handler would.
 //!
-//! The protocol is one request line in, one reply line out, so `hyprshell panel toggle clock` is also
+//! The protocol is one request line in and one reply out, so `hyprshell panel toggle clock` is also
 //! `printf 'panel toggle clock\n' | socat - UNIX-CONNECT:$sock`. Replies are prefixed `ok` or `err` so a script
-//! can branch without parsing prose.
+//! can branch without parsing prose. A reply is usually one line but need not be — a census, a palette or a list
+//! of monitors is a table — so its end is marked by the shell closing its side, not by a newline.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -117,12 +118,24 @@ pub fn handle(request: Request) {
 }
 
 /// Sends one request to a running shell and returns its reply. The client half of the protocol, used by the CLI.
+///
+/// The write half is closed before reading because a reply is not always one line: a census, a palette or a list
+/// of monitors is a table, and `read_line` would take its first row and silently drop the rest — which is what
+/// `shell status`, `shell screens`, `shell clients` and `scheme colors` all did. Half-closing tells the shell the
+/// request is complete, so it answers and closes its side, and that EOF is what bounds the read. The wire format
+/// is untouched: still a request line in, still `ok`/`err` leading the reply.
 pub fn call(line: &str) -> std::io::Result<String> {
-    let mut stream = UnixStream::connect(socket_path())?;
+    call_at(&socket_path(), line)
+}
+
+/// [`call`] against a given socket, so the client's framing can be tested against a real one.
+fn call_at(path: &std::path::Path, line: &str) -> std::io::Result<String> {
+    let mut stream = UnixStream::connect(path)?;
     writeln!(stream, "{line}")?;
     stream.flush()?;
+    stream.shutdown(std::net::Shutdown::Write)?;
     let mut reply = String::new();
-    BufReader::new(stream).read_line(&mut reply)?;
+    BufReader::new(stream).read_to_string(&mut reply)?;
     Ok(reply.trim_end().to_string())
 }
 
@@ -168,5 +181,36 @@ mod tests {
 
         drop(tx);
         driver.join().unwrap();
+    }
+
+    /// A tabular reply has to survive the socket whole.
+    ///
+    /// It did not: the client read one line and dropped the rest, so `shell status` reported its first row and
+    /// nothing else — a census that looked like an answer while omitting most of it. Exercised end to end, over a
+    /// real socket, because the truncation was in the client's framing and no test of the command itself could
+    /// have seen it.
+    #[test]
+    fn a_reply_spanning_several_lines_survives_the_socket() {
+        let dir = std::env::temp_dir().join(format!("hyprshell-ipc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("multiline.sock");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+
+        let body = "ok first\nsecond\nthird";
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut out = stream.try_clone().unwrap();
+            // Mirrors `handle_client`: read the request line, write the reply, then let the connection close.
+            let mut request = String::new();
+            BufReader::new(stream).read_line(&mut request).unwrap();
+            writeln!(out, "{body}").unwrap();
+        });
+
+        let reply = call_at(&path, "shell status").unwrap();
+
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(reply.trim_end(), body, "every line of the reply must arrive");
     }
 }

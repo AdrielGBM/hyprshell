@@ -33,12 +33,21 @@ the client still finds the shell.
 
 ## The reply format
 
-Every reply starts with `ok` or `err`, and the payload follows on the same line when there is one. A caller can
-branch on the outcome **without parsing prose**, and the exit status mirrors the reply.
+Every reply starts with `ok` or `err`, and the payload follows on the same line. A caller can branch on the
+outcome **without parsing prose**, and the exit status mirrors the reply.
 
 ```sh
 hyprshell lock status        # ok ...
 hyprshell wifi connect x     # err ...
+```
+
+Most replies are a single line, but a few are tables — `shell status`, `shell caches`, `shell screens`,
+`shell clients`, `scheme colors` — and those continue over further lines. Only the first carries `ok`/`err`. A
+reply ends when the shell closes its side of the connection, so a raw client should send its request, shut down
+its write half, and read to end-of-file:
+
+```sh
+printf 'shell status\n' | socat - UNIX-CONNECT:$sock
 ```
 
 ## Three commands are answered locally
