@@ -12,18 +12,23 @@
 //! edges and in `bar`, `sections` and `chips` — so a module only ever looked at on a top bar is exactly where a
 //! shape bug survives.
 //!
-//! **What this deliberately does not ask**, having measured it and found the question unsound:
+//! **"Did the preview draw anything at all?" took a correction to become askable.** It reported 79 of 456
+//! combinations blank, and the reading taken from that was that `battery`, `brightness`, `mic`, `network`,
+//! `volume` and `lockstatus` have no reading on a machine with no battery and no PipeWire — a hardware-dependent
+//! answer, and so a flaky assertion. That was wrong twice over: those chips draw their glyph at a fallback level
+//! and are on screen, and what was blank was the *accounting*. Every icon is an SVG, an SVG is a `Path`, and
+//! only boxes were counted — so a chip whose whole content is an icon was invisible to this file rather than
+//! measured by it. [`paints`] counts artwork too, which makes the question machine-independent rather than
+//! merely askable.
 //!
-//! - *"Did the preview draw anything at all?"* 79 of 456 draw nothing here, and correctly: `battery`,
-//!   `brightness`, `mic`, `network`, `volume` and `lockstatus` are chips whose service has no reading on a
-//!   machine with no battery, no backlight and no PipeWire, and a chip with nothing to say draws nothing. The
-//!   answer would change with the hardware under the test, which is the definition of a flaky assertion. Seeding
-//!   each of those previews the way [`modules::preview`] seeds the tray and the workspaces is what would make it
-//!   askable.
-//! - *"Did anything draw outside its surface?"* — the avatar bug. Draw rects are pre-transform, and a scroll
-//!   offset is a `PushMatrix` rather than a relayout, so answering needs the matrix stack simulated; and even
-//!   then content below the fold of a scroll area is legitimately outside the viewport. Both halves have to be
-//!   solved together or the check reports the normal case as a fault.
+//! **What this cannot ask: *"did anything draw outside its surface?"* — the avatar bug.** Not for the reason
+//! it looks like. Draw rects being pre-transform is twelve lines of matrix stack, which telar already owns in
+//! `DrawState` and merely does not re-export; and content legitimately below the fold has a clean discriminator,
+//! since a scroll area emits a viewport and being outside one is what scrolling means, so a draw that nothing is
+//! clipping has no such reading. What blocks it is that **a preview has no bounds to be outside of**:
+//! `PreviewSurface` is a sizing hint rather than a viewport — `surfaces::preview` gives the bar 940 × its
+//! thickness on purpose — and entries stack their variants well past it. Measured, the check calls every such
+//! gallery a fault. Asking it needs real surfaces, which a sweep over previews does not have.
 
 #![cfg(test)]
 
@@ -92,9 +97,14 @@ fn measure(entry: &PreviewEntry) -> Result<Vec<DrawCommand>, LayoutError> {
     Ok(tree.commands().to_vec())
 }
 
-/// The rect a command is answerable for, and whether it has any content to put there — an empty `Text` shapes
-/// to nothing and is the one zero-area draw that is not a fault. `Line` and `Path` carry their own geometry
+/// The **layout box** a command is answerable for, and whether it has any content to put there — an empty
+/// `Text` shapes to nothing and is the one zero-area draw that is not a fault. `Line` and `Path` carry artwork
 /// rather than a box, and the matrix and layer markers cover nothing of their own.
+///
+/// Deliberately narrower than [`paints`]: what this returns is measured against [`COLLAPSED`], and only a box
+/// the layout produced can be said to have collapsed. An icon's own geometry is the artwork's business — a
+/// signal-strength glyph draws its bars as filled slivers a third of a pixel wide, and there is nothing wrong
+/// with that.
 fn painted_rect(command: &DrawCommand) -> Option<Rect> {
     match command {
         DrawCommand::Rect { rect, .. } | DrawCommand::Image { rect, .. } => Some(*rect),
@@ -106,6 +116,20 @@ fn painted_rect(command: &DrawCommand) -> Option<Rect> {
         // inside keeps its own honest rects and is cut away wholesale, so only the clip itself shows the fault.
         DrawCommand::PushClip { rect, .. } => Some(*rect),
         _ => None,
+    }
+}
+
+/// Whether this command puts ink on the screen at all.
+///
+/// Wider than [`painted_rect`] by exactly the two commands that carry artwork: every icon in the shell is a
+/// path, and an `icon_glyph` chip — `battery`, `volume`, `network`, `mic`, `brightness`, `lockstatus` — draws
+/// nothing else. Counting only boxes made those modules invisible to this file rather than measured by it,
+/// which is why "did this draw anything" reported them blank on a machine where they render perfectly.
+fn paints(command: &DrawCommand) -> bool {
+    match command {
+        DrawCommand::Path { data, .. } => data.bounds().is_some(),
+        DrawCommand::Line { .. } => true,
+        other => painted_rect(other).is_some(),
     }
 }
 
@@ -175,6 +199,30 @@ fn nothing_a_preview_draws_collapses_to_nothing() {
         "{} draw(s) landed with no area, so nothing of them reaches the screen:\n  {}",
         collapsed.len(),
         collapsed.join("\n  ")
+    );
+}
+
+/// The failure a collapsed rect cannot show: not a draw with no area, but no draw at all. A module that
+/// vanishes leaves nothing behind to measure, so the only question that catches it is asked of the whole
+/// combination rather than of any one command.
+#[test]
+fn every_preview_draws_something() {
+    let mut blank = Vec::new();
+    sweep(|entry, edge, mode, measured| {
+        let Ok(commands) = measured else { return };
+        if commands.iter().any(paints) {
+            return;
+        }
+        blank.push(format!(
+            "{}::{} on {edge:?}/{mode:?}",
+            entry.component_name, entry.preview_name
+        ));
+    });
+    assert!(
+        blank.is_empty(),
+        "{} combination(s) put nothing on screen:\n  {}",
+        blank.len(),
+        blank.join("\n  ")
     );
 }
 
