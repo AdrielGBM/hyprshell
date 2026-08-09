@@ -596,6 +596,57 @@ mod tests {
         );
     }
 
+    /// A monitor that goes away takes its surfaces with it.
+    ///
+    /// The other way a surface stops being wanted: not the config dropping it, but the screen it was on. The
+    /// plan is built from the outputs it is handed, so an output that stops being one has nothing planned
+    /// against it — and everything the plan does not name is dropped, per-output surfaces included. Left
+    /// behind, they would be layer surfaces on a screen the compositor no longer has.
+    #[test]
+    fn a_disconnected_output_takes_its_surfaces_with_it() {
+        // A real path, unlike the relative one the other tests hand over: a *named* output sends the reconcile
+        // through `Config::for_output`, which falls back to `Config::load` — and loading a config that is not
+        // there writes a starter one, next to whatever the path pointed at.
+        let dir = std::env::temp_dir().join(format!("hyprshell-outputs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        let path = dir.join("config.toml");
+        let toml = "[bars.top]\nsize=34\ncenter=[\"clock\"]\n";
+        std::fs::write(&path, toml).expect("a config to load");
+
+        let screen = |name: &str, x: i32| OutputDescriptor {
+            name: Some(name.to_string()),
+            logical_size: Some((1920, 1080)),
+            position: (x, 0),
+            scale: 1,
+        };
+        let laptop = screen("eDP-1", 0);
+        let config = config(toml);
+
+        let mut surfaces = Surfaces::default();
+        surfaces.reconcile(
+            &path,
+            &config,
+            &[laptop.clone(), screen("DP-1", 1920)],
+            Content::Rebuild,
+        );
+        let on_two_screens = surfaces.len();
+        assert!(on_two_screens > 0, "two screens put surfaces up");
+
+        surfaces.reconcile(
+            &path,
+            &config,
+            std::slice::from_ref(&laptop),
+            Content::Rebuild,
+        );
+        assert_eq!(
+            surfaces.len(),
+            on_two_screens / 2,
+            "the unplugged screen's surfaces went with it, and the laptop's stayed"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn only_what_changed_is_renegotiated() {
         let before = config("[bars.top]\nsize=34\ncenter=[\"clock\"]\n");

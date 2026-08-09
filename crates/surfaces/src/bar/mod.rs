@@ -409,6 +409,55 @@ mod tests {
         r
     }
 
+    thread_local! {
+        static BUILT: std::cell::RefCell<Vec<&'static str>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    fn wanted(ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        BUILT.with(|built| built.borrow_mut().push("wanted"));
+        dummy(ctx)
+    }
+
+    fn unwanted(ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        BUILT.with(|built| built.borrow_mut().push("unwanted"));
+        dummy(ctx)
+    }
+
+    /// A module no zone names costs nothing at all.
+    ///
+    /// The registry holds every module the shell ships, so a build that walked *it* rather than the zones would
+    /// construct a chip nobody asked for — and constructing a chip is what subscribes it, which turns an unused
+    /// module into a running service. That is the residency half of the rule, reached through the one door that
+    /// makes it invisible: the widget tree, where an extra chip is off-screen rather than wrong.
+    #[test]
+    fn a_module_no_zone_names_is_never_built() {
+        let mut registry = ModuleRegistry::new();
+        registry.register("wanted", ModuleDef::new(wanted));
+        registry.register("unwanted", ModuleDef::new(unwanted));
+
+        reset_layout_runtime();
+        set_theme(NordTheme::new());
+        BUILT.with(|built| built.borrow_mut().clear());
+        let config: config::Config =
+            toml::from_str("[bars.top]\nsize=34\ncenter=[\"wanted\"]\n").unwrap();
+
+        build_bar(
+            &config,
+            Edge::Top,
+            NordTheme::new().accent,
+            &registry,
+            NordTheme::new(),
+        )
+        .expect("the bar builds");
+
+        assert_eq!(
+            BUILT.with(|built| built.borrow().clone()),
+            vec!["wanted"],
+            "only the module the config put on the bar was built"
+        );
+    }
+
     /// A chip that carries a hover popout is wrapped in an extra box to track the pointer. That box sits
     /// between the zone and the chip, so a press has to pass through it — and a wrapper that swallowed one
     /// would leave every popout-bearing chip (volume, brightness, media, mic, battery) looking dead to a

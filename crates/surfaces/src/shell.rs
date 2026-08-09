@@ -264,6 +264,47 @@ mod tests {
         )
     }
 
+    /// Closing a panel releases it rather than hiding it.
+    ///
+    /// The distinction the residency rule turns on, and the one a surface cannot show from outside: a panel put
+    /// away with its tree still built and its subscriptions still live looks exactly like one that is gone. The
+    /// token is the ownership, so the only honest evidence is that dropping it out of the registry is what runs
+    /// its teardown — counted here from the token itself rather than from anything that tracks it.
+    #[test]
+    fn closing_a_panel_releases_its_surface_rather_than_hiding_it() {
+        struct Dropping(std::rc::Rc<std::cell::Cell<u32>>);
+        impl telar::SurfaceControl for Dropping {
+            fn close(&self) {}
+            fn is_closing(&self) -> bool {
+                false
+            }
+            fn rebuild(&self) {}
+        }
+        impl Drop for Dropping {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let released = std::rc::Rc::new(std::cell::Cell::new(0));
+        let token = SurfaceToken::new(Box::new(Dropping(std::rc::Rc::clone(&released))));
+        OPEN.with(|surfaces| {
+            surfaces
+                .borrow_mut()
+                .windows
+                .insert("mixer".to_string(), token)
+        });
+
+        assert_eq!(released.get(), 0, "an open panel is still held");
+        close("mixer");
+        assert_eq!(
+            released.get(),
+            1,
+            "a closed panel is dropped, not parked in the registry"
+        );
+        assert!(open_ids().is_empty());
+    }
+
     /// **A standing window takes the screen from the drawer, and from nothing else.**
     ///
     /// A drawer's surface covers the whole usable area — that is how a press beside it dismisses it — so a
