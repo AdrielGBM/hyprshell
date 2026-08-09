@@ -7,7 +7,13 @@
 //! `zwlr_gamma_control_v1` is destroyed — which is the protocol keeping a crashed client from leaving a screen
 //! orange for ever, and which means turning the tint off is dropping the object rather than sending a neutral
 //! ramp. It also means the objects have to be held for as long as the tint lasts, so this owns a connection and
-//! a thread the way the workspace and toplevel watchers do.
+//! a thread.
+//!
+//! **And for no longer than that.** The shell's standing rule is that nothing runs unless something is asking
+//! for it, and here the two are the same fact: the controls are the tint, so a thread with nothing to hold has
+//! nothing to do. Turning the night light off therefore ends the thread and closes the connection rather than
+//! parking them until the process exits, and the next `warm` starts a fresh one. [`retire`] is that hand-over,
+//! and the lock it takes is what keeps a `warm` arriving mid-retirement from being answered by nobody.
 //!
 //! **Only one client at a time.** A compositor grants gamma control to one client per output; a second gets
 //! `failed`. That is reported rather than retried, because the honest answer to "something else already owns
@@ -16,7 +22,8 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::os::fd::{AsFd, OwnedFd};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay_client_toolkit::reexports::calloop::EventLoop;
 use smithay_client_toolkit::reexports::calloop::channel::{
@@ -45,8 +52,12 @@ pub const MAX_TEMPERATURE: u32 = 10000;
 /// The temperature at which the ramp is the identity, which is what "off" restores.
 pub const NEUTRAL_TEMPERATURE: u32 = 6500;
 
-static REQUESTS: OnceLock<Sender<Request>> = OnceLock::new();
-static RUNNING: OnceLock<bool> = OnceLock::new();
+/// The live producer's channel, and `None` whenever no tint is held — which is what lets a later [`warm`] start
+/// a fresh thread instead of talking into one that has already gone.
+static REQUESTS: Mutex<Option<Sender<Request>>> = Mutex::new(None);
+/// Set when starting finds no compositor or no gamma protocol. A machine that cannot do this at all would
+/// otherwise open a connection on every call, since there is no producer left behind to say it already failed.
+static UNSUPPORTED: AtomicBool = AtomicBool::new(false);
 static APPLIED: Mutex<Option<u32>> = Mutex::new(None);
 
 enum Request {
@@ -66,24 +77,29 @@ pub fn gamma_supported() -> Option<bool> {
 /// gamma grab with an event, not a reply, so [`current`] is what says whether a tint is actually held.
 pub fn warm(kelvin: u32) -> bool {
     let kelvin = kelvin.clamp(MIN_TEMPERATURE, MAX_TEMPERATURE);
-    if !*RUNNING.get_or_init(start) {
+    let mut slot = REQUESTS.lock().unwrap();
+    let Some(requests) = producer(&mut slot) else {
         return false;
-    }
+    };
     // Recorded here rather than on the watcher thread. The request is asynchronous, so a caller that warmed the
     // screen and immediately asked what it was holding would be told `None` — which is what `nightlight status`
     // straight after `nightlight on` is.
+    //
+    // Written while the producer slot is held, and read back under the same lock by [`retire`]: that overlap is
+    // the whole of what stops a `warm` landing on a thread already on its way out.
     *APPLIED.lock().unwrap() = Some(kelvin);
-    send(Request::Warm(kelvin))
+    requests.send(Request::Warm(kelvin)).is_ok()
 }
 
-/// Restores every output's original ramp.
+/// Restores every output's original ramp, which also ends the thread holding them.
 pub fn neutral() -> bool {
-    // Nothing was ever warmed, so there is nothing to restore and no reason to open a connection to say so.
-    if RUNNING.get().is_none() {
+    let slot = REQUESTS.lock().unwrap();
+    // Nothing is warmed, so there is nothing to restore and no reason to open a connection to say so.
+    let Some(requests) = slot.as_ref() else {
         return true;
-    }
+    };
     *APPLIED.lock().unwrap() = None;
-    send(Request::Neutral)
+    requests.send(Request::Neutral).is_ok()
 }
 
 /// The temperature the shell is holding, or `None` when the screens are at their own.
@@ -96,25 +112,59 @@ pub fn current() -> Option<u32> {
     *APPLIED.lock().unwrap()
 }
 
-fn send(request: Request) -> bool {
-    REQUESTS
-        .get()
-        .is_some_and(|requests| requests.send(request).is_ok())
+/// The channel to talk to a producer over, starting one if none is live.
+///
+/// Takes the slot the caller already holds rather than locking again, because a caller has to keep that lock
+/// across recording its intent — see [`warm`].
+fn producer(slot: &mut Option<Sender<Request>>) -> Option<Sender<Request>> {
+    if let Some(requests) = slot.as_ref() {
+        return Some(requests.clone());
+    }
+    if UNSUPPORTED.load(Ordering::Relaxed) {
+        return None;
+    }
+    match start() {
+        Some(requests) => Some(slot.insert(requests).clone()),
+        None => {
+            UNSUPPORTED.store(true, Ordering::Relaxed);
+            None
+        }
+    }
 }
 
-fn start() -> bool {
-    let Ok(connection) = Connection::connect_to_env() else {
+/// Gives up the producer slot, for a thread that is about to return.
+///
+/// Answering `true` is final: the caller returns, its controls go with it and every screen is restored, so the
+/// slot has to be free before that happens or the next [`warm`] would talk to a corpse. Answering `false` is a
+/// `warm` having landed since the tint was dropped — it has already recorded what it wants and put its request
+/// in the channel, and retiring now would leave the user's night light asked for and never applied.
+fn retire() -> bool {
+    let mut slot = REQUESTS.lock().unwrap();
+    if APPLIED.lock().unwrap().is_some() {
         return false;
-    };
-    let Ok((globals, queue)) = registry_queue_init::<Gamma>(&connection) else {
-        return false;
-    };
+    }
+    *slot = None;
+    true
+}
+
+/// Gives the slot up whatever was asked for, for a producer whose connection has failed under it. Leaving the
+/// sender behind would have every later [`warm`] report success into a channel nobody is reading, and leaving
+/// [`APPLIED`] set would have the shell claim a tint that died with the connection.
+fn forget() {
+    let mut slot = REQUESTS.lock().unwrap();
+    *slot = None;
+    *APPLIED.lock().unwrap() = None;
+}
+
+fn start() -> Option<Sender<Request>> {
+    let connection = Connection::connect_to_env().ok()?;
+    let (globals, queue) = registry_queue_init::<Gamma>(&connection).ok()?;
     let qh = queue.handle();
     let manager = match globals.bind::<ZwlrGammaControlManagerV1, _, _>(&qh, 1..=1, ()) {
         Ok(manager) => manager,
         Err(e) => {
             tracing::debug!("no wlr-gamma-control: {e}");
-            return false;
+            return None;
         }
     };
 
@@ -132,10 +182,6 @@ fn start() -> bool {
     });
 
     let (requests, channel) = channel();
-    if REQUESTS.set(requests).is_err() {
-        return false;
-    }
-
     let gamma = Gamma {
         connection: connection.clone(),
         manager,
@@ -147,7 +193,8 @@ fn start() -> bool {
     std::thread::Builder::new()
         .name("hyprshell-wlr-gamma".to_string())
         .spawn(move || run(gamma, connection, queue, channel))
-        .is_ok()
+        .ok()?;
+    Some(requests)
 }
 
 fn run(
@@ -157,14 +204,14 @@ fn run(
     requests: Channel<Request>,
 ) {
     let Ok(mut event_loop) = EventLoop::<Gamma>::try_new() else {
-        return;
+        return forget();
     };
     let handle = event_loop.handle();
     if WaylandSource::new(connection, queue)
         .insert(handle.clone())
         .is_err()
     {
-        return;
+        return forget();
     }
     let registered = handle.insert_source(requests, |event, _, gamma: &mut Gamma| {
         if let ChannelEvent::Msg(request) = event {
@@ -172,10 +219,17 @@ fn run(
         }
     });
     if registered.is_err() {
-        return;
+        return forget();
     }
-    // The controls this thread holds are the tint: returning would drop them and reset every screen.
-    while event_loop.dispatch(None, &mut gamma).is_ok() {}
+    // The controls this thread holds are the tint: returning drops them and gives every screen back. That is
+    // exactly what is wanted once nothing is tinted and never before, so both halves are checked — a control
+    // still held is a screen still warm, whatever was last asked for.
+    while event_loop.dispatch(None, &mut gamma).is_ok() {
+        if gamma.wanted.is_none() && gamma.controls.is_empty() && retire() {
+            return;
+        }
+    }
+    forget();
 }
 
 /// One output's gamma control, and the ramp length the compositor asked for.
@@ -484,6 +538,43 @@ mod tests {
         assert_eq!(ramp(1, 3000).len(), 6);
     }
 
+    /// The half of "nothing runs unless something is asking for it" that a lazy start does not give: a producer
+    /// nobody needs has to *stop*, and the slot it held has to be free for the next caller to start a fresh one.
+    ///
+    /// One test rather than three because all three phases move the same two statics, and split across
+    /// `cargo test`'s threads they would take turns wrecking each other's world.
+    #[test]
+    fn the_producer_lives_exactly_as_long_as_the_tint() {
+        let install = || {
+            let (requests, channel) = channel::<Request>();
+            *REQUESTS.lock().unwrap() = Some(requests);
+            channel
+        };
+
+        // Nothing is tinted: the producer goes, and the slot is free before its thread returns — otherwise the
+        // next `warm` would talk to a corpse.
+        let _channel = install();
+        *APPLIED.lock().unwrap() = None;
+        assert!(retire(), "nothing is tinted, so nothing needs the producer");
+        assert!(REQUESTS.lock().unwrap().is_none(), "the slot stayed taken");
+
+        // The race the lock exists for: a `warm` between the neutral and the retirement has already recorded
+        // its intent and queued its request, so retiring would leave the night light asked for and never
+        // applied, with nothing running left to notice.
+        let _channel = install();
+        *APPLIED.lock().unwrap() = Some(3000);
+        assert!(!retire(), "a tint was asked for, so the producer stays");
+        assert!(REQUESTS.lock().unwrap().is_some(), "the slot was given up");
+
+        // And turning off a light that is not on opens nothing to say so with.
+        forget();
+        assert!(neutral());
+        assert!(
+            REQUESTS.lock().unwrap().is_none(),
+            "answering 'nothing to restore' started a producer to answer it with"
+        );
+    }
+
     /// The half no fixture can prove: that the compositor accepts the table and holds the tint.
     ///
     /// `HYPRSHELL_WAYLAND_LIVE=1 cargo test -p platform-wayland gamma -- --nocapture --test-threads=1`
@@ -513,5 +604,16 @@ mod tests {
         assert!(neutral(), "the screen could not be given back");
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(current(), None);
+        assert!(
+            REQUESTS.lock().unwrap().is_none(),
+            "the thread holding the tint outlived the tint"
+        );
+
+        // And a second tint after the first has been given up gets a producer of its own, which is the half of
+        // retiring that a released slot alone does not prove.
+        assert!(warm(2500), "a fresh producer could not be started");
+        std::thread::sleep(Duration::from_millis(800));
+        assert_eq!(current(), Some(2500));
+        assert!(neutral());
     }
 }
