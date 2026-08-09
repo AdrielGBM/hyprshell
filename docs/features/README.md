@@ -16,7 +16,7 @@ not repeated here.
 | [Active window](modules/activewindow.md) | What the focused window is called, and how much of that fits on a bar. **(Hyprland only)** | `wlr-foreign-toplevel-management` |
 | [Battery](modules/battery.md) | Charge, and the warnings and actions that hang off it. | `upower`, `power-supply`, `logind` |
 | [Bluetooth](modules/bluetooth.md) | The radio, the devices, and connecting to one. | `bluez` |
-| [Brightness](modules/brightness.md) | Screen brightness, for the internal panel and for external monitors. | `backlight`, `ddcutil`, `logind`, `udevadm` |
+| [Brightness](modules/brightness.md) | Screen brightness, for the internal panel and for external monitors. | `backlight`, `ddcutil`, `logind` |
 | [Clock](modules/clock.md) | The time on the bar, and the calendar behind it. | — |
 | [Dashboard](modules/dashboard.md) | One panel, four pages: overview, media, performance and weather. | `drm`, `libnvidia-ml` |
 | [Keyboard layout](modules/kblayout.md) | Which layout the main keyboard is on, and switching it. **(Hyprland only)** | — |

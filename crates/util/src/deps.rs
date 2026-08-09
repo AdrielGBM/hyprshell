@@ -41,7 +41,6 @@ pub enum Dep {
     GpuScreenRecorder,
     Ddcutil,
     Qalc,
-    Udevadm,
     // D-Bus peers.
     NetworkManager,
     BlueZ,
@@ -462,17 +461,6 @@ pub const ALL: &[Entry] = &[
         need: Need::Optional,
         what: "currencies, constants and dates in the launcher's `=` mode",
         without: "a built-in evaluator handles the ordinary arithmetic",
-    },
-    Entry {
-        dep: Dep::Udevadm,
-        id: "udevadm",
-        kind: Kind::Program {
-            name: "udevadm",
-            probe: &["--version"],
-        },
-        need: Need::Optional,
-        what: "noticing a backlight change made by something else",
-        without: "the internal brightness reading can lag a change made outside the shell",
     },
 ];
 

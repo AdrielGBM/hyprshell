@@ -59,7 +59,7 @@ status: stable          # stable | partial | planned
 compositor: any         # any | hyprland  — hyprland means it needs Hyprland's IPC
 config: [brightness]    # top-level sections of config.toml
 commands: [brightness]  # IPC targets
-deps: [backlight, ddcutil, logind, udevadm]   # ids from `hyprshell deps list`
+deps: [backlight, ddcutil, logind]   # ids from `hyprshell deps list`
 see_also: [osd, statusicons]
 ---
 ```

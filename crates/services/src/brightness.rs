@@ -12,14 +12,12 @@
 //! optimistically.
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use platform_wayland::EventSender;
-use util::deps::{self, Dep};
 
 use crate::ddc;
 use crate::hyprland;
@@ -30,8 +28,15 @@ const BACKLIGHT_DIR: &str = "/sys/class/backlight";
 const LOGIND: &str = "org.freedesktop.login1";
 const SESSION_PATH: &str = "/org/freedesktop/login1/session/auto";
 const SESSION_IFACE: &str = "org.freedesktop.login1.Session";
-/// Poll used only when `udevadm` can't be spawned, so the level still tracks external changes eventually.
+/// Poll used only when the uevent socket cannot be opened, so the level still tracks external changes eventually.
 const FALLBACK_POLL: Duration = Duration::from_secs(5);
+/// How often a blocked receive gives the watcher a chance to notice its last subscriber has gone.
+const WAKE: Duration = Duration::from_secs(1);
+/// Kernel uevents are far smaller than this; anything longer is not a backlight event.
+const UEVENT_MAX: usize = 4096;
+/// The kernel's own broadcast, and udev's rebroadcast once it has processed the event.
+const UEVENT_GROUP_KERNEL: u32 = 1;
+const UEVENT_GROUP_UDEV: u32 = 2;
 
 /// How a display's brightness is reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -257,7 +262,7 @@ fn run(out: &Arc<Broadcast<Snapshot>>) {
     }
     out.publish(Snapshot { displays });
 
-    if watch_udev(out).is_none() {
+    if watch_uevents(out).is_none() {
         poll_fallback(out);
     }
 }
@@ -280,21 +285,43 @@ fn refresh_internal(out: &Broadcast<Snapshot>) {
     out.publish(snapshot);
 }
 
-/// Follows `udevadm monitor` for backlight uevents — the kernel emits one whenever the brightness changes,
-/// whoever changed it — so the chip tracks function keys and other tools without polling sysfs.
-fn watch_udev(out: &Broadcast<Snapshot>) -> Option<()> {
-    let mut child = deps::command(Dep::Udevadm)?
-        .args(["monitor", "--udev", "--subsystem-match=backlight"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let stdout = child.stdout.take()?;
+/// Follows backlight uevents — the kernel emits one whenever the brightness changes, whoever changed it — so
+/// the chip tracks function keys and other tools without polling sysfs.
+///
+/// This used to run `udevadm monitor` and read its stdout, which cost a subprocess for the life of the
+/// subscription to learn a single fact. `udevadm monitor` is a reader of the socket opened here, so this is
+/// the same event from the same source with nothing in between.
+fn watch_uevents(out: &Broadcast<Snapshot>) -> Option<()> {
+    let socket = match uevent_socket() {
+        Ok(socket) => socket,
+        Err(reason) => {
+            tracing::debug!("backlight uevents unavailable ({reason}); polling instead");
+            return None;
+        }
+    };
+    let mut message = [0u8; UEVENT_MAX];
     let mut last = read();
-    for line in BufReader::new(stdout).lines() {
-        let Ok(line) = line else { break };
-        // `udevadm monitor` prints a header before any events; only device lines concern us.
-        if !line.contains("backlight") {
+    while out.wanted() {
+        // SAFETY: the kernel writes at most `message.len()` bytes into a buffer this thread owns.
+        let received = unsafe {
+            libc::recv(
+                socket.as_raw_fd(),
+                message.as_mut_ptr().cast(),
+                message.len(),
+                0,
+            )
+        };
+        if received < 0 {
+            // The receive timeout is what lets this notice a subscription ending; every other error is the
+            // socket itself going away, which the poll fallback is there to survive.
+            match std::io::Error::last_os_error().kind() {
+                std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::Interrupted => continue,
+                _ => return None,
+            }
+        }
+        if !is_backlight(&message[..received as usize]) {
             continue;
         }
         let current = read();
@@ -303,8 +330,73 @@ fn watch_udev(out: &Broadcast<Snapshot>) -> Option<()> {
             refresh_internal(out);
         }
     }
-    let _ = child.kill();
     Some(())
+}
+
+/// A uevent is a line, then NUL-separated `KEY=value` properties. Matching the whole property rather than
+/// searching for the word keeps an unrelated device whose path merely contains "backlight" out.
+fn is_backlight(message: &[u8]) -> bool {
+    message
+        .split(|byte| *byte == 0)
+        .any(|property| property == b"SUBSYSTEM=backlight")
+}
+
+/// The netlink socket the kernel broadcasts uevents on.
+///
+/// Both groups are asked for, and the order matters. Group 1 is the kernel's own broadcast and group 2 is
+/// udev's rebroadcast after it has processed the event; taking both means the watch still works where udevd is
+/// not running, which is what `udevadm monitor --udev` could not do. Binding to the kernel group is the half
+/// that may be refused, so a failure falls back to udev's alone rather than giving up.
+fn uevent_socket() -> std::io::Result<OwnedFd> {
+    // SAFETY: a bare `socket(2)`; the descriptor is adopted by `OwnedFd` before anything can return early.
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_DGRAM | libc::SOCK_CLOEXEC,
+            libc::NETLINK_KOBJECT_UEVENT,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` is a fresh descriptor this thread owns and has not handed anywhere else.
+    let socket = unsafe { OwnedFd::from_raw_fd(fd) };
+
+    let timeout = libc::timeval {
+        tv_sec: WAKE.as_secs() as libc::time_t,
+        tv_usec: 0,
+    };
+    // SAFETY: a `timeval` of its own documented length, against a descriptor that is open.
+    unsafe {
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw const timeout).cast(),
+            size_of::<libc::timeval>() as libc::socklen_t,
+        );
+    }
+
+    for groups in [UEVENT_GROUP_KERNEL | UEVENT_GROUP_UDEV, UEVENT_GROUP_UDEV] {
+        // SAFETY: `sockaddr_nl` is C integers and padding throughout, for which all-zero is a valid value —
+        // and it is the value wanted for `nl_pid`, which asks the kernel to allocate one rather than naming a
+        // port that another listener may already hold.
+        let mut address: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
+        address.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+        address.nl_groups = groups;
+        // SAFETY: a `sockaddr_nl` of its own documented length, against a descriptor that is open.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                (&raw const address).cast(),
+                size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+            )
+        };
+        if bound == 0 {
+            return Ok(socket);
+        }
+    }
+    Err(std::io::Error::last_os_error())
 }
 
 fn poll_fallback(out: &Broadcast<Snapshot>) {

@@ -46,7 +46,6 @@ table *for this machine*, and `hyprshell deps missing` narrows it to what is abs
 | `fprintd` | system bus name `net.reactivated.Fprint` | unlocking with a fingerprint | the lock screen takes a password only |
 | `xdg-desktop-portal` | session bus name `org.freedesktop.portal.Desktop` | registering the shell's actions as global shortcuts | bind the IPC commands in the compositor's own config instead |
 | `qalc` | program `qalc` | currencies, constants and dates in the launcher's `=` mode | a built-in evaluator handles the ordinary arithmetic |
-| `udevadm` | program `udevadm` | noticing a backlight change made by something else | the internal brightness reading can lag a change made outside the shell |
 
 ## How each is probed
 

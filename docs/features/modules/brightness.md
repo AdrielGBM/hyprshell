@@ -7,7 +7,7 @@ status: stable
 compositor: any
 config: [brightness]
 commands: [brightness]
-deps: [backlight, ddcutil, logind, udevadm]
+deps: [backlight, ddcutil, logind]
 popout: true
 see_also: [osd, dependencies]
 ---
@@ -45,8 +45,10 @@ Two routes, and they are independent:
 
 - **Internal panel** — `/sys/class/backlight` to read, and **logind** to write. Going through logind is what
   makes it work without root and without a udev rule: logind permits the active session to set a backlight.
-  **udevadm** is how the chip notices a change made by something else, so the reading follows the function keys
-  instead of drifting out of step.
+  The chip notices a change made by something else from the **kernel's uevent socket**, so the reading follows
+  the function keys instead of drifting out of step. That needs nothing installed: it is the same broadcast
+  `udevadm monitor` reads, listened to directly, and it falls back to a five-second poll where the socket
+  cannot be opened.
 - **External monitors** — **`ddcutil`**, which speaks DDC/CI over the I²C bus behind each output. There is no
   library worth binding; the CLI is the interface.
 
