@@ -7,6 +7,7 @@
 //! Only ever called off the UI thread: even with a deadline, this is a process start.
 
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -24,21 +25,46 @@ pub fn command(program: &str) -> Command {
     Command::new(program)
 }
 
-/// Launches `command` through a shell and forgets about it — `setsid --fork` so it survives the shell exiting,
-/// and every stream nulled so it can neither block on a pipe nor write over the shell's own output.
+/// Launches `command` through a shell and forgets about it — a session of its own so it survives the shell
+/// exiting, and every stream nulled so it can neither block on a pipe nor write over the shell's own output.
 ///
 /// The opposite trade to [`output`]: nothing here reads a result, so the child is disowned rather than waited on.
+///
+/// This used to spawn `setsid --fork`, which made launching anything at all depend on a program from
+/// util-linux — and not gracefully: with `setsid` absent the spawn failed and the application never started,
+/// which is not something a user could have diagnosed from the shell. The double fork below is what
+/// `--fork` was doing, so the intermediate child is still reaped here and the application is still reparented
+/// to init.
 pub fn run_detached(line: String) {
     let _ = std::thread::Builder::new()
         .name("hyprshell-launch".to_string())
         .spawn(move || {
-            match command("setsid")
-                .args(["--fork", "sh", "-c", &line])
+            let mut child = command("sh");
+            child
+                .args(["-c", &line])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-            {
+                .stderr(Stdio::null());
+            // SAFETY: runs in the forked child before exec, so only async-signal-safe calls are allowed;
+            // `fork`, `_exit` and `setsid` all are, and nothing here allocates or takes a lock.
+            unsafe {
+                child.pre_exec(|| {
+                    match libc::fork() {
+                        -1 => return Err(std::io::Error::last_os_error()),
+                        // The intermediate leaves at once, so whoever spawned it has something to reap and the
+                        // process below is orphaned onto init rather than held by a shell that may exit first.
+                        0 => {}
+                        _ => libc::_exit(0),
+                    }
+                    // Leading a session of its own is what detaches it from the shell's terminal and process
+                    // group, so a signal sent to the shell is not delivered to everything it ever launched.
+                    if libc::setsid() == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            match child.status() {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("launching `{line}`: {e}"),
             }

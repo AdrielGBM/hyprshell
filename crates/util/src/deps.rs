@@ -41,7 +41,6 @@ pub enum Dep {
     GpuScreenRecorder,
     Ddcutil,
     Qalc,
-    Setsid,
     Udevadm,
     // D-Bus peers.
     NetworkManager,
@@ -465,17 +464,6 @@ pub const ALL: &[Entry] = &[
         without: "a built-in evaluator handles the ordinary arithmetic",
     },
     Entry {
-        dep: Dep::Setsid,
-        id: "setsid",
-        kind: Kind::Program {
-            name: "setsid",
-            probe: &["--version"],
-        },
-        need: Need::Optional,
-        what: "detaching a launched application so it outlives the shell",
-        without: "an application launched from the shell dies with it",
-    },
-    Entry {
         dep: Dep::Udevadm,
         id: "udevadm",
         kind: Kind::Program {
@@ -812,11 +800,15 @@ mod tests {
     #[test]
     fn a_probe_is_remembered_and_can_be_forgotten() {
         refresh();
-        let first = probe(Dep::Setsid);
-        assert_eq!(probe(Dep::Setsid), first, "the second ask is the cache");
+        let first = probe(Dep::PowerSupply);
+        assert_eq!(
+            probe(Dep::PowerSupply),
+            first,
+            "the second ask is the cache"
+        );
         refresh();
         assert_eq!(
-            probe(Dep::Setsid),
+            probe(Dep::PowerSupply),
             first,
             "and it probes to the same answer"
         );

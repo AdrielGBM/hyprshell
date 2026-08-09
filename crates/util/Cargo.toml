@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 image = { workspace = true }
+libc.workspace = true
 libloading.workspace = true
 platform-wayland = { workspace = true }
 telar = { workspace = true }

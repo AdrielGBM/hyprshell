@@ -7,7 +7,7 @@ status: stable
 compositor: any
 config: [launcher, general]
 commands: [launcher, apps]
-deps: [wlr-layer-shell, qalc, setsid, wlr-foreign-toplevel-management]
+deps: [wlr-layer-shell, qalc, wlr-foreign-toplevel-management]
 see_also: [apps, palettes, wallpaper]
 ---
 
@@ -82,8 +82,9 @@ dates; without it those queries simply do not resolve. `[launcher] calculator` a
 
 ## What it needs
 
-Nothing to open. **`setsid`** is what detaches a launched application so it outlives the shell — without it,
-what you launch from the launcher dies with the shell. **`qalc`** is optional, as above.
+Nothing to open, and nothing to install to launch with. What you start from the launcher is put in a session of
+its own, so it outlives the shell rather than dying with it; that is a system call the shell makes itself
+rather than a helper it needs on the path. **`qalc`** is optional, as above.
 
 ## Known limits
 
