@@ -197,14 +197,22 @@ into the same commit — call `rustfmt --edition 2024 <files>` directly.
 time, so the source directory has to be writable — a build pointed at a read-only path fails with `Failed to
 create .telar/build/`. The directory is gitignored and regenerated from the `.rsx` files.
 
-Anything with a look has a PNG test behind an env var:
+Anything with a look is a `[preview]`, so it renders on every run rather than when an environment variable asks
+— by hand as a window or a PNG, and in CI as a measurement:
 
 ```sh
-TELAR_VISUAL_SETTINGS_OUT=/tmp/s.png cargo test -p hyprshell --lib visual_settings -- --nocapture
-TELAR_VISUAL_SPECTRUM_OUT=/tmp/v.png cargo test -p hyprshell --lib visual_spectrum -- --nocapture
-TELAR_LIVE_VISUALISER=1 cargo test -p hyprshell --lib live_capture -- --nocapture
-TELAR_PERF=1 hyprshell                 # per-phase frame timing
+cargo telar preview                          # every preview, in a window
+cargo telar test                             # every preview built and laid out once
+cargo test -p hyprshell --lib layout_sweep   # all 12 edge × shape combinations, measured
+TELAR_LIVE_VISUALISER=1 cargo test -p hyprshell-services --lib live_capture -- --nocapture
+TELAR_PERF=1 hyprshell                       # per-phase frame timing
 ```
+
+`layout_sweep` is the regression net: it lays every preview out on all four edges in all three shape modes and
+fails on anything that measures to no area — a collapsed viewport clips its contents away while every other
+check still passes. It stores no baseline images deliberately, since a stored picture cannot be told apart from
+a font that shaped differently on the machine running it. See `apps/hyprshell/src/layout_sweep.rs` for the two
+questions it does *not* ask, and why.
 
 ## Licence
 
