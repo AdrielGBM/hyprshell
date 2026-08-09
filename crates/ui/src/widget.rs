@@ -34,9 +34,20 @@ pub fn meter(
     height: f32,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     let radius = height / 2.0;
+    let empty = fraction.clone();
     let fill = StyledContainer::new(
         LayoutStyle::new().absolute_fill(),
-        move |_r| RectStyle::filled(tint.get(), radius),
+        move |_r| {
+            // A bar with nothing in it has no fill to draw, and saying so is not only tidier. The rect stays
+            // its full laid-out size — the collapse below is in the matrix, not in the box — so a renderer
+            // handed a fill still has a rounded path to fill, and a path a transform has flattened to a line is
+            // one tiny_skia refuses, warning once a frame for as long as the reading sits at zero.
+            if empty.get() <= 0.0 {
+                RectStyle::default()
+            } else {
+                RectStyle::filled(tint.get(), radius)
+            }
+        },
         vec![],
     )?
     .with_transform(move |r| {
