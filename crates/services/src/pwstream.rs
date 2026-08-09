@@ -191,41 +191,32 @@ fn library() -> Option<&'static Pw> {
 }
 
 fn load() -> Option<Pw> {
-    let deps::Kind::Library { sonames } = deps::entry(Dep::LibPipeWire).kind else {
-        return None;
-    };
-    for soname in sonames {
-        let loaded = unsafe {
-            libloading::Library::new(*soname).and_then(|library| {
-                let init =
-                    *library.get::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(
-                        b"pw_init\0",
-                    )?;
-                let pw = Pw {
-                    main_loop_new: *library.get(b"pw_main_loop_new\0")?,
-                    main_loop_get_loop: *library.get(b"pw_main_loop_get_loop\0")?,
-                    main_loop_run: *library.get(b"pw_main_loop_run\0")?,
-                    main_loop_quit: *library.get(b"pw_main_loop_quit\0")?,
-                    main_loop_destroy: *library.get(b"pw_main_loop_destroy\0")?,
-                    properties_new_dict: *library.get(b"pw_properties_new_dict\0")?,
-                    stream_new_simple: *library.get(b"pw_stream_new_simple\0")?,
-                    stream_connect: *library.get(b"pw_stream_connect\0")?,
-                    stream_dequeue_buffer: *library.get(b"pw_stream_dequeue_buffer\0")?,
-                    stream_queue_buffer: *library.get(b"pw_stream_queue_buffer\0")?,
-                    stream_destroy: *library.get(b"pw_stream_destroy\0")?,
-                    _library: library,
-                };
-                // Once, here, and never undone: `pw_deinit` on a process that is exiting anyway buys nothing,
-                // and a second capture must not re-initialise the library underneath the first.
-                init(std::ptr::null_mut(), std::ptr::null_mut());
-                Ok(pw)
-            })
-        };
-        if let Ok(pw) = loaded {
-            return Some(pw);
-        }
+    // SAFETY: loading a shared object runs its initialisers, and every symbol is looked up by the signature
+    // PipeWire documents for it.
+    unsafe {
+        deps::open_library(Dep::LibPipeWire, None, |library| {
+            let init = *library
+                .get::<unsafe extern "C" fn(*mut c_int, *mut *mut *mut c_char)>(b"pw_init\0")?;
+            let pw = Pw {
+                main_loop_new: *library.get(b"pw_main_loop_new\0")?,
+                main_loop_get_loop: *library.get(b"pw_main_loop_get_loop\0")?,
+                main_loop_run: *library.get(b"pw_main_loop_run\0")?,
+                main_loop_quit: *library.get(b"pw_main_loop_quit\0")?,
+                main_loop_destroy: *library.get(b"pw_main_loop_destroy\0")?,
+                properties_new_dict: *library.get(b"pw_properties_new_dict\0")?,
+                stream_new_simple: *library.get(b"pw_stream_new_simple\0")?,
+                stream_connect: *library.get(b"pw_stream_connect\0")?,
+                stream_dequeue_buffer: *library.get(b"pw_stream_dequeue_buffer\0")?,
+                stream_queue_buffer: *library.get(b"pw_stream_queue_buffer\0")?,
+                stream_destroy: *library.get(b"pw_stream_destroy\0")?,
+                _library: library,
+            };
+            // Once, here, and never undone: `pw_deinit` on a process that is exiting anyway buys nothing, and
+            // a second capture must not re-initialise the library underneath the first.
+            init(std::ptr::null_mut(), std::ptr::null_mut());
+            Ok(pw)
+        })
     }
-    None
 }
 
 /// Captures the default sink's monitor until it stops, handing `on_hop` exactly `hop` samples at a time.

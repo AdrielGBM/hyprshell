@@ -18,7 +18,7 @@ not repeated here.
 | [Bluetooth](modules/bluetooth.md) | The radio, the devices, and connecting to one. | `bluez` |
 | [Brightness](modules/brightness.md) | Screen brightness, for the internal panel and for external monitors. | `backlight`, `ddcutil`, `logind`, `udevadm` |
 | [Clock](modules/clock.md) | The time on the bar, and the calendar behind it. | — |
-| [Dashboard](modules/dashboard.md) | One panel, four pages: overview, media, performance and weather. | `drm` |
+| [Dashboard](modules/dashboard.md) | One panel, four pages: overview, media, performance and weather. | `drm`, `libnvidia-ml` |
 | [Keyboard layout](modules/kblayout.md) | Which layout the main keyboard is on, and switching it. **(Hyprland only)** | — |
 | [Launcher chip](modules/launcher.md) | A search icon that opens the launcher. | — |
 | [Lock keys](modules/lockstatus.md) | Caps Lock and Num Lock indicators. | `leds` |
@@ -33,7 +33,7 @@ not repeated here.
 | [Settings](modules/settings.md) | A full settings application, in a panel. | — |
 | [Spacer](modules/spacer.md) | An empty module that takes up whatever room is left. | — |
 | [Status icons](modules/statusicons.md) | Several service icons sharing one chip. | `pw-dump`, `networkmanager`, `bluez`, `upower`, `leds` |
-| [System readings](modules/sysinfo.md) | CPU, GPU, memory, temperature and network throughput as bar chips. | `drm` |
+| [System readings](modules/sysinfo.md) | CPU, GPU, memory, temperature and network throughput as bar chips. | `drm`, `libnvidia-ml` |
 | [System tray](modules/tray.md) | One icon per running tray application. | — |
 | [Utilities](modules/utilities.md) | The switches you reach for without opening anything. | `gamemode`, `networkmanager`, `bluez`, `pw-dump` |
 | [Volume](modules/volume.md) | The default output's level and mute. | `pw-dump`, `wpctl` |

@@ -7,7 +7,7 @@ status: stable
 compositor: any
 config: [dashboard, weather, gpu, temperature]
 commands: [dashboard]
-deps: [drm]
+deps: [drm, libnvidia-ml]
 panel: true
 see_also: [sysinfo, media, weather]
 ---

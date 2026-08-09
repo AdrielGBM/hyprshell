@@ -59,6 +59,7 @@ pub enum Dep {
     // Libraries loaded at runtime.
     LibPam,
     LibPipeWire,
+    Nvml,
     // Wayland protocols.
     LayerShell,
     SessionLock,
@@ -88,6 +89,14 @@ pub enum Kind {
     Kernel { path: &'static str },
     /// A shared library opened at runtime, so no linker records it and `ldd` cannot see it. Probed by opening
     /// it, in the same order and with the same names the real loader uses.
+    ///
+    /// Bare sonames come first, so the loader answers with whatever the running system linked against —
+    /// including, on a packaged build, the binary's own RUNPATH. The absolute paths after them are not
+    /// belt-and-braces: **a store-based distribution keeps libraries under hashed paths and leaves nothing on
+    /// the loader's default search path**, so a `cargo`-built shell finds no bare soname at all on a machine
+    /// where the library plainly works. NixOS's system profile and its driver directory are the stable names
+    /// there — symlinks into the current generation, so they survive a rebuild and a garbage collection in a
+    /// way a store path pinned in a config would not.
     Library { sonames: &'static [&'static str] },
     /// A Wayland protocol, probed by asking the compositor's registry for its interfaces by name. Present only
     /// when *every* one of them is: `ext-image-copy-capture` is two globals — a capture manager and the factory
@@ -372,7 +381,22 @@ pub const ALL: &[Entry] = &[
         },
         need: Need::Optional,
         what: "GPU utilisation and VRAM on AMD and Intel, straight from the kernel",
-        without: "GPU fields read unknown unless nvidia-smi answers",
+        without: "GPU fields read unknown on an AMD or Intel card; an NVIDIA one answers through NVML instead",
+    },
+    Entry {
+        dep: Dep::Nvml,
+        id: "libnvidia-ml",
+        kind: Kind::Library {
+            sonames: &[
+                "libnvidia-ml.so.1",
+                "libnvidia-ml.so",
+                "/run/opengl-driver/lib/libnvidia-ml.so.1",
+                "/run/opengl-driver/lib/libnvidia-ml.so",
+            ],
+        },
+        need: Need::Optional,
+        what: "utilisation, temperature and VRAM on an NVIDIA card, which publishes none of it to the kernel",
+        without: "an NVIDIA GPU reports its name and nothing else",
     },
     Entry {
         dep: Dep::WfRecorder,
@@ -579,11 +603,9 @@ fn run_probe(entry: &Entry) -> Presence {
                 .read_dir()
                 .is_ok_and(|mut entries| entries.next().is_some()),
         ),
-        Kind::Library { sonames } => found(
-            sonames
-                .iter()
-                .any(|soname| unsafe { libloading::Library::new(*soname) }.is_ok()),
-        ),
+        // SAFETY: the library is opened and dropped without a symbol being taken out of it — a probe only ever
+        // asks whether the loader can find it.
+        Kind::Library { .. } => found(unsafe { open_library(entry.dep, None, Ok) }.is_some()),
         // The only kind that can answer `Unknown`: with no compositor to ask, "does it advertise this" has no
         // answer, and inventing `Absent` would blame the compositor for this process having no session.
         Kind::Protocol { interfaces } => match platform_wayland::advertises_all(interfaces) {
@@ -645,6 +667,54 @@ pub fn output(dep: Dep, args: &[&str], timeout: Duration) -> Option<String> {
 /// where the distinction is the whole value.
 pub fn available(dep: Dep) -> bool {
     probe(dep).is_present()
+}
+
+/// Where a declared library might be, in the order the loader should be asked — empty for a row that is not a
+/// library. For the one caller that has to *name* what it tried in a message a user will read.
+pub fn library_names(dep: Dep) -> &'static [&'static str] {
+    match entry(dep).kind {
+        Kind::Library { sonames } => sonames,
+        _ => &[],
+    }
+}
+
+/// Opens a declared library and builds something out of its symbols, trying each candidate name in turn.
+///
+/// The library twin of [`command`], and load-bearing for the same reason: taking a [`Dep`] rather than a
+/// soname is what stops a second copy of a candidate list existing somewhere else, which is exactly how
+/// `libpam`'s list came to be written twice and NVML's not to be declared at all.
+///
+/// `build` receives the opened library and returns the caller's own handle, holding it so the symbols stay
+/// mapped. Returning `Err` rejects *that* candidate and moves to the next, which is what lets a caller refuse
+/// a library that opens but has no usable symbols — or one whose own initialiser fails.
+///
+/// `preferred` is tried ahead of the row, for the single case where a user can point at a library the row
+/// cannot know about: `[lock] pam_library`.
+///
+/// # Safety
+///
+/// Opening a shared object runs its initialisers, and the symbols `build` takes out of it are trusted to match
+/// the signatures the caller declares — neither is something the type system checks.
+pub unsafe fn open_library<T>(
+    dep: Dep,
+    preferred: Option<&str>,
+    build: impl Fn(libloading::Library) -> Result<T, libloading::Error>,
+) -> Option<T> {
+    let candidates = preferred
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .into_iter()
+        .chain(library_names(dep).iter().copied());
+    for name in candidates {
+        match unsafe { libloading::Library::new(name) }.and_then(&build) {
+            Ok(built) => {
+                tracing::debug!("{}: loaded from '{name}'", entry(dep).id);
+                return Some(built);
+            }
+            Err(reason) => tracing::debug!("{}: '{name}' did not load: {reason}", entry(dep).id),
+        }
+    }
+    None
 }
 
 /// A [`Command`](std::process::Command) for a declared program, for the callers that must own the child rather
@@ -750,6 +820,82 @@ mod tests {
             first,
             "and it probes to the same answer"
         );
+    }
+
+    /// A registry is only the source of truth if it cannot be bypassed, and in Rust nothing stops a new call
+    /// site reaching for the standard library directly — at which point the dependency panel goes on
+    /// cheerfully reporting a list that is missing what the shell just failed to find.
+    ///
+    /// Two front doors, one rule. Programs go through [`command`], which takes a [`Dep`]; libraries go through
+    /// [`open_library`], which takes one too. Both guards live here rather than beside the code they police,
+    /// because what they protect is this file's completeness.
+    ///
+    /// One spelling is allowed past the process guard beyond `process`'s own: `process::command(…)` at a site
+    /// that runs a command the **user** wrote — a launcher action, a scheme hook, the configured annotator or
+    /// `howdy` line. Those have no row because there is nothing stable to put in one.
+    #[test]
+    fn nothing_reaches_outside_this_process_without_a_row() {
+        for (needle, exempt, fix) in [
+            (
+                "Command::new",
+                "util/src/process.rs",
+                "use `deps::command(Dep::…)`, or `process::command` if it is a command the user wrote",
+            ),
+            (
+                "libloading::Library::new",
+                "util/src/deps.rs",
+                "use `deps::open_library(Dep::…)`",
+            ),
+        ] {
+            let offenders = sources_containing(needle, exempt);
+            assert!(
+                offenders.is_empty(),
+                "these reach outside without declaring it — {fix}: {offenders:#?}"
+            );
+        }
+    }
+
+    /// Walks the workspace's own sources for `needle`, skipping `exempt`, this file — which holds every needle
+    /// as a literal — and the transpiler's output, which is generated rather than written.
+    fn sources_containing(needle: &str, exempt: &str) -> Vec<String> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("the workspace root is two levels above this crate")
+            .to_path_buf();
+        let mut offenders = Vec::new();
+        let mut stack = vec![root.join("crates"), root.join("apps")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = dir.read_dir() else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if !matches!(path.file_name().and_then(|n| n.to_str()), Some(".telar")) {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                let is_source = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e == "rs" || e == "rsx");
+                if !is_source || path.ends_with("util/src/deps.rs") || path.ends_with(exempt) {
+                    continue;
+                }
+                if std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle)) {
+                    offenders.push(
+                        path.strip_prefix(&root)
+                            .unwrap_or(&path)
+                            .display()
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        offenders.sort();
+        offenders
     }
 
     /// Not an assertion about this machine — only that probing every row answers, in order, without panicking

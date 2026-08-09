@@ -15,6 +15,8 @@
 use std::ffi::{CStr, c_char, c_int, c_uint};
 use std::sync::OnceLock;
 
+use util::deps::{self, Dep};
+
 /// NVML's success code. Every call returns one of these and the value is only meaningful against it.
 const NVML_SUCCESS: c_int = 0;
 
@@ -58,26 +60,12 @@ unsafe impl Sync for Nvml {}
 
 static NVML: OnceLock<Option<Nvml>> = OnceLock::new();
 
-/// Where to look, in order. `.so.1` is what a runtime package ships; the bare `.so` only exists where the
-/// development package is installed too.
-///
-/// The absolute paths are not belt-and-braces. **NixOS keeps graphics drivers outside the loader's search
-/// path** — `/run/opengl-driver/lib` is how everything else finds them, and it is not on `LD_LIBRARY_PATH`
-/// for an ordinary process — so a bare soname finds nothing on a machine whose `nvidia-smi` works perfectly.
-/// Which is exactly how this was found: NVML reported no GPU on a laptop with a working NVIDIA card. The same
-/// trap `pam` carries a hardcoded NixOS path for.
-const SONAMES: &[&str] = &[
-    "libnvidia-ml.so.1",
-    "libnvidia-ml.so",
-    "/run/opengl-driver/lib/libnvidia-ml.so.1",
-    "/run/opengl-driver/lib/libnvidia-ml.so",
-];
-
 fn load() -> Option<Nvml> {
-    for soname in SONAMES {
-        let loaded = unsafe {
-            libloading::Library::new(*soname).and_then(|library| {
-                let init = *library.get::<unsafe extern "C" fn() -> c_int>(b"nvmlInit_v2\0")?;
+    // SAFETY: loading a shared object runs its initialisers, and the six symbols are looked up by the
+    // signatures NVML documents for them.
+    unsafe {
+        deps::open_library(Dep::Nvml, None, |library| {
+            let init = *library.get::<unsafe extern "C" fn() -> c_int>(b"nvmlInit_v2\0")?;
                 let device_by_index = *library
                     .get::<unsafe extern "C" fn(c_uint, *mut Device) -> c_int>(
                         b"nvmlDeviceGetHandleByIndex_v2\0",
@@ -108,15 +96,10 @@ fn load() -> Option<Nvml> {
                     utilization,
                     temperature,
                     memory,
-                    _library: library,
-                })
+                _library: library,
             })
-        };
-        if let Ok(nvml) = loaded {
-            return Some(nvml);
-        }
+        })
     }
-    None
 }
 
 fn nvml() -> Option<&'static Nvml> {

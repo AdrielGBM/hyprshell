@@ -38,7 +38,8 @@ table *for this machine*, and `hyprshell deps missing` narrows it to what is abs
 | `backlight` | kernel interface `/sys/class/backlight` | the internal panel's brightness | internal brightness is unavailable; external monitors still work through ddcutil |
 | `ddcutil` | program `ddcutil` | the brightness of external monitors, over DDC/CI | only internal panels are dimmable |
 | `leds` | kernel interface `/sys/class/leds` | keyboard backlight and the state of the lock keys | no keyboard backlight control |
-| `drm` | kernel interface `/sys/class/drm` | GPU utilisation and VRAM on AMD and Intel, straight from the kernel | GPU fields read unknown unless nvidia-smi answers |
+| `drm` | kernel interface `/sys/class/drm` | GPU utilisation and VRAM on AMD and Intel, straight from the kernel | GPU fields read unknown on an AMD or Intel card; an NVIDIA one answers through NVML instead |
+| `libnvidia-ml` | library `libnvidia-ml.so.1`, loaded at runtime | utilisation, temperature and VRAM on an NVIDIA card, which publishes none of it to the kernel | an NVIDIA GPU reports its name and nothing else |
 | `wf-recorder` | program `wf-recorder` | screen recording, encoded on the CPU | nothing, if gpu-screen-recorder is installed instead |
 | `gpu-screen-recorder` | program `gpu-screen-recorder` | screen recording encoded on the GPU, and the only backend that can pause | recording still works through wf-recorder, but cannot be paused |
 | `gamemode` | session bus name `com.feralinteractive.GameMode` | the game-mode toggle | the toggle is greyed out |

@@ -15,6 +15,8 @@ use std::ffi::{CString, c_char, c_int, c_void};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use util::deps::{self, Dep};
+
 /// PAM's own return and message codes. Named here rather than reached for as literals, since the whole
 /// authentication verdict rests on telling `PAM_SUCCESS` from everything else.
 const PAM_SUCCESS: c_int = 0;
@@ -72,59 +74,33 @@ struct Pam {
 unsafe impl Send for Pam {}
 unsafe impl Sync for Pam {}
 
-/// Where the library might be.
-///
-/// The bare sonames come first, so the dynamic loader answers with whatever the running system linked against
-/// — including, on a packaged build, this binary's own RUNPATH. The last entry is for the case that motivated
-/// loading PAM at runtime in the first place: a store-based distribution puts every library under a hashed
-/// path and leaves nothing on the loader's default search path, so a `cargo`-built shell finds no `libpam.so.0`
-/// at all. NixOS's system profile is the stable name for it there — a symlink into the current generation, so
-/// it survives a rebuild and a garbage collection in a way a store path pinned in the config would not.
-const LIBRARY_CANDIDATES: [&str; 3] = [
-    "libpam.so.0",
-    "libpam.so",
-    "/run/current-system/sw/lib/libpam.so.0",
-];
-
 static PAM: OnceLock<Option<Pam>> = OnceLock::new();
 
 fn load(preferred: &str) -> Option<Pam> {
-    let mut names: Vec<String> = Vec::new();
-    if !preferred.trim().is_empty() {
-        names.push(preferred.trim().to_string());
-    }
-    names.extend(LIBRARY_CANDIDATES.iter().map(|n| n.to_string()));
-    for name in &names {
-        // SAFETY: loading a shared object runs its initialisers, which for libpam allocate and read config —
-        // no more than any process that links it. The symbols are looked up by their documented C signatures.
-        let loaded = unsafe {
-            libloading::Library::new(name).and_then(|library| {
-                let start = *library.get::<StartFn>(b"pam_start\0")?;
-                let authenticate = *library.get::<StepFn>(b"pam_authenticate\0")?;
-                let acct_mgmt = *library.get::<StepFn>(b"pam_acct_mgmt\0")?;
-                let end = *library.get::<EndFn>(b"pam_end\0")?;
-                Ok(Pam {
-                    _library: library,
-                    start,
-                    authenticate,
-                    acct_mgmt,
-                    end,
-                })
+    // SAFETY: loading a shared object runs its initialisers, which for libpam allocate and read config — no
+    // more than any process that links it. The symbols are looked up by their documented C signatures.
+    let loaded = unsafe {
+        deps::open_library(Dep::LibPam, Some(preferred), |library| {
+            let start = *library.get::<StartFn>(b"pam_start\0")?;
+            let authenticate = *library.get::<StepFn>(b"pam_authenticate\0")?;
+            let acct_mgmt = *library.get::<StepFn>(b"pam_acct_mgmt\0")?;
+            let end = *library.get::<EndFn>(b"pam_end\0")?;
+            Ok(Pam {
+                _library: library,
+                start,
+                authenticate,
+                acct_mgmt,
+                end,
             })
-        };
-        match loaded {
-            Ok(pam) => {
-                tracing::info!("PAM loaded from '{name}'");
-                return Some(pam);
-            }
-            Err(e) => tracing::debug!("PAM: '{name}' did not load: {e}"),
-        }
+        })
+    };
+    if loaded.is_none() {
+        tracing::warn!(
+            "no libpam could be loaded (tried {}); the lock screen has nothing to authenticate against. Set [lock] pam_library to its path — `find / -name 'libpam.so.0'` will say where it is.",
+            deps::library_names(Dep::LibPam).join(", ")
+        );
     }
-    tracing::warn!(
-        "no libpam could be loaded (tried {}); the lock screen has nothing to authenticate against. Set [lock] pam_library to its path — `find / -name 'libpam.so.0'` will say where it is.",
-        names.join(", ")
-    );
-    None
+    loaded
 }
 
 fn pam(preferred: &str) -> Option<&'static Pam> {
@@ -399,8 +375,9 @@ mod tests {
     /// candidate list that no longer names where the library actually lives.
     #[test]
     fn a_machine_with_libpam_present_finds_it() {
-        let present: Vec<&str> = LIBRARY_CANDIDATES
-            .into_iter()
+        let present: Vec<&str> = deps::library_names(Dep::LibPam)
+            .iter()
+            .copied()
             .filter(|name| name.starts_with('/') && Path::new(name).exists())
             .collect();
         if present.is_empty() {

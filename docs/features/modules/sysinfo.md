@@ -8,7 +8,7 @@ status: stable
 compositor: any
 config: [gpu, temperature]
 commands: []
-deps: [drm]
+deps: [drm, libnvidia-ml]
 popout: true
 see_also: [dashboard, network]
 ---
