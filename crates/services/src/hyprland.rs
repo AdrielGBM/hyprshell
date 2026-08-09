@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 
-use platform_wayland::EventSender;
+use platform_wayland::{EventSender, Interest};
 
 use util::broadcast::{Broadcast, Service};
 
@@ -525,39 +525,124 @@ fn affects_workspaces(line: &str) -> bool {
     PREFIXES.iter().any(|prefix| line.starts_with(prefix))
 }
 
-/// A reader of the raw Hyprland event stream.
+/// A reader of the raw Hyprland event stream, and the claim that says whether it still wants to be one.
 type EventHandler = Box<dyn FnMut(&str) + Send>;
 
-static HANDLERS: Mutex<Vec<EventHandler>> = Mutex::new(Vec::new());
-static EVENT_THREAD: OnceLock<()> = OnceLock::new();
+struct Registration {
+    interest: Interest,
+    handler: EventHandler,
+}
 
-/// Registers `handler` on the compositor's event stream, opening it on first use.
+static HANDLERS: Mutex<Vec<Registration>> = Mutex::new(Vec::new());
+/// Whether the socket reader is running. Not a `OnceLock`, because it has to be able to say "no" again: the
+/// thread gives it back when the last registration goes, and a later producer starts a fresh one.
+static EVENT_THREAD: Mutex<bool> = Mutex::new(false);
+
+/// Registers `handler` on the compositor's event stream for as long as `interest` is alive, opening the socket
+/// on first use.
 ///
 /// Hyprland's `.socket2.sock` is a single-consumer firehose, and every derived reading — workspaces, the
 /// focused window, the keyboard layout — is driven by the same lines. One connection with a list of handlers
 /// keeps that at one socket and one read per event no matter how many services read from it, rather than a
 /// connection per service on top of the connection-per-bar the shared-source design already rules out.
-fn on_events(handler: EventHandler) {
-    HANDLERS.lock().unwrap().push(handler);
-    EVENT_THREAD.get_or_init(|| {
-        let _ = std::thread::Builder::new()
-            .name("hyprshell-hypr-events".to_string())
-            .spawn(run_event_stream);
+///
+/// The running flag is held across the registration, and taken again by [`retire_event_stream`]: that overlap
+/// is what stops a registration landing on a reader already on its way out and never being called.
+fn on_events(interest: &Interest, handler: EventHandler) {
+    let mut running = EVENT_THREAD.lock().unwrap();
+    HANDLERS.lock().unwrap().push(Registration {
+        interest: interest.clone(),
+        handler,
     });
+    if !*running {
+        *running = std::thread::Builder::new()
+            .name("hyprshell-hypr-events".to_string())
+            .spawn(run_event_stream)
+            .is_ok();
+    }
+}
+
+/// Registers `handler` for as long as anything is listening to `service`.
+///
+/// A producer that registers a callback and returns has two questions to keep answering — did this line change
+/// my reading, and is anyone still there — and only the first is interesting enough to be written at each call
+/// site. Asked here in one place so that no registration can answer only that one and go on reading the
+/// compositor for nobody.
+///
+/// **After the handler, never before.** `Broadcast::wanted` releases the producer slot the moment it answers
+/// `false`, so asking first would retire a service between the line arriving and the reading it implies.
+fn on_events_while_wanted<T: Clone + Send + 'static>(
+    service: &Arc<Broadcast<T>>,
+    interest: &Interest,
+    mut handler: impl FnMut(&str) + Send + 'static,
+) {
+    let service = Arc::clone(service);
+    let owned = interest.clone();
+    on_events(
+        interest,
+        Box::new(move |line| {
+            handler(line);
+            if !service.wanted() {
+                owned.retire();
+            }
+        }),
+    );
+}
+
+/// Drops the registrations whose owner has retired, and says whether any are left.
+fn anyone_reading() -> bool {
+    let mut handlers = HANDLERS.lock().unwrap();
+    handlers.retain(|registration| registration.interest.alive());
+    !handlers.is_empty()
+}
+
+/// Gives up the reader, for a thread about to return. `false` is a registration having landed since the last
+/// one went, which has to keep the socket open — it is already in the list and nothing else would call it.
+fn retire_event_stream() -> bool {
+    let mut running = EVENT_THREAD.lock().unwrap();
+    if !HANDLERS.lock().unwrap().is_empty() {
+        return false;
+    }
+    *running = false;
+    true
+}
+
+/// Gives the reader up whatever is registered, for a stream that has failed or ended under it: every
+/// registration is waiting on a socket that is not coming back, and leaving the flag set would stop any later
+/// producer from opening a working one.
+fn forget_event_stream() {
+    let mut running = EVENT_THREAD.lock().unwrap();
+    HANDLERS.lock().unwrap().clear();
+    *running = false;
 }
 
 fn run_event_stream() {
-    let Some(dir) = socket_dir() else { return };
+    let Some(dir) = socket_dir() else {
+        return forget_event_stream();
+    };
     let Ok(stream) = UnixStream::connect(dir.join(".socket2.sock")) else {
         tracing::warn!("cannot open the Hyprland event socket; live updates are off");
-        return;
+        return forget_event_stream();
     };
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        for handler in HANDLERS.lock().unwrap().iter_mut() {
-            handler(&line);
+        // Pruned before the line is delivered rather than after, so a registration retired since the last one
+        // is not called again — `Broadcast::wanted` answering `false` is final, and calling its handler once
+        // more would ask a service that has already given up its producer slot.
+        {
+            let mut handlers = HANDLERS.lock().unwrap();
+            handlers.retain(|registration| registration.interest.alive());
+            for registration in handlers.iter_mut() {
+                (registration.handler)(&line);
+            }
+        }
+        // The bound on teardown, and the same one a polling producer has: the reader is asleep on the socket
+        // until the compositor says something, and gives itself up the next time it wakes.
+        if !anyone_reading() && retire_event_stream() {
+            return;
         }
     }
+    forget_event_stream();
 }
 
 /// The number a user calls a workspace, recovered from a protocol that has no numeric id.
@@ -696,13 +781,21 @@ static WORKSPACES: Service<Snapshot> = Service::new("hyprshell-workspaces", run_
 fn run_workspaces(service: &Arc<Broadcast<Snapshot>>) {
     let dir = socket_dir();
     let last: Arc<Mutex<Option<Snapshot>>> = Arc::new(Mutex::new(None));
+    // One claim for both registrations below, so the two retire together. Retiring them one at a time leaves a
+    // window in which a new subscriber arrives, `wanted` answers `true` again to whichever has not yet asked,
+    // it stays — and the fresh producer this service then starts registers a second reader of the same stream.
+    let interest = Interest::new();
 
     let over_protocol = {
         let published = Arc::clone(service);
         let last = Arc::clone(&last);
         let dir = dir.clone();
-        platform_wayland::watch_workspaces(move |workspaces| {
+        let owned = interest.clone();
+        platform_wayland::watch_workspaces(&interest, move |workspaces: &[_]| {
             publish_changed(&published, &last, merge(workspaces, dir.as_deref()));
+            if !published.wanted() {
+                owned.retire();
+            }
         })
     };
 
@@ -713,25 +806,25 @@ fn run_workspaces(service: &Arc<Broadcast<Snapshot>>) {
     if over_protocol {
         // Nothing the protocol publishes moves when a window opens or closes, and occupancy and the app icons
         // are read from exactly that. The event stream is what republishes them.
-        on_events(Box::new(move |line| {
+        on_events_while_wanted(service, &interest, move |line| {
             if affects_workspaces(line) {
                 let merged = merge(&platform_wayland::current_workspaces(), Some(&dir));
                 publish_changed(&published, &last, merged);
             }
-        }));
+        });
         return;
     }
 
     if let Some(snapshot) = query_snapshot(&dir) {
         service.publish(snapshot);
     }
-    on_events(Box::new(move |line| {
+    on_events_while_wanted(service, &interest, move |line| {
         if affects_workspaces(line)
             && let Some(snapshot) = query_snapshot(&dir)
         {
             published.publish(snapshot);
         }
-    }));
+    });
 }
 
 /// Publishes a reading unless it is the one already published.
@@ -846,26 +939,32 @@ fn run_active_window(service: &Arc<Broadcast<ActiveWindow>>) {
     let dir = socket_dir();
     let last: Arc<Mutex<Option<ActiveWindow>>> = Arc::new(Mutex::new(None));
 
+    let interest = Interest::new();
     let over_protocol = {
         let published = Arc::clone(service);
         let last = Arc::clone(&last);
         let dir = dir.clone();
-        platform_wayland::watch_managed_toplevels(move |windows| {
+        let owned = interest.clone();
+        platform_wayland::watch_managed_toplevels(&interest, move |windows: &[_]| {
             let focused = windows.iter().find(|window| window.activated);
-            let unchanged = already_published(last.lock().unwrap().as_ref(), focused);
-            if unchanged {
-                return;
+            if !already_published(last.lock().unwrap().as_ref(), focused) {
+                let window = match focused {
+                    Some(focused) => active_from(
+                        focused.clone(),
+                        dir.as_deref()
+                            .map(|dir| active_window(dir).address)
+                            .unwrap_or_default(),
+                    ),
+                    None => ActiveWindow::default(),
+                };
+                publish_changed(&published, &last, window);
             }
-            let window = match focused {
-                Some(focused) => active_from(
-                    focused.clone(),
-                    dir.as_deref()
-                        .map(|dir| active_window(dir).address)
-                        .unwrap_or_default(),
-                ),
-                None => ActiveWindow::default(),
-            };
-            publish_changed(&published, &last, window);
+            // After the publishing and on every reading, not only the ones that moved: `Broadcast::wanted`
+            // releases the producer slot the moment it answers `false`, and a reading nobody wanted is exactly
+            // when this needs asking.
+            if !published.wanted() {
+                owned.retire();
+            }
         })
     };
     if over_protocol {
@@ -875,11 +974,11 @@ fn run_active_window(service: &Arc<Broadcast<ActiveWindow>>) {
     let Some(dir) = dir else { return };
     let published = Arc::clone(service);
     publish_changed(&published, &last, active_window(&dir));
-    on_events(Box::new(move |line| {
+    on_events_while_wanted(service, &Interest::new(), move |line| {
         if affects_active_window(line) {
             publish_changed(&published, &last, active_window(&dir));
         }
-    }));
+    });
 }
 
 pub fn subscribe_active_window(tx: EventSender<ActiveWindow>) {
@@ -1020,7 +1119,7 @@ fn run_clients(service: &Arc<Broadcast<Vec<Client>>>) {
     let mut last = clients(&dir);
     service.publish(last.clone());
     let published = Arc::clone(service);
-    on_events(Box::new(move |line| {
+    on_events_while_wanted(service, &Interest::new(), move |line| {
         if !affects_clients(line) {
             return;
         }
@@ -1031,7 +1130,7 @@ fn run_clients(service: &Arc<Broadcast<Vec<Client>>>) {
             last = current.clone();
             published.publish(current);
         }
-    }));
+    });
 }
 
 pub fn subscribe_clients(tx: EventSender<Vec<Client>>) {
@@ -1065,7 +1164,7 @@ fn run_screens(service: &Arc<Broadcast<Vec<Screen>>>) {
     let mut last = screens(&dir);
     service.publish(last.clone());
     let published = Arc::clone(service);
-    on_events(Box::new(move |line| {
+    on_events_while_wanted(service, &Interest::new(), move |line| {
         if !affects_screens(line) {
             return;
         }
@@ -1074,7 +1173,7 @@ fn run_screens(service: &Arc<Broadcast<Vec<Screen>>>) {
             last = current.clone();
             published.publish(current);
         }
-    }));
+    });
 }
 
 pub fn subscribe_screens(tx: EventSender<Vec<Screen>>) {
@@ -1109,13 +1208,13 @@ fn run_keyboard(service: &Arc<Broadcast<KeyboardLayout>>) {
         service.publish(layout);
     }
     let published = Arc::clone(service);
-    on_events(Box::new(move |line| {
+    on_events_while_wanted(service, &Interest::new(), move |line| {
         if line.starts_with("activelayout>>")
             && let Some(layout) = keyboard_layout(&dir)
         {
             published.publish(layout);
         }
-    }));
+    });
 }
 
 pub fn subscribe_keyboard(tx: EventSender<KeyboardLayout>) {
@@ -1166,6 +1265,32 @@ pub fn cycle_main_keyboard_layout() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The event stream is one socket shared by six services, so it stops only when the *last* of them has
+    /// gone — and having stopped, it has to let the next one open a working socket rather than believing one
+    /// is already open.
+    #[test]
+    fn the_event_stream_lives_exactly_as_long_as_its_readers() {
+        *EVENT_THREAD.lock().unwrap() = true;
+        let interest = Interest::new();
+        HANDLERS.lock().unwrap().push(Registration {
+            interest: interest.clone(),
+            handler: Box::new(|_| {}),
+        });
+        assert!(anyone_reading(), "a live registration is reading");
+        assert!(
+            !retire_event_stream(),
+            "a service is still reading, so the socket stays open"
+        );
+
+        interest.retire();
+        assert!(!anyone_reading(), "a retired registration was kept");
+        assert!(retire_event_stream(), "nothing is reading the stream");
+        assert!(
+            !*EVENT_THREAD.lock().unwrap(),
+            "the flag has to say 'no' again, or no later producer could open a socket"
+        );
+    }
 
     /// A layout switch is a top-level command, not a dispatch, and the difference is the whole feature.
     ///

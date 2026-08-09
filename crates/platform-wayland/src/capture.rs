@@ -145,9 +145,13 @@ mod toplevel_tests {
 
         // The watcher's connection, which is where a caller's identifier would come from.
         let (published, changes) = mpsc::channel();
-        assert!(crate::watch_toplevels(move |windows| {
-            let _ = published.send(windows.to_vec());
-        }));
+        let interest = crate::Interest::new();
+        assert!(crate::watch_toplevels(
+            &interest,
+            move |windows: &[crate::Toplevel]| {
+                let _ = published.send(windows.to_vec());
+            }
+        ));
         let mut listed = Vec::new();
         while let Ok(windows) = changes.recv_timeout(Duration::from_millis(500)) {
             listed = windows;

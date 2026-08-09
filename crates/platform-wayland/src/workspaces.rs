@@ -12,11 +12,16 @@
 //!
 //! **A watcher is a connection and a thread of its own**, not a second consumer of the driver's loop: the driver
 //! only exists inside a running shell, and a workspace reading is wanted by anything from a bar to a one-shot
-//! IPC command. It starts on the first [`watch`] and lives as long as the process, like the compositor event
-//! stream it replaces.
+//! IPC command. It starts on the first [`watch`] and stops when the last registration is retired, which for a
+//! bar module is the moment a reload takes it off the bar.
+//!
+//! **Stopping is bounded by the next event**, the same bound a polling producer has on its next turn: the
+//! thread is asleep in `poll` until the compositor says something, and gives itself up when it wakes. Between
+//! those it is resident but not running.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use smithay_client_toolkit::reexports::calloop::EventLoop;
 use smithay_client_toolkit::reexports::calloop::channel::{
@@ -27,6 +32,8 @@ use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_output, wl_registry};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+
+use crate::interest::Interest;
 
 use wayland_protocols::ext::workspace::v1::client::{
     ext_workspace_group_handle_v1::{self, ExtWorkspaceGroupHandleV1},
@@ -76,10 +83,20 @@ pub struct Workspace {
 
 type Handler = Box<dyn FnMut(&[Workspace]) + Send>;
 
-static HANDLERS: Mutex<Vec<Handler>> = Mutex::new(Vec::new());
+/// One reader of the list, and the claim that says whether it still wants to be one.
+struct Registration {
+    interest: Interest,
+    handler: Handler,
+}
+
+static HANDLERS: Mutex<Vec<Registration>> = Mutex::new(Vec::new());
 static LATEST: Mutex<Vec<Workspace>> = Mutex::new(Vec::new());
-static REQUESTS: OnceLock<Sender<Request>> = OnceLock::new();
-static WATCHING: OnceLock<bool> = OnceLock::new();
+/// The live watcher's channel, and `None` whenever none is running — which is what lets a later [`watch`] start
+/// a fresh thread rather than register with one that has already gone.
+static REQUESTS: Mutex<Option<Sender<Request>>> = Mutex::new(None);
+/// Set when starting finds no compositor or no workspace protocol. Without it a caller on a compositor that
+/// cannot answer would open a connection on every `watch`, since no watcher is left behind to say it failed.
+static UNSUPPORTED: AtomicBool = AtomicBool::new(false);
 
 enum Request {
     Activate(WorkspaceId),
@@ -91,22 +108,31 @@ pub fn workspaces_supported() -> Option<bool> {
     crate::globals::advertises(WORKSPACE_INTERFACE)
 }
 
-/// Registers `on_change` for the workspace list, starting the watcher on first use.
+/// Registers `on_change` for the workspace list, starting the watcher on first use and keeping it for as long
+/// as `interest` is alive.
 ///
 /// Returns false when the compositor does not implement the protocol, in which case `on_change` is never
 /// called and the caller is expected to have another route. A handler registered after the watcher is already
 /// running is handed the current list immediately, so a late subscriber is not blind until something moves.
-pub fn watch(on_change: impl FnMut(&[Workspace]) + Send + 'static) -> bool {
+///
+/// The channel slot is held across both the start and the registration, and taken again by [`retire`]: that
+/// overlap is what stops a `watch` landing on a watcher already on its way out, which would leave the caller
+/// registered with a thread about to return and never called again.
+pub fn watch(interest: &Interest, on_change: impl FnMut(&[Workspace]) + Send + 'static) -> bool {
     let mut handler: Handler = Box::new(on_change);
-    let started = *WATCHING.get_or_init(start);
-    if started {
-        let latest = LATEST.lock().unwrap().clone();
-        if !latest.is_empty() {
-            handler(&latest);
-        }
+    let mut slot = REQUESTS.lock().unwrap();
+    if watcher(&mut slot).is_none() {
+        return false;
     }
-    HANDLERS.lock().unwrap().push(handler);
-    started
+    let latest = LATEST.lock().unwrap().clone();
+    if !latest.is_empty() {
+        handler(&latest);
+    }
+    HANDLERS.lock().unwrap().push(Registration {
+        interest: interest.clone(),
+        handler,
+    });
+    true
 }
 
 /// The last list published, without waiting for the next change.
@@ -119,26 +145,72 @@ pub fn current() -> Vec<Workspace> {
 /// Sent, not honoured: the protocol makes no promise that a workspace activates, and the compositor answers by
 /// publishing a new state rather than by replying. A caller wanting to know watches for it.
 pub fn activate(id: WorkspaceId) -> bool {
-    REQUESTS
-        .get()
+    let slot = REQUESTS.lock().unwrap();
+    slot.as_ref()
         .is_some_and(|requests| requests.send(Request::Activate(id)).is_ok())
+}
+
+/// The channel to talk to the watcher over, starting one if none is running.
+///
+/// Takes the slot the caller already holds rather than locking again, because [`watch`] has to keep that lock
+/// across registering — see there.
+fn watcher(slot: &mut Option<Sender<Request>>) -> Option<Sender<Request>> {
+    if let Some(requests) = slot.as_ref() {
+        return Some(requests.clone());
+    }
+    if UNSUPPORTED.load(Ordering::Relaxed) {
+        return None;
+    }
+    match start() {
+        Some(requests) => Some(slot.insert(requests).clone()),
+        None => {
+            UNSUPPORTED.store(true, Ordering::Relaxed);
+            None
+        }
+    }
+}
+
+/// Drops the registrations whose owner has retired, and says whether any are left.
+fn anyone_listening() -> bool {
+    let mut handlers = HANDLERS.lock().unwrap();
+    handlers.retain(|registration| registration.interest.alive());
+    !handlers.is_empty()
+}
+
+/// Gives up the watcher slot, for a thread about to return.
+///
+/// Answering `true` is final: the caller returns and its connection goes, so the slot has to be free before
+/// that or the next [`watch`] would register with a thread that will never call it. Answering `false` is a
+/// `watch` having landed since the last registration went — it is already in the list, and retiring now would
+/// leave it registered with nothing running.
+fn retire() -> bool {
+    let mut slot = REQUESTS.lock().unwrap();
+    if !HANDLERS.lock().unwrap().is_empty() {
+        return false;
+    }
+    *slot = None;
+    true
+}
+
+/// Gives the slot up whatever is registered, for a watcher whose connection has failed under it. Leaving the
+/// sender behind would have every later `activate` report success into a channel nobody reads, and leave the
+/// registrations waiting on a thread that has gone.
+fn forget() {
+    *REQUESTS.lock().unwrap() = None;
+    HANDLERS.lock().unwrap().clear();
 }
 
 /// Connects, binds, and hands the loop to a thread. Binding happens here rather than there so the answer to
 /// "does this compositor list workspaces" is known by the time [`watch`] returns.
-fn start() -> bool {
-    let Ok(connection) = Connection::connect_to_env() else {
-        return false;
-    };
-    let Ok((globals, queue)) = registry_queue_init::<Watcher>(&connection) else {
-        return false;
-    };
+fn start() -> Option<Sender<Request>> {
+    let connection = Connection::connect_to_env().ok()?;
+    let (globals, queue) = registry_queue_init::<Watcher>(&connection).ok()?;
     let qh = queue.handle();
     let manager = match globals.bind::<ExtWorkspaceManagerV1, _, _>(&qh, 1..=1, ()) {
         Ok(manager) => manager,
         Err(e) => {
             tracing::debug!("no ext-workspace-v1: {e}");
-            return false;
+            return None;
         }
     };
 
@@ -156,10 +228,6 @@ fn start() -> bool {
     });
 
     let (requests, channel) = channel();
-    if REQUESTS.set(requests).is_err() {
-        return false;
-    }
-
     let watcher = Watcher {
         connection: connection.clone(),
         manager,
@@ -170,7 +238,8 @@ fn start() -> bool {
     std::thread::Builder::new()
         .name("hyprshell-ext-workspace".to_string())
         .spawn(move || run(watcher, connection, queue, channel))
-        .is_ok()
+        .ok()?;
+    Some(requests)
 }
 
 fn run(
@@ -180,14 +249,14 @@ fn run(
     requests: Channel<Request>,
 ) {
     let Ok(mut event_loop) = EventLoop::<Watcher>::try_new() else {
-        return;
+        return forget();
     };
     let handle = event_loop.handle();
     if WaylandSource::new(connection, queue)
         .insert(handle.clone())
         .is_err()
     {
-        return;
+        return forget();
     }
     let registered = handle.insert_source(requests, |event, _, watcher: &mut Watcher| {
         if let ChannelEvent::Msg(request) = event {
@@ -195,13 +264,20 @@ fn run(
         }
     });
     if registered.is_err() {
-        return;
+        return forget();
     }
     while !watcher.finished {
         if event_loop.dispatch(None, &mut watcher).is_err() {
             break;
         }
+        // Asked after a dispatch rather than after a publish: a registration is retired by whoever made it,
+        // which is not something this thread is told about, so the only sound moment to look is every time it
+        // wakes. That is also the whole of what bounds teardown — see the module doc.
+        if !anyone_listening() && retire() {
+            return;
+        }
     }
+    forget();
 }
 
 #[derive(Default)]
@@ -262,9 +338,14 @@ impl Watcher {
     fn publish(&self) {
         let snapshot = self.state.snapshot();
         *LATEST.lock().unwrap() = snapshot.clone();
-        for handler in HANDLERS.lock().unwrap().iter_mut() {
-            handler(&snapshot);
-        }
+        let mut handlers = HANDLERS.lock().unwrap();
+        handlers.retain_mut(|registration| {
+            if !registration.interest.alive() {
+                return false;
+            }
+            (registration.handler)(&snapshot);
+            true
+        });
     }
 }
 
@@ -473,6 +554,44 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Watcher {
 mod tests {
     use super::*;
 
+    /// The half of "nothing runs unless something is asking for it" that a lazy start does not give: the
+    /// watcher has to *stop* when the last registration is retired, and give its slot back so that the next
+    /// [`watch`] starts a fresh one rather than registering with a thread on its way out.
+    ///
+    /// One test rather than several because they all move the same statics, and split across `cargo test`'s
+    /// threads they would take turns wrecking each other's world.
+    ///
+    /// Skipped under `HYPRSHELL_WAYLAND_LIVE`, where the registry is not this test's to reason about: the live
+    /// test below registers with a real watcher, so "nothing is registered" is false through no fault of the
+    /// code, and emptying the registry to make it true would retire the watcher out from under it.
+    #[test]
+    fn the_watcher_lives_exactly_as_long_as_its_registrations() {
+        if std::env::var("HYPRSHELL_WAYLAND_LIVE").is_ok() {
+            eprintln!("a real watcher holds the registry in a live run; skipping");
+            return;
+        }
+        let (requests, _channel) = channel::<Request>();
+        *REQUESTS.lock().unwrap() = Some(requests);
+
+        let interest = Interest::new();
+        HANDLERS.lock().unwrap().push(Registration {
+            interest: interest.clone(),
+            handler: Box::new(|_| {}),
+        });
+        assert!(anyone_listening(), "a live registration is listening");
+        assert!(!retire(), "something is registered, so the watcher stays");
+
+        // Retired by whoever registered, and dropped without ever being called again — which is the whole
+        // reason the answer lives beside the handler instead of in what it returns.
+        interest.retire();
+        assert!(!anyone_listening(), "a retired registration was kept");
+        assert!(
+            retire(),
+            "nothing is registered, so nothing needs the watcher"
+        );
+        assert!(REQUESTS.lock().unwrap().is_none(), "the slot stayed taken");
+    }
+
     #[test]
     fn coordinates_are_read_as_native_endian_words() {
         let mut bytes = Vec::new();
@@ -620,8 +739,9 @@ mod tests {
         }
 
         let (published, changes) = mpsc::channel();
+        let interest = Interest::new();
         assert!(
-            watch(move |workspaces| {
+            watch(&interest, move |workspaces: &[Workspace]| {
                 let _ = published.send(workspaces.to_vec());
             }),
             "the compositor advertises ext-workspace-v1 but the watcher would not start"

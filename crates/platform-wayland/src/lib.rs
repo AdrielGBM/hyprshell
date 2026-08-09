@@ -4,6 +4,7 @@ mod config;
 mod gamma;
 mod globals;
 mod idle;
+mod interest;
 mod link;
 mod lock;
 mod platform;
@@ -26,6 +27,7 @@ pub use gamma::{
 };
 pub use globals::{advertises, advertises_all};
 pub use idle::{IdleHandle, idle_notification, idle_supported};
+pub use interest::Interest;
 pub use link::SurfaceUpdate;
 pub use lock::{LockHandle, lock_session, lock_supported, session_is_locked};
 pub use platform::{

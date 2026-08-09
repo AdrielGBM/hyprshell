@@ -77,8 +77,15 @@ impl<T: Clone> Broadcast<T> {
     ///
     /// **This is opt-in, and deliberately so.** A producer that never asks behaves exactly as every producer
     /// did before it existed: started once, never stopped. That is the right answer for one that registers a
-    /// callback and returns — its work outlives the call, so releasing the flag would let a second subscriber
-    /// start a second D-Bus connection — and it makes converting the rest a service at a time.
+    /// callback and returns *and has no way to take the registration back* — its work outlives the call, so
+    /// releasing the flag would let a second subscriber start a second D-Bus connection — and it makes
+    /// converting the rest a service at a time.
+    ///
+    /// A producer that *can* take it back may ask like any other, and `services::hyprland` does: it hands each
+    /// registration a `platform_wayland::Interest` and retires it in the same breath as answering `false`, so
+    /// the callback is dropped rather than left to be called by a watcher nobody wants. The rule that makes
+    /// that safe is one token per producer run — a producer registered in two places whose registrations retire
+    /// one at a time is exactly the second-producer bug below, reached the long way round.
     ///
     /// **A `false` is final: return, and do not ask again.** Answering `false` is the producer giving up its
     /// claim, and the next subscriber is free to start a replacement the instant it does. A producer that asked

@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use platform_wayland::{EventSender, ManagedToplevel, ManagedToplevelId};
+use platform_wayland::{EventSender, Interest, ManagedToplevel, ManagedToplevelId};
 
 use util::broadcast::{Broadcast, Service};
 
@@ -17,8 +17,16 @@ static WINDOWS: Service<Vec<ManagedToplevel>> = Service::new("hyprshell-windows"
 fn run(service: &Arc<Broadcast<Vec<ManagedToplevel>>>) {
     let published = Arc::clone(service);
     // The broadcast outlives this call, so the producer thread returns once it has registered rather than
-    // parking on a watcher that already has a thread of its own.
-    platform_wayland::watch_managed_toplevels(move |windows| published.publish(windows.to_vec()));
+    // parking on a watcher that already has a thread of its own. The claim is what it leaves behind to end the
+    // registration with, since by then there is no producer thread here to notice anything.
+    let interest = Interest::new();
+    let owned = interest.clone();
+    platform_wayland::watch_managed_toplevels(&interest, move |windows: &[ManagedToplevel]| {
+        published.publish(windows.to_vec());
+        if !published.wanted() {
+            owned.retire();
+        }
+    });
 }
 
 /// Registers `tx` for the window list and starts the watcher on first use.
