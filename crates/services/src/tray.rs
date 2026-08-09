@@ -492,6 +492,10 @@ fn own_watcher(registry: Arc<Registry>, ping: SyncSender<()>) -> bool {
 /// Registers the shell as a tray host. Applications commonly stay invisible until a host exists, so this is
 /// what makes icons appear at all — including when another shell owns the watcher.
 fn register_as_host(conn: &Connection) {
+    // zbus warns that this claims a name with no object server behind it, and that is correct and intended: a
+    // host name is a presence marker, not an endpoint. Applications look for one before they will show
+    // themselves, and the traffic runs the other way — the host calls items, and the watcher only tracks that
+    // the name exists. Serving an empty object here to quiet the warning would add an interface nobody calls.
     let name = format!("org.kde.StatusNotifierHost-{}", std::process::id());
     let Ok(host) =
         zbus::blocking::connection::Builder::session().and_then(|b| b.name(name.clone()))
