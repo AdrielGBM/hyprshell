@@ -1,4 +1,7 @@
-//! Reading `config.toml`: the monitor overrides merged into it, and the migrations an older file needs.
+//! Reading `config.toml`, and the monitor overrides merged into it.
+//!
+//! There is no migration step and no `version` key: a key that moves is a key renamed by hand. That is a
+//! deliberate trade for a shell with one installation — see the non-goal in `features.md` for when to reopen it.
 
 use std::path::{Path, PathBuf};
 
@@ -33,112 +36,6 @@ pub(crate) fn keep_subtables_with_their_parent(doc: &mut DocumentMut) {
     }
     let mut next: isize = 0;
     walk(doc.as_table_mut(), &mut next);
-}
-
-/// The schema this build writes. A file carrying an older `version` is brought forward by [`migrate`] before
-/// it is deserialized; one carrying a *newer* version is read as-is, since guessing at a future schema is how a
-/// downgrade destroys a config.
-pub const CONFIG_VERSION: u32 = 2;
-
-/// Brings an older config document forward to [`CONFIG_VERSION`], in memory.
-///
-/// In memory, and never on disk: a shell that silently rewrites the file a user hand-edits is a shell they stop
-/// trusting, and the format-preserving save path ([`Config::save_section`]) already writes the current shape
-/// whenever they change something. Every step is therefore written to be idempotent — running it against an
-/// already-migrated document must be a no-op — so a file that never gets rewritten keeps working forever.
-pub(crate) fn migrate(document: &mut toml::Value) {
-    let from = document
-        .get("version")
-        .and_then(toml::Value::as_integer)
-        .unwrap_or(0)
-        .clamp(0, i64::from(u32::MAX)) as u32;
-    if from >= CONFIG_VERSION {
-        return;
-    }
-    if from < 1 {
-        migrate_terminal_into_apps(document);
-    }
-    if from < 2 {
-        migrate_stack_out_of_its_three_sections(document);
-    }
-    tracing::info!("config migrated from version {from} to {CONFIG_VERSION}");
-}
-
-/// v1 → v2: notification popups, toasts and the OSD became one column, so where they sit became `[stack]`.
-///
-/// The three used to carry an `edge`, an `align`, a `width` and a timeout each. Only one set can survive a merge
-/// and the choice is not arbitrary: `[notifications]` is the section whose cards a user actually positioned on
-/// purpose — a toast and an OSD go where the shell put them — so its keys are the ones brought forward, and the
-/// other two are simply dropped. `max_visible` comes with it for the same reason.
-///
-/// Anything already under `[stack]` wins outright: a user who has written the new section is not asking to have
-/// it overwritten by the old one they left behind.
-pub(crate) fn migrate_stack_out_of_its_three_sections(document: &mut toml::Value) {
-    const MOVED: [&str; 5] = ["edge", "align", "width", "max_visible", "timeout_ms"];
-    let carried: Vec<(&str, toml::Value)> = document
-        .get("notifications")
-        .and_then(toml::Value::as_table)
-        .map(|from| {
-            MOVED
-                .iter()
-                .filter_map(|key| from.get(*key).map(|value| (*key, value.clone())))
-                .collect()
-        })
-        .unwrap_or_default();
-    let Some(root) = document.as_table_mut() else {
-        return;
-    };
-    // Dropped whether or not anything was carried: they name nothing this build reads, and a stale `edge` under
-    // `[toasts]` is a user wondering for an afternoon why moving it does nothing. `[osd]` held only these three,
-    // so what is left of it is nothing at all.
-    for section in ["notifications", "toasts"] {
-        if let Some(table) = root.get_mut(section).and_then(toml::Value::as_table_mut) {
-            table.retain(|key, _| !MOVED.contains(&key));
-        }
-    }
-    root.remove("osd");
-    if carried.is_empty() {
-        return;
-    }
-    let stack = root
-        .entry("stack".to_string())
-        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-    if let Some(stack) = stack.as_table_mut() {
-        for (key, value) in carried {
-            stack.entry(key.to_string()).or_insert(value);
-        }
-    }
-}
-
-/// v0 → v1: `[general] terminal` became `[general.apps] terminal` when the other helper applications arrived.
-/// The older key wins nothing if the newer one is set, so a config carrying both keeps the deliberate value.
-pub(crate) fn migrate_terminal_into_apps(document: &mut toml::Value) {
-    let Some(general) = document
-        .get_mut("general")
-        .and_then(toml::Value::as_table_mut)
-    else {
-        return;
-    };
-    let Some(legacy) = general.get("terminal").and_then(toml::Value::as_str) else {
-        return;
-    };
-    let legacy = legacy.to_string();
-    if legacy.trim().is_empty() {
-        return;
-    }
-    let apps = general
-        .entry("apps")
-        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
-    let Some(apps) = apps.as_table_mut() else {
-        return;
-    };
-    let already_set = apps
-        .get("terminal")
-        .and_then(toml::Value::as_str)
-        .is_some_and(|t| !t.trim().is_empty());
-    if !already_set {
-        apps.insert("terminal".to_string(), toml::Value::String(legacy));
-    }
 }
 
 /// Sections one process owns, and which a per-monitor file therefore cannot change.

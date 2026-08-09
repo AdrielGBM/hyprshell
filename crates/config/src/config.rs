@@ -7,8 +7,8 @@ use telar::Color;
 use toml_edit::{DocumentMut, Item};
 
 use crate::load::{
-    CONFIG_VERSION, GLOBAL_ONLY_SECTIONS, LoadError, SaveError, keep_subtables_with_their_parent,
-    merge_into, migrate, monitor_config_path,
+    GLOBAL_ONLY_SECTIONS, LoadError, SaveError, keep_subtables_with_their_parent, merge_into,
+    monitor_config_path,
 };
 use crate::scheme;
 use crate::sections::*;
@@ -18,9 +18,6 @@ use util::paths;
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(default)]
 pub struct Config {
-    /// The schema the file was written against. `0` (the default) is anything written before versioning
-    /// existed; [`migrate`] brings it forward on load. See [`CONFIG_VERSION`].
-    pub version: u32,
     /// Design-token overrides read from the sibling `tokens.toml`, not from `config.toml` — skipped from
     /// serialization so a section save can never write them into the user's config file.
     #[serde(skip)]
@@ -179,7 +176,6 @@ impl Config {
     /// Fresh-install starter config (distinct from `Default`, which is all-empty and backs serde's missing-field fill).
     pub fn starter() -> Self {
         Self {
-            version: CONFIG_VERSION,
             tokens: TokenOverrides::default(),
             bars: BarsConfig {
                 top: BarConfig {
@@ -685,8 +681,7 @@ impl Config {
             }
             Err(e) => return Err(LoadError::Io(e)),
         };
-        let mut document: toml::Value = toml::from_str(&text).map_err(LoadError::Parse)?;
-        migrate(&mut document);
+        let document: toml::Value = toml::from_str(&text).map_err(LoadError::Parse)?;
         let mut config: Config = document.try_into().map_err(LoadError::Parse)?;
         config.tokens = TokenOverrides::load(path);
         Ok(config)
@@ -712,8 +707,6 @@ impl Config {
         let base_text = std::fs::read_to_string(path).map_err(LoadError::Io)?;
         let mut merged: toml::Value = toml::from_str(&base_text).map_err(LoadError::Parse)?;
         let mut over: toml::Value = toml::from_str(&override_text).map_err(LoadError::Parse)?;
-        migrate(&mut merged);
-        migrate(&mut over);
         if let Some(table) = over.as_table_mut() {
             for section in GLOBAL_ONLY_SECTIONS {
                 if table.remove(*section).is_some() {

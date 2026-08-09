@@ -1,5 +1,5 @@
-//! What `config.toml` has to keep doing: the defaults, the monitor overrides, the migrations, and the
-//! resolution rules a surface reads through.
+//! What `config.toml` has to keep doing: the defaults, the monitor overrides, and the resolution rules a
+//! surface reads through.
 
 #[cfg(test)]
 mod tests {
@@ -979,44 +979,6 @@ accent = "orange"
     }
 
     #[test]
-    fn an_unversioned_config_is_migrated_forward_and_migration_is_idempotent() {
-        // v0: the terminal lived at `[general] terminal`, before `[general.apps]` existed.
-        let legacy = "[general]\nterminal = \"kitty\"\n";
-        let cfg: Config = {
-            let mut document: toml::Value = toml::from_str(legacy).unwrap();
-            migrate(&mut document);
-            document.try_into().unwrap()
-        };
-        assert_eq!(
-            cfg.general.apps.terminal, "kitty",
-            "moved into its new home"
-        );
-        assert_eq!(cfg.app_command(HelperApp::Terminal), "kitty");
-
-        let mut twice: toml::Value = toml::from_str(legacy).unwrap();
-        migrate(&mut twice);
-        let once = twice.clone();
-        migrate(&mut twice);
-        assert_eq!(twice, once);
-
-        let mut both: toml::Value = toml::from_str(
-            "[general]\nterminal = \"xterm\"\n\n[general.apps]\nterminal = \"foot\"\n",
-        )
-        .unwrap();
-        migrate(&mut both);
-        let cfg: Config = both.try_into().unwrap();
-        assert_eq!(cfg.general.apps.terminal, "foot");
-
-        let mut current: toml::Value = toml::from_str(&format!(
-            "version = {CONFIG_VERSION}\n[general]\nterminal = \"kitty\"\n"
-        ))
-        .unwrap();
-        let before = current.clone();
-        migrate(&mut current);
-        assert_eq!(current, before);
-    }
-
-    #[test]
     fn animation_durations_scale_together_and_collapse_when_switched_off() {
         let base = Duration::from_millis(200);
         let d = AnimationConfig::default();
@@ -1408,40 +1370,6 @@ accent = "orange"
                 "'{toml_text}' needs the surface"
             );
         }
-    }
-
-    /// v1 → v2: three sections that each said where their cards went became one that says where the column is.
-    ///
-    /// `[notifications]` is the set brought forward — a toast and an OSD go where the shell put them, a
-    /// notification goes where the user put it — and the keys are dropped from all three either way, because a
-    /// stale `edge` under `[toasts]` is an afternoon spent wondering why moving it does nothing.
-    #[test]
-    fn the_three_stacks_that_became_one_carry_the_position_the_user_chose() {
-        let mut document: toml::Value = toml::from_str(
-            "version = 1\n\
-             [notifications]\nedge = \"bottom\"\nalign = \"start\"\nmax_visible = 7\ncritical_sticky = false\n\
-             [toasts]\nedge = \"top\"\nwidth = 300.0\nenabled = false\n\
-             [osd]\nedge = \"left\"\ntimeout_ms = 1200\n",
-        )
-        .unwrap();
-        crate::load::migrate(&mut document);
-        let cfg: Config = document.clone().try_into().unwrap();
-
-        assert_eq!(cfg.stack.edge, Edge::Bottom, "the notifications' edge won");
-        assert_eq!(cfg.stack.align, Align::Start);
-        assert_eq!(cfg.stack.max_visible, 7);
-        assert!(!cfg.notifications.critical_sticky, "what is not the column's stays where it was");
-        assert!(!cfg.toasts.enabled);
-        assert!(document.get("osd").is_none(), "`[osd]` held nothing else");
-
-        // Idempotent: a document already at v2 is left alone, and one already carrying `[stack]` is not
-        // overwritten by the keys someone left behind in the old sections.
-        let mut chosen: toml::Value =
-            toml::from_str("version = 1\n[stack]\nedge = \"left\"\n[notifications]\nedge = \"bottom\"\n")
-                .unwrap();
-        crate::load::migrate(&mut chosen);
-        let cfg: Config = chosen.try_into().unwrap();
-        assert_eq!(cfg.stack.edge, Edge::Left, "the new section wins outright");
     }
 
     #[test]
