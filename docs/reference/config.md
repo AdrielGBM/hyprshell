@@ -715,14 +715,19 @@ command is per-machine (`canberra-gtk-play -i message`, `paplay /usr/share/sound
 
   Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is on.
 
-- **`clear_threshold`** · default `0.35`
+- **`critical_max_secs`** · default `120`
 
-  How far sideways a card must be dragged before letting go dismisses it, as a fraction of its width.
-  `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+  How long a sticky `critical` notification waits before retiring to the history panel anyway, in seconds.
+  `0` restores the unbounded wait.
+
+  A ceiling rather than a second timeout: sticky means "long enough that it cannot be missed", and the
+  unbounded reading of that has one failure mode with no way out — a card whose only exit is a gesture,
+  on a shell where the gesture did not land, stays on screen until the shell is restarted. Retiring is not
+  dismissing, so nothing is lost when it fires: the notification is still in the panel behind the bell.
 
 - **`critical_sticky`** · default `true`
 
-  Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
+  Whether a `critical` notification ignores `[stack] timeout_ms` and waits to be dealt with.
 
 - **`fullscreen`** · default `"off"`
 - **`group_by_app`** · default `true`
@@ -902,6 +907,14 @@ notification under `[notifications] critical_sticky` stays until it is dealt wit
 nothing left to say. Not expiring is a property of the card, not a second timeout.
 
 - **`align`** · default `"end"`
+- **`clear_threshold`** · default `0.35`
+
+  How far sideways a card must be dragged before letting go retires it, as a fraction of its width.
+  `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+
+  The column's, not any one card's: a notification, a toast and an OSD are dismissed by the same gesture,
+  and a threshold that differed between them would make the column feel like three surfaces again.
+
 - **`edge`** · default `"top"`
 - **`max_visible`** · default `4`
 

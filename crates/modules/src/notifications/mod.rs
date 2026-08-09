@@ -188,9 +188,11 @@ pub(crate) fn popping(
     cfg: &NotificationsConfig,
     fullscreen: bool,
 ) -> Vec<Notification> {
-    if snapshot.dnd {
-        return Vec::new();
-    }
+    // Do-Not-Disturb is not asked about here, and deliberately: the daemon already answered it by recording the
+    // notification as not popping — when it arrived under DND, and when DND was switched on over it. Asking a
+    // second time would be a second owner of one rule, and the one that let a suppressed notification come back
+    // the moment the toggle went off.
+    //
     // Only fresh arrivals pop up; notifications restored from persisted history stay in the panel, unpopped.
     let mut list: Vec<Notification> = snapshot
         .active
@@ -1144,11 +1146,9 @@ mod tests {
             "every popping notification is handed over; the column caps them"
         );
 
-        let dnd = Snapshot { dnd: true, ..snap };
-        assert!(
-            popping(&dnd, &cfg, false).is_empty(),
-            "DND suppresses all popups"
-        );
+        // Do-Not-Disturb is not asserted here any more: the daemon records a suppressed notification as not
+        // popping, so `dnd: true` with `popup: true` is a state that cannot occur. What it *does* mean is
+        // checked where it is decided — see `services::notifications`.
     }
 
     #[test]

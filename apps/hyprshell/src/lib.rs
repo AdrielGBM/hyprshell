@@ -237,6 +237,7 @@ fn setup_shell(config_path: PathBuf) {
     // A wallpaper-derived palette landing. At app level because it rebuilds every surface, and because the
     // extraction outlives any one of them: a scheme asked for while a panel was open must still arrive after
     // that panel has closed. The first delivery is what startup already resolved, so it reloads nothing.
+    // Subscribing eagerly starts nothing: `scheme::CURRENT` is a `Store`, so this costs a channel, not a producer.
     platform_wayland::watch(config::scheme::subscribe, config::scheme::on_change);
 
     // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
@@ -249,6 +250,8 @@ fn setup_shell(config_path: PathBuf) {
     // anything can ask for a lock, and logind's signals are how `loginctl lock-session` and a suspend reach it.
     // None of them is torn down by a reload — a lock that dropped when the user saved their config would put
     // the desktop back on screen.
+    // `lock::STATE` is a `Store`, so the first of these costs a channel; the second is a thread, and has to be —
+    // it holds the sleep inhibitor, which is what makes a suspend wait for the lock rather than race it.
     platform_wayland::watch(services::lock::subscribe, services::lock::on_state);
     platform_wayland::watch(services::session::watch, services::session::on_event);
     // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
@@ -330,6 +333,7 @@ fn notification_policy(config: &Config) -> services::notifications::Policy {
     services::notifications::Policy {
         timeout: config.stack.lifetime(),
         critical_sticky: config.notifications.critical_sticky,
+        critical_max: config.notifications.critical_ceiling(),
         sound: config.notifications.sound.clone(),
     }
 }

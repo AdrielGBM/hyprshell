@@ -105,6 +105,9 @@ impl State {
 pub struct Policy {
     pub timeout: Duration,
     pub critical_sticky: bool,
+    /// The ceiling on a sticky `critical` popup, after which it retires to the history like any other. `None`
+    /// is the unbounded wait, which has no way out but a gesture.
+    pub critical_max: Option<Duration>,
     /// A shell command run detached each time a notification pops; empty is silent.
     pub sound: String,
 }
@@ -157,8 +160,12 @@ impl Inner {
             notification.id = id;
             assigned = id;
             // Decided at the daemon's single entry point, so a mute holds for the shell's own advisories as much as for anything arriving over D-Bus.
-            notification.popup &= !state.muted_apps.contains(&notification.app_name);
-            popped = notification.popup && !state.dnd;
+            //
+            // Do-Not-Disturb is decided here too, and not where the card is drawn: a notification that arrives
+            // under it must be *recorded as not popping*, so that switching DND off later leaves it in the
+            // history rather than putting it on screen. Suppressed is not deferred.
+            notification.popup &= !state.muted_apps.contains(&notification.app_name) && !state.dnd;
+            popped = notification.popup;
             if let Some(existing) = state.active.iter_mut().find(|n| n.id == id) {
                 *existing = notification;
             } else {
@@ -170,6 +177,19 @@ impl Inner {
             crate::apps::run_detached(command);
         }
         assigned
+    }
+
+    /// Sets Do-Not-Disturb, retiring every popup it is switching on over. See [`set_dnd`] for why suppressing
+    /// is not deferring.
+    fn set_dnd(&self, dnd: bool) {
+        self.commit(|state| {
+            state.dnd = dnd;
+            if dnd {
+                for notification in &mut state.active {
+                    notification.popup = false;
+                }
+            }
+        });
     }
 
     /// Removes `id` from the history entirely — a manual dismiss (a history-card tap or clear-all).
@@ -235,25 +255,38 @@ impl Inner {
 
     /// Schedules a popup expiry for `id` per the spec's `expire_timeout` (`>0` ms, `0` = never, `<0` = the configured default) and the urgency/critical-sticky policy. A detached timer keeps this independent of any surface, so popups expire correctly across focus changes and reloads. The notification stays in the history.
     fn schedule_expiry(&self, id: u32, expire_timeout: i32, urgency: Urgency) {
-        let policy = self.policy();
-        if urgency == Urgency::Critical && policy.critical_sticky {
+        let Some(after) = expiry_delay(expire_timeout, urgency, &self.policy()) else {
             return;
-        }
-        let ms = match expire_timeout {
-            t if t > 0 => t as u64,
-            0 => return,
-            _ => policy.timeout.as_millis() as u64,
         };
-        if ms == 0 {
-            return;
-        }
         let _ = std::thread::Builder::new()
             .name("hyprshell-notif-expiry".to_string())
             .spawn(move || {
-                std::thread::sleep(Duration::from_millis(ms));
+                std::thread::sleep(after);
                 expire(id);
             });
     }
+}
+
+/// How long a popup has on screen once it is shown, or `None` when it waits to be dealt with instead.
+///
+/// A sticky `critical` ignores both the sender's `expire_timeout` and the configured one — that is what sticky
+/// means — and waits out `critical_max` instead. Without a ceiling it waits forever, and forever is the one
+/// answer with no way out: the notification's only remaining exit is a gesture, so a gesture that does not land
+/// leaves it on screen until the shell restarts. Expiring is not dismissing, so the ceiling costs nothing —
+/// the notification is still in the history panel afterwards.
+fn expiry_delay(expire_timeout: i32, urgency: Urgency, policy: &Policy) -> Option<Duration> {
+    if urgency == Urgency::Critical && policy.critical_sticky {
+        return policy.critical_max;
+    }
+    let ms = match expire_timeout {
+        t if t > 0 => t as u64,
+        // The spec's "never expire". Honoured for a non-critical notification, whose card can still be pressed
+        // and swiped — it is the critical one, floated above everything and outliving the column, that needs a
+        // floor under it.
+        0 => return None,
+        _ => policy.timeout.as_millis() as u64,
+    };
+    (ms > 0).then(|| Duration::from_millis(ms))
 }
 
 pub struct NotificationService {
@@ -440,9 +473,14 @@ pub fn mark_read() {
 
 /// Toggles Do-Not-Disturb; popups are suppressed while on, history keeps recording. Persisted, so the toggle
 /// means the same thing after a restart as it did before one.
+///
+/// **Switching it on retires what is already on screen**, rather than hiding it until the toggle comes back.
+/// Do-Not-Disturb is a request to stop being shown things, and a column that emptied and then refilled the
+/// moment it was switched off would be delivering the interruption it was asked to prevent — late, and with
+/// newer cards already above it. Everything retired stays in the history, which is where it was going anyway.
 pub fn set_dnd(dnd: bool) {
     if let Some(service) = SERVICE.get() {
-        service.inner.commit(|state| state.dnd = dnd);
+        service.inner.set_dnd(dnd);
     }
     crate::state::update(move |s| s.dnd = dnd);
 }
@@ -720,10 +758,71 @@ mod tests {
             policy: Mutex::new(Policy {
                 timeout: Duration::from_millis(5000),
                 critical_sticky: true,
+                critical_max: Some(Duration::from_secs(120)),
                 sound: String::new(),
             }),
             saver: channel().0,
         }
+    }
+
+    fn policy_with(critical_sticky: bool, critical_max: Option<Duration>) -> Policy {
+        Policy {
+            timeout: Duration::from_millis(5000),
+            critical_sticky,
+            critical_max,
+            sound: String::new(),
+        }
+    }
+
+    /// **A sticky `critical` still has a floor under it.**
+    ///
+    /// Sticky means "long enough that it cannot be missed", and read as *forever* it has one failure mode with
+    /// no way out: the card's only exit is a gesture, so a gesture that never lands leaves it on screen until
+    /// the shell restarts. The ceiling retires it to the history rather than dismissing it, so nothing is lost.
+    #[test]
+    fn a_sticky_critical_expires_at_its_ceiling_and_only_waits_forever_when_asked_to() {
+        let bounded = policy_with(true, Some(Duration::from_secs(120)));
+        assert_eq!(
+            expiry_delay(-1, Urgency::Critical, &bounded),
+            Some(Duration::from_secs(120)),
+            "a sticky critical waits out the ceiling rather than the configured timeout"
+        );
+        assert_eq!(
+            expiry_delay(0, Urgency::Critical, &bounded),
+            Some(Duration::from_secs(120)),
+            "the ceiling outranks the sender asking for no expiry at all, which is the case that stranded one"
+        );
+        assert_eq!(
+            expiry_delay(-1, Urgency::Critical, &policy_with(true, None)),
+            None,
+            "`critical_max_secs = 0` is still how to ask for the unbounded wait"
+        );
+    }
+
+    /// The ceiling is the sticky path's alone: everything else keeps answering to the sender and the config.
+    #[test]
+    fn the_ceiling_leaves_every_other_notification_alone() {
+        let policy = policy_with(true, Some(Duration::from_secs(120)));
+        assert_eq!(
+            expiry_delay(-1, Urgency::Normal, &policy),
+            Some(Duration::from_millis(5000)),
+            "a normal notification takes the configured timeout"
+        );
+        assert_eq!(
+            expiry_delay(800, Urgency::Normal, &policy),
+            Some(Duration::from_millis(800)),
+            "a sender that names its own timeout still gets it"
+        );
+        assert_eq!(
+            expiry_delay(0, Urgency::Normal, &policy),
+            None,
+            "the spec's `never` is honoured for a card that can still be pressed and swiped"
+        );
+        assert_eq!(
+            expiry_delay(-1, Urgency::Critical, &policy_with(false, None)),
+            Some(Duration::from_millis(5000)),
+            "with stickiness off a critical is an ordinary notification"
+        );
     }
 
     fn sample_from(app: &str, summary: &str) -> Notification {
@@ -852,6 +951,34 @@ mod tests {
         assert_eq!(state.unread, 2, "a muted notification is still one to read");
     }
 
+    /// **Do-Not-Disturb suppresses; it does not defer.**
+    ///
+    /// Switching it on retires what is on screen, and anything arriving under it is recorded as not popping —
+    /// so switching it *off* brings nothing back. The alternative, which this replaced, was a filter applied
+    /// where the card is drawn: the notifications stayed marked as popping, so the moment the toggle went off
+    /// the column refilled with everything it had been asked to hide, underneath whatever had arrived since.
+    #[test]
+    fn dnd_retires_what_it_hides_and_switching_it_off_brings_nothing_back() {
+        let inner = test_inner(Vec::new());
+        inner.push(sample_from("Calendar", "before"), 0);
+        assert!(
+            inner.state.lock().unwrap().active[0].popup,
+            "on screen before the toggle"
+        );
+
+        inner.set_dnd(true);
+        inner.push(sample_from("Slack", "during"), 0);
+
+        inner.set_dnd(false);
+        let state = inner.state.lock().unwrap();
+        assert_eq!(state.active.len(), 2, "both are still in the history");
+        assert!(
+            state.active.iter().all(|n| !n.popup),
+            "neither the one it hid nor the one that arrived under it comes back"
+        );
+        assert_eq!(state.unread, 2, "and both are still unread");
+    }
+
     #[test]
     fn clearing_one_group_leaves_every_other_app_alone() {
         let inner = test_inner(Vec::new());
@@ -884,6 +1011,7 @@ mod tests {
         init(Policy {
             timeout: Duration::from_millis(5000),
             critical_sticky: true,
+            critical_max: Some(Duration::from_secs(120)),
             sound: String::new(),
         });
         let client = zbus::blocking::Connection::session().expect("session bus");

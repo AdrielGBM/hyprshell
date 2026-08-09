@@ -900,14 +900,19 @@ Lines of body a card shows before ellipsizing. Ignored while `open_expanded` is 
 .sp
 Default: \fB4\fR
 .TP
-.B clear_threshold
-How far sideways a card must be dragged before letting go dismisses it, as a fraction of its width.
-`0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+.B critical_max_secs
+How long a sticky `critical` notification waits before retiring to the history panel anyway, in seconds.
+`0` restores the unbounded wait.
 .sp
-Default: \fB0.35\fR
+A ceiling rather than a second timeout: sticky means "long enough that it cannot be missed", and the
+unbounded reading of that has one failure mode with no way out \(em a card whose only exit is a gesture,
+on a shell where the gesture did not land, stays on screen until the shell is restarted. Retiring is not
+dismissing, so nothing is lost when it fires: the notification is still in the panel behind the bell.
+.sp
+Default: \fB120\fR
 .TP
 .B critical_sticky
-Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
+Whether a `critical` notification ignores `[stack] timeout_ms` and waits to be dealt with.
 .sp
 Default: \fBtrue\fR
 .TP
@@ -1140,6 +1145,15 @@ nothing left to say. Not expiring is a property of the card, not a second timeou
 .TP
 .B align
 Default: \fB"end"\fR
+.TP
+.B clear_threshold
+How far sideways a card must be dragged before letting go retires it, as a fraction of its width.
+`0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+.sp
+The column's, not any one card's: a notification, a toast and an OSD are dismissed by the same gesture,
+and a threshold that differed between them would make the column feel like three surfaces again.
+.sp
+Default: \fB0.35\fR
 .TP
 .B edge
 Default: \fB"top"\fR
