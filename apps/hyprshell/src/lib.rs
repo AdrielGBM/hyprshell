@@ -228,42 +228,100 @@ fn setup_shell(config_path: PathBuf) {
     // one taken out from inside a bar would be removed with that bar's sources on the first one.
     services::locale::follow_switches();
 
-    // The command surface. Started after the reload hook so a `shell reload` arriving immediately has something
-    // to call, and on the driver thread so handlers can open surfaces exactly as a click handler would.
-    platform_wayland::watch(crate::core::ipc::serve, crate::core::ipc::handle);
-    // The same request path as the socket, fed by the desktop portal instead: a bound shortcut runs exactly what `hyprshell …` would, without the process launch per keypress. Silently absent with no portal.
-    platform_wayland::watch(services::shortcuts::serve, crate::core::ipc::handle);
-
-    // A wallpaper-derived palette landing. At app level because it rebuilds every surface, and because the
-    // extraction outlives any one of them: a scheme asked for while a panel was open must still arrive after
-    // that panel has closed. The first delivery is what startup already resolved, so it reloads nothing.
-    // Subscribing eagerly starts nothing: `scheme::CURRENT` is a `Store`, so this costs a channel, not a producer.
-    platform_wayland::watch(config::scheme::subscribe, config::scheme::on_change);
-
-    // Low-battery warnings. Watched here, at app level, rather than from a bar: they must fire whether or not
-    // the user put a battery chip on a bar, they must survive a reload, and the crossing rule needs the live
-    // config, which only the driver thread can read. Costs nothing on a desktop — the producer retires when
-    // there is no battery to read.
-    platform_wayland::watch(services::battery::subscribe, services::battery::on_reading);
-
-    // The session lock. All three at app level and in this order: the performer must be listening before
-    // anything can ask for a lock, and logind's signals are how `loginctl lock-session` and a suspend reach it.
-    // None of them is torn down by a reload — a lock that dropped when the user saved their config would put
-    // the desktop back on screen.
-    // `lock::STATE` is a `Store`, so the first of these costs a channel; the second is a thread, and has to be —
-    // it holds the sleep inhibitor, which is what makes a suspend wait for the lock rather than race it.
-    platform_wayland::watch(services::lock::subscribe, services::lock::on_state);
-    platform_wayland::watch(services::session::watch, services::session::on_event);
     // The idle timers are armed by `apply_config`, which has already run — one path for startup and reload,
     // so a saved `[idle]` re-arms without a second entry point that could disagree with it.
-
-    platform_wayland::watch(
-        move |tx| watch_config_changes(config_path, tx),
-        move |_| on_config_change(),
-    );
+    for eager in eager_subscriptions(config_path, on_config_change) {
+        tracing::debug!("subscribing at startup: {} — {}", eager.name, eager.reason);
+        (eager.subscribe)();
+    }
     // A monitor arriving or leaving changes which surfaces exist and nothing about what they draw, so the
     // screens that were already there keep the trees they have.
     platform_wayland::on_outputs_changed(move || reconcile(Content::Keep));
+}
+
+/// A subscription the shell takes out at startup, whatever the config asks for.
+///
+/// Every one of these is an *exemption* from the shell's standing rule that nothing runs unless something is
+/// asking for it, so the set has to be small and has to stay small — and the way it stops staying small is that
+/// adding to it costs one line in a function nobody diffs closely.
+struct Eager {
+    name: &'static str,
+    /// Why this one cannot wait to be asked for. Data rather than a comment so that adding an entry means
+    /// answering the question, and so [`every_startup_subscription_says_why_it_cannot_wait`] can require it.
+    reason: &'static str,
+    subscribe: Box<dyn FnOnce()>,
+}
+
+/// The whole exemption list, in the order it is taken out — which is load-bearing twice over: the command
+/// surface comes first so a `shell reload` arriving immediately has a reload hook to call, and the lock
+/// performer comes before the logind signals that can ask for a lock.
+///
+/// Built rather than run so a test can read it without a driver loop under it. Nothing here starts until its
+/// `subscribe` is called, and `platform_wayland::watch` starts nothing at all without a loop handle.
+fn eager_subscriptions(config_path: PathBuf, on_config_change: Rc<dyn Fn()>) -> Vec<Eager> {
+    vec![
+        Eager {
+            name: "ipc",
+            reason: "the command surface: a shell with no socket cannot be told to do anything, including to \
+                     put a bar back",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(crate::core::ipc::serve, crate::core::ipc::handle);
+            }),
+        },
+        Eager {
+            name: "shortcuts",
+            reason: "the same request path fed by the desktop portal, so a bound key runs what `hyprshell …` \
+                     would without a process launch per keypress; silently absent with no portal",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(services::shortcuts::serve, crate::core::ipc::handle);
+            }),
+        },
+        Eager {
+            name: "scheme",
+            reason: "a wallpaper-derived palette rebuilds every surface, so it outlives any one of them — and \
+                     `scheme::CURRENT` is a `Store`, so this costs a channel and not a producer",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(config::scheme::subscribe, config::scheme::on_change);
+            }),
+        },
+        Eager {
+            name: "battery",
+            reason: "low-battery warnings must fire whether or not the user put a battery chip on a bar, and \
+                     the producer retires on a machine with no battery to read",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(
+                    services::battery::subscribe,
+                    services::battery::on_reading,
+                );
+            }),
+        },
+        Eager {
+            name: "lock",
+            reason: "the performer has to be listening before anything can ask for a lock, and a reload must \
+                     not tear it down — one that dropped would put the desktop back on screen",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(services::lock::subscribe, services::lock::on_state);
+            }),
+        },
+        Eager {
+            name: "session",
+            reason: "logind's signals are how `loginctl lock-session` and a suspend reach the lock, and this \
+                     one holds the sleep inhibitor that makes a suspend wait rather than race",
+            subscribe: Box::new(|| {
+                platform_wayland::watch(services::session::watch, services::session::on_event);
+            }),
+        },
+        Eager {
+            name: "config-watcher",
+            reason: "the file the user edits while the shell runs; nothing else would notice an edit",
+            subscribe: Box::new(move || {
+                platform_wayland::watch(
+                    move |tx| watch_config_changes(config_path, tx),
+                    move |_| on_config_change(),
+                );
+            }),
+        },
+    ]
 }
 
 /// The three answers the layers below cannot reach on their own, handed to them once on the driver thread.
@@ -425,6 +483,49 @@ fn warn_if_font_missing(family: Option<&str>) {
         tracing::warn!(
             "theme font_family '{family}' is not installed; using the default font. List exact names with `fc-list : family`."
         );
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    /// The exemption list, pinned.
+    ///
+    /// Everything else in the shell waits to be asked: a service starts when a chip subscribes and stops when
+    /// the last one goes. These seven do not, so they are the one way an idle shell can start working again —
+    /// and the way that set grows is one more line in a startup function, which reads as nothing in a diff.
+    /// Pinning the names is what turns that into a decision someone has to make on purpose.
+    ///
+    /// Reading the list runs none of it. `subscribe` is never called here, and could not do anything if it
+    /// were: `platform_wayland::watch` returns without spawning a producer when there is no loop handle under
+    /// it, which is also why "nothing is running" cannot be asserted from a test at all.
+    #[test]
+    fn every_startup_subscription_says_why_it_cannot_wait() {
+        let eager = eager_subscriptions(PathBuf::from("config.toml"), Rc::new(|| {}));
+
+        assert_eq!(
+            eager.iter().map(|e| e.name).collect::<Vec<_>>(),
+            [
+                "ipc",
+                "shortcuts",
+                "scheme",
+                "battery",
+                "lock",
+                "session",
+                "config-watcher"
+            ],
+            "the set of subscriptions exempt from 'nothing runs unless something asks' changed — which is a \
+             decision, not a detail: add the entry with the reason it cannot wait, or take it off the list"
+        );
+
+        for entry in &eager {
+            assert!(
+                entry.reason.len() > 30,
+                "'{}' is exempt without saying why",
+                entry.name
+            );
+        }
     }
 }
 
