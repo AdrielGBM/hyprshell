@@ -406,7 +406,9 @@ fn notification_card(
 /// it there. Hit-tests before the card body, like an action pill, so pressing it never also runs the default
 /// action underneath.
 fn close_button(id: u32, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let glyph = ui::icon::icon_view(|| "close".to_string(), move || theme.muted, CLOSE_GLYPH)?;
+    // `x`, not `close`: lucide has no icon by that name, and the store spends eight fetches finding out before
+    // settling into the missing-glyph placeholder. The sidebar and the note card already ask for the right one.
+    let glyph = ui::icon::icon_view(|| "x".to_string(), move || theme.muted, CLOSE_GLYPH)?;
     Ok(box_item(
         StyledContainer::new(
             LayoutStyle::new().align_self_start().padding_all(space::XS),
