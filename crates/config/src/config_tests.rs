@@ -1231,17 +1231,17 @@ accent = "orange"
         };
         assert_eq!(nan.drag_threshold(), None);
 
-        // Swipe-to-dismiss: a fraction of the card, never the whole width — an unreachable threshold reads as a card that is stuck rather than as a setting that is wrong.
-        let n = NotificationsConfig::default();
-        assert_eq!(n.swipe_distance(400.0), Some(140.0));
-        let full = NotificationsConfig {
+        // Swipe-to-dismiss: a fraction of the card, never the whole width — an unreachable threshold reads as a card that is stuck rather than as a setting that is wrong. The column's, since every card in it answers to the one gesture.
+        let s = StackConfig::default();
+        assert_eq!(s.swipe_distance(400.0), Some(140.0));
+        let full = StackConfig {
             clear_threshold: 2.0,
-            ..NotificationsConfig::default()
+            ..StackConfig::default()
         };
         assert_eq!(full.swipe_distance(400.0), Some(360.0));
-        let disabled = NotificationsConfig {
+        let disabled = StackConfig {
             clear_threshold: 0.0,
-            ..NotificationsConfig::default()
+            ..StackConfig::default()
         };
         assert_eq!(disabled.swipe_distance(400.0), None);
     }

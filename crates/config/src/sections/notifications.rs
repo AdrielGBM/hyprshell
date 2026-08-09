@@ -32,6 +32,12 @@ pub struct StackConfig {
     /// than this allows, the column is that many cards tall.
     pub max_visible: u32,
     pub timeout_ms: u64,
+    /// How far sideways a card must be dragged before letting go retires it, as a fraction of its width.
+    /// `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
+    ///
+    /// The column's, not any one card's: a notification, a toast and an OSD are dismissed by the same gesture,
+    /// and a threshold that differed between them would make the column feel like three surfaces again.
+    pub clear_threshold: f32,
 }
 
 impl Default for StackConfig {
@@ -44,6 +50,7 @@ impl Default for StackConfig {
             // Between the 5 s a notification used to get and the 1.2 s an OSD did: long enough to read a line
             // of text that arrived unannounced, short enough that a volume nudge is gone before it is in the way.
             timeout_ms: 3000,
+            clear_threshold: 0.35,
         }
     }
 }
@@ -53,6 +60,16 @@ impl StackConfig {
     /// posted is a feature that looks broken. A card that must *not* expire says so itself.
     pub fn lifetime(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.timeout_ms.clamp(400, 60_000))
+    }
+
+    /// The swipe distance that retires a card, in px for a card `width` wide, or `None` when the gesture is
+    /// off. Bounded below the full width: a threshold you cannot reach is a gesture that never fires, which
+    /// reads as the card being stuck rather than as the setting being wrong.
+    pub fn swipe_distance(&self, width: f32) -> Option<f32> {
+        if !self.clear_threshold.is_finite() || self.clear_threshold <= 0.0 {
+            return None;
+        }
+        Some(width * self.clear_threshold.min(0.9))
     }
 
     /// How many cards are on screen at once, bounded so a typo cannot ask for a column taller than the screen.
@@ -101,8 +118,16 @@ impl FullscreenPopups {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct NotificationsConfig {
-    /// Whether a `critical` notification ignores `[stack] timeout_ms` and waits until it is dealt with.
+    /// Whether a `critical` notification ignores `[stack] timeout_ms` and waits to be dealt with.
     pub critical_sticky: bool,
+    /// How long a sticky `critical` notification waits before retiring to the history panel anyway, in seconds.
+    /// `0` restores the unbounded wait.
+    ///
+    /// A ceiling rather than a second timeout: sticky means "long enough that it cannot be missed", and the
+    /// unbounded reading of that has one failure mode with no way out — a card whose only exit is a gesture,
+    /// on a shell where the gesture did not land, stays on screen until the shell is restarted. Retiring is not
+    /// dismissing, so nothing is lost when it fires: the notification is still in the panel behind the bell.
+    pub critical_max_secs: u64,
     pub fullscreen: FullscreenPopups,
     pub group_by_app: bool,
     pub group_preview_num: u32,
@@ -111,15 +136,13 @@ pub struct NotificationsConfig {
     pub body_lines: u32,
     pub open_expanded: bool,
     pub sound: String,
-    /// How far sideways a card must be dragged before letting go dismisses it, as a fraction of its width.
-    /// `0` switches the gesture off, which is what a touchpad user who keeps catching it wants.
-    pub clear_threshold: f32,
 }
 
 impl Default for NotificationsConfig {
     fn default() -> Self {
         Self {
             critical_sticky: true,
+            critical_max_secs: 120,
             fullscreen: FullscreenPopups::default(),
             group_by_app: true,
             group_preview_num: 3,
@@ -127,12 +150,17 @@ impl Default for NotificationsConfig {
             body_lines: 4,
             open_expanded: false,
             sound: String::new(),
-            clear_threshold: 0.35,
         }
     }
 }
 
 impl NotificationsConfig {
+    /// How long a sticky `critical` popup may stay before retiring to the history, or `None` for the unbounded
+    /// wait `critical_max_secs = 0` asks for.
+    pub fn critical_ceiling(&self) -> Option<std::time::Duration> {
+        (self.critical_max_secs > 0).then(|| std::time::Duration::from_secs(self.critical_max_secs))
+    }
+
     /// How many of a group's cards show before it is expanded. At least one, so a cap of `0` collapses a group
     /// to its header instead of hiding the notifications behind a row that says nothing is there.
     pub fn group_preview(&self) -> usize {
@@ -149,16 +177,6 @@ impl NotificationsConfig {
     pub fn sound_command(&self) -> Option<&str> {
         let command = self.sound.trim();
         (!command.is_empty()).then_some(command)
-    }
-
-    /// The swipe distance that dismisses a card, in px for a card `width` wide, or `None` when the gesture is
-    /// off. Bounded below the full width: a threshold you cannot reach is a gesture that never fires, which
-    /// reads as the card being stuck rather than as the setting being wrong.
-    pub fn swipe_distance(&self, width: f32) -> Option<f32> {
-        if !self.clear_threshold.is_finite() || self.clear_threshold <= 0.0 {
-            return None;
-        }
-        Some(width * self.clear_threshold.min(0.9))
     }
 }
 

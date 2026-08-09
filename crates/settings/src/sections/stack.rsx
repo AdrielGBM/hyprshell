@@ -13,10 +13,12 @@ let align = signal(align_str(s.align).to_string());
 let width = signal(s.width.to_string());
 let max_visible = signal(s.max_visible.to_string());
 let timeout = signal(s.timeout_ms.to_string());
+let clear_threshold = signal(s.clear_threshold.to_string());
 
 let save: Box<dyn Fn()> = Box::new({
     let (edge, align, width) = (edge.clone(), align.clone(), width.clone());
     let (max_visible, timeout) = (max_visible.clone(), timeout.clone());
+    let clear_threshold = clear_threshold.clone();
     move || {
         let value = StackConfig {
             edge: parse_edge(&edge.peek()),
@@ -24,6 +26,7 @@ let save: Box<dyn Fn()> = Box::new({
             width: parse_f32(&width.peek(), base.width),
             max_visible: parse_u32(&max_visible.peek(), base.max_visible),
             timeout_ms: parse_u64(&timeout.peek(), base.timeout_ms),
+            clear_threshold: parse_f32(&clear_threshold.peek(), base.clear_threshold),
         };
         persist(&path, "stack", &value);
     }
@@ -36,4 +39,5 @@ form_section title(|| telar::t!("settings.section.stack"))
     text_row label(|| telar::t!("settings.field.width")) value:$width placeholder:"380"
     text_row label(|| telar::t!("settings.field.max_visible")) value:$max_visible placeholder:"4"
     text_row label(|| telar::t!("settings.field.timeout_ms")) value:$timeout placeholder:"3000"
+    text_row label(|| telar::t!("settings.field.clear_threshold")) value:$clear_threshold placeholder:"0.35"
     save_row label(|| telar::t!("settings.save.stack")) on_press(save)

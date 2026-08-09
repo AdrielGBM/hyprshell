@@ -1,4 +1,4 @@
-use telar::{LayoutItem, set_theme};
+use telar::{Color, LayoutItem, LayoutStyle, RectStyle, SizeDimension, StyledContainer, set_theme};
 
 use config::theme::NordTheme;
 
@@ -46,7 +46,23 @@ pub fn current_osd_radius() -> f32 {
 pub(crate) fn osd_content(kind: OsdKind, theme: NordTheme) -> Box<dyn LayoutItem> {
     set_theme(theme);
     util::state::set_context(OsdCtx { kind });
-    crate::osd().expect("osd content build failed")
+    let content = crate::osd().expect("osd content build failed");
+    let Some(threshold) = crate::stack::swipe::column_threshold() else {
+        return content;
+    };
+    // Wrapped only to carry the gesture: the box paints nothing, and the OSD inside it is unchanged.
+    let Ok(draggable) = StyledContainer::new(
+        LayoutStyle::new().width(SizeDimension::Percent(1.0)),
+        |_| RectStyle::filled(Color::TRANSPARENT, 0.0),
+        vec![content],
+    ) else {
+        return crate::osd().expect("osd content build failed");
+    };
+    Box::new(crate::stack::swipe::swipe_aside(
+        draggable,
+        threshold,
+        crate::stack::clear_osd,
+    ))
 }
 
 /// Shows (or replaces) the single-slot OSD for `kind`.

@@ -9,7 +9,7 @@
 //! notification by the card with its actions and its swipe, a toast by its own, an OSD by its meter — and each
 //! still comes from its own source. This merges them; it knows nothing about what any of them mean.
 //!
-//! **Only three things vary per card**, and they are the three that used to be a whole config section each:
+//! **Only two things vary per card**, and both used to be a whole config section each:
 //!
 //! - **Its key**, so a second reading about the same thing replaces the first in place rather than pushing a
 //!   copy underneath it. A wheel spun ten notches is one OSD, not ten.
@@ -17,9 +17,18 @@
 //!   waits to be dealt with, and everything else goes at `[stack] timeout_ms`. Each source still times its own
 //!   cards out — the daemon its notifications, the toaster its toasts — because the one thing they cannot rely
 //!   on is a surface being up to do it for them.
-//! - **Whether it takes the pointer.** A notification is pressed and swiped; an OSD is feedback about a key
-//!   being held and must never be in the way of the click behind it. The surface carves its input region out of
-//!   what registers as pressable, so a card that registers nothing simply is not in the region.
+//!
+//! **Every card answers to the same gesture.** Dragged aside it goes; pressed, it does whatever it is *for* —
+//! a notification runs its action, and a toast and an OSD, which are reports rather than offers, do nothing.
+//! Taking the pointer was the third thing that varied, and no longer does: the rule used to be that an OSD must
+//! never be in the way of the click behind it, which made it the one card the user could not get rid of and made
+//! the column behave like three surfaces again depending on which card was on top. What that bought — a click
+//! passing through the OSD to the window underneath — was real, and is the price of this. `[stack]
+//! clear_threshold` switches the gesture off for every card if the trade is the wrong one.
+//!
+//! Only a notification carries a ✕, and only because it is the one card with somewhere else to be: swiping it
+//! puts it in the history, so there has to be a way to say "not there either". A toast and an OSD have no
+//! history to be kept out of.
 //!
 //! The surface exists only while the column has something in it — opened on the first card, dropped with the
 //! last — so an idle session carries no overlay at all. That is the toast host's old rule applied to the
@@ -35,7 +44,7 @@ use platform_wayland::{SurfaceHandle, timeout, watch};
 use telar::{LayoutError, LayoutItem, ReactiveList, signal, use_theme};
 
 use config::theme::NordTheme;
-use config::{Config, StackConfig};
+use config::{AnimationConfig, Config, StackConfig};
 use services::notifications::{Notification, SharedSnapshot, Snapshot};
 use services::toaster::{self, Toast};
 use ui::panel::{PanelSurface, card_gap, content_radius};
@@ -43,6 +52,9 @@ use ui::placement::Placement;
 use util::broadcast::Store;
 
 use crate::osd::OsdKind;
+
+pub(crate) mod swipe;
+pub(crate) mod transition;
 
 const NAMESPACE: &str = "hyprshell-stack";
 
@@ -108,16 +120,34 @@ impl Card {
 /// empties, and a signal made inside a surface goes with it.
 static OSD: Store<Option<OsdKind>> = Store::new(|| None);
 
+/// Bumped when a card's exit has finished, so the column re-runs and stops drawing it.
+///
+/// A `Store` for the same reason [`OSD`] is one: the surface it wakes is opened and dropped as the column fills
+/// and empties, and a signal made inside a surface goes with it.
+static DEPARTURES: Store<u64> = Store::new(|| 0);
+
 thread_local! {
     /// Bumped on every OSD trigger, so the expiry scheduled by the one that was replaced fires against a
     /// generation that no longer matches and does nothing. Cheaper than cancelling a timer, and the same
     /// arbitration the hover popout uses.
     static OSD_GENERATION: Cell<u64> = const { Cell::new(0) };
+    /// Every slot the sources held last pass, so the next one can tell what has gone. Taken before the cap: a
+    /// card queued behind `admit` is still alive, and treating it as gone would animate away a card that stayed.
+    static LAST_ALIVE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    /// The last card each slot held and where it was drawn, kept so a departing one can still be drawn — in its
+    /// own place — after every source has dropped it. Pruned when its exit finishes.
+    static DEPARTED: RefCell<HashMap<String, (usize, Card)>> = RefCell::new(HashMap::new());
     static ARRIVALS: RefCell<Arrivals> = RefCell::new(Arrivals::default());
     /// What the column is holding, as the host last saw it. The host has to answer "is there anything to show"
     /// while there is no surface to ask it on, and the daemon publishes rather than answers.
     static LIVE: RefCell<Live> = RefCell::new(Live::default());
     static OPEN: RefCell<Option<Stack>> = const { RefCell::new(None) };
+}
+
+/// Takes the OSD off the column, for the swipe that dismisses it. The slot is this module's, so clearing it is
+/// too — the OSD card itself only knows that it was dragged aside.
+pub(crate) fn clear_osd() {
+    OSD.update(|slot| *slot = None);
 }
 
 /// Shows `kind`'s OSD, replacing whatever OSD was up, and schedules it away after `[stack] timeout_ms`.
@@ -186,13 +216,21 @@ struct Live {
 /// other one can still see — and a re-stamped card is a card that jumps to the bottom of the column. The host
 /// and the surface each hold their own copies of three live sources and update on their own schedules, so they
 /// disagree constantly for a frame at a time. That is what made cards trade places while an OSD came and went.
+/// A card still playing its exit keeps the surface up, and that is the whole reason the last card's exit reaches
+/// the screen at all: drop the surface on the frame the source empties and there is nothing left to animate.
 fn has_cards(live: &Live, config: &Config) -> bool {
     live.osd.is_some()
         || !live.toasts.is_empty()
         || !crate::notifications::popping(&live.snapshot, &config.notifications, false).is_empty()
+        || transition::anything_leaving()
 }
 
 /// Every card that should be on screen right now, in order and admitted per [`admit`].
+///
+/// "Right now" includes the ones on their way out. A card whose source has dropped it is still drawn until its
+/// exit has played, because the list disposes a row the instant it leaves the source and a card that vanishes
+/// mid-frame is one the user cannot tell apart from a card that was replaced. Holding it here — rather than
+/// asking `ReactiveList` for an exit hook it does not have — keeps the whole thing inside the column.
 fn column(live: &Live, covering: bool, config: &Config) -> Vec<Card> {
     let mut cards: Vec<Card> =
         crate::notifications::popping(&live.snapshot, &config.notifications, covering)
@@ -201,8 +239,71 @@ fn column(live: &Live, covering: bool, config: &Config) -> Vec<Card> {
             .collect();
     cards.extend(live.toasts.iter().cloned().map(Card::Toast));
     cards.extend(live.osd.map(Card::Osd));
-    let cards = ARRIVALS.with(|arrivals| arrivals.borrow_mut().order(cards));
-    admit(cards, config.stack.visible())
+    let ordered = ARRIVALS.with(|arrivals| arrivals.borrow_mut().order(cards));
+    // What every source still holds, taken *before* the cap. A card queued behind [`admit`] has not gone
+    // anywhere — playing its exit would say it had, and the next pass would have to take it back.
+    let alive: Vec<String> = ordered.iter().map(Card::slot).collect();
+    let mut shown = admit(ordered, config.stack.visible());
+    reconcile_departures(&mut shown, &alive, &config.animation);
+    shown
+}
+
+/// Starts the exit of everything that has gone since the last pass, and keeps drawing what has not finished —
+/// **in the place it held**, which is the whole difficulty.
+///
+/// A card removed from the middle leaves a hole, and putting its ghost back anywhere else says the wrong thing
+/// twice: the cards below it jump up to close the hole, and the exit then plays at the bottom of the column
+/// against a card that was never there. So each one is remembered with the index it was drawn at and re-inserted
+/// there, oldest position first, so a run of departures unwinds in the order it was drawn rather than in
+/// whatever order a hash map happens to iterate.
+///
+/// `alive` is every card the sources still hold, *before* the cap: what [`admit`] leaves out is queued, not
+/// gone, and animating it away would be a lie the next pass has to retract.
+///
+/// The previous pass's cards are remembered here rather than derived, because "gone" is a difference between
+/// two readings and only the surface takes them: the host holds its own copy of the same sources on its own
+/// schedule (see [`has_cards`]), so a departure it computed would disagree with this one for a frame at a time.
+fn reconcile_departures(shown: &mut Vec<Card>, alive: &[String], animation: &AnimationConfig) {
+    for slot in transition::settled() {
+        DEPARTED.with(|held| held.borrow_mut().remove(&slot));
+    }
+    for slot in alive {
+        transition::returning(slot);
+    }
+    let previous = LAST_ALIVE.with(|held| held.replace(alive.to_vec()));
+    for slot in previous.into_iter().filter(|slot| !alive.contains(slot)) {
+        if DEPARTED.with(|held| !held.borrow().contains_key(&slot)) {
+            continue;
+        }
+        let after = transition::leaving(&slot, animation);
+        if after.is_zero() {
+            continue;
+        }
+        // The list only rebuilds when its source re-runs, and nothing else will ask it to once the card is gone
+        // from every source — so the pass that drops the finished card has to be scheduled here.
+        timeout(after, || {
+            // Both, and for different reasons: the tick re-runs the column so it stops drawing the card, and
+            // the host has to be asked again whether there is anything left to keep the surface up for.
+            DEPARTURES.update(|tick| *tick = tick.wrapping_add(1));
+            reconcile();
+        });
+    }
+    // Kept whole rather than by slot: an exit draws the card, so the card has to outlive the source that had it.
+    DEPARTED.with(|held| {
+        let mut held = held.borrow_mut();
+        for (at, card) in shown.iter().enumerate() {
+            held.insert(card.slot(), (at, card.clone()));
+        }
+        let mut returning: Vec<(usize, Card)> = held
+            .iter()
+            .filter(|(slot, _)| transition::still_leaving(slot))
+            .map(|(_, (at, card))| (*at, card.clone()))
+            .collect();
+        returning.sort_by_key(|(at, _)| *at);
+        for (at, card) in returning {
+            shown.insert(at.min(shown.len()), card);
+        }
+    });
 }
 
 /// Which of `ordered` fit on screen, and which wait.
@@ -399,13 +500,23 @@ fn cards(env: &config::SurfaceEnv) -> Result<Box<dyn LayoutItem>, LayoutError> {
         |tx| OSD.subscribe(tx),
         move |live: Option<OsdKind>| sink.set(live),
     );
+    // The column re-runs when a card's exit is over, which no source can tell it: by then every one of them has
+    // already dropped the card.
+    let departures = signal(DEPARTURES.get());
+    let sink = departures.clone();
+    watch(
+        |tx| DEPARTURES.subscribe(tx),
+        move |tick: u64| sink.set(tick),
+    );
     let covering = crate::notifications::covering_focus(&config.notifications);
 
     let theme = use_theme::<NordTheme>();
     let radius = content_radius();
     let width = config.stack.width;
+    let animation = config.animation.clone();
     let owned = config.clone();
     let source = move || {
+        let _ = departures.get();
         let live = Live {
             snapshot: snapshot.get(),
             toasts: toasts.get(),
@@ -426,7 +537,7 @@ fn cards(env: &config::SurfaceEnv) -> Result<Box<dyn LayoutItem>, LayoutError> {
         placement(&config.stack, env.output.as_deref()).column(card_gap()),
         source,
         Card::key,
-        move |card: Card| build(card, theme, radius, width),
+        move |card: Card| build(card, theme, radius, width, &animation),
     )?;
     Ok(Box::new(list))
 }
@@ -438,12 +549,16 @@ fn build(
     theme: NordTheme,
     radius: f32,
     width: f32,
+    animation: &AnimationConfig,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    match card {
+    let slot = card.slot();
+    let content = match card {
         Card::Notification(n) => crate::notifications::popup_card(&n, theme, radius, width),
         Card::Toast(t) => crate::toast::card(&t, theme, radius),
         Card::Osd(kind) => Ok(crate::osd::osd_content(kind, theme)),
-    }
+    }?;
+    // Here rather than in each of the three, so a notification, a toast and an OSD arrive and leave alike.
+    transition::arriving(&slot, content, animation)
 }
 
 #[cfg(test)]

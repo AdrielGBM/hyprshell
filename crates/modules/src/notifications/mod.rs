@@ -2,8 +2,6 @@ use ui::scale::paint;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use std::cell::RefCell;
-use std::rc::Rc;
 
 
 use telar::{
@@ -14,7 +12,7 @@ use telar::{
 
 use config::surface_env;
 use config::theme::{FontRole, NordTheme};
-use config::{FullscreenPopups, NotificationsConfig};
+use config::{FullscreenPopups, NotificationsConfig, StackConfig};
 use services::hyprland::{self, ActiveWindow, Client};
 use services::notifications::{self, Notification, SharedSnapshot, Snapshot, Urgency};
 use ui::panel::{card_gap, panel_fill};
@@ -270,14 +268,21 @@ impl CardStyle {
     /// A card inside a panel: solid against the translucent surface it sits on. `width` is asked for because the
     /// swipe threshold is a fraction of it, and a card is drawn at the panel's width in one place and the
     /// column's in the other.
-    fn new(cfg: &NotificationsConfig, width: f32, theme: NordTheme, radius: f32) -> Self {
+    fn new(
+        cfg: &NotificationsConfig,
+        stack: &StackConfig,
+        width: f32,
+        theme: NordTheme,
+        radius: f32,
+    ) -> Self {
         Self {
             theme,
             radius,
             fill: theme.surface,
             body_lines: cfg.body_max_lines(),
             action_on_click: cfg.action_on_click,
-            swipe: cfg.swipe_distance(width),
+            // The column's threshold even here in the panel: the gesture is one gesture wherever a card is drawn.
+            swipe: stack.swipe_distance(width),
         }
     }
 
@@ -359,10 +364,13 @@ fn notification_card(
         column,
     )?;
 
-    let children: Vec<Box<dyn LayoutItem>> = vec![leading, Box::new(text_column)];
-    // How far the card has been swiped, in px. A signal because the card follows the finger: the transform re-reads it every frame the pointer moves, and it snaps back to zero if the gesture is abandoned.
-    let swiped = signal(0.0f32);
-    let offset = swiped.read_only();
+    let mut children: Vec<Box<dyn LayoutItem>> = vec![leading, Box::new(text_column)];
+    // The one control that *deletes* rather than retires, and the only reason a notification card carries a
+    // corner the other two do not: swiping puts a notification in the history, and there has to be a way to say
+    // "and I do not want it there either". A toast and an OSD have no history to be kept out of.
+    if dismiss.is_some() {
+        children.push(close_button(notification.id, theme)?);
+    }
     let mut card = StyledContainer::new(
         LayoutStyle::new()
             .flex_row()
@@ -383,47 +391,34 @@ fn notification_card(
             None => dismiss(id),
         });
         if let Some(threshold) = style.swipe {
-            card = swipe_to_dismiss(card, swiped, offset.clone(), threshold, id);
+            // Retired rather than deleted: the panel behind the bell is where a swiped-away notification goes.
+            card = crate::stack::swipe::swipe_aside(card, threshold, move || {
+                notifications::expire(id)
+            });
         }
     }
     Ok(Box::new(card))
 }
 
-/// Makes a card follow a sideways drag and dismiss itself if it is let go past `threshold`.
-///
-/// The card fades as it travels, so the gesture says what it will do before it does it — a card that slid and
-/// then sprang back with no visual difference reads as a failure rather than as a cancel. Below the threshold
-/// the offset is simply set back to zero, which is the snap-back.
-fn swipe_to_dismiss(
-    card: StyledContainer,
-    swiped: RwSignal<f32>,
-    offset: ReadSignal<f32>,
-    threshold: f32,
-    id: u32,
-) -> StyledContainer {
-    // The drag reports the pointer local to the card, so the *start* has to be remembered to get a delta — a press near the right edge would otherwise read as an instant swipe of nearly the card's width.
-    let start: Rc<RefCell<Option<f32>>> = Rc::new(RefCell::new(None));
-    let began = Rc::clone(&start);
-    let tracking = swiped.clone();
-    let fade = offset.clone();
-    card.on_drag(move |x, _y| {
-        let from = *began.borrow_mut().get_or_insert(x);
-        tracking.set(x - from);
-    })
-    .on_drag_end(move |x, _y| {
-        let from = start.borrow_mut().take().unwrap_or(x);
-        if (x - from).abs() >= threshold {
-            notifications::close(id);
-        } else {
-            swiped.set(0.0);
-        }
-    })
-    .with_transform(move |_rect| {
-        let dx = offset.get();
-        (dx != 0.0).then_some([1.0, 0.0, 0.0, 1.0, dx, 0.0])
-    })
-    .with_opacity(move || 1.0 - (fade.get().abs() / threshold).clamp(0.0, 0.85))
+/// The ✕ in a card's corner: the one gesture that takes a notification out of the history rather than putting
+/// it there. Hit-tests before the card body, like an action pill, so pressing it never also runs the default
+/// action underneath.
+fn close_button(id: u32, theme: NordTheme) -> Result<Box<dyn LayoutItem>, LayoutError> {
+    let glyph = ui::icon::icon_view(|| "close".to_string(), move || theme.muted, CLOSE_GLYPH)?;
+    Ok(box_item(
+        StyledContainer::new(
+            LayoutStyle::new().align_self_start().padding_all(space::XS),
+            move |_| RectStyle::filled(Color::TRANSPARENT, CLOSE_GLYPH / 2.0),
+            vec![glyph],
+        )?
+        .on_hover_style(move |_| RectStyle::filled(theme.overlay, CLOSE_GLYPH / 2.0))
+        .on_press(move || notifications::close(id)),
+    ))
 }
+
+/// The ✕'s glyph size. Small enough to read as a corner affordance rather than a second action, large enough
+/// that a pointer finds it — this is the only control on the card with no forgiving body around it.
+const CLOSE_GLYPH: f32 = 14.0;
 
 /// A card's list key. Keyed on what it *draws*, not on the notification's identity: a sender that edits a
 /// notification in place (`replaces_id`) keeps its id while the summary and body turn over entirely, and a key
@@ -529,7 +524,8 @@ pub(crate) fn popup_card(
     let cfg = config::config()
         .map(|c| c.notifications.clone())
         .unwrap_or_default();
-    let style = CardStyle::new(&cfg, width, theme, radius).standalone();
+    let stack = config::config().map(|c| c.stack).unwrap_or_default();
+    let style = CardStyle::new(&cfg, &stack, width, theme, radius).standalone();
     notification_card(
         notification,
         SizeDimension::Percent(1.0),
@@ -799,7 +795,8 @@ fn history_list(
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
     // A signal rather than a cell, because the row list derives from it: a plain value would change without anything asking the list to rebuild.
     let expanded = signal(BTreeSet::<String>::new());
-    let style = CardStyle::new(cfg, PANEL_CARD_WIDTH, theme, radius);
+    let stack = config::config().map(|c| c.stack).unwrap_or_default();
+    let style = CardStyle::new(cfg, &stack, PANEL_CARD_WIDTH, theme, radius);
     let source = {
         let cfg = cfg.clone();
         let expanded = expanded.read_only();
@@ -1376,7 +1373,13 @@ mod tests {
                         HistoryRow::Card(n) => notification_card(
                             &n,
                             SizeDimension::Percent(1.0),
-                            CardStyle::new(&cfg, PANEL_CARD_WIDTH, NordTheme::new(), 12.0),
+                            CardStyle::new(
+                                &cfg,
+                                &StackConfig::default(),
+                                PANEL_CARD_WIDTH,
+                                NordTheme::new(),
+                                12.0,
+                            ),
                             Some(notifications::close),
                         )
                         .map(|_| format!("card:{}", n.id)),

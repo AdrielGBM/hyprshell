@@ -107,20 +107,27 @@ pub(crate) fn card(
     )?;
 
     let id = toast.id;
-    Ok(Box::new(
-        StyledContainer::new(
-            LayoutStyle::new()
-                .flex_row()
-                .align_items(AlignItems::CENTER)
-                .gap(space::LG)
-                .padding_all(space::XL)
-                .width(SizeDimension::Percent(1.0)),
-            move |_| RectStyle::filled(panel_fill(), radius),
-            vec![icon, Box::new(text)],
-        )?
-        .on_hover_style(move |_| RectStyle::filled(theme.overlay, radius))
-        .on_press(move || toaster::dismiss(id)),
-    ))
+    let card = StyledContainer::new(
+        LayoutStyle::new()
+            .flex_row()
+            .align_items(AlignItems::CENTER)
+            .gap(space::LG)
+            .padding_all(space::XL)
+            .width(SizeDimension::Percent(1.0)),
+        move |_| RectStyle::filled(panel_fill(), radius),
+        vec![icon, Box::new(text)],
+    )?
+    .on_hover_style(move |_| RectStyle::filled(theme.overlay, radius));
+    // Dragged aside, never pressed away. A toast reports something that already happened, so a click on it is a
+    // click the user meant for whatever it landed on top of — which pressing to dismiss would swallow.
+    let Some(threshold) = crate::stack::swipe::column_threshold() else {
+        return Ok(Box::new(card));
+    };
+    Ok(Box::new(crate::stack::swipe::swipe_aside(
+        card,
+        threshold,
+        move || toaster::dismiss(id),
+    )))
 }
 
 #[cfg(test)]
