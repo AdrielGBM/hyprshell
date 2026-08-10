@@ -37,6 +37,7 @@ fn section_structs() -> HashMap<&'static str, &'static str> {
         ("sidebar", "SidebarConfig"),
         ("background", "BackgroundConfig"),
         ("wallpaper", "WallpaperConfig"),
+        ("widgets", "WidgetsConfig"),
         ("active_window", "ActiveWindowConfig"),
         ("clock", "ClockConfig"),
         ("media", "MediaConfig"),
@@ -280,7 +281,7 @@ fn type_of(structure: &str, field: &str) -> Option<&'static str> {
         .map(|(_, _, kind)| *kind)
 }
 
-/// The struct backing a section path — `background` or `background.clock` — by walking the field types.
+/// The struct backing a section path — `background` or `widgets.clock` — by walking the field types.
 fn struct_for(path: &str) -> Option<&'static str> {
     let mut parts = path.split('.');
     let mut current = *section_structs().get(parts.next()?)?;
@@ -409,8 +410,8 @@ mod tests {
         // And the shorter spelling still parses back to the same value the code holds.
         let parsed: Config = toml::from_str(&text).expect("the printed schema parses");
         assert_eq!(
-            parsed.background.clock.background_opacity,
-            Config::starter().background.clock.background_opacity
+            parsed.widgets.clock.background_opacity,
+            Config::starter().widgets.clock.background_opacity
         );
     }
 

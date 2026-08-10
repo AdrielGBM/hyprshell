@@ -123,7 +123,7 @@ pub fn run() {
 
     // Non-destructive reload: one persistent driver. Every surface is opened dynamically on the driver thread
     // (via `setup_shell`, deferred with `run_on_start`) and reconciled on config change, so a reload never tears
-    // down the connection, the popup, or the shared services — only the bars/wallpaper/frame that changed.
+    // down the connection, the popup, or the shared services — only the surfaces that changed.
     platform_wayland::run_on_start(move || setup_shell(config_path));
     if let Err(e) = run_multi_with_platform(
         LayerShellPlatform::new(),

@@ -9,7 +9,7 @@ config: [clock, dashboard]
 commands: [panel]
 deps: []
 panel: true
-see_also: [dashboard, wallpaper]
+see_also: [dashboard, widgets]
 ---
 
 # Clock
@@ -45,6 +45,6 @@ shell took to start.
 
 ## Related
 
-- [Wallpaper layer](../surfaces/wallpaper.md) — `[background.clock]` is a second, larger clock drawn on the
-  desktop itself.
+- [Desktop widgets](../surfaces/widgets.md) — `[widgets.clock]` is a second, larger clock drawn on the desktop
+  itself.
 - [dashboard](dashboard.md) — where the calendar lives when you want it beside everything else.

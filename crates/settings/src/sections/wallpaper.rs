@@ -360,8 +360,6 @@ pub(crate) fn background_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
                 monitors,
                 transition: WallpaperTransition::from_id(&transition.peek()).unwrap_or_default(),
                 transition_ms: parse_u64(&transition_ms.peek(), base.transition_ms),
-                clock: base.clock.clone(),
-                visualiser: base.visualiser,
             };
             persist(&path, "background", &value);
         },
@@ -374,8 +372,6 @@ pub(crate) fn background_section() -> Result<Box<dyn LayoutItem>, LayoutError> {
     )
 }
 
-/// The clock drawn on the wallpaper. Its own section rather than rows inside `[background]`: it is a nested
-/// table, and one Save writing both would mean every clock tweak rewrote the wallpaper settings with it.
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -78,87 +78,7 @@ Full-screen wallpaper behind everything, one surface per monitor. Off by default
 
 - **`image`** · unset by default
 
-### `[background.clock]`
-
-- **`background`** · default `false`
-
-  Paint a plate behind the face, so it stays legible over a busy photograph.
-
-- **`background_blur`** · default `0.0`
-
-  How far the plate's edge is feathered into the wallpaper, in px. `0` gives a hard-edged card.
-
-- **`background_opacity`** · default `0.35`
-
-  How opaque that plate is, `0`–`1`.
-
-- **`enabled`** · default `false`
-- **`invert`** · default `false`
-
-  Draw the face in the theme's base colour instead of its text colour — for a pale wallpaper, where light
-  text disappears.
-
-- **`margin`** · default `48`
-
-  How far the face is kept from the screen edges, in px.
-
-- **`position`** · default `"center"`
-
-  One of the nine positions: `top_left` … `bottom_right`, `center` being the default.
-
-- **`scale`** · default `3.0`
-
-  Multiplies the theme's display size, so the face can be made as large as the screen allows.
-
-- **`shadow`** · default `true`
-
-  Drop a shadow under the glyphs, which is what keeps a plateless face readable over a light wallpaper.
-
-- **`show_date`** · default `true`
-- **`format`** · unset by default
-
-  Overrides `[clock] format` for the desktop face only. A desktop clock usually wants `%H:%M` where the bar chip wants seconds.
-
-- **`date_format`** · unset by default
-
-  Overrides `[clock] date_format` for the desktop face only.
-
 ### `[background.monitors]`
-
-### `[background.visualiser]`
-
-- **`accent`** · default `true`
-
-  Draw the bars in the theme's accent colour rather than its text colour.
-
-- **`edge`** · default `"bottom"`
-
-  Which screen edge the bars stand on. They always grow away from it, so `left` gives a column up the side.
-
-- **`enabled`** · default `false`
-- **`gap`** · default `3.0`
-
-  The gap between two bars, in px.
-
-- **`hide_when_silent`** · default `true`
-
-  Fade the bars out when nothing is playing, rather than leaving a flat line across the screen.
-
-- **`margin`** · default `0`
-
-  How far the row is held off its edge, in px — for a screen whose bar already sits there.
-
-- **`opacity`** · default `0.75`
-
-  How opaque the bars are over the wallpaper, `0`–`1`.
-
-- **`radius`** · default `3.0`
-
-  How round a bar's ends are, in px. `0` is square; half the bar's own width is a capsule.
-
-- **`reach`** · default `140`
-
-  How far the tallest bar reaches from that edge, in px.
 
 ## `[bars]`
 
@@ -1207,6 +1127,95 @@ the feature that tells a third party anything, and setting either of the others 
 
 - **`latitude`** · unset by default
 - **`longitude`** · unset by default
+
+## `[widgets]`
+
+Widgets drawn on the desktop, on a surface of their own: a clock face, an audio visualiser. All off by
+default, and the surface exists only while one of them is on.
+
+**Not the wallpaper.** The wallpaper covers the whole screen under every window; this sits in what the bars
+left free, so a widget lines up with the applications rather than with the screen — and a visualiser that
+repaints with the music repaints that area instead of the whole screen behind it.
+
+### `[widgets.clock]`
+
+- **`background`** · default `false`
+
+  Paint a plate behind the face, so it stays legible over a busy photograph.
+
+- **`background_blur`** · default `0.0`
+
+  How far the plate's edge is feathered into the wallpaper, in px. `0` gives a hard-edged card.
+
+- **`background_opacity`** · default `0.35`
+
+  How opaque that plate is, `0`–`1`.
+
+- **`enabled`** · default `false`
+- **`invert`** · default `false`
+
+  Draw the face in the theme's base colour instead of its text colour — for a pale wallpaper, where light
+  text disappears.
+
+- **`margin`** · default `48`
+
+  How far the face is kept from the edges of the widget area, in px.
+
+- **`position`** · default `"center"`
+
+  One of the nine positions: `top_left` … `bottom_right`, `center` being the default.
+
+- **`scale`** · default `3.0`
+
+  Multiplies the theme's display size, so the face can be made as large as the screen allows.
+
+- **`shadow`** · default `true`
+
+  Drop a shadow under the glyphs, which is what keeps a plateless face readable over a light wallpaper.
+
+- **`show_date`** · default `true`
+- **`format`** · unset by default
+
+  Overrides `[clock] format` for the desktop face only. A desktop clock usually wants `%H:%M` where the bar chip wants seconds.
+
+- **`date_format`** · unset by default
+
+  Overrides `[clock] date_format` for the desktop face only.
+
+### `[widgets.visualiser]`
+
+- **`accent`** · default `true`
+
+  Draw the bars in the theme's accent colour rather than its text colour.
+
+- **`edge`** · default `"bottom"`
+
+  Which edge of the widget area the bars stand on. They always grow away from it, so `left` gives a column up the side.
+
+- **`enabled`** · default `false`
+- **`gap`** · default `3.0`
+
+  The gap between two bars, in px.
+
+- **`hide_when_silent`** · default `true`
+
+  Fade the bars out when nothing is playing, rather than leaving a flat line across the screen.
+
+- **`margin`** · default `0`
+
+  How far the row is held off that edge, in px, on top of the gap the widget area already keeps from the bars.
+
+- **`opacity`** · default `0.75`
+
+  How opaque the bars are over the wallpaper, `0`–`1`.
+
+- **`radius`** · default `3.0`
+
+  How round a bar's ends are, in px. `0` is square; half the bar's own width is a capsule.
+
+- **`reach`** · default `140`
+
+  How far the tallest bar reaches from that edge, in px.
 
 ## `[workspaces]`
 

@@ -234,11 +234,11 @@ pub const PAGES: &[Page] = &[
                 crate::sections::wallpaper::background_section
             ),
             section!("wallpaper", ["wallpaper"], crate::wallpaper),
-            section!("desktop_clock", ["background"], crate::desktop_clock),
+            section!("desktop_clock", ["widgets"], crate::desktop_clock),
             section!(
-                "background_visualiser",
-                ["background"],
-                crate::background_visualiser
+                "desktop_visualiser",
+                ["widgets"],
+                crate::desktop_visualiser
             ),
         ],
     },

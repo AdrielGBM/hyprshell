@@ -1,12 +1,12 @@
 [logic]
 use crate::form::{PLACEMENTS, opt_string, parse_f32, parse_u32, persist, source};
-use ::config::{BackgroundConfig, ClockPlacement, DesktopClockConfig};
+use ::config::{ClockPlacement, DesktopClockConfig, WidgetsConfig};
 
-// Its own section rather than rows inside `[background]`: it is a nested table, and one Save writing both
-// would mean every clock tweak rewrote the wallpaper settings with it.
+// Its own section rather than rows inside `[widgets]`: it is a nested table, and one Save writing both would
+// mean every clock tweak rewrote the visualiser's settings with it.
 let (config, path) = source();
-let c = &config.background.clock;
-let base = config.background.clone();
+let c = &config.widgets.clock;
+let base = config.widgets.clone();
 let enabled = signal(c.enabled);
 let position = signal(c.position.id().to_string());
 let scale = signal(c.scale.to_string());
@@ -54,11 +54,11 @@ let save: Box<dyn Fn()> = Box::new({
             background_blur: parse_f32(&blur.peek(), base.clock.background_blur),
             shadow: shadow.peek(),
         };
-        let value = BackgroundConfig {
+        let value = WidgetsConfig {
             clock,
             ..base.clone()
         };
-        persist(&path, "background", &value);
+        persist(&path, "widgets", &value);
     }
 });
 

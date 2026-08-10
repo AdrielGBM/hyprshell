@@ -7,7 +7,7 @@
 //! toggle`, and from a keybind are all the *same* surface rather than three stacked copies.
 //!
 //! What is in the registry is what the *user* opened. The surfaces the *config* describes — the bars, their
-//! reservation strips, the wallpaper, the frame — are [`crate::reconcile`]'s, and the split is what makes
+//! reservation strips, the wallpaper, its widgets, the frame — are [`crate::reconcile`]'s, and the split is what makes
 //! a reload safe to run at every keystroke: one side is reconciled against the file, the other is left alone.
 //!
 //! Both live on the driver thread, which is the one UI thread every surface shares, so they are plain

@@ -1,10 +1,10 @@
 [logic]
 use crate::form::{EDGES, parse_edge, parse_f32, parse_u32, persist, source};
-use ::config::{BackgroundConfig, BackgroundVisualiserConfig};
+use ::config::{DesktopVisualiserConfig, WidgetsConfig};
 
 let (config, path) = source();
-let v = config.background.visualiser;
-let base = config.background.clone();
+let v = config.widgets.visualiser;
+let base = config.widgets.clone();
 let enabled = signal(v.enabled);
 let edge = signal(v.edge.as_str().to_string());
 let reach = signal(v.reach.to_string());
@@ -20,7 +20,7 @@ let save: Box<dyn Fn()> = Box::new({
     let (gap, radius, opacity) = (gap.clone(), radius.clone(), opacity.clone());
     let (hide, accent, margin) = (hide.clone(), accent.clone(), margin.clone());
     move || {
-        let visualiser = BackgroundVisualiserConfig {
+        let visualiser = DesktopVisualiserConfig {
             enabled: enabled.peek(),
             edge: parse_edge(&edge.peek()),
             reach: parse_u32(&reach.peek(), base.visualiser.reach),
@@ -31,16 +31,16 @@ let save: Box<dyn Fn()> = Box::new({
             accent: accent.peek(),
             margin: parse_u32(&margin.peek(), base.visualiser.margin),
         };
-        let value = BackgroundConfig {
+        let value = WidgetsConfig {
             visualiser,
             ..base.clone()
         };
-        persist(&path, "background", &value);
+        persist(&path, "widgets", &value);
     }
 });
 
 [view]
-form_section title(|| telar::t!("settings.section.background_visualiser"))
+form_section title(|| telar::t!("settings.section.desktop_visualiser"))
     toggle_row label(|| telar::t!("settings.field.enabled")) value:$enabled
     enum_row label(|| telar::t!("settings.field.edge")) value:$edge options:EDGES
     text_row label(|| telar::t!("settings.field.reach")) value:$reach placeholder:"140"
@@ -50,4 +50,4 @@ form_section title(|| telar::t!("settings.section.background_visualiser"))
     text_row label(|| telar::t!("settings.field.margin")) value:$margin placeholder:"0"
     toggle_row label(|| telar::t!("settings.field.hide_when_silent")) value:$hide
     toggle_row label(|| telar::t!("settings.field.accent")) value:$accent
-    save_row label(|| telar::t!("settings.save.background_visualiser")) on_press(save)
+    save_row label(|| telar::t!("settings.save.desktop_visualiser")) on_press(save)

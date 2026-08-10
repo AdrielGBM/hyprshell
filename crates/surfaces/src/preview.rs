@@ -42,6 +42,14 @@ pub fn entries() -> Vec<PreviewEntry> {
             surface: Some(PreviewSurface::new(880.0, 495.0)),
         },
         PreviewEntry {
+            component_name: "widgets",
+            preview_name: "Desktop widgets",
+            build: crate::widgets::preview,
+            // The free area of a screen, not the screen: what this surface is given is what the bars left over,
+            // and a widget centred in a full screen is centred somewhere it never appears.
+            surface: Some(PreviewSurface::new(820.0, 440.0)),
+        },
+        PreviewEntry {
             component_name: "popout",
             preview_name: "Hover card",
             build: crate::popout::preview,

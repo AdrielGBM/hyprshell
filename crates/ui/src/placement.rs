@@ -15,6 +15,7 @@
 //! | [`bar`](Placement::bar) | spans an edge, reserves nothing itself | the bars |
 //! | [`reservation`](Placement::reservation) | invisible, carves an edge's strip | the bars' strips |
 //! | [`backdrop`](Placement::backdrop) | the whole screen, click-through, reserving nothing | wallpaper, frame ring |
+//! | [`desktop`](Placement::desktop) | what the bars left free, click-through | the desktop widgets |
 //! | [`dock`](Placement::dock) | spans an edge, over the windows | the notification centre |
 //! | [`stack`](Placement::stack) | pinned to a spot along an edge, input from its content | toasts, notification popups |
 //! | [`off_chip`](Placement::off_chip) | hangs off the chip that opened it | popouts, drawers, the tray menu |
@@ -215,6 +216,18 @@ impl Placement {
         Self::new(namespace, FULLSCREEN, Layer::Background)
             .zone(-1)
             .input(Input::Transparent)
+    }
+
+    /// The part of the screen the bars left free, click-through, under every window: where a desktop widget
+    /// goes.
+    ///
+    /// A [`backdrop`](Self::backdrop) but for the zone, and that one number is the whole difference. `-1` opts
+    /// out of every exclusive zone and takes the screen; `0` respects them, so the compositor sizes this to
+    /// exactly what the bars did not take. A widget centred in it is centred where the applications are, which
+    /// is where a user looking at their desktop expects the middle to be — and it costs no arithmetic here,
+    /// because the compositor already did it for the windows.
+    pub fn desktop(namespace: &'static str) -> Self {
+        Self::new(namespace, FULLSCREEN, Layer::Background).input(Input::Transparent)
     }
 
     /// A panel that spans an edge and sits over the windows. Zero zone, not `-1`: the compositor has already

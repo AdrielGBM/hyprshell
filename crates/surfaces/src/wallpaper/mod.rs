@@ -1,8 +1,9 @@
-//! The background surface: the wallpaper, its transition, and anything drawn on top of it.
+//! The background surface: the wallpaper and its transition.
 //!
-//! One surface per monitor, at the bottom of the background layer. It paints the image the wallpaper service
-//! says this screen should show, cover-cropped over the theme's base colour, and — when `[background.clock]`
-//! asks for it — a clock face on top.
+//! One surface per monitor, at the bottom of the background layer, painting the image the wallpaper service
+//! says this screen should show — cover-cropped over the theme's base colour. Nothing else: what is drawn *over*
+//! the desktop is [`crate::widgets`], on a surface of its own, so a widget that repaints with the music does not
+//! repaint a screen-sized photograph with it.
 //!
 //! **The transition is why a wallpaper change is an event and not a rebuild.** A picture chosen at runtime is
 //! not a config edit — it is session state — and rebuilding the surface for it would be useless for a
@@ -18,17 +19,14 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use telar::{
-    AlignItems, App, Color, Component, Container, Image, ImageData, ImageFilter, JustifyContent,
-    LayoutError, LayoutItem, LayoutStyle, ObjectFit, RectStyle, Shadow, SizeDimension,
-    StyledContainer, Text, WindowConfig, box_item, motion::Animated, reset_layout_runtime,
-    set_theme, signal,
+    App, Color, Component, Container, Image, ImageData, ImageFilter, LayoutError, LayoutItem,
+    LayoutStyle, ObjectFit, RectStyle, SizeDimension, StyledContainer, WindowConfig, box_item,
+    motion::Animated, reset_layout_runtime, set_theme, signal,
 };
 
-use config::theme::FontRole;
-use config::{Align, Config, WallpaperTransition};
-use services::{clock, visualiser, wallpaper};
+use config::{Config, WallpaperTransition};
+use services::wallpaper;
 use ui::surface_root::SurfaceRoot;
-use util::reactive::{derive, fixed};
 
 /// How far a wipe travels when the compositor has not said how wide this screen is. Only reached before the
 /// output list has been read, and a wipe that starts slightly off-screen is invisible either way.
@@ -67,15 +65,13 @@ impl App for WallpaperApp {
     }
 }
 
-/// The desktop as this surface draws it — the configured image, cover-cropped and decoded for real — with the
-/// clock over it, for [`crate::preview`]. The clock is forced on because it is the half of this surface that
-/// has something to look at when the library is empty.
+/// The desktop as this surface draws it — the configured image, cover-cropped and decoded for real — for
+/// [`crate::preview`].
 pub(crate) fn preview() -> Result<Box<dyn LayoutItem>, LayoutError> {
     let mut config = config::config()
         .map(|live| (*live).clone())
         .unwrap_or_else(Config::starter);
     config.background.enabled = true;
-    config.background.clock.enabled = true;
     // The settled desktop, not the crossfade into it: a preview captures a handful of frames, and a 600ms
     // transition is still halfway through when the last of them is taken.
     config.background.transition = WallpaperTransition::None;
@@ -95,18 +91,6 @@ impl WallpaperApp {
             Ok(Some(images)) => layers.push(images),
             Ok(None) => {}
             Err(e) => tracing::warn!("wallpaper images: {e}"),
-        }
-        if config.background.clock.enabled {
-            match clock_face(config) {
-                Ok(face) => layers.push(face),
-                Err(e) => tracing::warn!("desktop clock: {e}"),
-            }
-        }
-        if config.background.visualiser.enabled {
-            match visualiser_row(config) {
-                Ok(row) => layers.push(row),
-                Err(e) => tracing::warn!("background visualiser: {e}"),
-            }
         }
         Container::new(fill(), layers)
             .map(|container| Box::new(container) as Box<dyn LayoutItem>)
@@ -319,253 +303,10 @@ fn blank() -> Arc<ImageData> {
     BLANK.with(Arc::clone)
 }
 
-/// The clock drawn on the wallpaper (`[background.clock]`).
-///
-/// It lives here rather than in the `clock` module because it is not that module: the bar chip is a chip in a
-/// row of chips, and this is a face placed on a screen. What they do share — the tick and the `strftime`
-/// patterns — they share through the clock *service* and `[clock]`, which is the part that would actually be
-/// wrong to duplicate.
-fn clock_face(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let theme = config.resolve_theme();
-    let settings = config.background.clock.clone();
-    let ink = if settings.invert {
-        theme.base
-    } else {
-        theme.text
-    };
-
-    let format = settings.time_format(&config.clock).to_string();
-    let date_format = settings.date_format(&config.clock).to_string();
-    let now = signal(chrono::Local::now().format(&format).to_string());
-    let today = signal(chrono::Local::now().format(&date_format).to_string());
-    let (tick_time, tick_date) = (now.clone(), today.clone());
-    platform_wayland::watch(clock::subscribe, move |at: clock::Now| {
-        tick_time.set(at.format(&format).to_string());
-        tick_date.set(at.format(&date_format).to_string());
-    });
-
-    let size = theme.font(FontRole::Display) * settings.resolved_scale();
-    let shadow = settings
-        .shadow
-        .then(|| Shadow::new(0.0, 2.0, 12.0, Color::BLACK.with_alpha(0.55)));
-
-    let reading = now.read_only();
-    let time = Text::auto(
-        move || reading.get(),
-        LayoutStyle::new(),
-        move || {
-            let style = theme
-                .text_style(FontRole::Display, ink)
-                .with_weight(600)
-                .with_size(size);
-            match shadow {
-                Some(shadow) => style.with_shadow(shadow),
-                None => style,
-            }
-        },
-    )?;
-
-    let mut lines: Vec<Box<dyn LayoutItem>> = vec![box_item(time)];
-    if settings.show_date {
-        let reading = today.read_only();
-        let date_size = (size * 0.28).max(theme.font(FontRole::Body));
-        let date = Text::auto(
-            move || reading.get(),
-            LayoutStyle::new(),
-            move || {
-                let style = theme.text_style(FontRole::Title, ink).with_size(date_size);
-                match shadow {
-                    Some(shadow) => style.with_shadow(shadow),
-                    None => style,
-                }
-            },
-        )?;
-        lines.push(box_item(date));
-    }
-
-    // Every reading is centred inside its own row, since a `Text` in a column takes the column's width and
-    // draws its glyphs from the left — the same rule the lock screen's `centred` exists for.
-    let mut rows: Vec<Box<dyn LayoutItem>> = Vec::new();
-    for line in lines {
-        rows.push(Box::new(Container::new(
-            LayoutStyle::new()
-                .flex_row()
-                .justify_content(JustifyContent::CENTER)
-                .width(SizeDimension::Percent(1.0)),
-            vec![line],
-        )?));
-    }
-
-    let column = Container::new(LayoutStyle::new().flex_column().gap(size * 0.08), rows)?;
-
-    let plate_radius = theme.radius.max(12.0);
-    let opacity = settings.plate_opacity();
-    let feather = settings.background_blur.max(0.0);
-    // The raised surface, not the base: a plate painted in the colour behind it is invisible on a screen with
-    // no image, which is exactly the state a user switching it on for the first time is looking at.
-    let plate_fill = if settings.invert {
-        theme.text
-    } else {
-        theme.surface
-    };
-    let plate = StyledContainer::new(
-        LayoutStyle::new()
-            .flex_column()
-            .padding_horizontal(size * 0.3)
-            .padding_vertical(size * 0.1),
-        move |_| {
-            if !settings.background {
-                return RectStyle::default();
-            }
-            let mut style = RectStyle::filled(plate_fill.with_alpha(opacity), plate_radius);
-            if feather > 0.0 {
-                // A feathered plate is drawn as its own shadow: same colour, spread to the plate's size, blurred
-                // by `background_blur`. That is what "the plate's edge fades into the wallpaper" means with the
-                // primitives the renderer has — there is no backdrop blur to sample the image through.
-                style.shadow = Some(
-                    Shadow::new(0.0, 0.0, feather, plate_fill.with_alpha(opacity))
-                        .with_spread(feather * 0.5),
-                );
-            }
-            style
-        },
-        vec![box_item(column)],
-    )?;
-
-    let (vertical, horizontal) = settings.position.alignment();
-    let margin = settings.margin as f32;
-    let placed = Container::new(
-        fill()
-            .absolute_fill()
-            .flex_row()
-            .padding_all(margin)
-            .align_items(align_items(vertical))
-            .justify_content(justify(horizontal)),
-        vec![box_item(plate)],
-    )?;
-    Ok(Box::new(placed))
-}
-
-/// The audio visualiser drawn on the wallpaper (`[background.visualiser]`).
-///
-/// It is a layer over the images rather than a widget inside them for the same reason the clock is: the two
-/// image slots ping-pong, and anything laid out among them would move with a cross-fade.
-///
-/// **The row hides itself by opacity, never by leaving the tree.** Rebuilding a surface's children on a value
-/// that changes with the music is a re-layout per frame; and the spectrum service stops publishing entirely
-/// once the sound does, so the last frame it sends is the all-zero one that starts the fade — the row costs
-/// exactly one animation after the music stops and nothing at all thereafter.
-fn visualiser_row(config: &Config) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let settings = config.background.visualiser;
-    let theme = config.resolve_theme();
-    let tint = if settings.accent {
-        theme.accent
-    } else {
-        theme.text
-    };
-
-    let start = visualiser::Spectrum::quiet(config.visualiser.band_count());
-    let bands = signal(start.bars.clone());
-    let silent = signal(start.silent);
-    let (next_bands, next_silent) = (bands.clone(), silent.clone());
-    platform_wayland::watch(
-        visualiser::subscribe,
-        move |spectrum: visualiser::Spectrum| {
-            next_bands.set(spectrum.bars);
-            next_silent.set(spectrum.silent);
-        },
-    );
-
-    let row = ui::widget::spectrum(
-        derive(bands.read_only(), |bars| bars),
-        fixed(tint.with_alpha(settings.alpha())),
-        settings.edge,
-        ui::widget::SpectrumStyle {
-            gap: settings.gap_px(),
-            radius: settings.radius_px(),
-            floor: 0.0,
-        },
-        thickness(settings.edge, settings.reach_px()),
-    )?;
-
-    let fade = visualiser_fade(config, silent.read_only());
-    let layer = StyledContainer::new(
-        fill()
-            .absolute_fill()
-            .flex_row()
-            .padding_all(settings.margin as f32)
-            .align_items(align_items(match settings.edge {
-                config::Edge::Top => Align::Start,
-                config::Edge::Bottom => Align::End,
-                _ => Align::Center,
-            }))
-            .justify_content(justify(match settings.edge {
-                config::Edge::Left => Align::Start,
-                config::Edge::Right => Align::End,
-                _ => Align::Center,
-            })),
-        |_| RectStyle::default(),
-        vec![row],
-    )?
-    .with_opacity(fade);
-    Ok(Box::new(layer))
-}
-
-/// The row's own box: as long as the edge it stands on, as deep as its reach.
-fn thickness(edge: config::Edge, reach: f32) -> LayoutStyle {
-    if edge.is_horizontal() {
-        LayoutStyle::new()
-            .width(SizeDimension::Percent(1.0))
-            .height(reach)
-    } else {
-        LayoutStyle::new()
-            .width(reach)
-            .height(SizeDimension::Percent(1.0))
-    }
-}
-
-/// How opaque the row is: one when there is sound, zero when `hide_when_silent` and there is not.
-///
-/// The same two shapes `fade_control` has, and for the same reason — with animation off, an `Animated` would be
-/// a tween with no duration to divide by.
-fn visualiser_fade(config: &Config, silent: telar::ReadSignal<bool>) -> Box<dyn Fn() -> f32> {
-    if !config.background.visualiser.hide_when_silent {
-        return Box::new(|| 1.0);
-    }
-    if !config.animation.enabled {
-        return Box::new(move || if silent.get() { 0.0 } else { 1.0 });
-    }
-    let fade = Animated::new(0.0f32, config.animation.tween_ms(400, 5_000));
-    let target = fade.clone();
-    Box::new(move || {
-        // Read out first: the retarget is what makes the row appear, and it has to be registered as a
-        // dependency on the frame that draws nothing too.
-        let quiet = silent.get();
-        target.retarget(if quiet { 0.0 } else { 1.0 });
-        fade.get()
-    })
-}
-
-fn align_items(align: Align) -> AlignItems {
-    match align {
-        Align::Start => AlignItems::FLEX_START,
-        Align::Center => AlignItems::CENTER,
-        Align::End => AlignItems::FLEX_END,
-    }
-}
-
-fn justify(align: Align) -> JustifyContent {
-    match align {
-        Align::Start => JustifyContent::FLEX_START,
-        Align::Center => JustifyContent::CENTER,
-        Align::End => JustifyContent::FLEX_END,
-    }
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{ClockPlacement, Config, DesktopClockConfig};
 
     fn built(config: Config) -> Box<dyn Component> {
         WallpaperApp {
@@ -576,136 +317,24 @@ mod tests {
     }
 
     #[test]
-    fn the_surface_builds_with_and_without_an_image_and_with_the_clock_on() {
+    fn the_surface_builds_with_and_without_an_image_and_under_every_transition() {
         // The build is where a layout error would surface, and nothing else runs these closures.
         let _ = built(Config::starter());
 
-        let mut with_clock = Config::starter();
-        with_clock.background.clock.enabled = true;
-        let _ = built(with_clock);
-
-        for transition in config::WallpaperTransition::ALL {
+        for transition in WallpaperTransition::ALL {
             let mut config = Config::starter();
+            config.background.enabled = true;
             config.background.transition = transition;
-            config.background.clock.enabled = true;
             let _ = built(config);
         }
     }
 
+    /// The wallpaper is asked for by a picture, and by nothing that is merely drawn over it.
     #[test]
-    fn the_clock_builds_in_every_position_and_with_every_decoration() {
-        for position in ClockPlacement::ALL {
-            let mut config = Config::starter();
-            config.background.clock = DesktopClockConfig {
-                enabled: true,
-                position,
-                background: true,
-                background_blur: 8.0,
-                invert: true,
-                shadow: true,
-                ..DesktopClockConfig::default()
-            };
-            let _ = built(config);
-        }
-    }
-
-    #[test]
-    fn the_visualiser_builds_on_every_edge_and_with_the_fade_both_ways() {
-        // The build is what runs the closures: the opacity closure retargets an animation, and the row's own
-        // box swaps its axis per edge, neither of which any other test reaches.
-        for edge in config::Edge::ALL {
-            for hide in [true, false] {
-                for animated in [true, false] {
-                    let mut config = Config::starter();
-                    config.background.visualiser = config::BackgroundVisualiserConfig {
-                        enabled: true,
-                        edge,
-                        hide_when_silent: hide,
-                        ..config::BackgroundVisualiserConfig::default()
-                    };
-                    config.animation.enabled = animated;
-                    let _ = built(config);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn switching_the_visualiser_on_is_enough_to_open_the_surface() {
-        // Every other way of putting something on the wallpaper implies the surface; a visualiser that needed
-        // `enabled = true` beside it would read as a setting that does nothing.
+    fn a_widget_is_not_a_reason_to_paint_the_desktop() {
         let mut config = Config::starter();
+        config.widgets.clock.enabled = true;
+        config.widgets.visualiser.enabled = true;
         assert!(!config.background.is_enabled());
-        config.background.visualiser.enabled = true;
-        assert!(config.background.is_enabled());
-    }
-
-    #[test]
-    fn the_desktop_face_drops_the_seconds_the_bar_chip_keeps() {
-        let clock = config::ClockConfig::default();
-        let desktop = DesktopClockConfig::default();
-        assert_eq!(clock.time_format(), "%H:%M:%S");
-        assert_eq!(
-            desktop.time_format(&clock),
-            "%H:%M",
-            "a wallpaper that repainted every second would be a wallpaper animating"
-        );
-
-        // A user who set `[clock] format` has said what a clock looks like; the face follows rather than
-        // second-guessing them.
-        let explicit = config::ClockConfig {
-            format: Some("%H.%M".to_string()),
-            ..config::ClockConfig::default()
-        };
-        assert_eq!(desktop.time_format(&explicit), "%H.%M");
-
-        // And its own override wins over both.
-        let own = DesktopClockConfig {
-            format: Some("%I%p".to_string()),
-            ..DesktopClockConfig::default()
-        };
-        assert_eq!(own.time_format(&explicit), "%I%p");
-    }
-
-    #[test]
-    fn the_plate_opacity_can_never_resolve_to_invisible_or_opaque_by_accident() {
-        let bounded = |value: f32| {
-            DesktopClockConfig {
-                background_opacity: value,
-                ..DesktopClockConfig::default()
-            }
-            .plate_opacity()
-        };
-        assert_eq!(bounded(0.5), 0.5);
-        assert_eq!(
-            bounded(0.0),
-            0.05,
-            "a plate asked for is a plate you can see"
-        );
-        assert_eq!(bounded(4.0), 1.0);
-        assert_eq!(bounded(f32::NAN), 0.35);
-    }
-
-    #[test]
-    fn the_nine_positions_map_onto_distinct_corners() {
-        let corners: Vec<(Align, Align)> = ClockPlacement::ALL
-            .into_iter()
-            .map(|placement| placement.alignment())
-            .collect();
-        for (index, corner) in corners.iter().enumerate() {
-            for other in &corners[index + 1..] {
-                assert_ne!(corner, other, "two placements land in the same spot");
-            }
-        }
-        assert_eq!(
-            ClockPlacement::TopLeft.alignment(),
-            (Align::Start, Align::Start),
-            "the row is the vertical axis and the column the horizontal one"
-        );
-        assert_eq!(
-            ClockPlacement::from_id("bottom-right"),
-            Some(ClockPlacement::BottomRight)
-        );
-        assert_eq!(ClockPlacement::from_id("nowhere"), None);
     }
 }

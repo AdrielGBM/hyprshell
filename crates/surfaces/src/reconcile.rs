@@ -1,10 +1,10 @@
 //! What the config says should be on screen, and keeping the screen in step with it.
 //!
-//! The shell puts up four kinds of surface on its own: a wallpaper, a bar per edge, the invisible strip each
-//! bar reserves, and the frame ring. Which of them exist, how big they are and where they sit are all answers
-//! to the config, and the config is a file the user edits while the shell is running — so this module holds
-//! both halves: [`plan`], which reads the config as a set of surfaces, and [`Surfaces`], which owns the live
-//! ones and brings them in line with a new plan.
+//! The shell puts up five kinds of surface on its own: a wallpaper, the widgets drawn over it, a bar per edge,
+//! the invisible strip each bar reserves, and the frame ring. Which of them exist, how big they are and where
+//! they sit are all answers to the config, and the config is a file the user edits while the shell is running
+//! — so this module holds both halves: [`plan`], which reads the config as a set of surfaces, and
+//! [`Surfaces`], which owns the live ones and brings them in line with a new plan.
 //!
 //! **A reload reuses, it does not replace.** Every surface here has a [`Key`] that survives an edit — what it
 //! is, and which screen it is on — so a config change reaches the surface that is already up: its layer-shell
@@ -22,6 +22,7 @@ use platform_wayland::{Layer, LayerConfig, OutputDescriptor, SurfaceHandle};
 use crate::bar::BarApp;
 use crate::frame::FrameApp;
 use crate::wallpaper::WallpaperApp;
+use crate::widgets::WidgetsApp;
 use config::{Config, Edge};
 use ui::placement::Placement;
 
@@ -30,6 +31,9 @@ use ui::placement::Placement;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Role {
     Wallpaper,
+    /// What is drawn on the desktop rather than behind it — the clock face, the visualiser. Its own surface, so
+    /// a widget that repaints with the music does not repaint the wallpaper under it.
+    Widgets,
     Bar(Edge),
     /// The invisible strip that carves an edge's space out of the screen. A separate surface from the bar it
     /// reserves for, so the two are reconciled independently — an auto-hiding bar keeps its ring's strip while
@@ -206,6 +210,12 @@ impl Live {
                     output,
                 },
             ),
+            Role::Widgets => platform_wayland::open_surface(
+                layer.clone(),
+                WidgetsApp {
+                    config: config.clone(),
+                },
+            ),
             Role::Frame => platform_wayland::open_surface(
                 layer.clone(),
                 FrameApp {
@@ -266,7 +276,7 @@ fn plan(path: &Path, config: &Arc<Config>, outputs: &[OutputDescriptor]) -> Vec<
 }
 
 /// One output's surfaces, in stacking order within each layer: the wallpaper first so it sits at the bottom of
-/// the background layer, then the bars and their strips, then the frame ring over the wallpaper.
+/// the background layer, then its widgets over it, then the frame ring and the bars on the chrome layer.
 fn plan_output(config: &Arc<Config>, output: Option<&str>) -> Vec<Planned> {
     let mut planned = Vec::new();
     let mut push = |role: Role, placement: Placement| {
@@ -280,10 +290,11 @@ fn plan_output(config: &Arc<Config>, output: Option<&str>) -> Vec<Planned> {
         });
     };
     if config.background.is_enabled() {
-        push(
-            Role::Wallpaper,
-            wallpaper_placement(output),
-        );
+        push(Role::Wallpaper, wallpaper_placement(output));
+    }
+    // After the wallpaper, so it stacks over it in the same layer.
+    if config.widgets.is_enabled() {
+        push(Role::Widgets, widgets_placement(config, output));
     }
     // Before the bars, and on their layer rather than the wallpaper's. The ring *is* the bars' own edge
     // continued around the screen, so it has to be where they are: on the background it was painted behind
@@ -364,6 +375,25 @@ fn reservation_placement(config: &Config, edge: Edge, output: Option<&str>) -> P
 /// The picture behind the desktop: the whole screen, under every window, click-through.
 fn wallpaper_placement(output: Option<&str>) -> Placement {
     Placement::backdrop("hyprshell-wallpaper").output(output.map(str::to_string))
+}
+
+/// The desktop's widgets: the area the bars left free, over the wallpaper and under every window.
+///
+/// The placement is the whole design. `Placement::desktop` respects the bars' exclusive zones where the
+/// wallpaper opts out of them, so the compositor hands this surface the hole the bars leave rather than the
+/// screen — no arithmetic here, and it follows a bar appearing or an edge being emptied on its own. The margin
+/// on top is the gap every panel keeps off its edge, read per edge so the widgets sit exactly where an
+/// application's window would.
+fn widgets_placement(config: &Config, output: Option<&str>) -> Placement {
+    let gap = |edge| config.panel_gap(edge) as i32;
+    Placement::desktop("hyprshell-widgets")
+        .margin((
+            gap(Edge::Top),
+            gap(Edge::Right),
+            gap(Edge::Bottom),
+            gap(Edge::Left),
+        ))
+        .output(output.map(str::to_string))
 }
 
 /// The frame ring: the same full-screen click-through shape as the wallpaper, on the *bars'* layer.
@@ -454,6 +484,53 @@ mod tests {
             .find(|planned| planned.key.role == Role::Wallpaper)
             .map(|planned| planned.layer.layer);
         assert_eq!(wallpaper, Some(Layer::Background));
+    }
+
+    /// The widgets surface exists on its own terms, and is placed against the space the bars left.
+    ///
+    /// Both halves are the point of splitting it off the wallpaper. A clock is not a reason to paint the
+    /// desktop, so the two surfaces are asked for separately — and where the wallpaper opts out of every
+    /// exclusive zone to take the screen, this one respects them, which is what makes the compositor size it to
+    /// the hole the bars leave instead of this file working that out by hand.
+    #[test]
+    fn the_widgets_surface_is_asked_for_on_its_own_and_measures_what_the_bars_left() {
+        let widgets_only = config("[widgets.clock]\nenabled=true\n[bars.top]\ncenter=[\"clock\"]\n");
+        assert_eq!(
+            roles(&widgets_only),
+            vec![Role::Widgets, Role::Bar(Edge::Top), Role::Reserve(Edge::Top)],
+            "a widget asks for its own surface and for no wallpaper behind it"
+        );
+
+        let both = config("[background]\nenabled=true\n[widgets.visualiser]\nenabled=true\n");
+        assert_eq!(
+            roles(&both),
+            vec![Role::Wallpaper, Role::Widgets],
+            "and when there is a wallpaper, the widgets are created after it so they stack over it"
+        );
+
+        let planned = |cfg: &Arc<Config>, role: Role| {
+            plan_output(cfg, None)
+                .into_iter()
+                .find(|p| p.key.role == role)
+                .map(|p| p.layer)
+                .expect("the surface is planned")
+        };
+        let widgets = planned(&both, Role::Widgets);
+        assert_eq!(widgets.layer, Layer::Background);
+        assert!(widgets.input_transparent, "click-through, like the wallpaper");
+        assert_eq!(
+            widgets.exclusive_zone, 0,
+            "zero respects the bars' strips where the wallpaper's -1 ignores them"
+        );
+        assert_eq!(
+            planned(&both, Role::Wallpaper).exclusive_zone,
+            -1,
+            "and the wallpaper still takes the whole screen"
+        );
+
+        // The gap off each edge is the one every panel keeps there, so a widget lines up with the applications.
+        let floating = config("[shape]\ngap=14\n[widgets.clock]\nenabled=true\n[bars.top]\ncenter=[\"clock\"]\n");
+        assert_eq!(planned(&floating, Role::Widgets).margin, (14, 14, 14, 14));
     }
 
     /// `[shape] inactive_size` is what an edge with nothing on it is worth: the strip it reserves, the surface

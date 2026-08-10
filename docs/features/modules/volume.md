@@ -52,5 +52,5 @@ one fork rather than two.
 ## Related
 
 - [mic](mic.md), [mixer](mixer.md).
-- [Visualiser](../surfaces/wallpaper.md#visualiser) — the other audio consumer, and the only service that
+- [Visualiser](../surfaces/widgets.md#visualiser) — the other audio consumer, and the only service that
   publishes at a frame rate.
