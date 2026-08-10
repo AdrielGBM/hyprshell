@@ -393,17 +393,19 @@ fn kib(bytes: usize) -> String {
 
 /// Gives back what the shell is holding but not using, and reports what that came to.
 ///
-/// Two separate hoards, and neither returns on its own. The renderer's caches evict by age only while something
-/// is drawing, so a shell that has gone quiet keeps its last frame's rasters indefinitely. And glibc keeps the
-/// pages it has freed inside its arenas rather than returning them to the kernel — which is most of why a shell
-/// with no leak still climbs, since profiling put a quarter of its three million allocations in the transient
-/// bucket, and that churn is what leaves arenas full of holes.
+/// glibc keeps the pages it has freed inside its arenas rather than returning them to the kernel — which is
+/// most of why a shell with no leak still climbs, since profiling put a quarter of its three million
+/// allocations in the transient bucket, and that churn is what leaves arenas full of holes.
+///
+/// The renderer's caches used to be the other half of this and no longer are: each surface rasterises on its
+/// own render thread, which sweeps its own caches once it has been idle for their horizon. A sweep from here
+/// would reach neither those (they are thread-local to the render threads) nor anything else — the shell
+/// never rasterises on the UI thread — and could not evict earlier than that horizon anyway.
 ///
 /// A command rather than a timer because the shell already has somewhere to put it: `[[idle.stages]]` runs shell
 /// commands, so `action = "shell reclaim"` on a stage makes this automatic at whatever idleness the user means.
 fn reclaim() -> String {
     let before = rss_kb();
-    telar::sweep_renderer_caches();
     trim_heap();
     let after = rss_kb();
     match (before, after) {
