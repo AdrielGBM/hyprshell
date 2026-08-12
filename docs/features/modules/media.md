@@ -38,8 +38,10 @@ hyprshell media loop cycle
 
 ## Configuring
 
-`[media]` — `preferred_player`, `max_chars`, `marquee`, `marquee_speed_ms`, `scroll`, `seek_seconds`,
-`visualiser`, plus `[media.aliases]` for renaming a player's bus name to something readable.
+`[media]` — `preferred_player`, `marquee`, `marquee_speed_ms`, `max_chars` (the marquee's window, in
+characters, since it steps in characters — the resting label is bounded by the room it has, not by a count),
+`scroll`, `seek_seconds`, `visualiser`, plus `[media.aliases]` for renaming a player's bus name to something
+readable.
 
 `[lyrics]` — `enabled`, `online`. A `.lrc` next to the track always wins over the network: it is what you
 chose to keep, and it needs no connection and no waiting.

@@ -17,13 +17,18 @@ pub fn glyph(player: &Player) -> &'static str {
 /// than as the words running into each other.
 const MARQUEE_GAP: &str = "   ·   ";
 
-/// The chip's text: `artist — title`, trimmed to `max_chars`. Empty when nothing is running, which lets the
-/// module collapse to just its icon instead of showing a placeholder.
-pub fn label(player: &Player, config: &MediaConfig) -> String {
+/// The chip's text: `artist — title`, whole. Empty when nothing is running, which lets the module collapse to
+/// just its icon instead of showing a placeholder.
+///
+/// Nothing trims it here. The chip gives up width when its side of the bar is short of it and the label elides
+/// to what is left, which is the same question asked in the unit it is actually about — `max_chars` cut a short
+/// title on an empty bar exactly as readily as a long one on a full bar. It still sizes the marquee, which is a
+/// window measured in characters because it steps in characters.
+pub fn label(player: &Player) -> String {
     if player.is_empty() {
         return String::new();
     }
-    truncate(&player.summary(), config.max_chars as usize)
+    player.summary()
 }
 
 /// One frame of a scrolling title: the full text rotated left by `step` characters, cut to `max`.
@@ -154,7 +159,7 @@ mod tests {
 
     #[test]
     fn nothing_running_yields_no_label_so_the_chip_collapses() {
-        assert_eq!(label(&Player::default(), &MediaConfig::default()), "");
+        assert_eq!(label(&Player::default()), "");
         assert_eq!(marquee(&Player::default(), &MediaConfig::default(), 3), "");
     }
 
@@ -213,15 +218,28 @@ mod tests {
         }
     }
 
+    /// A track name reaches the chip whole; the elide is what shortens it, at the width it actually has.
+    ///
+    /// `max_chars` used to cut it here too, which took the room away before the layout could offer it — and it
+    /// is still what sizes the marquee, so this is the line between the two: a window that steps in characters
+    /// is measured in characters, and a label that has to fit a bar is measured in pixels.
     #[test]
-    fn long_tracks_are_cut_to_the_configured_width() {
-        let config = MediaConfig {
-            max_chars: 12,
-            ..MediaConfig::default()
-        };
+    fn a_long_track_is_handed_over_untouched() {
+        let track = playing("A Love Supreme, Pt. I", "John Coltrane");
+        assert_eq!(label(&track), "John Coltrane — A Love Supreme, Pt. I");
         assert_eq!(
-            label(&playing("A Love Supreme, Pt. I", "John Coltrane"), &config),
-            "John Coltra…"
+            marquee(
+                &track,
+                &MediaConfig {
+                    max_chars: 12,
+                    ..MediaConfig::default()
+                },
+                0
+            )
+            .chars()
+            .count(),
+            12,
+            "and the marquee still steps through its own twelve-character window"
         );
     }
 

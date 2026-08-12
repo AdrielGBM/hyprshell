@@ -14,9 +14,9 @@ fn text_for(window: &ActiveWindow, config: &::config::ActiveWindowConfig) -> Str
         return telar::t!("activewindow.none");
     }
     if config.compact {
-        compact_label(window, config)
+        compact_label(window)
     } else {
-        label(window, config)
+        label(window)
     }
 }
 
@@ -42,18 +42,24 @@ let fg = ui::module::module_fg();
 let size = ui::module::icon_px();
 // The app's own artwork, not a tinted glyph: the point of this chip is recognising the app at a glance. A class
 // with no installed icon simply renders nothing, leaving the title to carry the chip.
-let class = icon_view.get();
-let show_icon = config.show_icon && ::ui::icon::app_icon_view(&class, size)?.is_some();
-let leading = show_icon && !config.inverted;
-let trailing = show_icon && config.inverted;
+let inverted = config.inverted;
+let leading = config.show_icon && !inverted;
+let trailing = config.show_icon && inverted;
 
 [view]
-row align:center gap(::ui::scale::space::MD)
+// Which side the icon sits on is config, decided once; *which* icon is the focused window, so the slot is keyed
+// on the class and rebuilt whenever that changes — the artwork is a widget of a different kind per class
+// (vector or raster), which no amount of reactive props can swap in place.
+row align:center
     if leading
-        build "crate::activewindow::icon_slot(&class, size)?"
-    text "{$title_view}" size:theme.font(FontRole::Body) color:$fg
+        match $icon_view as class key class.clone()
+            class
+                build "crate::activewindow::icon_slot(&class, size, inverted)?"
+    text "{$title_view}" size:theme.font(FontRole::Body) color:$fg lines:1 ellipsis:true
     if trailing
-        build "crate::activewindow::icon_slot(&class, size)?"
+        match $icon_view as class key class.clone()
+            class
+                build "crate::activewindow::icon_slot(&class, size, inverted)?"
 
 [preview "Activewindow" fixture:ui::preview::bar_chip]
 activewindow

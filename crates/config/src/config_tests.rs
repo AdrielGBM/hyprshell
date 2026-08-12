@@ -460,18 +460,22 @@ end = ["battery", "volume"]
     }
 
     #[test]
-    fn active_window_defaults_bound_the_title() {
+    fn active_window_defaults_show_the_title_with_its_icon() {
         let d: Config = toml::from_str("").unwrap();
-        assert_eq!(d.active_window.max_chars, 60);
         assert!(d.active_window.show_icon);
         assert!(!d.active_window.compact);
 
         let cfg: Config = toml::from_str("[active_window]\ncompact = true\n").unwrap();
         assert!(cfg.active_window.compact);
-        assert_eq!(
-            cfg.active_window.max_chars, 60,
+        assert!(
+            cfg.active_window.show_icon,
             "unset fields keep their defaults"
         );
+
+        // `max_chars` used to bound the title here and is gone; a config still carrying it must load, not fail.
+        let stale: Config =
+            toml::from_str("[active_window]\ncompact = true\nmax_chars = 60\n").unwrap();
+        assert!(stale.active_window.compact);
     }
 
     #[test]

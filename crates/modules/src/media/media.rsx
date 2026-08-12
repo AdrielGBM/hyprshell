@@ -6,7 +6,6 @@ use ::services::mpris::{self, Player};
 let config = ui::module::surface_env()
     .map(|e| e.config.media.clone())
     .unwrap_or_default();
-let for_update = config.clone();
 let for_frame = config.clone();
 
 let initial = mpris::current().unwrap_or_default();
@@ -37,7 +36,7 @@ let text_view = memo(move || {
     if for_frame.marquee && overflows(&p, &for_frame) {
         marquee(&p, &for_frame, frame_read.get() as usize)
     } else {
-        label(&p, &for_update)
+        label(&p)
     }
 });
 let text_empty = text_view.clone();
@@ -50,7 +49,7 @@ let show_text = memo(move || !vertical && !text_empty.get().is_empty());
 row align:center gap(::ui::scale::space::MD)
     icon_glyph name(move || icon_view.get()) tint(move || fg_icon.get()) size:(ui::module::icon_px())
     if $show_text
-        text "{$text_view}" size:theme.font(FontRole::Body) color:$fg
+        text "{$text_view}" size:theme.font(FontRole::Body) color:$fg lines:1 ellipsis:true
 
 [preview "Media" fixture:ui::preview::bar_chip]
 media

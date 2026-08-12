@@ -14,8 +14,12 @@ for that monitor — see [Per-monitor setup](../guides/per-monitor.md).
 ## `[active_window]`
 
 The `active_window` module. `compact` shows the app's class instead of the document title — stable while you
-move around inside one app, and much narrower. `max_chars` bounds the one bar value with no natural size: a
-browser tab title can be a paragraph, and letting it size the chip would push every other module off the bar.
+move around inside one app, and much narrower.
+
+Nothing bounds the title's length. The chip gives up width when its side of the bar runs short and the label
+elides, so a browser tab that runs to a paragraph costs the modules beside it nothing. A character count
+bounded it once and could not tell the two cases apart: it cut a short title on a wide bar exactly as
+readily as a long one on a narrow bar, which is the wrong unit for a question about room.
 
 `inverted` puts the icon after the title instead of before it. Which reads better depends on where the chip
 sits: leading the icon points into the bar from the left, and trailing it does the same from the right, so
@@ -23,7 +27,6 @@ a chip in the end zone usually wants this on.
 
 - **`compact`** · default `false`
 - **`inverted`** · default `false`
-- **`max_chars`** · default `60`
 - **`show_icon`** · default `true`
 
 ## `[animation]`

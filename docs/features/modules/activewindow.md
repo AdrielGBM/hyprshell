@@ -30,12 +30,13 @@ instead of the title, which is the reading that stays a fixed width as you move 
 | Click | focuses the window it names |
 | Hover | a popout card with the untruncated title, the class and the workspace |
 
-The chip is the only place the full title is available at a glance — a bar has room for one line, and
-`max_chars` is what keeps it to one.
+The chip holds one line, and nothing bounds what a title may be, so it takes the width its side of the bar can
+spare and ends in `…` where that runs out. Nothing to set: the limit is the room, measured in the pixels the
+room is actually made of.
 
 ## Configuring
 
-`[active_window]` — `compact`, `inverted`, `max_chars`, `show_icon`. Run
+`[active_window]` — `compact`, `inverted`, `show_icon`. Run
 `hyprshell config schema active_window` for what each does.
 
 ## What it needs
