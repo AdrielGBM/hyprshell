@@ -26,7 +26,8 @@ pub fn default_registry(popouts: &PopoutRegistry) -> ModuleRegistry {
     registry.register(
         "activewindow",
         ModuleDef::new(|_ctx| modules::activewindow())
-            .on_click(modules::activewindow::focus_active),
+            .on_click(modules::activewindow::focus_active)
+            .elastic(),
     );
     registry.register(
         "logo",
@@ -87,7 +88,8 @@ pub fn default_registry(popouts: &PopoutRegistry) -> ModuleRegistry {
         "media",
         ModuleDef::new(|_ctx| modules::media())
             .on_click(modules::media::toggle)
-            .on_scroll(modules::media::scroll),
+            .on_scroll(modules::media::scroll)
+            .elastic(),
     );
     registry.register("cpu", ModuleDef::new(|_ctx| modules::cpu()));
     registry.register("gpu", ModuleDef::new(|_ctx| modules::gpu()));

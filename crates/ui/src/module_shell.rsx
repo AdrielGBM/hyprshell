@@ -18,6 +18,9 @@ pub struct Props {
     pub radius: f32 = 0.0,
     /// A square icon chip that scales with the bar, rather than a content-width text pill.
     pub square: bool = false,
+    /// Gives up width when the bar is short of it, instead of holding the chip's content width. Only for a
+    /// chip whose label elides — otherwise it hides its own tail with nothing to say so.
+    pub elastic: bool = false,
     pub on_press: Option<Box<dyn Fn()>> = None,
     pub on_scroll: Option<Box<dyn Fn(f32, f32)>> = None,
     pub drag_open: Option<DragOpen> = None,
@@ -34,6 +37,18 @@ let (base, hover, active) = match props.variant {
 // A square chip stretches to the bar's thickness, and symmetric padding around a bar-proportional icon (see `icon_px`) makes the other side match.
 let inset_x = if props.square { chip_pad() } else { 8.0 };
 let inset_y = if props.square { chip_pad() } else { 2.0 };
+
+// An elastic chip needs the floor out from under it as well as the willingness to shrink: a flex item's own
+// minimum is its content, and a label that has not been told it may elide reports the whole title as content.
+// Only along a horizontal bar, where there is a length to give up — down a vertical one a chip's width is the
+// bar's, and these modules show their glyph alone anyway.
+let elastic = props.elastic && !crate::module::bar_is_vertical();
+let shrink = if elastic { 1.0 } else { 0.0 };
+let floor = if elastic {
+    SizeDimension::Px(0.0)
+} else {
+    SizeDimension::Auto
+};
 
 // Where the chip ended up on its bar. Whatever its press opens hangs off this rather than off an end of the bar, so a drawer lands under the chip exactly as the hover popout does.
 let chip = signal(Rect::default());
@@ -64,7 +79,7 @@ let settle = drag.map(|drag| {
 
 [view]
 // Both halves of the drag sit on the pressable box itself, not on a wrapper: a child hit-tests first, so a drag armed outside it would never see the press.
-row track_rect:$chip align:center justify:center pad_x:inset_x pad_y:inset_y shrink:0 fill:base radius:radius hover_style(fill:hover) active_style(fill:active) on_press(press) on_scroll(scroll) on_drag(arm) on_drag_end(settle)
+row track_rect:$chip align:center justify:center pad_x:inset_x pad_y:inset_y shrink:shrink min_width:floor fill:base radius:radius hover_style(fill:hover) active_style(fill:active) on_press(press) on_scroll(scroll) on_drag(arm) on_drag_end(settle)
     children
 
 [preview "Module chip" fixture:crate::preview::bar_chip]

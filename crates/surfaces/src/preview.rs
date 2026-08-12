@@ -15,17 +15,22 @@ use config::{Config, DrawerConfig};
 pub fn entries() -> Vec<PreviewEntry> {
     let config = config::config().unwrap_or_else(|| Arc::new(Config::starter()));
     let popouts = config.popouts;
+    // A screen's length would not fit the page; what a bar has to be given exactly is its thickness, which is the axis every chip on it sizes itself against — and on the axis it actually runs along, since a vertical bar handed 940 × its thickness is a top bar's strip standing in for one, with no room to hold a zone.
+    //
+    // Read from the config, as `bar_chip` reads it when the preview builds. The surface env cannot answer here: it is set by the build, and this list is drawn up before any of them runs — so it named whichever edge the previous preview happened to leave behind, or `Top` on the first.
+    let edge = ui::panel::drawn_edge(&config);
+    let thickness = config.bars.get(edge).size as f32;
+    let bar_surface = if edge.is_horizontal() {
+        PreviewSurface::new(940.0, thickness)
+    } else {
+        PreviewSurface::new(thickness, 940.0)
+    };
     vec![
         PreviewEntry {
             component_name: "bar",
             preview_name: "Configured bar",
             build: crate::bar::preview,
-            // A screen's width would not fit the page; what a bar has to be given exactly is its thickness,
-            // which is the axis every chip on it sizes itself against.
-            surface: Some(PreviewSurface::new(
-                940.0,
-                config.bars.get(ui::module::bar_edge()).size as f32,
-            )),
+            surface: Some(bar_surface),
         },
         PreviewEntry {
             component_name: "float",

@@ -166,6 +166,12 @@ pub struct ModuleDef {
     /// `popout::has_popout` rather than declared twice, so a module can't
     /// be wired for a card it has no content for.
     pub popout: bool,
+    /// Whether this chip gives up width when its zone runs short, instead of holding its content width like
+    /// every other one. For the chips whose text has no natural length — a window title, a track name — which
+    /// are the reason a zone runs short in the first place. Their label elides, so what they lose is the tail
+    /// of a string rather than anything a reader needs; a chip that gave up width without eliding would just
+    /// hide its own end.
+    pub elastic: bool,
 }
 
 impl ModuleDef {
@@ -177,6 +183,7 @@ impl ModuleDef {
             click: None,
             scroll: None,
             popout: false,
+            elastic: false,
         }
     }
 
@@ -204,6 +211,13 @@ impl ModuleDef {
 
     pub fn self_managed(mut self) -> Self {
         self.self_managed = true;
+        self
+    }
+
+    /// Lets this chip shrink when its zone is short of room, eliding its label rather than holding a width
+    /// nothing else can give back.
+    pub fn elastic(mut self) -> Self {
+        self.elastic = true;
         self
     }
 }
@@ -298,6 +312,65 @@ mod tests {
 
         assert!(gesture(Edge::Top).travel((10.0, 65.0), (10.0, 5.0)) < 0.0);
         assert_eq!(gesture(Edge::Top).travel((10.0, 20.0), (300.0, 20.0)), 0.0);
+    }
+
+    /// An elastic chip hands back the width a cramped bar needs; every other chip keeps its own.
+    ///
+    /// This is what makes an eliding label mean anything: a title only ends in `…` when something narrowed the
+    /// box it is drawn in, and a chip that holds its content width is never narrowed. The other half — that a
+    /// clamped label ends in an ellipsis rather than being cut mid-glyph — is telar's, and tested there.
+    #[test]
+    fn an_elastic_chip_yields_width_and_a_plain_one_holds_it() {
+        use crate::{ModuleShellProps, module_shell};
+        use telar::{
+            AvailableSpace, Container, LayoutStyle, Slots, compute_layout, reset_layout_runtime,
+            set_theme, track_layout,
+        };
+
+        const ROOM: f32 = 120.0;
+        const LABEL: f32 = 300.0;
+
+        let measure = |elastic: bool| {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let label = Container::new(LayoutStyle::new().width(LABEL).height(20.0), vec![])
+                .expect("the label builds");
+            let mut inner = Slots::new();
+            inner.push(None, Box::new(label) as Box<dyn LayoutItem>);
+            let chip = module_shell(
+                ModuleShellProps {
+                    elastic,
+                    ..Default::default()
+                },
+                inner,
+            )
+            .expect("the chip builds");
+            let rect = track_layout(chip.layout_node()).expect("the chip registers its rect");
+            let row = Container::new(
+                LayoutStyle::new().flex_row().width(ROOM).height(32.0),
+                vec![chip],
+            )
+            .expect("the row builds");
+            compute_layout(
+                row.layout_node(),
+                AvailableSpace::Definite(ROOM),
+                AvailableSpace::Definite(32.0),
+            )
+            .expect("the row lays out");
+            rect.get().width
+        };
+
+        assert!(
+            measure(true) <= ROOM,
+            "an elastic chip asked for {LABEL}px in {ROOM}px of bar took {}px — it has to give the room \
+             back and let its label elide",
+            measure(true)
+        );
+        assert!(
+            measure(false) > ROOM,
+            "and a plain chip must still hold its content width, or every readout on the bar would be \
+             squeezed by whichever neighbour ran long"
+        );
     }
 
     #[test]

@@ -5,8 +5,8 @@ pub use app::BarApp;
 pub use autohide::{AutoHide, RevealMargins};
 
 use telar::{
-    AlignItems, Color, Container, JustifyContent, LayoutError, LayoutItem, LayoutStyle, RectStyle,
-    SizeDimension, Slots, StyledContainer, track_layout,
+    AlignItems, ClipAxis, ClippedItem, Color, Container, JustifyContent, LayoutError, LayoutItem,
+    LayoutStyle, RectStyle, SizeDimension, Slots, StyledContainer, track_layout,
 };
 
 use config::theme::NordTheme;
@@ -128,7 +128,7 @@ fn build_whole_bar(
         )?;
         slots.push(zone(
             edge,
-            justify(*in_zone),
+            *in_zone,
             spacing,
             AlignItems::STRETCH,
             items,
@@ -174,7 +174,7 @@ fn build_units(
         } else {
             match granularity {
                 Granularity::Section => {
-                    vec![unit(edge, shape.radius, spacing, surface, items)?]
+                    vec![unit(edge, *in_zone, shape.radius, spacing, surface, items)?]
                 }
                 // The shells already are the chips; place them directly.
                 Granularity::Chip => items,
@@ -183,61 +183,115 @@ fn build_units(
         // STRETCH ensures height is parent-driven by bar size, not content-driven.
         slots.push(zone(
             edge,
-            justify(*in_zone),
+            *in_zone,
             spacing,
             AlignItems::STRETCH,
             content,
         )?);
     }
+    // No gap between the zones here: there are only ever three of them, so the only two joins it could space are the two the sides already hold open with a margin of their own (see [`zone`]). Both applying left twice the air at exactly the place a side is cut — a hole where the rest of the bar has one chip's worth.
     let style = axis(
         LayoutStyle::new()
             .width(SizeDimension::Percent(1.0))
             .height(SizeDimension::Percent(1.0))
-            .align_items(AlignItems::STRETCH)
-            .gap(spacing),
+            .align_items(AlignItems::STRETCH),
         edge,
     );
     Ok(Box::new(Container::new(style, slots)?))
 }
 
 /// Shared surface panel behind a zone's modules (sections mode); children STRETCH with no inner padding so a filled chip reaches the panel edges instead of leaving a thin sliver.
+///
+/// It is never longer than the zone holding it. Sized from its content instead, a panel behind more chips than
+/// the zone can take ran past the cut and was clipped square there — so the section ended in a flat grey stub
+/// with nothing drawn on it, which reads as a hole in the bar rather than as a section that ran out of room.
+/// Giving up the length it cannot use puts its own rounded end back at the cut, and the chips that overflow it
+/// are the clip's business, as they already were.
+///
+/// It packs its chips the way its zone does, for the same reason: what a shortened panel pushes out has to go
+/// out the end nearest the centre, not spill from both at once.
 fn unit(
     edge: Edge,
+    in_zone: Zone,
     radius: f32,
     spacing: f32,
     fill: Color,
     items: Vec<Box<dyn LayoutItem>>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let style = axis(
-        LayoutStyle::new()
-            .align_items(AlignItems::STRETCH)
-            .justify_content(JustifyContent::CENTER)
-            .gap(spacing),
-        edge,
-    );
+    let style = LayoutStyle::new()
+        .align_items(AlignItems::STRETCH)
+        .justify_content(justify(in_zone))
+        .gap(spacing)
+        .flex_shrink(1.0);
+    let style = if edge.is_horizontal() {
+        style.min_width(0.0)
+    } else {
+        style.min_height(0.0)
+    };
     Ok(Box::new(StyledContainer::new(
-        style,
+        axis(style, edge),
         move |_r| RectStyle::filled(fill, radius),
         items,
     )?))
 }
 
+/// One of a bar's three zones.
+///
+/// The centre keeps its own size and the two sides split everything else (`flex-basis: 0`), which is what puts
+/// the centre on the middle of the *bar*. Sizing all three from their content plus an equal share of the slack
+/// centres it on the leftover space instead — so it slid sideways every time a chip next to it changed width,
+/// and the chip that does that constantly is the window title.
+///
+/// A side that outgrows its half is cut off at the centre's edge rather than allowed to push: the minimum
+/// along the bar is zero, so the zone keeps its half whatever it holds, and the clip stops the overflow from
+/// being drawn — or clicked — over the centre. The chip that reaches the boundary is cut mid-way, which is
+/// what says "there is more here" better than a chip that vanishes whole, and the ones past it never appear.
+/// Their zone is justified towards its outer end, so what gets cut is always the side nearest the centre.
+///
+/// The clip runs along the bar only. Across it a chip is routinely a shade wider than the strip its zone was
+/// given — the padded box is narrower than the bar, and a square chip is sized from the bar itself — so cutting
+/// on that axis too shaved the edge off every one of them, which is a rounded pill with its corners sanded flat
+/// and an icon missing its outermost pixels.
+///
+/// A side stops `spacing` short of the centre, so the cut edge never lands flush against the centre's first
+/// chip: a sliced chip touching a whole one reads as one wide chip with a seam, where the same slice with air
+/// after it reads as what it is. The margin comes out of the free space both sides divide, so it costs the
+/// centre nothing and leaves it exactly where it was.
 fn zone(
     edge: Edge,
-    justify: JustifyContent,
+    in_zone: Zone,
     spacing: f32,
     cross: AlignItems,
     items: Vec<Box<dyn LayoutItem>>,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let style = axis(
-        LayoutStyle::new()
-            .flex_grow(1.0)
-            .align_items(cross)
-            .justify_content(justify)
-            .gap(spacing),
-        edge,
-    );
-    Ok(Box::new(Container::new(style, items)?))
+    let style = LayoutStyle::new()
+        .align_items(cross)
+        .justify_content(justify(in_zone))
+        .gap(spacing);
+    if let Zone::Center = in_zone {
+        return Ok(Box::new(Container::new(axis(style, edge), items)?));
+    }
+    let style = style.flex_grow(1.0).flex_basis(0.0);
+    let leading = matches!(in_zone, Zone::Start);
+    let (style, clip) = if edge.is_horizontal() {
+        let style = style.min_width(0.0);
+        let style = if leading {
+            style.margin_end(spacing)
+        } else {
+            style.margin_start(spacing)
+        };
+        (style, ClipAxis::Horizontal)
+    } else {
+        let style = style.min_height(0.0);
+        let style = if leading {
+            style.margin_bottom(spacing)
+        } else {
+            style.margin_top(spacing)
+        };
+        (style, ClipAxis::Vertical)
+    };
+    let zone = Container::new(axis(style, edge), items)?;
+    Ok(Box::new(ClippedItem::along(Box::new(zone), clip)))
 }
 
 /// An invisible box wrapped around a module's own content to carry what its chip cannot: a wheel handler for a
@@ -255,6 +309,9 @@ fn zone(
 /// content — and left its width free: every wrapped chip then sat at its own content width, ragged against the
 /// bar's inner edge, with the wide ones running off the screen. Thirteen chips carry a popout, so on a vertical
 /// bar that was most of them.
+/// `elastic` is the chip's own, forwarded. The wrapper is what the zone actually sizes, so a rigid one around
+/// an elastic chip is a chip that never gets the chance to give anything up — and both modules whose label
+/// elides carry a popout, which is to say both of them are wrapped.
 fn chip_wrapper(
     content: Box<dyn LayoutItem>,
     module_id: &str,
@@ -262,8 +319,15 @@ fn chip_wrapper(
     popout: bool,
     cross: AlignItems,
     edge: Edge,
+    elastic: bool,
 ) -> Result<Box<dyn LayoutItem>, LayoutError> {
-    let style = axis(LayoutStyle::new().align_items(cross).flex_shrink(0.0), edge);
+    let style = LayoutStyle::new().align_items(cross);
+    let style = if elastic {
+        style.flex_shrink(1.0).min_width(0.0).min_height(0.0)
+    } else {
+        style.flex_shrink(0.0)
+    };
+    let style = axis(style, edge);
     let mut wrapper = StyledContainer::new(
         style,
         |_r| RectStyle::filled(Color::TRANSPARENT, 0.0),
@@ -349,6 +413,7 @@ fn build_items(
                     popout,
                     AlignItems::CENTER,
                     ctx.edge,
+                    false,
                 )?);
             }
             continue;
@@ -371,6 +436,7 @@ fn build_items(
                 accent,
                 radius,
                 square: def.is_some_and(|d| d.icon),
+                elastic: def.is_some_and(|d| d.elastic),
                 on_press,
                 on_scroll: def
                     .and_then(|d| d.scroll)
@@ -381,7 +447,15 @@ fn build_items(
         )?;
         // Outside the chip rather than on it: the chip's own hover already swaps its paint, and stacking a second meaning onto that callback would tie the two together.
         items.push(if popout {
-            chip_wrapper(chip, id, None, true, AlignItems::STRETCH, ctx.edge)?
+            chip_wrapper(
+                chip,
+                id,
+                None,
+                true,
+                AlignItems::STRETCH,
+                ctx.edge,
+                def.is_some_and(|d| d.elastic),
+            )?
         } else {
             chip
         });
@@ -403,9 +477,62 @@ mod tests {
         )?))
     }
 
+    /// A chip the width of a window title, next to which `dummy` is the same chip after the title got shorter.
+    fn wide(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        Ok(Box::new(StyledContainer::new(
+            LayoutStyle::new().width(320.0).height(20.0),
+            |_r| RectStyle::filled(telar::Color::from_rgb_u8(255, 255, 255), 0.0),
+            vec![],
+        )?))
+    }
+
+    thread_local! {
+        static CENTRED: std::cell::RefCell<Option<telar::RwSignal<telar::Rect>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// `dummy`, publishing where it landed — the one chip a centring test needs to find again.
+    fn centred(ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        let item = dummy(ctx)?;
+        let rect = track_layout(item.layout_node()).expect("a container registers its rect");
+        CENTRED.with(|c| *c.borrow_mut() = Some(rect));
+        Ok(item)
+    }
+
+    thread_local! {
+        static YIELDED: std::cell::RefCell<Option<telar::RwSignal<telar::Rect>>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// A module whose own content will give up width if anything above it lets the pressure through, and says
+    /// how much it kept — the probe for whether a chip's elasticity survives the wrappers around it.
+    fn stretchy(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+        let item = StyledContainer::new(
+            LayoutStyle::new()
+                .width(320.0)
+                .height(20.0)
+                .flex_shrink(1.0)
+                .min_width(0.0),
+            |_r| RectStyle::filled(telar::Color::from_rgb_u8(255, 255, 255), 0.0),
+            vec![],
+        )?;
+        let rect = track_layout(item.layout_node()).expect("a container registers its rect");
+        YIELDED.with(|y| *y.borrow_mut() = Some(rect));
+        Ok(Box::new(item))
+    }
+
     fn registry() -> ModuleRegistry {
         let mut r = ModuleRegistry::new();
         r.register("dummy", ModuleDef::new(dummy));
+        r.register("wide", ModuleDef::new(wide));
+        r.register("centred", ModuleDef::new(centred));
+        // Both eliding modules carry a hover popout, so the wrapper is part of the path under test.
+        let mut elastic = ModuleDef::new(stretchy).elastic();
+        elastic.popout = true;
+        r.register("stretchy", elastic);
+        let mut rigid = ModuleDef::new(stretchy);
+        rigid.popout = true;
+        r.register("rigid", rigid);
         r
     }
 
@@ -497,7 +624,16 @@ mod tests {
         )
         .unwrap();
         let mut wrapped =
-            chip_wrapper(chip, "volume", None, true, AlignItems::STRETCH, Edge::Top).unwrap();
+            chip_wrapper(
+                chip,
+                "volume",
+                None,
+                true,
+                AlignItems::STRETCH,
+                Edge::Top,
+                false,
+            )
+            .unwrap();
 
         let node = wrapped.layout_node();
         compute_layout(
@@ -542,6 +678,418 @@ mod tests {
             );
             assert!(bar.is_ok(), "mode {mode} builds a tree");
         }
+    }
+
+    /// The centre zone is centred on the bar, whatever the chips beside it are doing.
+    ///
+    /// The regression is the one thing a bar cannot get away with: all three zones took their content width
+    /// plus an equal share of the slack, so the centre sat on the middle of the *leftover* space. Every chip
+    /// that changes width slid it — and the window title changes width on every focus change, which walked the
+    /// clock and the launcher sideways all day.
+    #[test]
+    fn the_centre_holds_still_while_a_side_chip_changes_width() {
+        const BAR: f32 = 1920.0;
+
+        let midpoint = |start: &str, mode: &str| {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let cfg: Config = toml::from_str(&format!(
+                "[shape]\nmode=\"{mode}\"\nspacing=8\n\
+                 [bars.top]\nsize=32\nstart=[\"{start}\"]\ncenter=[\"centred\"]\nend=[\"dummy\"]\n"
+            ))
+            .unwrap();
+            let bar = build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new(),
+            )
+            .expect("the bar builds");
+            compute_layout(
+                bar.layout_node(),
+                AvailableSpace::Definite(BAR),
+                AvailableSpace::Definite(32.0),
+            )
+            .expect("the bar lays out");
+            let rect = CENTRED
+                .with(|c| c.borrow().clone())
+                .expect("the centre chip published its rect")
+                .get();
+            rect.x + rect.width / 2.0
+        };
+
+        for mode in ["bar", "sections", "chips"] {
+            let narrow = midpoint("dummy", mode);
+            let widened = midpoint("wide", mode);
+            assert_eq!(
+                narrow,
+                BAR / 2.0,
+                "{mode}: the centre chip sits at {narrow}, not on the middle of a {BAR}px bar"
+            );
+            assert_eq!(
+                widened, narrow,
+                "{mode}: growing a start chip by 300px moved the centre chip from {narrow} to {widened} — \
+                 the window title would drag the whole centre section around with it"
+            );
+            // Four 320px chips want 1304px of a 956px half. A zone free to claim its content would shove the centre 350px sideways; this one is cut off at the centre's edge instead.
+            let overrun = midpoint("wide\",\"wide\",\"wide\",\"wide", mode);
+            assert_eq!(
+                overrun, narrow,
+                "{mode}: a start zone holding more than fits still moved the centre to {overrun} — it has to \
+                 be cut where the centre begins, not push it out of the way"
+            );
+        }
+    }
+
+    /// What is cut off stops a chip's width of air short of the centre, on both sides.
+    ///
+    /// Measured on a bar whose own layout puts nothing between the zones (`bar` mode), which is the case with
+    /// no gap to hide behind: a slice that ends flush against the centre's first chip reads as one wide chip
+    /// with a seam down it rather than as a chip that ran out of room.
+    #[test]
+    fn a_cut_side_stops_a_gap_short_of_the_centre() {
+        const BAR: f32 = 1920.0;
+        const SPACING: f32 = 8.0;
+
+        // Both axes: a vertical bar's zones run down it, so the air belongs on their top and bottom edges, where `margin_start`/`margin_end` would have put it on the sides — across a bar that has no room to spare and nothing there to separate.
+        for edge in [Edge::Top, Edge::Left] {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let ctx = ModuleCtx {
+                theme: NordTheme::new(),
+                accent: NordTheme::new().accent,
+                bar_size: 32,
+                edge,
+            };
+            let overrun = || -> Vec<Box<dyn LayoutItem>> {
+                (0..4).map(|_| wide(&ctx).expect("a chip builds")).collect()
+            };
+
+            let start_zone =
+                zone(edge, Zone::Start, SPACING, AlignItems::STRETCH, overrun()).unwrap();
+            let start_rect = track_layout(start_zone.layout_node()).expect("the zone registers");
+            let centre_chip = dummy(&ctx).expect("a chip builds");
+            let centre_rect = track_layout(centre_chip.layout_node()).expect("the chip registers");
+            let centre_zone = zone(
+                edge,
+                Zone::Center,
+                SPACING,
+                AlignItems::STRETCH,
+                vec![centre_chip],
+            )
+            .unwrap();
+            let end_zone = zone(edge, Zone::End, SPACING, AlignItems::STRETCH, overrun()).unwrap();
+            let end_rect = track_layout(end_zone.layout_node()).expect("the zone registers");
+            let (w, h) = if edge.is_horizontal() {
+                (BAR, 32.0)
+            } else {
+                (32.0, BAR)
+            };
+            let root = Container::new(
+                axis(LayoutStyle::new(), edge).width(w).height(h),
+                vec![start_zone, centre_zone, end_zone],
+            )
+            .unwrap();
+            compute_layout(
+                root.layout_node(),
+                AvailableSpace::Definite(w),
+                AvailableSpace::Definite(h),
+            )
+            .unwrap();
+
+            // Along the bar, whichever way it runs.
+            let along = |r: telar::Rect| {
+                if edge.is_horizontal() {
+                    (r.x, r.width)
+                } else {
+                    (r.y, r.height)
+                }
+            };
+            let (centre_at, centre_len) = along(centre_rect.get());
+            let (start_at, start_len) = along(start_rect.get());
+            let (end_at, _) = along(end_rect.get());
+            assert!(
+                centre_at - (start_at + start_len) >= SPACING,
+                "{edge:?}: the start side is cut {}px before the centre chip, not the {SPACING}px a chip \
+                 is given",
+                centre_at - (start_at + start_len)
+            );
+            assert!(
+                end_at - (centre_at + centre_len) >= SPACING,
+                "{edge:?}: and the end side starts {}px after it",
+                end_at - (centre_at + centre_len)
+            );
+        }
+    }
+
+    /// The elastic chip's give reaches it through everything the bar wraps it in.
+    ///
+    /// Elasticity is a property of a chain: the zone, the popout wrapper, the chip shell and the label all have
+    /// to agree to give, and any one of them holding firm makes the whole thing rigid while every part of it
+    /// still looks right on its own. The wrapper was exactly that — `flex-shrink: 0`, and both modules whose
+    /// label elides carry a popout, so it would have made the elide unreachable in the shell while the chip's
+    /// own test passed.
+    #[test]
+    fn an_elastic_chip_gives_way_through_the_wrappers_around_it() {
+        let kept = |module: &str| {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let cfg: Config = toml::from_str(&format!(
+                "[shape]\nmode=\"chips\"\nspacing=8\n\
+                 [bars.top]\nsize=32\nstart=[\"wide\",\"{module}\"]\ncenter=[\"dummy\"]\n"
+            ))
+            .unwrap();
+            let bar = build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new(),
+            )
+            .expect("the bar builds");
+            compute_layout(
+                bar.layout_node(),
+                AvailableSpace::Definite(600.0),
+                AvailableSpace::Definite(32.0),
+            )
+            .expect("the bar lays out");
+            YIELDED
+                .with(|y| y.borrow().clone())
+                .expect("the module published its rect")
+                .get()
+                .width
+        };
+
+        assert!(
+            kept("stretchy") < 320.0,
+            "the elastic module kept all {}px of its width in a zone with room for half that — something \
+             above it refused to pass the pressure down, and its label will never elide",
+            kept("stretchy")
+        );
+        assert_eq!(
+            kept("rigid"),
+            320.0,
+            "and a module that never asked to be elastic must keep every pixel of its width"
+        );
+    }
+
+    /// A module that draws past its zone is cut by the zone, and knows nothing about it.
+    ///
+    /// The point is where the rule lives. A self-managed module lays itself out — `workspaces` paints a column
+    /// of pills whose length is the number of workspaces and the icons on them — and it has no idea what else
+    /// is on the bar or where the centre begins. So the cut cannot be its job, or it would be every module's
+    /// job: the zone it sits in publishes a clip, and whatever runs past it stops being drawn. This module is
+    /// the awkward shape that proves it — self-managed *and* scrollable, so it reaches the zone through the
+    /// wrapper rather than directly, exactly as `workspaces` does.
+    #[test]
+    fn a_module_that_overruns_its_zone_is_cut_by_the_zone_and_never_by_itself() {
+        const RUN: f32 = 900.0;
+        const BAR: f32 = 400.0;
+
+        fn overrunner(_ctx: &ModuleCtx) -> Result<Box<dyn LayoutItem>, LayoutError> {
+            Ok(Box::new(StyledContainer::new(
+                LayoutStyle::new().width(32.0).height(RUN).flex_shrink(0.0),
+                |_r| RectStyle::filled(telar::Color::from_rgb_u8(255, 255, 255), 0.0),
+                vec![],
+            )?))
+        }
+        fn nudge(_dx: f32, _dy: f32) {}
+
+        reset_layout_runtime();
+        set_theme(NordTheme::new());
+        let mut registry = ModuleRegistry::new();
+        registry.register("dummy", ModuleDef::new(dummy));
+        registry.register(
+            "overrunner",
+            ModuleDef::new(overrunner).self_managed().on_scroll(nudge),
+        );
+        let cfg: Config = toml::from_str(
+            "[shape]\nmode=\"bar\"\nspacing=8\n\
+             [bars.left]\nsize=32\nstart=[\"overrunner\"]\ncenter=[\"dummy\"]\n",
+        )
+        .unwrap();
+        let bar = build_bar(
+            &cfg,
+            Edge::Left,
+            NordTheme::new().accent,
+            &registry,
+            NordTheme::new(),
+        )
+        .expect("the bar builds");
+        let page = Container::new(
+            LayoutStyle::new().flex_column().width(32.0).height(BAR),
+            vec![bar],
+        )
+        .unwrap();
+        let root = page.layout_node();
+        let tree = telar::ComponentList::new(page);
+        compute_layout(
+            root,
+            AvailableSpace::Definite(32.0),
+            AvailableSpace::Definite(BAR),
+        )
+        .unwrap();
+
+        // The strip's own draw is honest about its size; what makes it stop at the zone is the clip around it.
+        let commands = tree.commands().to_vec();
+        let mut depth = 0usize;
+        let mut clipped_run = None;
+        let mut clip_end = None;
+        for command in &commands {
+            match command {
+                telar::DrawCommand::PushClip { rect, .. } => {
+                    depth += 1;
+                    clip_end = Some(rect.y + rect.height);
+                }
+                telar::DrawCommand::PopClip => depth -= 1,
+                telar::DrawCommand::Rect { rect, .. } if rect.height == RUN => {
+                    clipped_run = Some((depth, rect.y + rect.height));
+                }
+                _ => {}
+            }
+        }
+        let (depth_at_run, run_end) = clipped_run.expect("the overrunning module drew its strip");
+        assert!(
+            depth_at_run > 0,
+            "a {RUN}px module on a {BAR}px bar drew outside every clip — nothing stops it painting over the \
+             centre, and each module would have to bound itself"
+        );
+        let end = clip_end.expect("the zone published a clip");
+        assert!(
+            end < run_end,
+            "the clip around it ends at {end}, past the {run_end} the strip reaches — it cuts nothing"
+        );
+    }
+
+    /// The air at a cut is the same in every mode.
+    ///
+    /// The zone-level test above pins it to one `spacing`; this one is about the two mechanisms that were both
+    /// trying to provide it. `sections` and `chips` laid their zones out with a gap between them, and the sides
+    /// hold one of their own — so those two modes opened twice the air at exactly the place a side is cut, a
+    /// visible hole where every other join on the bar has one chip's worth. `bar` mode, with no gap of its own,
+    /// looked right the whole time, which is what kept it hidden.
+    #[test]
+    fn the_air_at_a_cut_does_not_depend_on_the_mode() {
+        const BAR: f32 = 1920.0;
+
+        let gap_before_centre = |mode: &str| {
+            reset_layout_runtime();
+            set_theme(NordTheme::new());
+            let cfg: Config = toml::from_str(&format!(
+                "[shape]\nmode=\"{mode}\"\nspacing=8\n\
+                 [bars.top]\nsize=32\nstart=[\"wide\",\"wide\",\"wide\",\"wide\"]\n\
+                 center=[\"centred\"]\nend=[\"wide\",\"wide\",\"wide\",\"wide\"]\n"
+            ))
+            .unwrap();
+            let bar = build_bar(
+                &cfg,
+                Edge::Top,
+                NordTheme::new().accent,
+                &registry(),
+                NordTheme::new(),
+            )
+            .expect("the bar builds");
+            let page = Container::new(
+                LayoutStyle::new().flex_row().width(BAR).height(32.0),
+                vec![bar],
+            )
+            .unwrap();
+            let root = page.layout_node();
+            let tree = telar::ComponentList::new(page);
+            compute_layout(
+                root,
+                AvailableSpace::Definite(BAR),
+                AvailableSpace::Definite(32.0),
+            )
+            .unwrap();
+
+            // The only two clips on a bar are its two sides; the start zone's is the one that ends first.
+            let cut = tree
+                .commands()
+                .iter()
+                .filter_map(|c| match c {
+                    telar::DrawCommand::PushClip { rect, .. } => Some(rect.x + rect.width),
+                    _ => None,
+                })
+                .fold(f32::INFINITY, f32::min);
+            let centre = CENTRED
+                .with(|c| c.borrow().clone())
+                .expect("the centre chip published its rect")
+                .get();
+            centre.x - cut
+        };
+
+        let (bar, sections, chips) = (
+            gap_before_centre("bar"),
+            gap_before_centre("sections"),
+            gap_before_centre("chips"),
+        );
+        assert_eq!(
+            (sections, chips),
+            (bar, bar),
+            "a side is cut {bar}px before the centre in `bar` mode, {sections} in `sections` and {chips} in \
+             `chips` — the same join cannot be three different distances"
+        );
+    }
+
+    /// A section's panel is never longer than the zone it sits in.
+    ///
+    /// It used to be sized from its content, so a zone holding more chips than fit drew its panel past the cut
+    /// and had it clipped square there: the section ended in a flat grey stub with nothing on it — the chip
+    /// that stub belonged to being off past the boundary — which reads as a hole in the bar rather than as a
+    /// section that ran out of room. The clip was doing its job; the panel was lying about its length.
+    #[test]
+    fn a_section_panel_is_no_longer_than_the_zone_it_fills() {
+        const BAR: f32 = 1920.0;
+
+        reset_layout_runtime();
+        set_theme(NordTheme::new());
+        let cfg: Config = toml::from_str(
+            "[shape]\nmode=\"sections\"\nspacing=8\nradius=8\n\
+             [bars.top]\nsize=32\nstart=[\"wide\",\"wide\",\"wide\",\"wide\"]\ncenter=[\"dummy\"]\n",
+        )
+        .unwrap();
+        let bar = build_bar(
+            &cfg,
+            Edge::Top,
+            NordTheme::new().accent,
+            &registry(),
+            NordTheme::new(),
+        )
+        .expect("the bar builds");
+        let page = Container::new(
+            LayoutStyle::new().flex_row().width(BAR).height(32.0),
+            vec![bar],
+        )
+        .unwrap();
+        let root = page.layout_node();
+        let tree = telar::ComponentList::new(page);
+        compute_layout(
+            root,
+            AvailableSpace::Definite(BAR),
+            AvailableSpace::Definite(32.0),
+        )
+        .unwrap();
+
+        // The panel is the zone's only child, so it is the first thing drawn inside the zone's clip.
+        let commands = tree.commands().to_vec();
+        let (clip, panel) = commands
+            .iter()
+            .zip(commands.iter().skip(1))
+            .find_map(|(clip, next)| match (clip, next) {
+                (telar::DrawCommand::PushClip { rect: clip, .. }, telar::DrawCommand::Rect { rect, .. }) => {
+                    Some((*clip, *rect))
+                }
+                _ => None,
+            })
+            .expect("the start zone drew its panel inside its clip");
+        assert!(
+            panel.width <= clip.width,
+            "the panel is {}px wide in a {}px zone — the part past the cut is a stub of empty surface",
+            panel.width,
+            clip.width
+        );
     }
 
     #[test]
@@ -641,12 +1189,13 @@ mod tests {
                 true,
                 AlignItems::STRETCH,
                 edge,
+                false,
             )
             .unwrap();
             // The zone the bar puts a chip in: along the bar, stretching its children across it.
             let zone = zone(
                 edge,
-                JustifyContent::START,
+                Zone::Start,
                 0.0,
                 AlignItems::STRETCH,
                 vec![wrapped],

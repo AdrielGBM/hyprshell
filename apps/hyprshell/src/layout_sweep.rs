@@ -136,6 +136,9 @@ fn paints(command: &DrawCommand) -> bool {
 fn sweep(mut each: impl FnMut(&PreviewEntry, Edge, Shape, Result<Vec<DrawCommand>, LayoutError>)) {
     for edge in Edge::ALL {
         for mode in MODES {
+            // Seeded before the list is drawn up, not only before each entry is measured: an entry reads the world to declare its surface — a bar's is its thickness, on the axis it runs along — so a list enumerated first describes whichever combination happened to run before this one.
+            reset_layout_runtime();
+            seed_world(edge, mode);
             for entry in crate::preview_entries() {
                 reset_layout_runtime();
                 seed_world(edge, mode);
